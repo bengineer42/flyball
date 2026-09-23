@@ -32,6 +32,7 @@ from flyball.foundation.device import (
     Event,
     Level,
     Limit,
+    LimitNotKnownError,
     Node,
     Readable,
     Reading,
@@ -108,6 +109,9 @@ class Rig:
     """Devices bound to a whole node, by that node: they get each sample cut down to it."""
     _requested: dict[Signal, float]
     """What a demand asked for where the clamp changed it, until the commit reports it."""
+    _limit_held: set[str]
+    """Controllers whose writes are held because a limit follows a signal with no value yet:
+    one event on entering the hold, one on leaving it, none per step between."""
     _touched: dict[Device, None] | None
     """The devices the delivery in progress applied to or observed on; None outside one."""
     entries: dict[str, DeviceEntry]
@@ -153,6 +157,7 @@ class Rig:
         self._observers = {}
         self._node_observers = {}
         self._requested = {}
+        self._limit_held = set()
         self._touched = None
         self.entries = {}
         self.link_entries = {}
@@ -472,8 +477,12 @@ class Rig:
         `node`, dotted for a namespace -- the wire's form, resolved here and
         nowhere below. The whole demand is checked before anything is
         recorded -- every key a W signal, none driven by an active
-        controller -- then clamped to `limits` and fanned out to
-        `device.apply`. A demand
+        controller, every limit known -- then clamped to `limits` and
+        fanned out to `device.apply`. A limit that follows a signal with no
+        value yet fails closed: a manual demand is refused whole, and a
+        controller's is held (nothing applied, `{}` returned) with a
+        `limit_unknown` event on entering the hold and `limit_known` on
+        leaving it. A demand
         from outside a delivery is committed now and its states returned;
         one from inside a delivery (a controller's, a command's) is
         committed with everything else at its end, and this returns nothing.
@@ -485,6 +494,9 @@ class Rig:
             AddressNotFoundError: A name does not resolve under `node`.
             ConflictError: A key is not a writable signal under `node`, or
                 is driven by a controller.
+            LimitNotKnownError: A signal's limit follows a signal with no
+                value yet (a `NotReadyError`); not raised for a controller's
+                demand, which is held instead.
             ValueError: No values, one signal named twice, or a value that is
                 not finite (NaN, infinity).
         """
@@ -539,13 +551,36 @@ class Rig:
                     " set its reference, put it in manual, or detach it"
                 )
             original = value
-            if (limits := signal.limits) is not None:
-                value = min(max(value, limits[0]), limits[1])
+            try:
+                value = signal.clamp(value)
+            except LimitNotKnownError as e:
+                if by is None:
+                    raise
+                if by.name not in self._limit_held:
+                    self._limit_held.add(by.name)
+                    self.event(
+                        Level.WARNING,
+                        "controller",
+                        by.name,
+                        "limit_unknown",
+                        f"{e}: held",
+                        {"signal": signal.address, "unknown": e.unknown},
+                    )
+                return {}
             if (max_rate := signal.spec.max_rate) is not None:
                 value = self._rate_clamped(signal, value, max_rate, now_ns)
             if value != original:
                 requested[signal] = original
             clamped[signal] = value
+        if by is not None and by.name in self._limit_held:
+            self._limit_held.discard(by.name)
+            self.event(
+                Level.INFO,
+                "controller",
+                by.name,
+                "limit_known",
+                "every limit on its target is known: writing again",
+            )
         with self.lock:
             time_ns = self.clock.now_ns()
             writer = self._writer_for(device)
@@ -912,6 +947,8 @@ class Rig:
             ConflictError: A controller drives the device.
             NotReadyError: A linked argument was left out and its demand has
                 no value yet.
+            LimitNotKnownError: A linked argument's demand has a limit that
+                follows a signal with no value yet: refused, not run unclamped.
         """
         try:
             spec = device.commands[tag]
@@ -929,10 +966,8 @@ class Rig:
                 signal = linked[name] = device.signals[param.link]
                 if name not in given:
                     given[name] = self.router.value(signal)
-                elif (limits := signal.limits) is not None and isinstance(
-                    given[name], (int, float)
-                ):
-                    given[name] = min(max(float(given[name]), limits[0]), limits[1])
+                elif isinstance(given[name], (int, float)):
+                    given[name] = signal.clamp(float(given[name]))
             drives = spec.mode is not None or any(s.role is Role.DEMAND for s in linked.values())
             if drives:
                 # It changes what drives the device: not while a controller does.
@@ -1049,6 +1084,7 @@ class Rig:
         """
         with self.lock:
             controller = self.controllers.remove(name)
+            self._limit_held.discard(name)
             controller.manual()
             controller.write = Controller._unwired
             # A watcher primes from this cell; a name the rig no longer has must not be in it.

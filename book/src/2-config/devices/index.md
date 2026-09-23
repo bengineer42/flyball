@@ -39,7 +39,7 @@ guard, never new access. A key that is a namespace takes `label`,
 | `range` | `[lo, hi]` | the axis and gauge extent |
 | `precision` | int | decimal places shown |
 | `warn`, `alarm` | `[lo, hi]` | bands outside which a condition is raised |
-| `limits` | `[lo, hi]` | what a writable signal may be commanded to |
+| `limits` | `[lo, hi]` | what a writable signal may be commanded to. A driver may declare an end that follows another of the device's signals (a supply's humidity, a max flow read from the device); until that signal has a value, a demand is refused (503, "limit not known yet") and a controller's write is held -- never passed unclamped |
 | `max_rate` | `{per_second: N}` | how fast a demand may move; a faster one is clamped to the largest step the elapsed time allows, not refused. Unset: unlimited |
 | `poll_s` | number | this signal's own rate |
 | `stale_after` | number (seconds) | checked when a reading is delivered or the controller is regulated; a sensor that stops reporting is not caught. When it trips, a controller regulated from this signal holds its demand rather than apply it. Unset: never checked |

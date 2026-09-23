@@ -59,7 +59,12 @@ Every time a reading arrives on the controller's source, it ticks:
 4. **Write it**: the controller calls `rig.demand(target.node, {target:
    demand}, by=self)`, which validates, clamps to `limits`, and commits;
    `expected` is what came back — `None` if the commit is deferred (a
-   blocking device's writer thread) or the driver cannot say.
+   blocking device's writer thread) or the driver cannot say. If a limit
+   follows a signal that has no value yet (a supply humidity not read
+   yet), or the source has gone stale (`stale_after`), the write is
+   **held**: nothing is applied, `expected` is `None`, and an event says
+   why (`limit_unknown` once, then `limit_known` when writes resume;
+   `stale_input`).
 5. **Remember** the reading, the demand and what was delivered, so the next
    tick's anti-windup and any `attach_on_tick` observer can see them.
 
