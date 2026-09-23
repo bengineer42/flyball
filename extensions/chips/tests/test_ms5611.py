@@ -47,7 +47,7 @@ class TestMs5611Sensor:
         bus = _prom_bus()
         sensor = ms5611.Ms5611Sensor(bus, ms5611.MS5611_ADDRESS, sleep=False)
         assert sensor.coefficients == COEFFICIENTS
-        assert (ms5611.MS5611_ADDRESS, None, [ms5611.RESET]) in bus.written
+        assert (ms5611.MS5611_ADDRESS, None, [0x1E]) in bus.written  # datasheet: Reset 0x1E
 
     def test_read_converts_d1_then_d2_and_compensates(self):
         bus = _prom_bus()
