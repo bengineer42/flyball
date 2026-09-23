@@ -1,8 +1,7 @@
 // Package endpoint is where a runner listens, as the front reaches it: a
 // unix socket in the runner's front-dir (everywhere but Windows), or TCP
-// on loopback (Windows, or a manifest's explicit `network: tcp`). One
-// type replaces the host:port that used to be assumed wherever a runner
-// was dialled.
+// on loopback (Windows only, D-044). One type replaces the host:port that
+// used to be assumed wherever a runner was dialled.
 //
 // The string form, "unix:/abs/path" or "tcp:127.0.0.1:8102", is what the
 // front writes to <front-dir>/endpoint, what the runner reads back to
@@ -11,10 +10,12 @@ package endpoint
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,22 @@ import (
 // leaves room on both.
 const MaxSocketPath = 100
 
+// GOOS is the platform D-044's tcp rule is decided for: runtime.GOOS. A
+// test sets it to "windows" to take that path without building for it.
+var GOOS = runtime.GOOS
+
+// ErrTCPRefused is a tcp endpoint where TCPAllowed is false.
+var ErrTCPRefused = errors.New("network tcp is refused except on Windows until the runner proves it holds the key (D-044);" +
+	" use the default, a unix socket in the runner's front-dir")
+
+// TCPAllowed reports whether a front may reach its runner over tcp here:
+// on Windows only, where the runner has no unix sockets (D-044). Over tcp
+// the runner never proves it holds the key, so a local user that binds
+// the port first passes the handshake; a unix socket in the 0700
+// front-dir has no such gap, and anything that can share the front-dir
+// can use one.
+func TCPAllowed() bool { return GOOS == "windows" }
+
 // Endpoint is one runner's listening address.
 type Endpoint struct {
 	Network string `json:"network"` // "unix" | "tcp"
@@ -33,8 +50,8 @@ type Endpoint struct {
 
 // Parse reads the string form. It refuses a relative or unclean socket
 // path, one over MaxSocketPath bytes, a tcp address that is not
-// loopback (an IP literal or "localhost") with a numeric port, and
-// anything else.
+// loopback (an IP literal or "localhost") with a numeric port, any tcp
+// endpoint off Windows (ErrTCPRefused), and anything else.
 func Parse(s string) (Endpoint, error) {
 	network, address, ok := strings.Cut(s, ":")
 	if !ok {
@@ -74,6 +91,9 @@ func (e Endpoint) Validate() error {
 		n, err := strconv.Atoi(port)
 		if err != nil || n < 1 || n > 65535 || strconv.Itoa(n) != port {
 			return fmt.Errorf("endpoint tcp:%s: port %q is not a TCP port", e.Address, port)
+		}
+		if !TCPAllowed() {
+			return fmt.Errorf("endpoint tcp:%s: %w", e.Address, ErrTCPRefused)
 		}
 		return nil
 	}

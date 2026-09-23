@@ -33,7 +33,7 @@ user, checked with `lstat` (not a symlink) before every spawn:
 | --- | --- | --- | --- |
 | `key` | the front, fresh at **every** spawn | 0600 | 64 lower-case hex characters (32 bytes) and a newline |
 | `aud` | the front | 0600 | the audience: the manifest name under `flyballd`, `run-<8 hex>` under `flyball run` |
-| `endpoint` | the front | 0600 | `unix:<front-dir>/sock`, or `tcp:127.0.0.1:<port>` |
+| `endpoint` | the front | 0600 | `unix:<front-dir>/sock`, or `tcp:127.0.0.1:<port>` on Windows only |
 | `sock` | the runner | 0600, bound so before it listens | |
 | `runner.lock` | the runner, `flock`ed for its life; the front creates it and holds it while it writes the directory | 0600 | `pid <n> rig <name>` (`pid <n>` until the rig file is read) |
 
@@ -52,12 +52,20 @@ platform with no `flock` (Windows) cannot tell a held `runner.lock`: there
 a restarted front rewrites a live runner's key, and the rig is protected
 only by its `<store>.lock`.
 
-TCP is used only where a unix socket cannot be: on Windows, and for a
-`flyballd` manifest that says `network: tcp` (a runner in another network
-namespace). The same signed principal protects both, but a loopback port
-is open to every local user, and one who binds it first (while the runner
-is down) would be taken for the runner; `flyballd` logs a warning when it
-starts a runner on TCP.
+TCP is used only where a unix socket cannot be: on Windows, where it is
+the default. The same signed principal protects both, but over TCP the
+runner never proves it holds the key: a loopback port is open to every
+local user, and one who binds it first (while the runner is down, or
+before a slow one binds) passes the readiness probes and is taken for the
+runner. So TCP is refused everywhere but Windows until the runner proves
+its key (D-044). On Linux and macOS a manifest that says `network: tcp`
+still starts its rig, on the unix socket in its front-dir, and `flyballd`
+logs a warning that says so -- a misconfiguration removes exposure, never
+operation (D-028); a front-dir whose `endpoint` is `tcp:` is refused by
+both sides (the runner exits **4**). Anything that can share the runner's
+network namespace and its front-dir can use the socket in it, so nothing
+is lost there. flyball does not run on Windows yet (a port is planned);
+on Windows `flyballd` logs a warning when it starts a runner on TCP.
 
 ## Readiness
 

@@ -3,9 +3,9 @@
 The front makes one directory per runner, mode 0700, and writes three files into it, each
 0600: `key` (64 lower-case hex characters, the principal's HMAC key, fresh at every
 spawn), `aud` (the audience the front assigned) and `endpoint` (`unix:<abs path>`, or
-`tcp:<loopback>:<port>`). The runner holds `runner.lock` there for its life, taken before it
-reads `key`; it binds `endpoint` and nothing else, and takes a principal only if it verifies
-with `key` for `aud`.
+`tcp:<loopback>:<port>`, on Windows only: D-044). The runner holds `runner.lock` there for
+its life, taken before it reads `key`; it binds `endpoint` and nothing else, and takes a
+principal only if it verifies with `key` for `aud`.
 
 Anything unsafe or missing means the front and the runner disagree about how they talk, not
 a setting a user got wrong: the runner exits 4 (`FRONT_DIR`) before it takes the rig's lock
@@ -18,6 +18,7 @@ import ipaddress
 import os
 import re
 import stat
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -80,7 +81,7 @@ def _private(path: Path, what: str, kind: int) -> None:
 
 
 def parse_endpoint(text: str) -> str:
-    """`text` if it is an endpoint a runner may bind: an absolute socket path, or loopback TCP."""
+    """`text` if it is an endpoint a runner may bind: a socket path, or loopback TCP on Windows."""
     network, _, address = text.partition(":")
     if network == "unix":
         if not address.startswith("/"):
@@ -97,6 +98,11 @@ def parse_endpoint(text: str) -> str:
             raise Unusable(f"endpoint: {text!r} is not tcp:<loopback address>:<port>") from None
         if not loopback or not 0 < number < 65536:
             raise Unusable(f"endpoint: {text!r} is not tcp:<loopback address>:<port>")
+        if sys.platform != "win32":
+            raise Unusable(
+                f"endpoint: {text!r}: tcp is refused except on Windows until the runner proves it"
+                " holds the key (D-044); use the default, a unix socket in the front-dir"
+            )
         return text
     raise Unusable(f"endpoint: {text!r} is neither unix:<path> nor tcp:<host>:<port>")
 

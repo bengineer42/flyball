@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -211,9 +210,17 @@ func (b *ProcessBackend) Start(name string, spec Spec) (string, error) {
 	network := spec.Network
 	if network == "" {
 		network = "unix"
-		if runtime.GOOS == "windows" {
+		if endpoint.GOOS == "windows" {
 			network = "tcp"
 		}
+	}
+	var warnings []string
+	if network == "tcp" && !endpoint.TCPAllowed() {
+		// D-044, and D-028: a misconfiguration removes exposure, never
+		// operation. The unix socket is strictly less exposed.
+		warnings = append(warnings, fmt.Sprintf("runner %s: network: tcp is refused except on Windows until the runner proves it holds the key (D-044);"+
+			" it listens on the unix socket in its front-dir instead, and its port is unused", name))
+		network = "unix"
 	}
 	switch network {
 	case "unix":
@@ -256,7 +263,6 @@ func (b *ProcessBackend) Start(name string, spec Spec) (string, error) {
 		return "", fmt.Errorf("runner %s: %w", name, err)
 	}
 
-	var warnings []string
 	if network == "tcp" {
 		warnings = append(warnings, fmt.Sprintf("runner %s: network: tcp, on %s: any local user can connect to that port"+
 			" (the runner still demands the front's signed principal), and a process that binds it first is taken for the runner;"+

@@ -13,7 +13,54 @@ import (
 	"time"
 )
 
+// onWindows sets GOOS to "windows" for one test: tcp endpoints are
+// Windows-only (D-044), so their syntax is exercised as that platform.
+func onWindows(t *testing.T) {
+	t.Helper()
+	was := GOOS
+	GOOS = "windows"
+	t.Cleanup(func() { GOOS = was })
+}
+
+// Off Windows a tcp endpoint is refused, however well formed, naming
+// D-044 and the unix socket; on Windows the same string parses (D-044).
+func TestTCPOnlyOnWindows(t *testing.T) {
+	was := GOOS
+	t.Cleanup(func() { GOOS = was })
+	for _, goos := range []string{"linux", "darwin", "freebsd"} {
+		GOOS = goos
+		if TCPAllowed() {
+			t.Errorf("%s: TCPAllowed", goos)
+		}
+		for _, s := range []string{"tcp:127.0.0.1:8102", "tcp:[::1]:8102", "tcp:localhost:8102"} {
+			e, err := Parse(s)
+			if !errors.Is(err, ErrTCPRefused) || !strings.Contains(err.Error(), "D-044") || !strings.Contains(err.Error(), "unix socket") {
+				t.Errorf("%s: Parse(%q) = %+v, %v; want ErrTCPRefused naming D-044 and the unix socket", goos, s, e, err)
+			}
+		}
+		if err := (Endpoint{Network: "tcp", Address: "127.0.0.1:8102"}).Validate(); !errors.Is(err, ErrTCPRefused) {
+			t.Errorf("%s: Validate of a hand-built tcp endpoint: %v", goos, err)
+		}
+		if _, err := Parse("unix:/run/flyball/oven/sock"); err != nil {
+			t.Errorf("%s: unix: %v", goos, err)
+		}
+	}
+	GOOS = "windows"
+	if !TCPAllowed() {
+		t.Error("windows: !TCPAllowed")
+	}
+	if _, err := Parse("tcp:127.0.0.1:8102"); err != nil {
+		t.Errorf("windows: %v", err)
+	}
+	// A malformed tcp endpoint is refused for what is wrong with it, on
+	// Windows as elsewhere.
+	if _, err := Parse("tcp:0.0.0.0:8102"); err == nil || errors.Is(err, ErrTCPRefused) {
+		t.Errorf("windows, not loopback: %v", err)
+	}
+}
+
 func TestParseEndpoint(t *testing.T) {
+	onWindows(t)
 	for _, s := range []string{
 		"unix:/run/flyball/oven/sock",
 		"unix:/tmp/flyball-123/sock",
@@ -76,6 +123,7 @@ func TestParseEndpoint(t *testing.T) {
 }
 
 func TestURL(t *testing.T) {
+	onWindows(t)
 	for _, s := range []string{"unix:/a/sock", "tcp:127.0.0.1:8102"} {
 		e, _ := Parse(s)
 		if got := e.URL("/oven"); got != "http://localhost/oven" {
@@ -201,6 +249,7 @@ func TestProbeOverUnix(t *testing.T) {
 	if _, err := Handshake(ctx, missing, "/oven", "oven", key, fakeSign); !errors.Is(err, ErrNotListening) {
 		t.Errorf("stale socket (ECONNREFUSED): %v, want ErrNotListening", err)
 	}
+	onWindows(t)
 	tcp, _ := Parse("tcp:127.0.0.1:1")
 	if _, err := Handshake(ctx, tcp, "/oven", "oven", key, fakeSign); !errors.Is(err, ErrNotListening) {
 		t.Errorf("tcp refused: %v, want ErrNotListening", err)

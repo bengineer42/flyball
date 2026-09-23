@@ -279,8 +279,8 @@ A manifest:
 | `server_config` | required | the rig file |
 | `root_path` | `/NAME` | `/segments` of the same characters. One that contains another rig's, or is under `/api`, is refused |
 | `restart` | `on-failure` | below |
-| `network` | `unix` (`tcp` on Windows) | how the front reaches the runner: a socket in its front-dir, or loopback TCP -- `tcp` for a runner in another network namespace |
-| `host`, `port` | `127.0.0.1`, none | `network: tcp` only, and `port` is required there; `host` must be loopback. Any local user can connect to that port; `flyballd` logs a warning |
+| `network` | `unix` (`tcp` on Windows) | how the front reaches the runner: a socket in its front-dir, or loopback TCP. `tcp` is Windows only until the runner proves it holds the key (D-044): elsewhere a manifest that says `network: tcp` still starts its rig, on the unix socket in its front-dir, and `flyballd` logs a warning saying so. flyball does not run on Windows yet; a port is planned |
+| `host`, `port` | `127.0.0.1`, none | `network: tcp` on Windows only, and `port` is required there; `host` must be loopback. Any local user can connect to that port; `flyballd` logs a warning |
 | `enabled` | `true` | `false`: not started |
 | `uv_project` | none | a directory to `uv run --project` `flyball-runner` from, when it isn't on `flyballd`'s own `$PATH` |
 

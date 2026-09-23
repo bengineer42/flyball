@@ -187,9 +187,19 @@ func TestStopKillsTheRunnersGroup(t *testing.T) {
 	}
 }
 
+// setGOOS sets the platform D-044's tcp rule is decided for, for one test.
+func setGOOS(t *testing.T, goos string) {
+	t.Helper()
+	was := endpoint.GOOS
+	endpoint.GOOS = goos
+	t.Cleanup(func() { endpoint.GOOS = was })
+}
+
 // network: tcp is logged when the runner is started (flyballd's log and
-// the runner's): its port is open to every local user.
+// the runner's): its port is open to every local user. Windows only
+// (D-044), taken here by setting GOOS.
 func TestTCPIsLogged(t *testing.T) {
+	setGOOS(t, "windows")
 	var buf strings.Builder
 	var mu sync.Mutex
 	log.SetOutput(writerFunc(func(p []byte) (int, error) { mu.Lock(); defer mu.Unlock(); return buf.Write(p) }))
@@ -840,8 +850,10 @@ func TestNoSignerNeverRunning(t *testing.T) {
 	}
 }
 
-// network: tcp puts the endpoint on loopback Host:Port.
+// network: tcp puts the endpoint on loopback Host:Port, on Windows
+// (D-044), taken here by setting GOOS.
 func TestTCPEndpoint(t *testing.T) {
+	setGOOS(t, "windows")
 	b := newTestBackend(t, `while :; do sleep 0.02; done`)
 	ep, err := b.Start("r", Spec{ServerConfig: "rig.yaml", Network: "tcp", Port: 8123})
 	if err != nil {
@@ -856,6 +868,40 @@ func TestTCPEndpoint(t *testing.T) {
 	}
 	if _, err := b.Start("s", Spec{ServerConfig: "rig.yaml", Network: "tcp"}); err == nil {
 		t.Error("tcp with no port started")
+	}
+}
+
+// Off Windows network: tcp is refused (D-044) without refusing the rig
+// (D-028): the runner starts on the unix socket in its front-dir, port or
+// no port, and flyballd's log and the runner's say why.
+func TestTCPOffWindowsRunsOnUnix(t *testing.T) {
+	setGOOS(t, "linux")
+	var buf strings.Builder
+	var mu sync.Mutex
+	log.SetOutput(writerFunc(func(p []byte) (int, error) { mu.Lock(); defer mu.Unlock(); return buf.Write(p) }))
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	b := newTestBackend(t, `while :; do sleep 0.02; done`)
+	for name, port := range map[string]int{"r": 8123, "s": 0} {
+		ep, err := b.Start(name, Spec{ServerConfig: "rig.yaml", Network: "tcp", Port: port})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		dir := frontDirOf(t, b, name)
+		want := "unix:" + filepath.Join(dir, "sock")
+		if ep != want {
+			t.Errorf("%s: Start returned %q, want %q", name, ep, want)
+		}
+		if e := readFile(t, filepath.Join(dir, "endpoint")); e != want+"\n" {
+			t.Errorf("%s: endpoint file %q", name, e)
+		}
+		if l := readFile(t, filepath.Join(b.logDir, name+".log")); !strings.Contains(l, "D-044") {
+			t.Errorf("%s: the runner's log: %q, want the D-044 line", name, l)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if logged := buf.String(); !strings.Contains(logged, "D-044") || !strings.Contains(logged, "unix socket") {
+		t.Errorf("flyballd's log: %q, want a line naming D-044 and the unix socket", logged)
 	}
 }
 
