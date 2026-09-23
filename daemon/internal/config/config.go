@@ -9,6 +9,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -17,44 +18,56 @@ import (
 	"regexp"
 	"runtime"
 
+	"flyballd/internal/front"
+	"flyballd/internal/frontwire"
+
 	"gopkg.in/yaml.v3"
 )
 
 // DaemonConfig is layer 1: settings about the daemon itself, never about
 // any one runner. See config-layers.md's Layer 1 table.
+//
+// The front's keys (listen, auth, url, tls, password, anonymous, proxy,
+// session, trusted_proxies: front.Config, the same block as a rig file's
+// runner.front) sit at the top level beside the daemon's own. Management
+// (listing, starting, stopping, restarting runners, their logs) needs a
+// bearer token with the management scope, made by `flyball token create`;
+// --insecure-open is a flag of the run, never a file key.
 type DaemonConfig struct {
-	Listen        string `yaml:"listen"`         // default 127.0.0.1:9000
+	Front front.Config `yaml:"-"`
+	// FrontError is why the front's keys could not be read; the front
+	// then serves the local shape on loopback with a banner (D-028), and
+	// the daemon runs.
+	FrontError error `yaml:"-"`
+
 	DefaultServer string `yaml:"default_server"` // which identity when -s is omitted
 	ManifestsDir  string `yaml:"manifests_dir"`  // where layer-2 files live
-	DataDir       string `yaml:"data_dir"`       // registry state, captured logs
+	DataDir       string `yaml:"data_dir"`       // registry state, captured logs, the front's tokens and audit
 	LogMaxSize    int64  `yaml:"log_max_size"`   // per-runner captured-log cap, bytes
-
-	// Auth.Token is the bearer token every mutating route (start, stop,
-	// restart, logs) requires, the same shape as a runner's own --token.
-	// Empty: those routes answer 503 until one is set.
-	//
-	// Auth.InsecureOpen lets flyballd, listening beyond loopback, proxy to
-	// a runner that has no password and no token. Off: such a runner's
-	// routes answer 503 (api.go's guard) -- anyone who reached them could
-	// operate its rig.
-	Auth struct {
-		Token        string `yaml:"token"`
-		InsecureOpen bool   `yaml:"insecure_open"`
-	} `yaml:"auth"`
 }
 
+// DefaultListen is where flyballd's front listens when flyballd.yaml says
+// nowhere: 9000 (a flyball run front's default is 8000, deliberately
+// distinct).
+const DefaultListen = "127.0.0.1:9000"
+
 // DefaultDaemonConfig matches what plan.md's CLI addressing section
-// settled on: daemon listens on 9000 (a runner's own default is 8000,
-// deliberately distinct, no collision).
+// settled on.
 func DefaultDaemonConfig() DaemonConfig {
 	return DaemonConfig{
-		Listen:       "127.0.0.1:9000",
+		Front:        front.Config{Listen: DefaultListen},
 		ManifestsDir: "manifests",
 		DataDir:      "data",
 		LogMaxSize:   10 << 20, // 10MiB, a placeholder default
 	}
 }
 
+// daemonKeys are flyballd.yaml's own keys; every other top-level key is
+// the front's.
+var daemonKeys = []string{"default_server", "manifests_dir", "data_dir", "log_max_size"}
+
+// LoadDaemonConfig reads flyballd.yaml. A bad daemon key is an error; a
+// front block that cannot be read is FrontError, never an error.
 func LoadDaemonConfig(path string) (DaemonConfig, error) {
 	cfg := DefaultDaemonConfig()
 	data, err := os.ReadFile(path)
@@ -66,6 +79,28 @@ func LoadDaemonConfig(path string) (DaemonConfig, error) {
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parsing daemon config %s: %w", path, err)
+	}
+	var top map[string]any
+	if err := yaml.Unmarshal(data, &top); err != nil {
+		return cfg, fmt.Errorf("parsing daemon config %s: %w", path, err)
+	}
+	for _, k := range daemonKeys {
+		delete(top, k)
+	}
+	listen, _ := top["listen"].(string)
+	if _, old := top["auth"].(map[string]any); old {
+		cfg.FrontError = errors.New("auth: {token, insecure_open} is gone: management takes a bearer token with" +
+			" the management scope (`flyball token create --scope manage`), --insecure-open is a flag of the run," +
+			" and auth: names the front's shape (local, password, proxy)")
+		cfg.Front = front.Config{Listen: listen}
+	} else if f, err := frontwire.Decode(top); err != nil {
+		cfg.FrontError = fmt.Errorf("%s: %w", path, err)
+		cfg.Front = front.Config{Listen: listen}
+	} else {
+		cfg.Front = f
+	}
+	if cfg.Front.Listen == "" {
+		cfg.Front.Listen = DefaultListen
 	}
 	return cfg, nil
 }
