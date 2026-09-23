@@ -311,7 +311,11 @@ func TestUnopenableAuditFailsSignInClosed(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, AuditFile), 0o700); err != nil { // a directory where the file goes
 		t.Fatal(err)
 	}
-	audit := OpenAudit(dir, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	var logged strings.Builder
+	audit := OpenAudit(dir, slog.New(slog.NewTextHandler(&logged, nil)))
+	if !strings.Contains(logged.String(), filepath.Join(dir, AuditFile)) || !strings.Contains(logged.String(), "is a directory") {
+		t.Fatalf("the front's log does not have the audit's error: %q", logged.String())
+	}
 	salt := []byte("0123456789abcdef")
 	sum, err := scrypt.Key([]byte("pw"), salt, 16, 1, 1, 64)
 	if err != nil {
@@ -339,5 +343,16 @@ func TestUnopenableAuditFailsSignInClosed(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Set-Cookie") != "" {
 		t.Fatalf("sign-in with no audit log: %d, Set-Cookie %q; want 503 and none", resp.StatusCode, resp.Header.Get("Set-Cookie"))
+	}
+	// /api/auth, which anyone reaching the front reads, says only that
+	// the audit cannot be opened: no path, no error (wave 3 F7).
+	resp, err = http.Get(srv.URL + "/api/auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(raw), "no audit log") || strings.Contains(string(raw), dir) || strings.Contains(string(raw), "is a directory") {
+		t.Fatalf("GET /api/auth with no audit log: %s; want the audit named, with no path or error", raw)
 	}
 }

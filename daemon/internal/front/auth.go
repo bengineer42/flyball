@@ -518,8 +518,10 @@ func (f *Front) exposure() *Exposure {
 		if b != "" {
 			b += "\n"
 		}
-		b += fmt.Sprintf("front: no audit log (%v) -- sign-ins and token changes are refused until it can be opened; it is tried again every %v",
-			auditErr, AuditRetry)
+		// Generic: anyone who reaches the front reads this, and the error
+		// names a path. The front's log has it (frontwire.OpenAudit).
+		b += fmt.Sprintf("front: no audit log -- it cannot be opened, and the front's log says why; sign-ins and token changes"+
+			" are refused until it can be opened; it is tried again every %v", AuditRetry)
 	}
 	if b != "" {
 		e.Warning = &b
@@ -622,6 +624,16 @@ func (f *Front) getInfo(w http.ResponseWriter, r *http.Request, rig *Rig) {
 		f.clearCookie(w)
 	} else if err != nil {
 		f.refuse(w, r, err)
+		return
+	}
+	if f.HostRefusal(c, r) != "" {
+		// By this name the caller gets nothing without a credential (D-043):
+		// say so, and the UI offers sign-in rather than a page it would be
+		// refused.
+		c.Scopes = []string{}
+		info := f.info(c, rig)
+		info.Anonymous = "none"
+		writeJSON(w, http.StatusOK, info)
 		return
 	}
 	writeJSON(w, http.StatusOK, f.info(c, rig))

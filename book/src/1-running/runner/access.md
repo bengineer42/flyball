@@ -56,10 +56,12 @@ runner:
 The password must be the hashed line `flyball password` prints; a plain
 one is refused. `anonymous: read` lets anyone who reaches the rig watch it
 without signing in (every `GET` and every stream); the default is `none`.
-A dashboard holds four sockets open; the front allows 128 held sockets and
-streams per rig to callers with no credential, and 512 in all, so a crowd
-of viewers cannot shut a signed-in operator out, and the stop is never
-counted ([refusals](../../4-server/api.md#authentication)).
+A dashboard holds four sockets open; the front allows 128 open requests
+per rig to callers with no credential -- sockets, streams and every other
+request -- and 512 held sockets and streams in all, so a crowd of viewers
+cannot shut a signed-in operator out, and the stop is never
+counted ([refusals](../../4-server/api.md#authentication)). A request body
+must arrive within two minutes of the request.
 Most sites need two more keys at most: `url` and `tls` (next). Every other
 key -- session length, token lifetimes, forwarded addresses, the proxy
 presets' details -- is in the [reference](../../7-reference/rig-file.md#the-front).
@@ -80,7 +82,9 @@ a loopback name or the machine's own name (`hostname`, and
 `<hostname>.local`), never by another DNS name, which a web page elsewhere
 could point at the front (DNS rebinding). Signing in and the dashboard's
 own files answer any name, and a session or a token is served by any
-name. To let anonymous viewers in by a site DNS name, set `url` to it.
+name, so by another name the dashboard shows its sign-in page (`/api/auth`
+reports no verb there, and a socket is closed `4401`). To let anonymous
+viewers in by a site DNS name, set `url` to it.
 
 **`tls: {cert, key}`** has the front serve HTTPS itself from a certificate
 and key file (PEM), TLS 1.2 at least. It re-reads both files at most every
@@ -109,7 +113,9 @@ not a `$scrypt$` line, TLS files that cannot be read, a `url` that does not
 parse, or a `proxy` block that cannot be vouched for -- or when the
 `runner.front` block fails validation or cannot be read because the rig file's
 `extends` cannot be resolved, so its shape is unknown, the address it was
-asked to listen on answers every request `503`, and the
+asked to listen on answers every request `503` (over TLS when `tls:` names a
+certificate and key that load, so a browser or an `https` upstream can read
+it; in plain HTTP when they do not), and the
 `local` shape is served somewhere else: a fresh port on `127.0.0.1`, or a
 socket beside a `unix:` one (`front.sock.local` next to `front.sock`). A
 reverse proxy on the same machine keeps forwarding to the address it was
@@ -123,7 +129,12 @@ flyball: serving rig furnace on http://127.0.0.1:40321/ (local)
 A plain `flyball stop` goes to that address too, over HTTP, and gets the
 `503`, so the `503` starts with the stops that work, all signals: Ctrl-C in the `flyball run`
 terminal, `flyball stop --front-dir DIR` or `flyball stop --pid N` on the
-rig's host, or `systemctl stop` for `flyballd`. It then says only that
+rig's host. Under `flyballd`, `DIR` is the rig's front-dir,
+`/run/flyball/NAME` with the systemd unit, and the stop runs as `flyballd`'s
+user. Stopping `flyballd` itself is not a stop: it leaves its runners, and
+their rigs, running ([D-037](../../7-reference/cli.md#what-stopping-flyballd-does)); `flyball runners
+stop NAME`, with a `manage` token and `FLYBALLD_URL` set to the local
+address `flyballd` logs, ends a runner. The `503` then says only that
 authentication is misconfigured and where the reason is -- the `flyball
 run` terminal and its `run.log`, or `journalctl -u flyballd` -- since
 whoever the proxy lets reach that address may be anyone, and a reason
@@ -436,11 +447,13 @@ as `local:signal`; the signal's sender is not recorded.
   `token.create`, `token.create.refused`, `token.revoke`, `token.refused`,
   `proxy.refused`, `proxy.peer` (the local user behind a proxy's socket)
   and `fallback`, each with its time, a sequence number and a boot id
-  (`token.revoke` also with its `outcome`). A sign-in or a new token whose
+  (`token.revoke` also with its `outcome`). A line left torn by a crash is
+  ended before the next record, so only that line is lost. A sign-in or a new token whose
   record cannot be written does not happen (`503`); a revoke still happens,
   and its `503` says so. If the file cannot be opened at all, the front
-  still serves the rig and says so at start and in the dashboard's banner,
-  refuses every sign-in and new token, and tries the file again (at most
+  still serves the rig and says so at start (with the reason) and in the
+  dashboard's banner (without it: anyone who reaches the front reads the
+  banner, and the reason names a path), refuses every sign-in and new token, and tries the file again (at most
   every 5 seconds) until it opens -- fixing it needs no restart. `flyball token create` and `flyball token revoke`, which work
   on the files directly, append their `token.create` and `token.revoke` to
   the same file, by `local:cli`, under the same rule: no record, no new

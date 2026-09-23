@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/textproto"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -125,6 +127,12 @@ func (f *Front) target(ctx context.Context, rig Rig) (Target, error) {
 		if errors.Is(err, endpoint.ErrNotListening) {
 			return Target{}, fmt.Errorf("%w: %v", ErrStarting, err)
 		}
+		if noAnswer(err) {
+			// Listening but not answering in time: a runner still starting
+			// (~20 s on a Pi 3B+), not one too old -- that takes an answer.
+			f.log.Debug("front: the runner did not answer its readiness probe", "rig", rig.Name, "err", err)
+			return Target{}, fmt.Errorf("%w: %v", ErrStarting, err)
+		}
 		f.log.Error("front: refusing to proxy", "rig", rig.Name, "err", err)
 		return Target{}, fmt.Errorf("%w: %v", ErrTooOld, err)
 	}
@@ -132,6 +140,18 @@ func (f *Front) target(ctx context.Context, rig Rig) (Target, error) {
 	f.verified[id] = t.Key
 	f.mu.Unlock()
 	return t, nil
+}
+
+// noAnswer: a handshake error that is not an answer -- a probe that timed
+// out, or a connection closed or reset before its answer came -- as
+// against one that proves the runner is not this front's (a wrong status,
+// protocol or aud).
+func noAnswer(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout() ||
+		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
 }
 
 // unverify forgets a passed handshake (the runner refused a principal).
@@ -198,6 +218,12 @@ func (f *Front) serveProxy(w http.ResponseWriter, r *http.Request, rig Rig) {
 		return
 	}
 	if msg := f.HostRefusal(c, r); msg != "" {
+		if isUpgrade(r) {
+			// Signing in (or a token) is the remedy: 4401, which the UI
+			// takes as "sign in" and does not retry.
+			wsRefuse(w, r, closeSignedOut, "Sign in")
+			return
+		}
 		detail(w, http.StatusForbidden, msg)
 		return
 	}
@@ -208,11 +234,12 @@ func (f *Front) serveProxy(w http.ResponseWriter, r *http.Request, rig Rig) {
 	// Every route behind /api, /ws and /mcp needs a verb (the runner's only
 	// open ones are /api/auth*, answered by the front itself): a caller
 	// holding none is refused here, without a connection to the runner.
-	if len(f.Verbs(c, rig.Name)) == 0 {
+	verbs := f.Verbs(c, rig.Name)
+	if len(verbs) == 0 {
 		refuseNoVerb(w, r, c)
 		return
 	}
-	if holds(r) {
+	if counted(r, c, verbs) {
 		release, ok := f.held.acquire(rig.Name, noCredential(c))
 		if !ok {
 			if isUpgrade(r) {
@@ -284,6 +311,9 @@ func (f *Front) serveProxy(w http.ResponseWriter, r *http.Request, rig Rig) {
 			switch {
 			case errors.Is(err, errOutOfStep):
 				detail(w, http.StatusBadGateway, "The front and the rig's runner are out of step")
+			case bodyTimedOut(r): // pr is the outgoing request
+				w.Header().Set("Connection", "close")
+				detail(w, http.StatusRequestTimeout, "The request's body did not arrive in time")
 			case pr.Context().Err() != nil: // revoked, or the client went away
 			case endpoint.NotListening(err):
 				f.unverify(t)

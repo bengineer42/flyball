@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -40,8 +41,8 @@ func (h *harness) sendHost(method, path, host, reqBody string, hdr http.Header) 
 }
 
 // dialWSHost asks for a websocket upgrade of path with Host set to host;
-// a 101 is returned as a non-nil conn.
-func dialWSHost(t *testing.T, base, path, host string, hdr http.Header) (net.Conn, *http.Response) {
+// a 101 is returned as a non-nil client.
+func dialWSHost(t *testing.T, base, path, host string, hdr http.Header) (*wsClient, *http.Response) {
 	t.Helper()
 	u, _ := url.Parse(base)
 	conn, err := net.Dial("tcp", u.Host)
@@ -58,12 +59,13 @@ func dialWSHost(t *testing.T, base, path, host string, hdr http.Header) (net.Con
 	}
 	fmt.Fprint(conn, "\r\n")
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "GET"})
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, &http.Request{Method: "GET"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if resp.StatusCode == http.StatusSwitchingProtocols {
-		return conn, resp
+		return &wsClient{conn: conn, br: br}, resp
 	}
 	return nil, resp
 }
@@ -195,8 +197,15 @@ func TestAnonymousKnownHostsOnly(t *testing.T) {
 	if b := body(resp); !strings.Contains(b, "IP address") || !strings.Contains(b, "sign in") {
 		t.Errorf("the 403 does not say what to do: %q", b)
 	}
-	if ws, resp := dialWSHost(t, h.srv.URL, "/ws/echo", evil, rebound(evil)); ws != nil || resp.StatusCode != 403 {
-		t.Errorf("rebound anonymous websocket was not refused")
+	// A socket is refused the websocket way, 4401 "sign in" (merge
+	// requirement 26: an HTTP 403 is a 1006 to the browser, which it
+	// retries for ever; wave 3 F3).
+	ws, resp := dialWSHost(t, h.srv.URL, "/ws/echo", evil, rebound(evil))
+	if ws == nil {
+		t.Fatalf("rebound anonymous websocket: HTTP %d, want a completed handshake closed 4401", resp.StatusCode)
+	}
+	if code, reason := ws.closeCode(2 * time.Second); code != 4401 {
+		t.Fatalf("rebound anonymous websocket: close %d %q, want 4401", code, reason)
 	}
 	if n := len(h.runner.requests()); n != 0 {
 		t.Fatalf("the runner received %d requests from a rebound page", n)
@@ -211,8 +220,19 @@ func TestAnonymousKnownHostsOnly(t *testing.T) {
 	if resp := h.sendHost("GET", "/", evil, "", nil); resp.StatusCode != 200 {
 		t.Errorf("UI by a foreign name: %d", resp.StatusCode)
 	}
-	if resp := h.sendHost("GET", "/api/auth", evil, "", nil); resp.StatusCode != 200 {
-		t.Errorf("GET /api/auth by a foreign name: %d", resp.StatusCode)
+	// /api/auth by a foreign name tells the UI what that name gets: no
+	// verb and no anonymous access, so it shows the sign-in page, not
+	// "cannot reach the rig" (wave 3 F3). A known name still reads.
+	resp = h.sendHost("GET", "/api/auth", evil, "", nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("GET /api/auth by a foreign name: %d", resp.StatusCode)
+	}
+	if info := readJSON[AuthInfo](t, resp); len(info.Verbs) != 0 || info.Anonymous != "none" || !info.Login.Password || info.User != nil {
+		t.Errorf("GET /api/auth by a foreign name: verbs %v anonymous %q login %+v; want no verb, none, password sign-in", info.Verbs, info.Anonymous, info.Login)
+	}
+	resp = h.sendHost("GET", "/api/auth", "localhost:8000", "", nil)
+	if info := readJSON[AuthInfo](t, resp); !slices.Equal(info.Verbs, []string{"read"}) || info.Anonymous != "read" {
+		t.Errorf("GET /api/auth by a known name: verbs %v anonymous %q; want read", info.Verbs, info.Anonymous)
 	}
 	cookie := h.login2(http.Header{"Host": {"rig.site.example:8000"}, "Origin": {"http://rig.site.example:8000"}})
 

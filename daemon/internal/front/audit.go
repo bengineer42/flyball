@@ -87,6 +87,10 @@ func (a *Audit) open(path string) error {
 		f.Close()
 		return fmt.Errorf("audit: %w", err)
 	}
+	if err := endLine(f, path); err != nil {
+		f.Close()
+		return fmt.Errorf("audit: %w", err)
+	}
 	boot := make([]byte, 8)
 	rand.Read(boot)
 	a.f, a.boot = f, hex.EncodeToString(boot)
@@ -99,6 +103,30 @@ func (a *Audit) open(path string) error {
 		},
 	})
 	return nil
+}
+
+// endLine ends a torn last line (a crash or a full disk mid-append, here
+// or in `flyball token create`) with a newline, so the next record starts
+// a line of its own: a JSON-lines reader then loses the torn line only,
+// not the record after it too.
+func endLine(f *os.File, path string) error {
+	fi, err := f.Stat()
+	if err != nil || fi.Size() == 0 {
+		return err
+	}
+	r, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	last := make([]byte, 1)
+	if _, err := r.ReadAt(last, fi.Size()-1); err != nil {
+		return err
+	}
+	if last[0] != '\n' {
+		_, err = f.Write([]byte{'\n'})
+	}
+	return err
 }
 
 // failingLocked is why a cannot record now, nil once it can: an audit

@@ -40,8 +40,9 @@ read: a bare runner refuses the request, a front ignores it.
 | a caller lacking the route's verb | `403` `{detail, needed}` (`"needed": "operate"`); anonymous: `401` instead, so the UI offers sign-in | closed with `4403` (anonymous: `4401`) |
 | a path no row of the verb table covers (an unknown `/api/…`) | `403` `{detail, needed: null}`, never `404`; a known path with the wrong method is `405` | `403` |
 | the front and the runner out of step (the runner refused the front's principal) | `502` | closed with `1014` |
-| the runner still starting | `503`, `Retry-After: 1` | `503` |
-| a front already holding 512 sockets and event streams on the rig, or 128 from callers with no credential | an event stream (`GET` with `Accept: text/event-stream`): `429`, `Retry-After`; any other request is not counted | closed with `1013` (try again later); the UI retries |
+| the runner still starting (not listening yet, or not answering the front's readiness probe within 2 s) | `503`, `Retry-After: 1` | `503` |
+| a front already holding 512 sockets and event streams on the rig, or 128 open requests of any kind from callers with no credential | an event stream (`GET` with `Accept: text/event-stream`), or any request from a caller with no credential that cannot `operate`: `429`, `Retry-After`; any other request from a caller with a credential (the stop among them) is not counted | closed with `1013` (try again later); the UI retries |
+| a request body that has not arrived two minutes after the request | `408`, and the connection is closed | -- |
 | a front whose store or identity provider cannot answer | `503` | `503` |
 
 Before any of that, a front refuses a path with a `.` or `..` segment, a
@@ -49,7 +50,9 @@ backslash or an encoded `.`, `/` or `\` (`400`); a `Host` it does not
 answer to (`403`) -- under `--insecure-open` only an IP address, a loopback
 name, the machine's own (`hostname`, `<hostname>.local`) or `url`'s host, on
 every route, and at a `password` or `proxy` front an anonymous caller is
-held to the same names on the rig's `/api`, `/ws` and `/mcp`; and a request that acts -- any method but `GET`, `HEAD`
+held to the same names on the rig's `/api`, `/ws` and `/mcp` (a websocket
+is closed `4401`, the UI's "sign in"; `GET /api/auth` by another name
+answers `verbs: []` and `anonymous: "none"`, so the UI offers sign-in); and a request that acts -- any method but `GET`, `HEAD`
 and `OPTIONS`, and every websocket -- whose `Origin` is missing, `null` or
 another site's, unless it carries a named token (`403`). A bare runner
 refuses the same `Origin`s (a missing one passes there), and, with no

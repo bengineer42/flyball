@@ -236,6 +236,7 @@ func (f *Front) sweep() {
 
 // ServeHTTP is the door.
 func (f *Front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	defer bodyDeadline(w, r)()
 	if !cleanPath(r) {
 		plainError(w, http.StatusBadRequest, "bad path")
 		return
@@ -373,6 +374,11 @@ var (
 	ReadHeaderTimeout = 10 * time.Second
 	IdleTimeout       = 120 * time.Second
 	MaxHeaderBytes    = 64 << 10
+	// BodyTimeout bounds how long a request's body may take to arrive,
+	// from the request's start; a websocket, and a request with no body,
+	// get none. The runner takes documents of a few kB (a program, a
+	// dashboard), so two minutes is generous.
+	BodyTimeout = 2 * time.Minute
 )
 
 // NewServer is an http.Server for h with the front's limits and, when the

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"flyballd/internal/endpoint"
 	"flyballd/internal/front/store"
 	"flyballd/internal/principal"
 )
@@ -930,16 +931,21 @@ func TestFallbackRefusesRequestedListen(t *testing.T) {
 			if strings.Contains(b, c.reason) || strings.Contains(b, plan.Fallback) || strings.Contains(b, "hunter2") {
 				t.Fatalf("the refusal carries the reason: %q", b)
 			}
+			// The one path it names is flyballd's documented front-dir.
 			if !strings.Contains(b, "run.log") || !strings.Contains(b, "journalctl -u flyballd") ||
-				regexp.MustCompile("(^|[\\s(`'\"])/\\w").MatchString(b) {
+				regexp.MustCompile("(^|[\\s(`'\"])/\\w").MatchString(strings.ReplaceAll(b, "/run/flyball/NAME", "")) {
 				t.Fatalf("the refusal %q does not say where the reason is, or names a path", b)
 			}
 			// `flyball stop` prints this body: it says how to stop the
-			// rig, before anything else.
+			// rig, before anything else -- under flyballd too, where
+			// stopping flyballd leaves the rig running (D-037, wave 3 F2).
 			if !strings.HasPrefix(b, "flyball: to stop this rig") || !strings.Contains(b, "Ctrl-C") ||
 				!strings.Contains(b, "flyball stop --front-dir") || !strings.Contains(b, "flyball stop --pid") ||
-				!strings.Contains(b, "systemctl stop") {
+				!strings.Contains(b, "/run/flyball/NAME") || !strings.Contains(b, "flyball runners stop NAME") {
 				t.Fatalf("the refusal %q does not lead with how to stop the rig", b)
+			}
+			if strings.Contains(b, "systemctl") {
+				t.Fatalf("the refusal %q advises systemctl, which leaves the rig running (D-037)", b)
 			}
 			if n := len(fr.requests()); n != 0 {
 				t.Fatalf("the runner received %d requests through the refused address", n)
@@ -1594,6 +1600,22 @@ func TestTooOldRunner(t *testing.T) {
 	}
 }
 
+// A runner that does not answer its readiness probe in time (a Pi 3B+
+// takes ~20 s to start, ~37 s under load) is starting, not too old: 503
+// with Retry-After, and the next request once it answers is proxied.
+func TestSlowProbeIsStarting(t *testing.T) {
+	h := newHarness(t, Config{})
+	h.runner.probeDelay.Store(int64(endpoint.ProbeTimeout + 500*time.Millisecond))
+	resp := h.do("GET", "/api/echo", "", nil)
+	if b := body(resp); resp.StatusCode != 503 || resp.Header.Get("Retry-After") == "" || !strings.Contains(b, "starting") {
+		t.Fatalf("a runner slow to answer its probe: %d %q, Retry-After %q; want the starting 503", resp.StatusCode, b, resp.Header.Get("Retry-After"))
+	}
+	h.runner.probeDelay.Store(0)
+	if resp := h.do("GET", "/api/echo", "", nil); resp.StatusCode != 200 {
+		t.Fatalf("once the runner answers: %d, want 200", resp.StatusCode)
+	}
+}
+
 func TestRunnerStarting(t *testing.T) {
 	h := newHarness(t, Config{}, func(o *Options) {
 		o.Route = SingleRig(Rig{Name: "r", Target: func(context.Context) (Target, error) {
@@ -1670,5 +1692,32 @@ func TestProbeSigner(t *testing.T) {
 	info, err := handshake(fr, ProbeSigner(time.Now))
 	if err != nil || info.Aud != "probe-aud" {
 		t.Fatalf("%+v %v", info, err)
+	}
+}
+
+// Wave 3 F6: where the certificate loads, the refused listen answers its
+// 503 over TLS, so a TLS client (a browser, an https upstream) reads it
+// rather than failing its handshake. Where TLS itself is what failed, it
+// can only answer in plain HTTP (TestFallbackRefusesRequestedListen).
+func TestRefusedListenKeepsTLS(t *testing.T) {
+	dir := t.TempDir()
+	cert, key := filepath.Join(dir, "c.pem"), filepath.Join(dir, "k.pem")
+	writeCert(t, cert, key)
+	listen := freeLoopback(t)
+	plan := Resolve(Config{Listen: listen, Auth: "password", Password: "hunter2", TLS: &TLSFiles{Cert: cert, Key: key}}, false)
+	t.Cleanup(plan.Close)
+	if plan.Refused != listen || plan.TLS != nil {
+		t.Fatalf("plan: refused %q, TLS %v; want %s refused and the console in plain HTTP", plan.Refused, plan.TLS, listen)
+	}
+	f := New(Options{Plan: plan})
+	t.Cleanup(f.Close)
+	c := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: insecureTLS()}}
+	resp, err := c.Get("https://" + listen + "/api/echo")
+	if err != nil {
+		t.Fatalf("https to the refused listen: %v", err)
+	}
+	defer resp.Body.Close()
+	if b := body(resp); resp.StatusCode != 503 || !strings.Contains(b, "authentication is misconfigured") {
+		t.Fatalf("https to the refused listen: %d %q, want the 503", resp.StatusCode, b)
 	}
 }
