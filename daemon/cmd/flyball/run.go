@@ -24,9 +24,10 @@ import (
 	"flyballd/internal/frontwire"
 )
 
-// runDirect is `flyball run RIG-FILE [--listen ADDR] [--uv]
+// runDirect is `flyball run RIG-FILE [RIG-FILE...] [--listen ADDR] [--uv]
 // [--insecure-open] [flyball-runner flags...]`: one rig, in the
-// foreground, no flyballd. It starts the front (serve_ui.go) and runs
+// foreground, no flyballd. The front reads the rig files and --sets the
+// runner merges (runLayers, D-046); the first file keys the front-dir. It starts the front (serve_ui.go) and runs
 // flyball-runner behind it, fronted: the runner gets a front-dir
 // (`--front-dir DIR`: a fresh key, its aud `run-<8 hex>`, its endpoint, a
 // socket in DIR) and is reachable only through the front. A runner that
@@ -67,7 +68,7 @@ var uvCommand = "uv"
 // runner's exits); a variable for the tests.
 var runOut io.Writer = os.Stderr
 
-const runUsage = "usage: flyball run <rig-file> [--listen ADDR] [--uv] [--insecure-open] [flyball-runner flags...]"
+const runUsage = "usage: flyball run <rig-file> [<rig-file> ...] [--listen ADDR] [--uv] [--insecure-open] [--set KEY=VALUE ...] [flyball-runner flags...]"
 
 // run is runDirect with the stop signals given (SIGINT or SIGTERM, each a
 // press of Ctrl-C): the first goes on to the runner's group and ends the
@@ -79,8 +80,12 @@ func run(args []string, sigs <-chan os.Signal) error {
 	if len(o.rest) < 1 || strings.HasPrefix(o.rest[0], "-") {
 		return errors.New(runUsage)
 	}
-	rig := o.rest[0]
-	doc, docErr := rigDocument(rig)
+	rig := o.rest[0] // the first rig file keys the front-dir, as it does the runner's
+	files, sets, err := runLayers(o.rest)
+	if err != nil {
+		return err
+	}
+	doc, docErr := rigDocument(files, sets)
 	runner, _ := doc["runner"].(map[string]any)
 	cfg, useUV, bad, warnings := runFront(runner, o.listen)
 	if docErr != nil {

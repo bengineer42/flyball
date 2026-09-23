@@ -404,3 +404,51 @@ func TestTokenCreateReadsTokensConfigThroughExtends(t *testing.T) {
 		t.Fatalf("tokens = %+v, want one clamped to the base's max_lifetime 20d", list)
 	}
 }
+
+// `flyball token create --config A --config B --set …` reads
+// runner.front.tokens from every file and --set, merged as `flyball run
+// A B --set …` merges them (D-046), so max_lifetime clamps an offline
+// token as it clamps the front's; the tokens file is the first file's.
+func TestTokenCreateReadsEveryConfigAndSet(t *testing.T) {
+	for name, c := range map[string]struct {
+		extra []string
+		want  time.Duration
+	}{
+		"a second --config": {[]string{"--config", "b.yaml"}, 20 * 24 * time.Hour},
+		"a --set":           {[]string{"--set", "runner.front.tokens.max_lifetime=10d"}, 10 * 24 * time.Hour},
+		"both, --set last":  {[]string{"--config", "b.yaml", "--set=runner.front.tokens.max_lifetime=5d"}, 5 * 24 * time.Hour},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			dir := t.TempDir()
+			rig := filepath.Join(dir, "a.yaml")
+			os.WriteFile(rig, []byte("devices: {}\n"), 0o644)
+			os.WriteFile(filepath.Join(dir, "b.yaml"), []byte("runner:\n  front:\n    tokens:\n      max_lifetime: 20d\n"), 0o644)
+			args := []string{"--name", "above-max", "--config", rig, "--expires", "100d"}
+			for _, a := range c.extra {
+				if a == "b.yaml" {
+					a = filepath.Join(dir, a)
+				}
+				args = append(args, a)
+			}
+			captureStdout(t, func() {
+				if err := runTokenCreate(args); err != nil {
+					t.Fatal(err)
+				}
+			})
+			path, err := tokensPathFor(rig, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tokens, err := store.OpenTokens(path, store.TokensOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tokens.Close()
+			list, _ := tokens.List()
+			if len(list) != 1 || list[0].Expires.Sub(list[0].Created) != c.want {
+				t.Fatalf("tokens = %+v, want one clamped to %s", list, c.want)
+			}
+		})
+	}
+}

@@ -148,7 +148,7 @@ is stopped with `--pid` or `--front-dir`.
 | `program schema` | the program file's JSON Schema |
 | `run RIG-FILE [--listen ADDR] [--uv] [--insecure-open] [flyball-runner flags...]` | [start a rig](#flyball-run) behind a front, in the foreground |
 | `password [PASSWORD]` | hash a password for `runner.front.password` (or `password:` in `flyballd.yaml`); prompts if omitted |
-| `token create --name N --config PATH [--daemon] [--scope S]... [--kind human\|service\|agent] [--expires D]` | [make a named token](#named-tokens) in the front's tokens file; prints it once |
+| `token create --name N --config PATH [--config PATH]... [--set KEY=VALUE]... [--daemon] [--scope S]... [--kind human\|service\|agent] [--expires D]` | [make a named token](#named-tokens) in the front's tokens file; prints it once |
 | `token list --config PATH [--daemon]` | the tokens in that file: id, name, scopes, kind, created, expires, last used -- never a secret |
 | `token revoke ID --config PATH [--daemon]` | remove one; the front stops accepting it within a second |
 | `new NAME [--dir PATH]` | write `NAME.py`: a complete device driver with a tag, ready to edit |
@@ -166,13 +166,21 @@ no local, offline-against-installed-commands mode as `cli.py` had.
 
 ### `flyball run`
 
-`flyball run RIG-FILE` starts the rig's front and runs `flyball-runner`
+`flyball run RIG-FILE [RIG-FILE…]` starts the rig's front and runs `flyball-runner`
 behind it, in the foreground, no daemon involved. The front serves the
 dashboard and passes `/api`, `/ws` and `/mcp` to the runner, which listens
 only on a socket in its [front-dir](../6-internals/front.md#the-front-dir).
-What the front serves comes from the rig file's
+What the front serves comes from
 [`runner.front`](../2-config/runner.md#front-how-flyball-run-serves-the-rig)
-(`extends` resolved), and it prints where:
+in the rig as the runner builds it: every leading rig file, later
+overlaying earlier, `extends` resolved, then every `--set KEY=VALUE`
+([several files](../2-config/index.md#several-files); D-046). So
+`flyball run rig.yaml sim.yaml --set runner.front.anonymous=none` serves
+what the runner reads, and `--set name=x` names the front's rig `x` too.
+The rig files are the arguments before the first flag; `--` and an
+argument shaped like a negative number (`-1`, `-.5`), which the runner
+would take as rig files, are refused. The first file names the front's
+state and front-dir. The front prints where it serves:
 
 ```
 flyball: serving rig oven on http://127.0.0.1:8000/ (local)
@@ -225,8 +233,12 @@ neither `XDG_STATE_HOME` nor `HOME` set, `flyball run` (and `flyball token
 
 `flyball token create|list|revoke --config PATH` work offline on the file a
 front reads its named tokens from, under a lock, so they are safe while the
-front runs; it notices a change at its next check. `PATH` is the front's
-config:
+front runs; it notices a change at its next check. `create` takes
+`--config` more than once and `--set KEY=VALUE`, merged as `flyball run
+PATH PATH… --set …` merges them, so `runner.front.tokens` limits the token
+as that front would; the tokens file is the first `PATH`'s (a
+`flyballd.yaml` takes one `--config` and no `--set`). `PATH` is the
+front's config:
 
 - a rig file: the tokens of `flyball run PATH`,
   `$XDG_STATE_HOME/flyball/front-<id>/tokens.json`;

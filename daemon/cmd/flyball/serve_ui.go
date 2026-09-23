@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"flyballd/internal/front"
@@ -132,15 +134,55 @@ func clone(m map[string]any) map[string]any {
 	return out
 }
 
-// rigDocument is rigPath's document, `extends` resolved the way `flyball
-// rig check` resolves it. err is why it cannot be loaded: the caller's
-// front then falls back (D-028) rather than serve the local shape as if
-// the file had no runner.front; flyball-runner reports the error properly
-// once it loads the file for real.
-func rigDocument(rigPath string) (map[string]any, error) {
-	document, _, err := rigfile.ResolveLayers([]string{rigPath}, nil)
+// rigDocument is the document the runner builds from files (later
+// overlaying earlier) and sets (--set KEY=VALUE, applied last), `extends`
+// resolved: rigfile.ResolveLayers, as `flyball rig check` resolves it
+// (D-046). err is why it cannot be loaded: the caller's front then falls
+// back (D-028) rather than serve the local shape as if the files had no
+// runner.front; flyball-runner reports the error properly once it loads
+// them for real.
+func rigDocument(files, sets []string) (map[string]any, error) {
+	document, _, err := rigfile.ResolveLayers(files, sets)
 	if err != nil {
 		return nil, err
 	}
 	return document, nil
+}
+
+// argparseNegative is argparse's own test for an argument that looks like
+// a negative number (_negative_number_matcher): with no such option
+// defined, flyball-runner's parser takes one as a positional -- a rig file.
+var argparseNegative = regexp.MustCompile(`^-\d+$|^-\d*\.\d+$`)
+
+// runLayers is which of the runner's arguments (runOpts.rest) are rig
+// files and which are --set expressions, as flyball-runner's argparse
+// reads them: its `rig` (nargs "*") takes exactly the leading arguments
+// that do not start with "-" (a bare word after a flag is that flag's
+// value, or an error the runner exits 2 on), and --set X / --set=X
+// append (--set has no abbreviation: --se is --session or --store too).
+// `--` and a negative-number-shaped argument are refused: argparse takes
+// what follows `--`, and a "-1", as rig files, where this rule would not.
+func runLayers(args []string) (files, sets []string, err error) {
+	for _, a := range args {
+		switch {
+		case a == "--":
+			return nil, nil, errors.New("flyball run: `--` is refused: every rig file goes first, before any flag")
+		case argparseNegative.MatchString(a):
+			return nil, nil, fmt.Errorf("flyball run: %q is refused: flyball-runner would take it as a rig file", a)
+		}
+	}
+	k := 0
+	for k < len(args) && !strings.HasPrefix(args[k], "-") {
+		k++
+	}
+	files = args[:k]
+	for i := k; i < len(args); i++ {
+		if v, ok := strings.CutPrefix(args[i], "--set="); ok {
+			sets = append(sets, v)
+		} else if args[i] == "--set" && i+1 < len(args) {
+			i++
+			sets = append(sets, args[i])
+		}
+	}
+	return files, sets, nil
 }

@@ -256,12 +256,15 @@ runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
 
 local (no runner or daemon involved):
   rig schema                          the rig file's JSON Schema, for an editor
-  run RIG-FILE [--listen ADDR] [--uv] [--insecure-open] [flyball-runner flags...]   start a runner directly, foreground
+  run RIG-FILE [RIG-FILE ...] [--listen ADDR] [--uv] [--insecure-open] [--set KEY=VALUE ...] [flyball-runner flags...]
+                                      start a runner directly, foreground; the front reads every file and --set
   password [PASSWORD]                 hash a password for a front: runner.front.password in a rig
                                       file, or password: in flyballd.yaml
   new NAME [--dir PATH]                write a starting point for a device driver
-  token create --name N --config PATH [--daemon] [--scope S ...] [--kind human|service|agent] [--expires D]
-                                      write a token into the front's tokens.json offline; prints it once
+  token create --name N --config PATH [--config PATH ...] [--set KEY=VALUE ...] [--daemon]
+               [--scope S ...] [--kind human|service|agent] [--expires D]
+                                      write a token into the front's tokens.json offline; prints it once;
+                                      rig files and --set merge as flyball run merges them
   token list --config PATH [--daemon] list tokens (never their secrets)
   token revoke ID --config PATH [--daemon]
                                       remove a token; the front picks this up at its next check
