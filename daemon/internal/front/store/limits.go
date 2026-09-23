@@ -10,7 +10,12 @@
 // file, so that changing one is a one-line edit.
 package store
 
-import "time"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+)
 
 // Token lifetimes. AWAITING BEN'S CONFIRMATION: these are the design's
 // proposal (auth.md § "Sessions and machine access"), not yet a decision.
@@ -31,6 +36,73 @@ const (
 	// rewrite the file every second.
 	LastUsedCoalesce = 10 * time.Minute
 )
+
+// Lifetimes is a token store's effective default and max lifetime -- what
+// TokenLifetime uses in place of TokenLifetimeDefault/TokenLifetimeMax. The
+// zero value is not valid on its own; DefaultLifetimes gives the built-ins,
+// and ResolveLifetimes gives a config-tightened pair that never exceeds
+// them.
+type Lifetimes struct {
+	Default time.Duration
+	Max     time.Duration
+}
+
+// DefaultLifetimes is the built-in values: the ceiling every configured
+// `tokens:` value is checked against.
+func DefaultLifetimes() Lifetimes {
+	return Lifetimes{Default: TokenLifetimeDefault, Max: TokenLifetimeMax}
+}
+
+// ResolveLifetimes parses a front's `tokens: {default_lifetime,
+// max_lifetime}` block ("" for either: not set, the built-in applies) into
+// the effective Lifetimes, plus a warning for each value that falls back.
+//
+// The built-ins are the ceiling: max_lifetime may only tighten
+// TokenLifetimeMax, never exceed it, and default_lifetime must be positive
+// and at most the (already-resolved) effective max. Any invalid value --
+// unparseable, <= 0, max above the built-in max, or default above the
+// effective max -- falls back to that field's built-in, with one warning;
+// it never refuses to start (D-028).
+func ResolveLifetimes(defaultLifetime, maxLifetime string) (Lifetimes, []string) {
+	lt := DefaultLifetimes()
+	var warnings []string
+	if maxLifetime != "" {
+		d, err := ParseDuration(maxLifetime)
+		if err != nil || d <= 0 || d > TokenLifetimeMax {
+			warnings = append(warnings, fmt.Sprintf(
+				"tokens.max_lifetime: %q is not a duration between 0 and the built-in ceiling %s; using %s",
+				maxLifetime, TokenLifetimeMax, TokenLifetimeMax))
+		} else {
+			lt.Max = d
+		}
+	}
+	if defaultLifetime != "" {
+		d, err := ParseDuration(defaultLifetime)
+		if err != nil || d <= 0 || d > lt.Max {
+			warnings = append(warnings, fmt.Sprintf(
+				"tokens.default_lifetime: %q is not a duration between 0 and the effective max %s; using %s",
+				defaultLifetime, lt.Max, TokenLifetimeDefault))
+		} else {
+			lt.Default = d
+		}
+	}
+	return lt, warnings
+}
+
+// ParseDuration is time.ParseDuration plus a whole-days form ("30d", "90d"):
+// Go's own syntax has no unit past hours. Shared by the front config
+// (session, tokens.default_lifetime/max_lifetime) and the offline `flyball
+// token create --expires`.
+func ParseDuration(s string) (time.Duration, error) {
+	if days, ok := strings.CutSuffix(s, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err != nil {
+			return 0, fmt.Errorf("%q: %w", s, err)
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
+}
 
 // Session lifetimes (auth.md: idle 12 h, today's default; absolute 7 days).
 const (

@@ -494,3 +494,83 @@ func boolIndex(b bool) int {
 	}
 	return 0
 }
+
+// TestConfiguredLifetimes: a front given a `tokens:` block's effective
+// Lifetimes (store.ResolveLifetimes's result) applies it in Create --
+// default applied, a request above the configured max clamped, and the
+// fixed agent/cleartext 30-day cap tightened further when the configured
+// max is smaller than it (never loosened above it).
+func TestConfiguredLifetimes(t *testing.T) {
+	clock := newFakeClock()
+	day := 24 * time.Hour
+
+	t.Run("default and max from config", func(t *testing.T) {
+		tok, err := OpenTokens(filepath.Join(t.TempDir(), "tokens.json"),
+			TokensOptions{Now: clock.Now, Lifetimes: Lifetimes{Default: 5 * day, Max: 20 * day}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tok.Close()
+		now := clock.Now()
+
+		_, row, err := tok.Create(NewToken{Name: "default"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := row.Expires.Sub(now); got != 5*day {
+			t.Errorf("no expires_in: lifetime %v, want the configured default 5d", got)
+		}
+
+		_, row, err = tok.Create(NewToken{Name: "above-max", ExpiresIn: 100 * day})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := row.Expires.Sub(now); got != 20*day {
+			t.Errorf("above configured max: lifetime %v, want clamped to 20d", got)
+		}
+	})
+
+	t.Run("agent and cleartext cap is min(30d, configured max)", func(t *testing.T) {
+		tok, err := OpenTokens(filepath.Join(t.TempDir(), "tokens.json"),
+			TokensOptions{Now: clock.Now, Lifetimes: Lifetimes{Default: 5 * day, Max: 10 * day}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tok.Close()
+		now := clock.Now()
+
+		_, row, err := tok.Create(NewToken{Name: "agent", Kind: KindAgent, ExpiresIn: 100 * day})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := row.Expires.Sub(now); got != 10*day {
+			t.Errorf("agent, max 10d < the fixed 30d cap: lifetime %v, want 10d", got)
+		}
+
+		_, row, err = tok.Create(NewToken{Name: "cleartext", Cleartext: true, ExpiresIn: 100 * day})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := row.Expires.Sub(now); got != 10*day {
+			t.Errorf("cleartext, max 10d < the fixed 30d cap: lifetime %v, want 10d", got)
+		}
+	})
+
+	t.Run("agent cap stays at the fixed 30d when the configured max is larger", func(t *testing.T) {
+		tok, err := OpenTokens(filepath.Join(t.TempDir(), "tokens.json"),
+			TokensOptions{Now: clock.Now, Lifetimes: Lifetimes{Default: 90 * day, Max: 100 * day}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tok.Close()
+		now := clock.Now()
+
+		_, row, err := tok.Create(NewToken{Name: "agent", Kind: KindAgent, ExpiresIn: 100 * day})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := row.Expires.Sub(now); got != TokenLifetimeCapped {
+			t.Errorf("agent, max 100d > the fixed 30d cap: lifetime %v, want the fixed %v", got, TokenLifetimeCapped)
+		}
+	})
+}
