@@ -216,7 +216,7 @@ class TestBlockingDevices:
         assert controller.delivered_correction == 100.0, "delivered() closed the tick"
         assert rig.write_states.changed_since(0)[1] == {heater1.address: expected}
         assert rig.controller_states.changed_since(0)[1][controller.name].expected == 100.0
-        assert rig.write_conditions() == []
+        assert rig.conditions.of(slow) == []
         rig.close()
 
     def test_a_manual_demand_returns_nothing_and_the_state_follows(self, rig, fresh, clock):
@@ -240,9 +240,9 @@ class TestBlockingDevices:
         rig.add_device(slow)
         heater1 = slow.signals["heater1"]
         rig.write(slow.root, {"heater1": 1.0})
-        _wait_until(lambda: rig.write_conditions() != [])
-        [(name, condition)] = rig.write_conditions()
-        assert name == slow.name and condition.code == "write_failed"
+        _wait_until(lambda: rig.conditions.of(slow) != [])
+        [condition] = rig.conditions.of(slow)
+        assert condition.subject == slow.name and condition.code == "write_failed"
         assert condition.severity is Severity.ERROR and "bus timeout" in condition.message
         assert rig.recent[-1].code == "write_failed" and rig.recent[-1].subject == slow.name
         rig.write(slow.root, {"heater1": 2.0})
@@ -250,8 +250,10 @@ class TestBlockingDevices:
         assert len(rig.recent) == 1, "one event per outage, not one per write"
         slow.fail = False
         rig.write(slow.root, {"heater1": 3.0})
-        _wait_until(lambda: rig.write_conditions() == [])
-        assert rig.recent[-1].code == "write_recovered" and slow.written[heater1].value == 3.0
+        _wait_until(lambda: rig.conditions.of(slow) == [])
+        last = rig.recent[-1]
+        assert (last.code, last.edge) == ("write_failed", "cleared")
+        assert slow.written[heater1].value == 3.0
         rig.close()
 
     def test_a_synchronous_device_is_written_in_the_delivery(self, rig, furnace):

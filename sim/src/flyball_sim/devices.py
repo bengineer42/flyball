@@ -31,6 +31,7 @@ from flyball.foundation.device import (
     Readable,
     Role,
     Sample,
+    Scope,
     Severity,
     Signal,
     SignalSpec,
@@ -394,7 +395,14 @@ class SimDaq(Readable):
     def _push_conditions(self) -> None:
         self.conditions.push(
             tuple(
-                Condition("broken", Severity.ERROR, f"{s.path}: sensor failed (simulated)", since)
+                Condition(
+                    "broken",
+                    Severity.ERROR,
+                    f"{s.path}: sensor failed (simulated)",
+                    since,
+                    Scope.SIGNAL,
+                    s.address,
+                )
                 for s, since in self._broken.items()
             )
         )

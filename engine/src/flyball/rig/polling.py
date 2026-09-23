@@ -5,7 +5,9 @@ inherited down, or any namespace's or signal's own. Which signals are
 due at a given call is the driver's business inside `read`; the runtime
 only knocks often enough. What the runtime knows -- period, last delivery,
 whether the device is stopped on an error -- lives here, beside the
-device's own state, and is pushed through `runs`.
+device's own state, and is pushed through `runs`. What goes wrong with the
+reads -- `offline`, `slow` -- is a condition on the device, in the rig's
+condition store.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from flyball.foundation.device import Code, Condition, Device, Readable, Sample, Scope, Severity
+from flyball.foundation.device import Code, Device, Readable, Sample, Scope, Severity
 from flyball.foundation.errors import NotFoundError
 from flyball.foundation.router import Latest
 from flyball.foundation.time import PeriodicLoop
@@ -48,7 +50,6 @@ class DeviceRun:
     period_s: float | None = None
     running: bool = False
     last_read_ns: int | None = None
-    conditions: tuple[Condition, ...] = ()
 
 
 class Polling:
@@ -88,11 +89,10 @@ class Polling:
         """
         device = self.get(name)
         period = self._runs[name].period_s
-        # Cleared and announced before the loop starts: a device still broken
-        # fails its first read on the loop's thread, and that `offline` must
-        # land after the clearing, not be wiped by it.
-        self._update(device, conditions=())
-        self.rig.event(Severity.INFO, Scope.DEVICE, name, Code.RESTARTED, "polling again")
+        # Cleared before the loop starts: a device still broken fails its
+        # first read on the loop's thread, and that `offline` must be raised
+        # again after the clearing, not be wiped by it.
+        self.rig.conditions.clear(device, Code.OFFLINE, message="polling again")
         if period is not None:
             self.start(device, period)
         return self._runs[name]
@@ -170,7 +170,7 @@ class Polling:
         if (run := self._runs.get(device.name)) is None:
             return
         last_read_ns = max(s.time_ns for s in samples) if samples else run.last_read_ns
-        self._update(device, last_read_ns=last_read_ns, conditions=())
+        self._update(device, last_read_ns=last_read_ns)
 
     def _read(self, device: Device) -> None:
         """One scheduled poll: deliver what it returns -- or note the failure and stop polling.
@@ -187,14 +187,10 @@ class Polling:
         except Exception as error:
             if not self._polled(device):
                 return  # removed while it was being read: nothing to put offline
-            offline = Condition(
-                Code.OFFLINE,
-                Severity.ERROR,
-                f"{type(error).__name__}: {error}",
-                self.rig.clock.now_ns(),
+            self._update(device, running=False)
+            self.rig.conditions.set(
+                device, Code.OFFLINE, Severity.ERROR, f"{type(error).__name__}: {error}"
             )
-            self._update(device, running=False, conditions=(offline,))
-            self.rig.event(Severity.ERROR, Scope.DEVICE, device.name, Code.OFFLINE, offline.message)
             if (loop := self.periodic.get(device.name)) is not None:
                 loop.stop(join=False)  # from inside the loop: it exits after this call
             return
@@ -206,14 +202,19 @@ class Polling:
         period = run.period_s
         took = self.rig.clock.monotonic() - started
         if period is not None and took > period:
-            slow = Condition(
+            self.rig.conditions.set(
+                device,
                 Code.SLOW,
                 Severity.WARNING,
                 f"read took {took:.2f} s against a {period} s period",
-                self.rig.clock.now_ns(),
             )
-            self._update(device, conditions=(slow,))
-            self.rig.event(Severity.WARNING, Scope.DEVICE, device.name, Code.SLOW, slow.message)
+        elif period is not None:
+            self.rig.conditions.clear(device, Code.SLOW, message="reads keep up again")
+
+    def touch(self, name: str) -> None:
+        """Push `name`'s run to watchers again unchanged: its conditions changed, not its run."""
+        if (run := self._runs.get(name)) is not None and self.runs.watched:
+            self.runs.set(name, run)
 
     def _polled(self, device: Device) -> bool:
         """Whether `device` itself is still polled: not removed, nor replaced under its name."""

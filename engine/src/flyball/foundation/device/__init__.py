@@ -1,4 +1,5 @@
 from .commands import RESERVED_NAMES, CommandSpec, command
+from .conditions import ConditionEdge, Conditions
 from .descriptors import (
     BoundInput,
     ConfigSignal,
@@ -31,7 +32,7 @@ from .signal import (
     Write,
     WriteState,
 )
-from .state import Code, Condition, Event, Scope, Severity
+from .state import Code, Condition, Edge, Event, Scope, Severity
 
 __all__ = [
     "RESERVED_NAMES",
@@ -43,12 +44,15 @@ __all__ = [
     "CommandSpec",
     "Committable",
     "Condition",
+    "ConditionEdge",
+    "Conditions",
     "ConfigSignal",
     "Demand",
     "Descriptor",
     "Device",
     "DeviceEntry",
     "DriverConfig",
+    "Edge",
     "Event",
     "Input",
     "Limit",

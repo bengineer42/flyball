@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 
-from flyball.foundation.device import Severity
+import pytest
+
+from flyball.control.laws import P
+from flyball.foundation.device import Code, Committable, Demand, Sample, Scope, Severity
 from flyball.record.migrate import available
 from flyball.record.sqlite import SqliteStore
+from test_rig_devices import POWER, Furnace
 
 # region Migration
 
@@ -55,12 +60,51 @@ def test_the_migration_renames_kind_to_code_and_level_to_a_severity_string(tmp_p
     store.close()
 
 
+def test_the_migration_turns_the_recovery_codes_into_cleared_edges(tmp_path):
+    path = tmp_path / "old.db"
+    device = {"level": 40, "scope": "device", "message": "m"}
+    controller = {"level": 40, "scope": "controller", "message": "m"}
+    program = {"level": 40, "scope": "program", "message": "m"}
+    _store_at_0018(
+        path,
+        [
+            (1, "pump", "write_failed", device),
+            (2, "pump", "write_recovered", {**device, "level": 20}),
+            (3, "pump", "commit_failed", device),
+            (4, "pump", "commit_recovered", {**device, "level": 20}),
+            (5, "pump.power", "step_failed", controller),
+            (6, "pump.power", "step_recovered", {**controller, "level": 20}),
+            (7, "bake[1]", "step_failed", program),
+            (8, "pump.power", "limit_unknown", controller),
+            (9, "pump.power", "limit_known", {**controller, "level": 20}),
+            (10, "daq", "offline", device),
+            (11, "daq", "restarted", {**device, "level": 20}),
+            (12, "daq", "slow", device),
+            (13, "bake", "started", program),
+        ],
+    )
+    store = SqliteStore(path)
+    assert [(e.code, e.edge) for e in store.events(1)] == [
+        ("write_failed", "raised"),
+        ("write_failed", "cleared"),
+        ("commit_failed", "raised"),
+        ("commit_failed", "cleared"),
+        ("step_failed", "raised"),
+        ("step_failed", "cleared"),
+        ("step_failed", None),  # a program's step: a point event
+        ("limit_unknown", "raised"),
+        ("limit_unknown", "cleared"),
+        ("offline", "raised"),
+        ("offline", "cleared"),
+        ("slow", "raised"),
+        ("started", None),
+    ]
+    store.close()
+
+
 def test_a_severity_is_ranked_as_logging_ranks_it():
     assert [s.rank for s in Severity] == [10, 20, 30, 40]
     assert str(Severity.WARNING) == "warning"
-
-
-# endregion
 
 
 def test_an_events_widget_level_is_migrated_to_its_severity():
@@ -94,6 +138,281 @@ def test_an_event_on_the_wire_carries_a_code_and_a_lowercase_severity():
     out = event_out(event)
     assert (out["code"], out["severity"]) == ("restored", "warning")
     assert "kind" not in out and "level" not in out
+
+
+# endregion
+
+
+# region The store: edges on transitions only
+
+
+def _edges(rig, code) -> list:
+    return [(e.edge, e.subject) for e in rig.recent if e.code == code]
+
+
+class TestEdges:
+    def test_a_set_raises_once_and_a_clear_clears_once_with_its_duration(self, rig, clock, fresh):
+        furnace = Furnace(fresh("furnace"))
+        rig.add_device(furnace)
+        assert rig.conditions.set(furnace, Code.SLOW, Severity.WARNING, "first") is True
+        clock.advance(2.0)
+        assert rig.conditions.set(furnace, Code.SLOW, Severity.WARNING, "second") is False
+        (condition,) = rig.conditions.of(furnace)
+        assert condition.message == "second", "a repeated set updates the message"
+        assert condition.since_ns == clock.now_ns() - 2_000_000_000, "and keeps when it began"
+        assert (condition.scope, condition.subject) == (Scope.DEVICE, furnace.name)
+        assert _edges(rig, Code.SLOW) == [("raised", furnace.name)], "one edge, not one per set"
+        clock.advance(3.0)
+        cleared = rig.conditions.clear(furnace, Code.SLOW)
+        assert cleared is not None and rig.conditions.of(furnace) == []
+        assert rig.conditions.clear(furnace, Code.SLOW) is None, "nothing held: no edge"
+        assert _edges(rig, Code.SLOW) == [("raised", furnace.name), ("cleared", furnace.name)]
+        (last,) = [e for e in rig.recent if e.code == Code.SLOW and e.edge == "cleared"]
+        assert last.details["duration_s"] == pytest.approx(5.0)
+        assert last.severity is Severity.INFO
+
+    def test_conditions_are_keyed_by_the_owner_object_not_its_name(self, rig, fresh):
+        name = fresh("furnace")
+        first = Furnace(name)
+        rig.add_device(first)
+        rig.conditions.set(first, Code.SLOW, Severity.WARNING, "old one")
+        rig.remove_device(name)
+        second = Furnace(name)
+        rig.add_device(second)
+        assert rig.conditions.of(second) == [], "a device re-added under the name starts clean"
+
+    def test_a_removed_device_clears_its_conditions(self, rig, fresh):
+        furnace = Furnace(fresh("furnace"))
+        rig.add_device(furnace)
+        rig.conditions.set(furnace, Code.SLOW, Severity.WARNING, "slow")
+        rig.conditions.set(furnace, Code.OFFLINE, Severity.ERROR, "gone")
+        rig.remove_device(furnace.name)
+        assert rig.conditions.all() == []
+        cleared = [e for e in rig.recent if e.edge == "cleared" and e.subject == furnace.name]
+        assert sorted(e.code for e in cleared) == ["offline", "slow"], "one cleared edge each"
+
+    def test_a_detached_controller_clears_its_conditions(self, rig, fresh):
+        furnace = Furnace(fresh("furnace"))
+        rig.add_device(furnace)
+        controller = rig.attach_controller(
+            furnace.signals["heater1"], furnace.signals["zone1"], law=P(kp=1.0)
+        )
+        rig.conditions.set(controller, Code.STALE_INPUT, Severity.WARNING, "held")
+        rig.detach_controller(controller.name)
+        assert rig.conditions.all() == []
+        assert _edges(rig, Code.STALE_INPUT)[-1] == ("cleared", controller.name)
+
+
+class TestSubscribers:
+    def test_a_subscriber_gets_each_edge_off_the_rig_lock(self, rig, fresh):
+        furnace = Furnace(fresh("furnace"))
+        rig.add_device(furnace)
+        seen: list = []
+        heard = threading.Event()
+        main = threading.current_thread()
+
+        def hear(edge) -> None:
+            seen.append((
+                edge.event.edge,
+                edge.condition.code,
+                edge.owner,
+                threading.current_thread(),
+            ))
+            if len(seen) == 2:
+                heard.set()
+
+        unsubscribe = rig.conditions.subscribe(hear)
+        with rig.lock:  # a producer under the lock, as a delivery is
+            rig.conditions.set(furnace, Code.SLOW, Severity.WARNING, "slow")
+            rig.conditions.clear(furnace, Code.SLOW)
+            assert heard.wait(2.0), "delivered while the producer still holds the lock"
+        assert [(e, c, o) for e, c, o, _ in seen] == [
+            ("raised", "slow", furnace),
+            ("cleared", "slow", furnace),
+        ]
+        assert all(thread is not main for *_, thread in seen)
+        unsubscribe()
+        rig.conditions.set(furnace, Code.SLOW, Severity.WARNING, "again")
+        rig.conditions.flush(2.0)
+        assert len(seen) == 2, "unsubscribed"
+
+    def test_a_subscriber_that_raises_does_not_stop_the_others(self, rig, fresh):
+        furnace = Furnace(fresh("furnace"))
+        rig.add_device(furnace)
+        seen: list = []
+
+        def bad(edge) -> None:
+            raise RuntimeError("boom")
+
+        rig.conditions.subscribe(bad)
+        rig.conditions.subscribe(seen.append)
+        rig.conditions.set(furnace, Code.SLOW, Severity.WARNING, "slow")
+        rig.conditions.flush(2.0)
+        assert len(seen) == 1
+
+
+# endregion
+
+# region Producers: the pairs are one condition each
+
+
+class Flaky(Committable):
+    out = Demand("out", "Out", POWER, limits=(0.0, 100.0))
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.fail = False
+
+    def commit(self, time_ns: int) -> None:
+        if self.fail:
+            raise OSError("bus gone")
+        super().commit(time_ns)
+
+
+class TestProducers:
+    def test_a_commit_failure_is_raised_then_cleared(self, rig, clock, fresh):
+        flaky = Flaky(fresh("flaky"))
+        rig.add_device(flaky)
+        out = flaky.signals["out"]
+        flaky.fail = True
+        for _ in range(3):
+            with pytest.raises(OSError):
+                rig.write(flaky.root, {out: 5.0})
+        (held,) = rig.conditions.of(flaky)
+        assert held.code == Code.COMMIT_FAILED and held.severity is Severity.ERROR
+        flaky.fail = False
+        clock.advance(1.0)
+        rig.write(flaky.root, {out: 5.0})
+        assert rig.conditions.of(flaky) == []
+        assert _edges(rig, Code.COMMIT_FAILED) == [("raised", flaky.name), ("cleared", flaky.name)]
+        assert not [e for e in rig.recent if e.code == "commit_recovered"]
+
+    def test_an_offline_device_is_cleared_by_its_restart(self, rig, clock, fresh):
+        furnace = Furnace(fresh("furnace"))
+        furnace.poll_s = 1.0
+        rig.add_device(furnace)
+        rig.start_polling(furnace)
+        clock.advance(1.0)
+        furnace.fail = True
+        clock.advance(1.0)
+        (offline,) = rig.conditions.of(furnace)
+        assert offline.code == Code.OFFLINE and "modbus timeout" in offline.message
+        furnace.fail = False
+        rig.polling.restart(furnace.name)
+        assert rig.conditions.of(furnace) == []
+        assert _edges(rig, Code.OFFLINE) == [("raised", furnace.name), ("cleared", furnace.name)]
+        assert not [e for e in rig.recent if e.code == Code.RESTARTED], "restarted is the runner's"
+
+    def test_a_stale_input_hold_is_a_condition_on_the_controller(self, rig, clock, fresh):
+        furnace = Furnace(fresh("furnace"))
+        rig.add_device(furnace)
+        zone1 = furnace.signals["zone1"]
+        zone1.set_meta(stale_after_s=5.0)
+        controller = rig.attach_controller(furnace.signals["heater1"], zone1, law=P(kp=1.0))
+        controller.regulate(30.0)
+        assert rig.hold_reason(controller) == Code.STALE_INPUT, "never read: stale"
+        assert rig.hold_reason(controller) == Code.STALE_INPUT
+        (held,) = rig.conditions.of(controller)
+        assert (held.code, held.scope, held.subject) == (
+            Code.STALE_INPUT,
+            Scope.CONTROLLER,
+            controller.name,
+        )
+        rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 20.0})])
+        assert rig.conditions.of(controller) == []
+        assert _edges(rig, Code.STALE_INPUT) == [
+            ("raised", controller.name),
+            ("cleared", controller.name),
+        ]
+
+    def test_a_law_error_is_raised_then_cleared(self, rig, clock, fresh):
+        furnace = Furnace(fresh("furnace"))
+        rig.add_device(furnace)
+        zone1 = furnace.signals["zone1"]
+        controller = rig.attach_controller(furnace.signals["heater1"], zone1, law=P(kp=1.0))
+        controller.regulate(30.0)
+        broken = {"on": True}
+        original = controller.on_reading
+
+        def on_reading(reading):
+            if broken["on"]:
+                raise ValueError("bad law")
+            return original(reading)
+
+        controller.on_reading = on_reading  # type: ignore[method-assign]
+        for value in (20.0, 21.0):
+            clock.advance(1.0)
+            rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: value})])
+        broken["on"] = False
+        clock.advance(1.0)
+        rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 22.0})])
+        assert _edges(rig, Code.STEP_FAILED) == [
+            ("raised", controller.name),
+            ("cleared", controller.name),
+        ]
+        assert not [e for e in rig.recent if e.code == "step_recovered"]
+
+
+# endregion
+
+# region Recorded, and on the wire
+
+
+def test_a_session_records_when_a_condition_started_and_cleared(rig, clock, fresh, tmp_path):
+    furnace = Furnace(fresh("furnace"))
+    rig.add_device(furnace)
+    store = SqliteStore(tmp_path / "s.db")
+    recorder = rig.start_recording(store)
+    clock.advance(1.0)
+    rig.conditions.set(furnace, Code.SLOW, Severity.WARNING, "slow")
+    clock.advance(4.0)
+    rig.conditions.clear(furnace, Code.SLOW)
+    rig.stop_recording()
+    events = [e for e in store.events(recorder.writer.session.id) if e.code == "slow"]
+    assert [(e.edge, e.offset_ns, e.source) for e in events] == [
+        ("raised", 1_000_000_000, furnace.name),
+        ("cleared", 5_000_000_000, furnace.name),
+    ]
+    assert events[0].detail["severity"] == "warning"
+    assert events[1].detail["details"]["duration_s"] == pytest.approx(4.0)
+    store.close()
+
+
+def test_a_failed_recording_is_a_condition_on_the_rig_until_the_next_starts(rig, tmp_path):
+    rig._recording_failed(OSError("disk full"))
+    (failed,) = rig.conditions.of(rig)
+    assert (failed.code, failed.scope) == (Code.RECORDING_FAILED, Scope.RIG)
+    store = SqliteStore(tmp_path / "s.db")
+    rig.start_recording(store)
+    assert rig.conditions.of(rig) == []
+    assert [e.edge for e in rig.recent if e.code == Code.RECORDING_FAILED] == ["raised", "cleared"]
+    rig.stop_recording()
+    store.close()
+
+
+def test_health_conditions_come_from_the_store_with_scope_and_subject(rig, fresh):
+    from conftest import TestClient
+    from flyball.interfaces.server import create_app, set_rig
+
+    furnace = Furnace(fresh("furnace"))
+    rig.add_device(furnace)
+    controller = rig.attach_controller(
+        furnace.signals["heater1"], furnace.signals["zone1"], law=P(kp=1.0)
+    )
+    rig.conditions.set(controller, Code.STALE_INPUT, Severity.WARNING, "held")
+    rig.conditions.set(furnace, Code.OFFLINE, Severity.ERROR, "gone")
+    set_rig(rig)
+    try:
+        with TestClient(create_app()) as client:
+            body = client.get("/api/health").json()
+    finally:
+        set_rig(None)
+    held = [(c["scope"], c["subject"], c["code"], c["severity"]) for c in body["conditions"]]
+    assert held == [
+        ("controller", controller.name, "stale_input", "warning"),
+        ("device", furnace.name, "offline", "error"),
+    ]
+    assert body["ok"] is False and body["alarms"]["alarm"] == 1 and body["alarms"]["warn"] == 1
 
 
 # endregion

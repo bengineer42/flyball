@@ -29,12 +29,22 @@ _RANKS = {Severity.DEBUG: 10, Severity.INFO: 20, Severity.WARNING: 30, Severity.
 
 
 class Scope(StrEnum):
-    """Which part of the rig an event concerns; its `subject` names which one."""
+    """Which part of the rig an event or a condition concerns; its `subject` names which one."""
 
     DEVICE = "device"
+    SIGNAL = "signal"
     CONTROLLER = "controller"
     PROGRAM = "program"
     RIG = "rig"
+
+
+class Edge(StrEnum):
+    """Which way a condition went, on the event that records it; a point event has none."""
+
+    RAISED = "raised"
+    """Absent to present: the condition began."""
+    CLEARED = "cleared"
+    """Present to absent: it ended; the event's `details.duration_s` says how long it held."""
 
 
 class Code(StrEnum):
@@ -42,25 +52,31 @@ class Code(StrEnum):
 
     A string on the wire and in the store. A driver's own conditions may use
     any string (the sim's `broken`); what the runtime raises is one of these,
-    so a typo is a type error rather than a code nobody filters on.
+    so a typo is a type error rather than a code nobody filters on. A
+    condition's code is on both of its edges: `offline` raised, `offline`
+    cleared -- there is no separate "recovered" code.
     """
 
     # A device: its reads, its deliveries, its writes.
     OFFLINE = "offline"
-    RESTARTED = "restarted"
+    """A condition: its last read raised; polling stopped until a restart clears it."""
     SLOW = "slow"
+    """A condition: its reads take longer than its period (de-flapped: see polling)."""
     DELIVERY_FAILED = "delivery_failed"
     WRITE_FAILED = "write_failed"
-    WRITE_RECOVERED = "write_recovered"
+    """A condition: a blocking device's writer failed its last write; cleared by the next that
+    succeeds."""
     COMMIT_FAILED = "commit_failed"
-    COMMIT_RECOVERED = "commit_recovered"
+    """A condition: a commit on the delivery path raised; cleared by the next that succeeds."""
     DEMAND_IGNORED = "demand_ignored"
     # A controller.
     STEP_FAILED = "step_failed"
-    STEP_RECOVERED = "step_recovered"
+    """A condition on a controller whose law raised; cleared when it steps again. A point event
+    of a program's step, too."""
     STALE_INPUT = "stale_input"
+    """A condition: the controller's measured signal is older than `stale_after_s`; held."""
     LIMIT_UNKNOWN = "limit_unknown"
-    LIMIT_KNOWN = "limit_known"
+    """A condition: a limit on the controller's output is not known; held."""
     INTERRUPTED = "interrupted"
     # A program (`step_failed` too). It ends `succeeded`, `failed`, `cancelled` by a person,
     # or `interrupted` by the engine (a stop, a shutdown), with the reason.
@@ -73,15 +89,21 @@ class Code(StrEnum):
     RUN_FROM_LIBRARY = "run_from_library"
     # The rig.
     RECORDING_FAILED = "recording_failed"
+    """A condition on the rig: the recorder stopped on a store error; cleared by the next
+    recording that starts."""
     RESTORED = "restored"
+    RESTARTED = "restarted"
+    """The runner's own, when it is restarted (not yet raised). A device's polling that starts
+    again clears its `offline` instead."""
 
 
 @dataclass(frozen=True, slots=True)
 class Condition:
-    """Something true of a device now: offline, railed, overdriven, waiting.
+    """Something true now of a device, a signal, a controller or the rig: offline, slow, held.
 
-    In the device's state while it holds; a late-joining client sees the
-    present, not a log.
+    Held in the rig's condition store while it lasts, keyed by its owner
+    object and its code; a late-joining client sees the present, not a log.
+    Its start and its end are events (`raised`, `cleared`).
     """
 
     code: str
@@ -90,6 +112,13 @@ class Condition:
     severity: Severity
     message: str
     since_ns: int
+    """When it was raised; a repeated `set` keeps it."""
+    scope: str
+    """The owner's kind: a [Scope][flyball.foundation.device.state.Scope] -- `device`,
+    `signal`, `controller`, `rig`."""
+    subject: str
+    """The owner's name: a device's or controller's name, a signal's address, the rig's."""
+    details: Any = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,18 +127,21 @@ class Event:
 
     A [Condition][flyball.foundation.device.state.Condition] is what is true now and lives
     in state; an event is a point in time and lives in a stream and the
-    session store.
+    session store. A condition's start and end are events too, told apart by
+    `edge`.
     """
 
     time_ns: int
     severity: Severity
     scope: str
-    """Which part: a [Scope][flyball.foundation.device.state.Scope] -- `device`, `controller`,
-    `program`, `rig`."""
+    """Which part: a [Scope][flyball.foundation.device.state.Scope] -- `device`, `signal`,
+    `controller`, `program`, `rig`."""
     subject: str
-    """The device, controller, program step or rig part it concerns."""
+    """The device, signal, controller, program step or rig it concerns."""
     code: str
     """Stable and machine-readable: a [Code][flyball.foundation.device.state.Code] --
     `step_failed`, `offline`. A plain string once read back from the store."""
     message: str
     details: Any = None
+    edge: Edge | None = None
+    """`raised` or `cleared` for a condition's edge; None for a point event."""

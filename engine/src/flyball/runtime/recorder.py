@@ -193,6 +193,7 @@ class Recorder:
                 "message": event.message,
                 "details": event.details,
             },
+            edge=None if event.edge is None else str(event.edge),
         )
         with self._buffer:
             self._events.append(row)

@@ -78,10 +78,10 @@ before touching anything:
    clamp, `min(max(-50, nan), 100)` is `-50`), fails closed (`Signal.clamp` raises `LimitNotKnownError`, a
    `NotReadyError`): a manual demand is refused before anything is
    applied; a controller's demand is *held* — `write()` returns `{}`,
-   nothing is applied, as for a stale source — and the rig emits one
-   `limit_unknown` event (`WARNING`, scope `controller`) on entering the
-   hold and one `limit_known` (`INFO`) on the first write after it, not
-   one per step. Refusing rather than clamping to the known end is
+   nothing is applied, as for a stale source — and the rig holds a
+   `limit_unknown` condition (`warning`) on the controller: raised on
+   entering the hold and cleared on the first write after it, not an event
+   per step. Refusing rather than clamping to the known end is
    deliberate: in `(0, max_flow)` or `(dry_supply, wet_supply)` the end
    that is not known yet is the one that protects the hardware.
 
@@ -119,19 +119,32 @@ thread per polled device calls `Polling._read`, which calls `device.read`
 and hands whatever comes back to
 [delivered][flyball.rig.polling.Polling.delivered] — the same path a
 push or a fresh read uses — which runs `rig.on_samples` under the rig's
-lock and notes the run (`last_read_ns`, cleared conditions) in `Polling.runs`.
+lock and notes the run (`last_read_ns`) in `Polling.runs`.
 
-Only `read` itself can put a device offline: a raised exception becomes an
-`offline` condition and an `offline` event, and the device's loop stops
-itself until `restart`, or until a command on it succeeds (`Polling.revive`,
+What goes wrong is a **condition** in `rig.conditions`
+([Conditions][flyball.foundation.device.conditions.Conditions]), keyed by
+the object it is true of (a `Device`, a `Signal`, a `Controller`, the rig)
+and its code. `set` raises it -- an event with `edge: raised` -- only when
+it was not held; setting it again updates its message and nothing else.
+`clear` ends it -- `edge: cleared`, with `details.duration_s` -- only when
+it was held. Removing a device clears what it and its signals held;
+detaching a controller clears what it held. The edges are recorded and
+streamed like any event (under the store's own lock, so in order), and
+in-process subscribers (`rig.conditions.subscribe`) hear each one on the
+store's own thread, never under the rig's lock.
+
+Only `read` itself can put a device offline: a raised exception raises an
+`offline` condition, and the device's loop stops itself until `restart`
+(which clears it), or until a command on it succeeds (`Polling.revive`,
 called by the command route and by a program's `command` step alike). A
-controller whose law raises is kept to itself: a `step_failed` event on the
-first failure and `step_recovered` when it steps again, its mode left as it
-was, and every other controller, commit, reading and the recorder carry on.
-A device whose `commit` raises is likewise kept to itself: its demands are
-dropped rather than left staged, a `commit_failed` event names it once per
-outage (`commit_recovered` when a commit succeeds again), and the other
-commits and the recorder carry on. Any other failure *downstream* of the
+controller whose law raises is kept to itself: a `step_failed` condition on
+the controller, raised on the first failure and cleared when it steps
+again, its mode left as it was, and every other controller, commit,
+reading and the recorder carry on. A device whose `commit` raises is
+likewise kept to itself: its demands are dropped rather than left staged,
+and a `commit_failed` condition names it, raised once per outage and
+cleared when a commit succeeds again; the other commits and the recorder
+carry on. Any other failure *downstream* of the
 read — an observer, the recorder — is the rig's, not the read's: a
 `delivery_failed` event, and the device's samples are still noted as read. After a gap in its readings
 longer than three usual intervals (an outage), a controller's next step

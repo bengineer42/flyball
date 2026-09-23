@@ -618,7 +618,8 @@ class TestOneControllerFailing:
         bad.set_law(P(kp=1.0))
         clock.advance(1.0)
         rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 20.0, zone2: 20.0})])
-        assert rig.recent[-1].code == "step_recovered" and rig.recent[-1].subject == bad.name
+        last = rig.recent[-1]
+        assert (last.code, last.edge, last.subject) == ("step_failed", "cleared", bad.name)
 
 
 class TestLimitsThatFollowASignal:
@@ -683,9 +684,9 @@ class TestLimitsThatFollowASignal:
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])
         assert supplied.written[humidity].value == 95.0, "applied, clamped to the supply"
         assert supplied.written[humidity].requested is not None
-        assert [e.code for e in rig.recent if e.code.startswith("limit_")] == [
-            "limit_unknown",
-            "limit_known",
+        assert [(e.code, e.edge) for e in rig.recent if e.code.startswith("limit_")] == [
+            ("limit_unknown", "raised"),
+            ("limit_unknown", "cleared"),
         ]
 
     def test_a_nan_bound_is_not_known_a_demand_is_refused_not_clamped_to_the_other_end(
@@ -715,9 +716,9 @@ class TestLimitsThatFollowASignal:
         clock.advance(1.0)
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])
         assert supplied.written[humidity].value == 95.0
-        assert [e.code for e in rig.recent if e.code.startswith("limit_")] == [
-            "limit_unknown",
-            "limit_known",
+        assert [(e.code, e.edge) for e in rig.recent if e.code.startswith("limit_")] == [
+            ("limit_unknown", "raised"),
+            ("limit_unknown", "cleared"),
         ]
 
     def test_a_limit_resolves_once_to_the_signal_it_follows(self, supplied):

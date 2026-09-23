@@ -7,6 +7,8 @@
 
 ::: flyball.foundation.device.state
 
+::: flyball.foundation.device.conditions
+
 ::: flyball.foundation.device.commands
 
 ::: flyball.foundation.device.descriptors

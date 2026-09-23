@@ -21,7 +21,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
-from flyball.foundation.device import Node, Sample, Signal
+from flyball.foundation.device import Condition, Node, Sample, Signal
 from flyball.foundation.router import Latest
 from flyball.interfaces.server.deps import current_rig
 from flyball.interfaces.server.schemas import ControllerOut, SampleOut, finite
@@ -35,6 +35,7 @@ FLUSH_S = 0.05
 """How often a socket sends what changed; a dashboard needs at most ~20/s."""
 
 RUN = TypeAdapter(DeviceRun)
+CONDITIONS = TypeAdapter(list[Condition])
 ACTIVITY = TypeAdapter(TriggerState)
 
 
@@ -97,7 +98,14 @@ def _controller_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
 
 
 def _run_out(rig: Rig, name: str, run: Any) -> dict[str, Any]:
-    return {"name": name, **RUN.dump_python(run, mode="json")}
+    """The run, with what the rig holds on the device now (a snapshot of the store)."""
+    device = rig.devices.get(name)
+    held = [] if device is None else rig.conditions.of(device)
+    return {
+        "name": name,
+        **RUN.dump_python(run, mode="json"),
+        "conditions": CONDITIONS.dump_python(held, mode="json"),
+    }
 
 
 def _activity_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:

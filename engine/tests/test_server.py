@@ -582,7 +582,7 @@ def test_health_alarms_include_device_conditions_at_or_above_warning(client, rig
     body = client.get("/api/health").json()
     assert body["ok"] is False
     assert (
-        body["conditions"][0]["device"] == daq.name and body["conditions"][0]["code"] == "offline"
+        body["conditions"][0]["subject"] == daq.name and body["conditions"][0]["code"] == "offline"
     )
     assert body["alarms"] == {"warn": 0, "alarm": 1, "max_level": 40}
 
@@ -999,7 +999,7 @@ def test_a_program_command_step_on_an_offline_device_restarts_it_too(rig, daq):
 
         RunCommand(device_command="restore", device=daq.name).run(rig)
         assert rig.polling.run(daq.name).running is True, "the step is a fix, as the route is"
-        assert rig.polling.run(daq.name).conditions == ()
+        assert rig.conditions.of(daq) == []
     finally:
         rig.polling.stop_all()
 
@@ -1018,7 +1018,7 @@ def test_a_command_on_an_offline_device_restarts_it(client, rig, daq):
 
         assert client.post(f"/api/devices/{daq.name}/commands/restore").status_code == 200
         assert rig.polling.run(daq.name).running is True
-        assert rig.polling.run(daq.name).conditions == ()
+        assert rig.conditions.of(daq) == []
         rig.polling.stop_all()
 
         restarted = client.post(f"/api/devices/{daq.name}/restart").json()

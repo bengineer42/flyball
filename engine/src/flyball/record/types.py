@@ -269,6 +269,8 @@ class Event:
     source: str | None = None
     detail: Any = None
     id: int | None = None
+    edge: str | None = None
+    """`raised` or `cleared` for a condition's start or end; None for a point event."""
 
 
 class SpanKind(Labelled):

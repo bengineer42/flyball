@@ -25,8 +25,13 @@ or cancelling what it waits on. Outputs are kept. Compare **interrupted**.
 run by `POST /api/devices/{name}/commands/{command}`. A program's steps are
 **steps**, not commands.
 
-**condition** — something true of a device *now*: offline, railed,
-overdriven. In its state while it holds.
+**condition** — something true *now* of a device, a signal, a controller
+or the rig: offline, slow, a failing write, a held controller. Held in the
+rig's condition store (`rig.conditions`), keyed by the object it is true of
+and its `code`, while it lasts; its start and end are events (**edges**).
+
+**edge** — the event that records a condition starting (`raised`) or ending
+(`cleared`, with how long it held). A point event has none.
 
 **config** — what a device (or a link, a law, a feedforward) was built
 from; a pydantic model with `build()`. Changed only by rebuilding. In a
@@ -62,8 +67,9 @@ and in `POST /api/controllers/{c}/setpoint`'s `at`; the generator's
 equivalent of the program step **wait**.
 
 **event** — something that *happened*: a step failed, a device went
-offline, an activity timed out. A point in time with a `code`, a `severity`,
-a scope and a subject; streamed on `/ws/events` and written to the session when
+offline, an activity timed out. A point in time with a `code`, a `severity`
+(`debug`, `info`, `warning`, `error`), a scope, a subject and, for a
+condition's start or end, an **edge**; streamed on `/ws/events` and written to the session when
 recording.
 
 **expected** — what a device says it will deliver a demand as; `None` if

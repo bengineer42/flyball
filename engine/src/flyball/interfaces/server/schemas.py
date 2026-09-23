@@ -344,9 +344,9 @@ class DeviceOut(BaseModel):
     `driver` is the rig file's `driver:` for it, or null for a device built in
     code; `class_name` its Python class; `kind` what claimed its name -- `device`, or
     `simulation` for an application's own simulation device, which a UI
-    keeps on its simulation page. `conditions` joins what the device
-    reports of itself with what the runtime knows of polling it (`offline`,
-    `slow`).
+    keeps on its simulation page. `conditions` is what the rig's condition
+    store holds on the device (`offline`, `slow`, `write_failed`, ...), then
+    what its driver reports on its `conditions` signal.
     """
 
     name: str
@@ -363,7 +363,7 @@ class DeviceOut(BaseModel):
     readable: bool
     writable: bool
     conditions: list[Condition]
-    """What the device says of itself (its `conditions` output), then what the runtime knows."""
+    """What the rig holds on the device now, then what its driver reports of itself."""
     run: RunOut | None = None
 
     @classmethod
@@ -375,11 +375,10 @@ class DeviceOut(BaseModel):
         latest: dict[Signal, Reading],
         link: str | None,
         run: DeviceRun | None,
+        conditions: list[Condition] | None = None,
     ) -> DeviceOut:
-        held = latest.get(device.conditions)
-        conditions = [] if held is None else list(held.value)
-        if run is not None:
-            conditions.extend(run.conditions)
+        reported = latest.get(device.conditions)
+        conditions = [*(conditions or ()), *(() if reported is None else reported.value)]
         return cls(
             name=device.name,
             label=device.label,

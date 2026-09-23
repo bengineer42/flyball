@@ -139,13 +139,26 @@ export const severityRank = (severity: Severity): number => (SEVERITIES.indexOf(
 /** Whether `severity` is `floor` or worse. */
 export const atLeast = (severity: Severity, floor: Severity): boolean => severityRank(severity) >= severityRank(floor);
 
-/** Something true of a device now: offline, railed, slow. Lives in state, not a log. */
+/** Which way a condition went, on the event that records it; `null` on a point event. */
+export type Edge = "raised" | "cleared";
+
+/**
+ * Something true now of a device, a signal, a controller or the rig: offline,
+ * slow, held. Lives in the rig's condition store, not a log; its start and
+ * end are events (`edge`).
+ */
 export interface Condition {
-  /** Stable and machine-readable: `offline`, `slow`, `railed`. */
+  /** Stable and machine-readable: `offline`, `slow`, `stale_input`, a driver's own. */
   code: string;
   severity: Severity;
   message: string;
+  /** When it was raised. */
   since_ns: Nanoseconds;
+  /** The owner's kind: `device`, `signal`, `controller`, `rig`. */
+  scope: string;
+  /** The owner: a device's or controller's name, a signal's address, the rig's name. */
+  subject: string;
+  details?: unknown;
 }
 
 /** One signal of a device's tree, with its metadata as in force and its latest values. */
@@ -272,7 +285,7 @@ export interface DeviceOut {
 /** One entry of `/ws/samples`'s `runs`: a polled device's run as it reads, fails or is restarted. */
 export interface DeviceRunOut extends RunOut {
   name: string;
-  /** The runtime's conditions on polling it (`offline`, `slow`); the device's own are on its `conditions` signal. */
+  /** What the rig holds on the device now (`offline`, `slow`, `write_failed`, ...). */
   conditions: Condition[];
 }
 
@@ -578,8 +591,8 @@ export interface Health {
   devices: Record<string, { running: boolean; last_read_ns: Nanoseconds | null }>;
   /** Each controller's mode, by name. */
   controllers: Record<Address, ControllerMode>;
-  /** Every device's own conditions, then the runtime's (`offline`, `slow`, `write_failed`). */
-  conditions: Array<Condition & { device: string }>;
+  /** Every condition held now, on any device, signal, controller or the rig (`scope`, `subject`). */
+  conditions: Condition[];
   /**
    * Signals outside their warn/alarm band (not double-counted), plus
    * conditions at WARNING (warn) or ERROR (alarm); `max_level` is 40/30/0.
@@ -603,7 +616,10 @@ export interface Event {
   subject: string;
   code: string;
   message: string;
+  /** `details.duration_s` on a `cleared` edge: how long the condition held. */
   details: unknown;
+  /** `raised` or `cleared` for a condition's start or end; `null` for a point event. */
+  edge: Edge | null;
 }
 
 /** Alias for `Event`, for files where the DOM's `Event` is also in scope. */
@@ -979,6 +995,8 @@ export interface SessionEvent {
   source: string | null;
   detail: unknown;
   id: number | null;
+  /** `raised` or `cleared` for a condition's start or end; `null` for a point event. */
+  edge: Edge | null;
 }
 
 export interface Span {

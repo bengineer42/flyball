@@ -162,6 +162,15 @@ spelling it was recorded with: it is never loaded again. Migration 0019
 renamed `event.kind` to `code` and rewrote the severity each event's JSON
 `detail` carries from `logging`'s number (`level`: 10-40) to the lowercase
 string the wire uses (`severity`: `debug`, `info`, `warning`, `error`).
+Migration 0020 added `event.edge`: `raised`, `cleared` or NULL for a point
+event. Codes the runtime raised as conditions before it had edges
+(`offline`, `slow`, `write_failed`, `commit_failed`, `stale_input`,
+`limit_unknown`, `recording_failed`, a controller's `step_failed`) became
+`raised`; the codes that said one had ended became the `cleared` edge of
+their pair (`write_recovered`, `commit_recovered`, `step_recovered`,
+`limit_known`, and a device's `restarted`, which is `offline` cleared).
+The severity stays in the JSON `detail` as its string; the `edge` is a
+column, so a session's condition history is one indexed query.
 
 The scratch record and retention (D-008) are migration 0010: `session.kind`,
 `origin_ns`, `pinned`, `continues`, `bytes`. Trimming a scratch session

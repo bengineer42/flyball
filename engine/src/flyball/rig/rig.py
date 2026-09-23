@@ -27,7 +27,7 @@ from flyball.foundation.device import (
     AddressNotFoundError,
     Code,
     Committable,
-    Condition,
+    Conditions,
     Device,
     DeviceEntry,
     Event,
@@ -86,6 +86,10 @@ class Rig:
     """Everything that happened, as it happens."""
     recent: deque[Event]
     """The last few hundred events, for a late joiner."""
+    conditions: Conditions
+    """What is true now of each device, signal, controller and the rig itself, keyed by the
+    object: offline, slow, a failing write, a held controller. Each start and end is an event
+    (`raised`, `cleared`); in-process subscribers hear them too."""
     tunings: Tunings
     recorder: Recorder | None
     controllers: Controllers
@@ -113,15 +117,6 @@ class Rig:
     """Devices bound to a whole node, by that node: they get each sample cut down to it."""
     _requested: dict[Signal, float]
     """What a demand asked for where the clamp changed it, until the commit reports it."""
-    _limit_held: set[str]
-    """Controllers whose writes are held because a limit follows a signal with no value yet:
-    one event on entering the hold, one on leaving it, none per step between."""
-    _stale_held: set[str]
-    """Controllers whose writes are held because their measured signal is past `stale_after_s`:
-    one event on entering the hold, none per step while it lasts."""
-    _failing: set[str]
-    """Controllers whose step raised: one event on the first failure, one when a step succeeds
-    again, none per failing step between. The others in the delivery carry on regardless."""
     _touched: dict[Device, None] | None
     """The devices the delivery in progress applied to or observed on; None outside one."""
     _stepped: set[Controller] | None
@@ -131,10 +126,6 @@ class Rig:
     _ignored: set[Signal]
     """Demands whose driver's `commit` did not read them: one event when a signal's demand
     first goes unread, none per demand after, until one is read again."""
-    _commit_failures: dict[Device, Condition]
-    """Devices whose last `commit` on the delivery path raised, with what it raised: one
-    event on the first failure, one when a commit succeeds again, none per failing commit
-    between. A blocking device's writer keeps its own."""
     entries: dict[str, DeviceEntry]
     """What each device was built from: its rig-file entry, for rendering the rig back out."""
     link_entries: dict[str, Any]
@@ -165,6 +156,9 @@ class Rig:
         self.triggers = Triggers(lambda: self.clock)
         self.events = Topic()
         self.recent = deque(maxlen=500)
+        self.conditions = Conditions(
+            now_ns=lambda: self.clock.now_ns(), describe=self._describe, emit=self._publish
+        )
         self.tunings = Tunings()
         self.recorder = None
         self.controllers = Controllers()
@@ -179,12 +173,8 @@ class Rig:
         self._observers = {}
         self._node_observers = {}
         self._requested = {}
-        self._limit_held = set()
-        self._stale_held = set()
-        self._failing = set()
         self._touched = None
         self._stepped = None
-        self._commit_failures = {}
         self._ignored = set()
         self.entries = {}
         self.link_entries = {}
@@ -266,26 +256,49 @@ class Rig:
         message: str,
         details: Any = None,
     ) -> Event:
-        """Record that something happened: logged, kept, pushed to watchers, recorded."""
+        """Record that something happened: logged, kept, pushed to watchers, recorded.
+
+        A point event. What starts and ends -- a condition -- goes through
+        [conditions][flyball.rig.rig.Rig.conditions], whose edges come here too.
+        """
         event = Event(self.clock.now_ns(), severity, scope, subject, code, message, details)
-        log.log(severity.rank, "%s %s: %s", scope, subject, message)
-        self.recent.append(event)
-        self.events.publish(event)
-        if self.recorder is not None:
-            self.recorder.event(event)
+        self._publish(event)
         return event
 
-    def write_conditions(self) -> list[tuple[str, Condition]]:
-        """Bus failures seen now, by device name: a blocking device's writer's, a commit's.
+    def _publish(self, event: Event) -> None:
+        """Log, keep, stream and record one event.
 
-        Read from a snapshot, not under the lock: the async health route
-        calls it on the event loop, which must not wait on a delivery.
+        A condition's edge on a device also refreshes the device's run, so a
+        watcher of `runs` sees its conditions change.
         """
-        return [
-            (device.name, failed)
-            for device, writer in list(self._writers.items())
-            if (failed := writer.failed) is not None
-        ] + [(device.name, failed) for device, failed in list(self._commit_failures.items())]
+        edge = f" {event.edge}" if event.edge is not None else ""
+        log.log(
+            Severity(event.severity).rank,
+            "%s %s %s%s: %s",
+            event.scope,
+            event.subject,
+            event.code,
+            edge,
+            event.message,
+        )
+        self.recent.append(event)
+        self.events.publish(event)
+        if (recorder := self.recorder) is not None:
+            recorder.event(event)
+        if event.edge is not None and event.scope == Scope.DEVICE:
+            self.polling.touch(event.subject)
+
+    def _describe(self, owner: object) -> tuple[str, str]:
+        """A condition owner's scope and name: a device, a signal, a controller, or this rig."""
+        if owner is self:
+            return Scope.RIG, self.name or "rig"
+        if isinstance(owner, Device):
+            return Scope.DEVICE, owner.name
+        if isinstance(owner, Signal):
+            return Scope.SIGNAL, owner.address
+        if isinstance(owner, Controller):
+            return Scope.CONTROLLER, owner.name
+        raise TypeError(f"{type(owner).__name__} cannot own a condition")
 
     def close(self) -> None:
         """Tear down: polling, writers, recording, links. The rig can be built again.
@@ -299,6 +312,7 @@ class Rig:
         for writer in self._writers.values():
             writer.stop()
         self._stop_recording()
+        self.conditions.close()
         for name, link in self.links.items():
             close = getattr(link, "close", None)
             if close is None:
@@ -351,17 +365,20 @@ class Rig:
             self.recorder = Recorder(
                 writer, signals, controllers, on_failure=self._recording_failed
             )
+            self.conditions.clear(self, Code.RECORDING_FAILED, message="recording again")
             return self.recorder
 
     def _recording_failed(self, error: Exception) -> None:
-        """From the recorder's thread: detach it first, so the event does not go back to it."""
+        """From the recorder's thread: detach it first, so the edge does not go back to it.
+
+        A `recording_failed` condition on the rig until the next recording starts.
+        """
         with self.lock:
             recorder, self.recorder = self.recorder, None
-        self.event(
-            Severity.ERROR,
-            Scope.RIG,
-            "recorder",
+        self.conditions.set(
+            self,
             Code.RECORDING_FAILED,
+            Severity.ERROR,
             f"recording stopped: {type(error).__name__}: {error}",
         )
         if recorder is not None:
@@ -629,59 +646,49 @@ class Rig:
         `stale_input`: its measured signal has not been read within `stale_after_s`.
         `limit_unknown`: a limit on its output follows a signal with no value
         yet, or a non-finite one (D-030), or the limits resolve inverted
-        (D-040). Each is one event on entering the hold, not one per call;
-        `limit_known` marks leaving the second. The controller asks this
-        before it steps its law, so a held write freezes the law as well as
-        the output; `demand` asks it again for its own writes.
+        (D-040). Each is a condition on the controller while it lasts: raised
+        on entering the hold, cleared on leaving it, nothing per call between.
+        The controller asks this before it steps its law, so a held write
+        freezes the law as well as the output; `demand` asks it again for its
+        own writes.
         """
-        name = controller.name
         if (stale_after_s := controller.measured_signal.spec.stale_after_s) is not None:
             measured = controller.measured_signal
             reading = self.router.latest.get(measured)
             age_s = None if reading is None else (self.clock.now_ns() - reading.time_ns) / 1e9
             if age_s is None or age_s > stale_after_s:
-                if name not in self._stale_held:
-                    self._stale_held.add(name)
-                    self.event(
-                        Severity.WARNING,
-                        Scope.CONTROLLER,
-                        name,
-                        Code.STALE_INPUT,
-                        f"'{measured.address}' has not been read in over {stale_after_s:g}s: held",
-                        {"age_s": age_s},
-                    )
+                self.conditions.set(
+                    controller,
+                    Code.STALE_INPUT,
+                    Severity.WARNING,
+                    f"'{measured.address}' has not been read in over {stale_after_s:g}s: held",
+                    {"age_s": age_s},
+                )
                 return Code.STALE_INPUT
-            self._stale_held.discard(name)
+            self.conditions.clear(controller, Code.STALE_INPUT, message="read again: writing")
         try:
             controller.output_signal.clamp(0.0)
         except (LimitNotKnownError, LimitsInvertedError) as e:
             self._limit_unknown(controller, e)
             return Code.LIMIT_UNKNOWN
-        if name in self._limit_held:
-            self._limit_held.discard(name)
-            self.event(
-                Severity.INFO,
-                Scope.CONTROLLER,
-                name,
-                Code.LIMIT_KNOWN,
-                "every limit on its output is known: writing again",
-            )
+        self.conditions.clear(
+            controller,
+            Code.LIMIT_UNKNOWN,
+            message="every limit on its output is known: writing again",
+        )
         return None
 
     def _limit_unknown(
         self, controller: Controller, error: LimitNotKnownError | LimitsInvertedError
     ) -> None:
-        """Enter a `limit_unknown` hold: the event once, not per step."""
-        if controller.name not in self._limit_held:
-            self._limit_held.add(controller.name)
-            self.event(
-                Severity.WARNING,
-                Scope.CONTROLLER,
-                controller.name,
-                Code.LIMIT_UNKNOWN,
-                f"{error}: held",
-                {"signal": error.address, "unknown": error.unknown},
-            )
+        """Hold `limit_unknown` on the controller: raised once, not per step."""
+        self.conditions.set(
+            controller,
+            Code.LIMIT_UNKNOWN,
+            Severity.WARNING,
+            f"{error}: held",
+            {"signal": error.address, "unknown": error.unknown},
+        )
 
     def _rate_clamped(
         self,
@@ -764,34 +771,22 @@ class Rig:
                     raise
                 failed.update(dropped)
                 continue
-            if self._commit_failures.pop(device, None) is not None:
-                self.event(
-                    Severity.INFO,
-                    Scope.DEVICE,
-                    device.name,
-                    Code.COMMIT_RECOVERED,
-                    "commits succeed",
-                )
+            self.conditions.clear(device, Code.COMMIT_FAILED, message="commits succeed")
             states.update(self._states(device, time_ns, before))
         return states
 
     def _commit_failed(self, device: Committable, error: Exception) -> dict[Signal, WriteState]:
         """A commit raised: drop its demands, report the outage once; what each demand became."""
         message = f"{type(error).__name__}: {error}"
-        first = device not in self._commit_failures
-        self._commit_failures[device] = Condition(
-            Code.COMMIT_FAILED, Severity.ERROR, message, self.clock.now_ns()
+        raised = self.conditions.set(  # raised once per outage, not once per delivery
+            device,
+            Code.COMMIT_FAILED,
+            Severity.ERROR,
+            message,
+            {"signals": [signal.address for signal in device.staged]},
         )
-        if first:  # one event per outage, not one per delivery
+        if raised:
             log.warning("%s: commit failed: %s", device.name, message, exc_info=error)
-            self.event(
-                Severity.ERROR,
-                Scope.DEVICE,
-                device.name,
-                Code.COMMIT_FAILED,
-                message,
-                {"signals": [signal.address for signal in device.staged]},
-            )
         dropped: dict[Signal, WriteState] = {}
         for signal in device.staged:
             holder = self.controllers.driving(signal)
@@ -1060,7 +1055,9 @@ class Rig:
             self.write_states.discard(signal.address)
             self._requested.pop(signal, None)
             self._ignored.discard(signal)
-        self._commit_failures.pop(device, None)
+        for signal in device.signals.values():
+            self.conditions.clear_owner(signal)
+        self.conditions.clear_owner(device)
         for node in (device.root, *device.root.descendants()):
             self.router.samples.pop(node, None)
             self.router.cuts.pop(node, None)
@@ -1289,8 +1286,7 @@ class Rig:
         """
         with self.lock:
             controller = self.controllers.remove(name)
-            self._limit_held.discard(name)
-            self._stale_held.discard(name)
+            self.conditions.clear_owner(controller, reason="detached")
             controller.manual()
             controller.write = Controller._unwired
             controller.hold = Controller._never_held
@@ -1413,25 +1409,20 @@ class Rig:
         instead, and the controller's mode is left as it was -- what a
         faulted controller should do is a separate decision.
         """
-        name = controller.name
         try:
             controller.on_reading(reading)
         except Exception as error:
-            if name not in self._failing:
-                self._failing.add(name)
-                log.exception("controller %s failed its step", name)
-                self.event(
-                    Severity.ERROR,
-                    Scope.CONTROLLER,
-                    name,
-                    Code.STEP_FAILED,
-                    f"{type(error).__name__}: {error}",
-                    {"measured": reading.signal.address},
-                )
+            raised = self.conditions.set(
+                controller,
+                Code.STEP_FAILED,
+                Severity.ERROR,
+                f"{type(error).__name__}: {error}",
+                {"measured": reading.signal.address},
+            )
+            if raised:  # the traceback once per outage, not once per step
+                log.exception("controller %s failed its step", controller.name)
             return
-        if name in self._failing:
-            self._failing.discard(name)
-            self.event(Severity.INFO, Scope.CONTROLLER, name, Code.STEP_RECOVERED, "stepping again")
+        self.conditions.clear(controller, Code.STEP_FAILED, message="stepping again")
 
     @staticmethod
     def _check_sample(sample: Sample) -> None:

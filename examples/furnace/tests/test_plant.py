@@ -143,9 +143,12 @@ def test_a_failed_thermocouple_takes_the_daq_offline_with_an_event(furnace_rig):
     furnace.fail("zone3")
     rig.clock.advance(2)
     run = rig.polling.run("furnace")
-    assert run.running is False and run.conditions[0].code == "offline"
-    assert "zone3" in run.conditions[0].message
-    assert any(e.code == "offline" and e.subject == "furnace" for e in rig.recent)
+    (offline,) = rig.conditions.of(furnace)
+    assert run.running is False and offline.code == "offline"
+    assert "zone3" in offline.message
+    assert any(
+        e.code == "offline" and e.edge == "raised" and e.subject == "furnace" for e in rig.recent
+    )
     assert furnace.broken == ("zone3",)
     furnace.restore("zone3")
     assert furnace.conditions.value == () and furnace.broken == ()

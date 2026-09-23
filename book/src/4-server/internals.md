@@ -145,7 +145,7 @@ those cells directly — no separate observer is attached for them.
 
 | socket | cell(s) | frame |
 | --- | --- | --- |
-| `/ws/samples` | `rig.samples` (newest published sample per node), `rig.latest` (for `writes`), `rig.polling.runs` (for `runs`) | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, conditions}]}`; either key present only when something in it changed, at most one sample per node and one run per device per flush |
+| `/ws/samples` | `rig.samples` (newest published sample per node), `rig.latest` (for `writes`), `rig.polling.runs` (for `runs`; `conditions` read from `rig.conditions` as each run is sent, and a device-scope edge re-sets its run via `Polling.touch`) | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, conditions}]}`; either key present only when something in it changed, at most one sample per node and one run per device per flush |
 | `/ws/controllers` | `rig.controller_states` joined to controller settings | `{controllers: [ControllerOut]}` of those that ticked |
 | `/ws/activities` | `rig.triggers.latest` | `{activities: [ActivityOut]}` as each registers or settles |
 | `/ws/events` | `rig.recent` | `{events: [Event]}` as each happens |

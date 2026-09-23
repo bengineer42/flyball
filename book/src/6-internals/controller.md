@@ -161,8 +161,9 @@ Seven things to note:
    less one usual interval (the whole gap if there is no usual interval
    yet), so the law's `dt` is at most one ordinary interval and the result
    is what it would have been had the held ticks never happened. The rig
-   emits each hold's event once, on entering it (`limit_known` on leaving a
-   `limit_unknown` hold), and `demand(by=controller)` asks `hold_reason`
+   holds each reason as a condition on the controller in `rig.conditions`
+   (`stale_input`, `limit_unknown`): set on every held call, which raises
+   it once, and cleared on the first call that is not held, and `demand(by=controller)` asks `hold_reason`
    again for the write itself. Unattached, `hold` is
    `Controller._never_held`.
 

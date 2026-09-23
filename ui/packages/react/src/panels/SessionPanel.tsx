@@ -1,6 +1,6 @@
 import { type SessionDetail, useSessionSeries, useEverShown } from "../hooks/useSession.js";
 import { useEffect, useRef, useState } from "react";
-import { describeDevice, describeEventCode, describeStateKey, describeSubject, isHousekeeping, isNumeric, isScratch, type Dtype, type SignalOut, type SignalRow, fixed } from "@flyball/client";
+import { describeDevice, describeEdge, describeEventCode, describeStateKey, describeSubject, isHousekeeping, isNumeric, isScratch, type Dtype, type SignalOut, type SignalRow, fixed } from "@flyball/client";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
 import { TimeSeries } from "./TimeSeries.js";
 import type { YScale } from "./yscale.js";
@@ -513,6 +513,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                   <td className="fb-muted">+{duration(e.offset_ns / 1e9)}</td>
                   <td title={e.code}>
                     {severity && <span className={`fb-badge fb-event-${severity}`}>{severity}</span>} <span className="fb-tag">{describeEventCode(e.code)}</span>
+                    {e.edge && <span className={`fb-event-edge fb-event-${e.edge}`}>{describeEdge(e.edge, details)}</span>}
                   </td>
                   <td>{e.source ? describeSubject(e.source) : ""}</td>
                   <td>

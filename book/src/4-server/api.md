@@ -145,7 +145,7 @@ transaction begun inside another under the same error; `detail` says which.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, activities, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, code, severity, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warning` band (amber) or `alarm` band (red, not double-counted as warn) -- a reading that is not a finite number (`null`, NaN, an infinity, a string) counts as neither --, plus conditions at `warning` (counts as warn) or `error` (counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
+| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, activities, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every [`Condition`](wire.md#devices) held now, from the rig's condition store, on any device, signal, controller or the rig itself (`[{code, severity, message, since_ns, scope, subject, details}]`: `offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path, `stale_input`/`limit_unknown`/`step_failed` on a controller, `recording_failed` on the rig), then what drivers report on their `conditions` signals; `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warning` band (amber) or `alarm` band (red, not double-counted as warn) -- a reading that is not a finite number (`null`, NaN, an infinity, a string) counts as neither --, plus conditions at `warning` (counts as warn) or `error` (counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
 | `GET` | `/api/schema` | `{devices: {name: DeviceSchema}}` |
 | `GET` | `/api/clock` | `ClockOut`: `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 | `GET` | `/api/tunings` | `{name: LawConfig}` |
@@ -207,8 +207,9 @@ built in code), `class_name` its Python class, `link` the rig file's name for th
 it was built on (or null), `signals` the tree, `commands` `[CommandOut]`,
 `inputs` `{role: InputOut}` — what the device follows, and what is bound to
 it — `readable`/`writable` whether it implements `read`/`commit`,
-`conditions` its own (pushed onto its `conditions` output) plus the
-runtime's (`offline`, `slow`), and `run` `{period_s, running,
+`conditions` what the rig's condition store holds on the device (`offline`,
+`slow`, `write_failed`, `commit_failed`), then what its driver pushed onto its
+`conditions` output, and `run` `{period_s, running,
 last_read_ns}` for a polled device (null otherwise).
 
 A signal in the tree is `{name, address, access, role, tags, label,
@@ -448,31 +449,44 @@ Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answe
 | --- | --- | --- |
 | `GET` | `/api/events?limit=&severity=` | the last few hundred `Event`s, oldest first; `severity` keeps that severity and above |
 
-An `Event` is `{time_ns, severity, scope, subject, code, message, details}`;
+An `Event` is `{time_ns, severity, scope, subject, code, message, details, edge}`;
 `severity` is `debug`, `info`, `warning` or `error` (the same lowercase
-string a condition carries). `scope` is `device`,
+string a condition carries). `scope` is `device`, `signal`,
 `controller`, `program` or `rig`, and `subject` names which one. `code` is
-one of a fixed set:
+one of a fixed set. Most are **point events** (`edge: null`): something
+happened. The codes marked *condition* below are held in the rig's
+condition store while they last, and their events are **edges**: `edge:
+"raised"` when the condition begins (at its own severity) and `edge:
+"cleared"` when it ends (`info`, with `details.duration_s`, how long it
+held). A condition that is set again while it holds only updates its
+message: one `raised` per outage, never one per poll or per step.
 
-| scope | codes |
-| --- | --- |
-| `device` | `offline`, `restarted`, `slow`, `write_failed`, `write_recovered`, `commit_failed`, `commit_recovered`, `demand_ignored` |
-| `controller` | `step_failed`, `step_recovered`, `stale_input`, `limit_unknown`, `limit_known`, `interrupted` |
-| `program` | `started`, `step`, `step_timed_out`, `step_failed`, `succeeded`, `failed`, `cancelled` (a person), `interrupted` (the engine, with `details.reason`), `run_from_library` |
-| `rig` | `delivery_failed`, `recording_failed`, `restored` |
+| scope | conditions (raised / cleared) | point events |
+| --- | --- | --- |
+| `device` | `offline` (cleared by a restart), `slow`, `write_failed`, `commit_failed`, and a driver's own | `delivery_failed`, `demand_ignored` |
+| `signal` | a driver's own (the sim's `broken`) | |
+| `controller` | `step_failed` (a law that raised), `stale_input`, `limit_unknown` | `interrupted` |
+| `program` | | `started`, `step`, `step_timed_out`, `step_failed`, `succeeded`, `failed`, `cancelled` (a person), `interrupted` (the engine, with `details.reason`), `run_from_library` |
+| `rig` | `recording_failed` (cleared by the next recording) | `delivery_failed`, `restored` |
 
-A [`Condition`](wire.md#devices) the runtime raises uses the same codes
-(`offline`, `slow`, `write_failed`, `commit_failed`); a driver's own conditions may use any
+There is no separate "recovered" code: `offline` cleared is what
+`restarted` was, and `write_failed`, `commit_failed`, `step_failed` and
+`limit_unknown` cleared are what `write_recovered`, `commit_recovered`,
+`step_recovered` and `limit_known` were. `restarted` is kept for the
+runner's own restart (not raised yet). Removing a device or detaching a
+controller clears what it held, one `cleared` edge each (`details.reason`
+`removed` or `detached`). A [`Condition`](wire.md#devices) carries the same
+code, its `scope` and `subject`, and `since_ns`; a driver's own may use any
 string.
 
 `commit_failed` (`error`) is a device's `commit` that raised on the delivery
-path: once per outage, with the demands it dropped in `details.signals`, and
-a `commit_failed` condition on the device until a commit succeeds
-(`commit_recovered`, `info`). The dropped demands are not sent later; the
+path: raised once per outage, with the demands it dropped in
+`details.signals`, and held on the device until a commit succeeds
+(cleared, `info`). The dropped demands are not sent later; the
 controller driving one hears `expected: null` for that tick, and the rest
 of the delivery -- other devices' commits, the recorder -- goes on. A
 manual demand or a command whose commit raises also gets the error back.
-`write_failed` / `write_recovered` are the same for a blocking device's
+`write_failed` is the same for a blocking device's
 writer thread; a write that reached the device but whose report to the rig
 raised is a `write_failed` too (logged; the thread goes on writing).
 
@@ -491,7 +505,7 @@ flush sends nothing.
 
 | socket | on connect | then |
 | --- | --- | --- |
-| `/ws/samples` | the newest published sample per node, and every polled device's run | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, conditions}]}`, either key present only when something in it changed; at most one sample per node, and one run per device, per flush |
+| `/ws/samples` | the newest published sample per node, and every polled device's run | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, conditions}]}`, either key present only when something in it changed; at most one sample per node, and one run per device, per flush. A run's `conditions` are what the rig holds on the device now; a condition raised or cleared on it sends the run again |
 | `/ws/controllers` | every controller | `{controllers: [ControllerOut]}` of those that ticked |
 | `/ws/activities` | every registered activity | `{activities: [ActivityOut]}` as each registers or settles |
 | `/ws/events` | the recent events | `{events: [Event]}` as each happens |

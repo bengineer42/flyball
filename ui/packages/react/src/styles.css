@@ -336,6 +336,9 @@
 .fb-event-scope { white-space: nowrap; }
 .fb-event-scope .fb-muted { margin: 0 0.2rem; }
 .fb-event-code { white-space: nowrap; }
+.fb-event-edge { margin-left: 0.4em; font-size: 0.85em; color: var(--fb-fg-2); }
+.fb-event-edge.fb-event-raised::before { content: "▲ "; }
+.fb-event-edge.fb-event-cleared::before { content: "✓ "; }
 .fb-event-message { width: 100%; }
 .fb-event-details td { background: var(--fb-bg-2); padding-left: 1.5rem; }
 .fb-event-details .fb-state { margin: 0.2rem 0; }

@@ -274,13 +274,35 @@ const EVENT_CODES: Record<string, string> = {
   interrupted: "Interrupted",
   run_from_library: "Run from library",
   restarted: "Restarted",
-  offline: "Went offline",
+  offline: "Offline",
   slow: "Running slow",
   delivery_failed: "Delivery failed",
-  write_recovered: "Writes recovered",
   write_failed: "Write failed",
+  commit_failed: "Commit failed",
+  demand_ignored: "Demand ignored",
+  stale_input: "Measured signal stale",
+  limit_unknown: "Output limit unknown",
   recording_failed: "Recording failed",
+  restored: "Rig version restored",
 };
+
+/** A condition's edge event worded for a log reader: "Offline" raised, "Offline cleared after 12 s". */
+export function describeEdge(edge: "raised" | "cleared" | null, details: unknown): string | null {
+  if (edge === null) return null;
+  if (edge === "raised") return "raised";
+  const d = details && typeof details === "object" ? (details as { duration_s?: unknown }).duration_s : undefined;
+  return typeof d === "number" ? `cleared after ${describeDuration(d)}` : "cleared";
+}
+
+/** Seconds as a person reads a span: `850 ms`, `12 s`, `3 min 5 s`, `2 h 4 min`. */
+export function describeDuration(seconds: number): string {
+  if (seconds < 1) return `${Math.round(seconds * 1000)} ms`;
+  if (seconds < 60) return `${Math.round(seconds)} s`;
+  const m = Math.floor(seconds / 60);
+  if (m < 60) return `${m} min${seconds % 60 >= 1 ? ` ${Math.floor(seconds % 60)} s` : ""}`;
+  const h = Math.floor(m / 60);
+  return `${h} h${m % 60 ? ` ${m % 60} min` : ""}`;
+}
 
 /** An event's `code` (`step_timed_out`, `run_from_library`) as a phrase for a person. Unknown codes fall through to `humanise`. */
 export function describeEventCode(code: string): string {

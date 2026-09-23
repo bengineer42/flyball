@@ -109,17 +109,19 @@ class TestCommitFailure:
             clock.advance(1.0)
             _deliver(rig, furnace)
         assert flaky.commits == 3 and len(_events(rig, Code.COMMIT_FAILED)) == 1
-        (condition,) = [c for name, c in rig.write_conditions() if name == flaky.name]
+        (condition,) = rig.conditions.of(flaky)
         assert condition.code == Code.COMMIT_FAILED and condition.severity is Severity.ERROR
         flaky.fail = False
         clock.advance(1.0)
         _deliver(rig, furnace)
-        (recovered,) = _events(rig, Code.COMMIT_RECOVERED)
+        raised, recovered = _events(rig, Code.COMMIT_FAILED)
+        assert (raised.edge, recovered.edge) == ("raised", "cleared")
         assert recovered.subject == flaky.name and recovered.severity is Severity.INFO
-        assert not [c for name, c in rig.write_conditions() if name == flaky.name]
+        assert recovered.details["duration_s"] == pytest.approx(3.0)
+        assert rig.conditions.of(flaky) == []
         clock.advance(1.0)
         _deliver(rig, furnace)
-        assert len(_events(rig, Code.COMMIT_RECOVERED)) == 1
+        assert len(_events(rig, Code.COMMIT_FAILED)) == 2
 
     def test_a_failed_demand_is_not_applied_later(self, rig, clock, furnace, flaky):
         out = flaky.signals["out"]
@@ -282,7 +284,7 @@ def test_a_raise_in_written_does_not_kill_the_writer(rig, fresh, monkeypatch):
         assert writer._thread.is_alive()
         rig.write(device.root, {"heater1": 20.0})
         _until(lambda: len(calls) == 2 and writer.failed is None)
-        assert _events(rig, Code.WRITE_RECOVERED)
+        assert [e.edge for e in _events(rig, Code.WRITE_FAILED)] == ["raised", "cleared"]
         assert rig.latest[device.signals["heater1"]].value == 20.0
     finally:
         rig.close()

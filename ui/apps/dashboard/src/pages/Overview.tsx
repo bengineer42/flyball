@@ -243,9 +243,9 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
       {h && h.conditions.length > 0 && (
         <Stack spacing={0.5} sx={{ mb: 3 }}>
           {h.conditions.map((c) => (
-            <Alert key={`${c.device}-${c.code}-${c.since_ns}`} severity={c.severity === "error" ? "error" : "warning"}>
-              <Link href={hrefFor({ kind: "device", name: c.device })} color="inherit" underline="hover">
-                <strong>{c.device}</strong>
+            <Alert key={`${c.subject}-${c.code}-${c.since_ns}`} severity={c.severity === "error" ? "error" : "warning"}>
+              <Link href={hrefFor({ kind: "device", name: c.subject })} color="inherit" underline="hover">
+                <strong>{c.subject}</strong>
               </Link>{" "}
               <strong>{c.code}</strong> {c.message}
             </Alert>

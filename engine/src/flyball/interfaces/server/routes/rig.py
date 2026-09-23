@@ -7,11 +7,10 @@ made of is under `/api/devices` and `/api/controllers`.
 from __future__ import annotations
 
 import math
-from dataclasses import asdict
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import SerializeAsAny, ValidationError
+from pydantic import SerializeAsAny, TypeAdapter, ValidationError
 
 from flyball.control.errors import TuningNotRegisteredError
 from flyball.foundation.device import Condition, Device, Severity
@@ -76,26 +75,24 @@ def _alarm_summary(rig: Rig, conditions: list[dict[str, Any]]) -> dict[str, int]
     }
 
 
+CONDITION = TypeAdapter(Condition)
+
+
 def _device_conditions(rig: Rig, device: Device) -> tuple[Condition, ...]:
     reading = rig.router.reading(device.conditions)
     return () if reading is None else tuple(reading.value)
 
 
 def _conditions(rig: Rig) -> list[dict[str, Any]]:
-    """What every device reports of itself, then what the runtime knows: polling, writing."""
-    return (
-        [
-            {"device": name, **asdict(c)}
-            for name, device in rig.devices.items()
-            for c in _device_conditions(rig, device)
-        ]
-        + [
-            {"device": name, **asdict(c)}
-            for name in rig.polling.by_name
-            for c in rig.polling.run(name).conditions
-        ]
-        + [{"device": name, **asdict(c)} for name, c in rig.write_conditions()]
-    )
+    """Every condition held now: the rig's store, then drivers' `conditions` signals.
+
+    Each carries its `scope` and `subject`. A snapshot of the store under its
+    own lock, never the rig's: the health route runs on the event loop, which
+    must not wait on a delivery.
+    """
+    devices = list(rig.devices.values())
+    reported = [c for device in devices for c in _device_conditions(rig, device)]
+    return [CONDITION.dump_python(c, mode="json") for c in [*rig.conditions.all(), *reported]]
 
 
 # region Health

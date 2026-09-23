@@ -6,8 +6,9 @@ have applied and committed through a [Writer][flyball.runtime.writer.Writer]:
 the values are queued (the newest per signal wins), the writer's thread
 applies them and runs the device's `commit`, and the write states it
 reports go back to the rig -- published, delivered to the controllers,
-recorded -- when the write completes. A bus that fails raises an event and
-a condition the writer holds until a write succeeds; deliveries go on.
+recorded -- when the write completes. A bus that fails raises a
+`write_failed` condition on the device, cleared by the next write that
+succeeds; deliveries go on.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import logging
 from threading import Event, Lock, Thread
 from typing import TYPE_CHECKING
 
-from flyball.foundation.device import Code, Committable, Condition, Scope, Severity, Signal
+from flyball.foundation.device import Code, Committable, Condition, Severity, Signal
 
 if TYPE_CHECKING:
     from flyball.rig import Rig
@@ -30,8 +31,6 @@ class Writer:
     def __init__(self, rig: Rig, device: Committable) -> None:
         self.rig = rig
         self.device = device
-        self.failed: Condition | None = None
-        """Set while the last commit raised; cleared by the next that succeeds."""
         self.writes = 0
         self._queued: dict[Signal, tuple[int, float]] = {}
         self._commit_ns: int | None = None
@@ -92,25 +91,18 @@ class Writer:
             log.exception("%s: reporting a write", self.device.name)
             self._failure(error)
             return
-        if self.failed is not None:
-            self.failed = None
-            self.rig.event(
-                Severity.INFO,
-                Scope.DEVICE,
-                self.device.name,
-                Code.WRITE_RECOVERED,
-                "writes succeed",
-            )
+        self.rig.conditions.clear(self.device, Code.WRITE_FAILED, message="writes succeed")
+
+    @property
+    def failed(self) -> Condition | None:
+        """The device's `write_failed` while the last write failed; None once one succeeds."""
+        return self.rig.conditions.get(self.device, Code.WRITE_FAILED)
 
     def _failure(self, error: Exception) -> None:
         message = f"{type(error).__name__}: {error}"
-        first = self.failed is None
-        self.failed = Condition(Code.WRITE_FAILED, Severity.ERROR, message, self.rig.clock.now_ns())
-        if first:  # one event per outage, not one per tick
+        # Raised once per outage, not once per tick: a held condition is only updated.
+        if self.rig.conditions.set(self.device, Code.WRITE_FAILED, Severity.ERROR, message):
             log.warning("%s: write failed: %s", self.device.name, message)
-            self.rig.event(
-                Severity.ERROR, Scope.DEVICE, self.device.name, Code.WRITE_FAILED, message
-            )
 
     def stop(self, join: bool = True) -> None:
         """Stop the thread after the write in progress, if any.

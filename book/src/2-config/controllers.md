@@ -67,8 +67,9 @@ First it checks the write would land. If the measured signal has gone stale
 value yet (a supply humidity not read yet) or a non-finite one (NaN,
 infinite), the controller is **held** and the tick stops here: the law
 does not step, nothing is written, the output keeps what it last took,
-and an event says why, once per hold (`stale_input`; `limit_unknown`,
-then `limit_known` when writes resume). A held law cannot wind up, and
+and a condition on the controller says why while it lasts (`stale_input`
+or `limit_unknown`: one `raised` event on entering the hold, one
+`cleared` when writes resume, nothing per tick between). A held law cannot wind up, and
 the first step after the hold counts as one ordinary interval, so the
 time spent held is not integrated either.
 
@@ -90,7 +91,7 @@ Then:
    makes the same check on every write it is handed by a
    controller (a `regulate` while held is applied to the controller, not
    the output). A law that raises (no law set, say) is a `step_failed`
-   event, once, and `step_recovered` when it steps again; the other
+   condition on the controller, raised once and cleared when it steps again; the other
    controllers on the rig are not held up by it. A setpoint that is NaN or
    infinite is refused (422) before the controller changes.
 5. **Remember** the measured reading, the output and what was delivered, so the next

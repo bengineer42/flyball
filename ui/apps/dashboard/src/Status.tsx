@@ -183,7 +183,7 @@ export function Status({ recording, programmer, streams, byStream, eventsUnread 
       colour={alarmColour}
       minWidth="7rem"
       lines={[
-        ...active.map((c) => ({ name: `${c.device} ${c.code}`, href: hrefFor({ kind: "device", name: c.device }), state: c.message })),
+        ...active.map((c) => ({ name: `${c.subject} ${c.code}`, href: hrefFor({ kind: "device", name: c.subject }), state: c.message })),
         ...(amber > 0 ? [{ name: "signals", state: `${amber} outside their warn band` }] : []),
         ...(red > 0 ? [{ name: "signals", state: `${red} outside their alarm band` }] : []),
       ]}
