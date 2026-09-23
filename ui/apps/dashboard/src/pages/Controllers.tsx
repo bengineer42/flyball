@@ -34,7 +34,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Form as MuiForm } from "@rjsf/mui";
 import { ControllerPanel, SchemaForm, WritePanel, useControllers, useQuery, useRig, type ControllerTrace } from "@flyball/react";
-import { signalTitle, signalsOf, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type ReferenceSpec, type SignalChoice, type StartSpec, type SignalOut } from "@flyball/client";
+import { signalTitle, signalsOf, writable, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type ReferenceSpec, type SignalChoice, type StartSpec, type SignalOut } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
 import { useAuth } from "../auth.js";
 import { useRecordingExports } from "../model.js";
@@ -728,8 +728,9 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
   const stored = useRecordingExports();
   const { controllers, history, status } = useControllers(3600);
   const signals = useMemo(() => new Map(devices.flatMap((d) => signalsOf(d.signals)).map((s) => [s.address, s])), [devices]);
-  // A controller's target is a demand: settable, with a readback that updates.
-  const targets = useMemo(() => [...signals.values()].filter((s) => s.role === "demand"), [signals]);
+  // A controller's target is a demand: settable, with a readback that updates. A demand the driver
+  // declares read-only (a composite's readback, e.g. a blender's per-pump flows) is not one.
+  const targets = useMemo(() => [...signals.values()].filter((s) => s.role === "demand" && writable(s)), [signals]);
   const controllerSchema = useQuery(() => rig.controllerSchema(), [rig]);
   // The stream never says a controller is gone: hide one we detached until the stream sends a new object for that name (re-created).
   const [removed, setRemoved] = useState<Record<string, ControllerOut>>({});
@@ -764,7 +765,11 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
     const source = c ? signals.get(c.source) : undefined;
     return c && source ? [{ target, c, source }] : [];
   });
-  const undriven = shown.filter((target) => !driven.some((d) => d.target === target));
+  // For now, a device with a driven demand hides its other demands: a composite (the humidity blender)
+  // owns its outputs through the driven one and ignores direct writes to the rest, so their Set did nothing.
+  // Drop this once composite inner demands are guarded or declared readbacks (TODO § Backend, ENG-25).
+  const drivenDevices = new Set(driven.map((d) => d.target.address.split(".")[0]));
+  const undriven = shown.filter((target) => !driven.some((d) => d.target === target) && !drivenDevices.has(target.address.split(".")[0]));
   const toolbar = (
     <PageBar end={<ChartControls {...charts} unit={only ? signals.get(only.source)?.unit : undefined} />}>
       {name !== null && <Crumbs items={[{ label: "controllers", href: hashFor("controllers") }, { label: name }]} />}
