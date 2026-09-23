@@ -2,281 +2,312 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/http"
+	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
-	"flyballd/internal/exposure"
-	"flyballd/internal/rigfile"
+	"flyballd/internal/endpoint"
+	"flyballd/internal/endpoint/frontdir"
+	"flyballd/internal/front"
+	"flyballd/internal/frontwire"
 )
 
-// runDirect starts a runner directly, no daemon involved at all -- the
-// CLI itself execs the literal `flyball-runner` command (Python's own
-// entry point, renamed from `flyball-daemon` per the daemon/runner
-// rename) in the foreground, same invocation plan.md's "How the daemon
-// starts and talks to a runner" section already specifies. No
-// supervision (no restart-on-crash), no registry, no routing -- those
-// are what you lose by not going through flyballd; this is the "you
-// shouldn't need the daemon to run one runner" escape hatch.
+// runDirect is `flyball run RIG-FILE [--listen ADDR] [--uv]
+// [--insecure-open] [flyball-runner flags...]`: one rig, in the
+// foreground, no flyballd. It starts the front (serve_ui.go) and runs
+// flyball-runner behind it, fronted: the runner gets a front-dir
+// (`--front-dir DIR`: a fresh key, its aud `run-<8 hex>`, its endpoint, a
+// socket in DIR) and is reachable only through the front. A runner that
+// crashes is started again with a fresh key; one that exits cleanly, with
+// a bad rig file (2), a busy rig (3) or twice in a row an unusable
+// front-dir (4) ends the run.
 //
-// --serve-ui ADDR additionally serves the embedded dashboard UI on ADDR,
-// reverse-proxying /api, /ws and /mcp to the runner -- so the runner is
-// reachable through the CLI's own binary with no separate reverse proxy
-// in front of it (see serve_ui.go). On an address beyond loopback it
-// serves nothing until the runner answers GET /api/auth. An auth
-// misconfiguration removes exposure, never operation: an open runner (no
-// password, no token) keeps running and the UI is served on 127.0.0.1 on
-// the same port instead, with one warning saying why, unless
-// --insecure-open or FLYBALL_INSECURE_OPEN=1 (per run: never a rig-file
-// key) says to serve it where asked. A runner with credentials is served
-// with a warning that plain HTTP carries them in the clear.
+// A bare runner (its own TCP port, a token) is reached only by running
+// flyball-runner directly.
 //
-// --uv runs `flyball-runner` via `uv run --project <dir>` instead of
-// execing it bare, where <dir> is the rig file's own directory -- the
-// bare exec only works when flyball-runner happens to already be on
-// $PATH, which it never is outside an app's own uv-managed venv
-// (examples/humidity's, examples/furnace's, ...). `uv run` finds that
-// venv from --project the same way it would from cwd if you'd `cd`ed
-// there yourself.
-// runnerCommand is what runDirect execs when not going through uv; a
-// variable so a test can stand a fake runner in for it.
+// --uv runs `flyball-runner` via `uv run --project <dir>`, <dir> being the
+// rig file's own directory: the bare exec only works when flyball-runner
+// is already on $PATH, which it never is outside an app's own uv-managed
+// venv.
+func runDirect(args []string) error {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+	first := make(chan os.Signal, 1)
+	go func() {
+		sig := <-sigs
+		signal.Stop(sigs) // a second Ctrl+C kills flyball the normal way
+		first <- sig
+	}()
+	return run(args, first)
+}
+
+// runnerCommand is what a run execs when not going through uv; a variable
+// so a test can stand a fake runner in for it.
 var runnerCommand = "flyball-runner"
 
 // uvCommand is `uv`, a variable for the same reason.
 var uvCommand = "uv"
 
-func runDirect(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: flyball run <rig-file> [--serve-ui ADDR] [--uv] [flyball-runner flags...]")
+// runOut is where `flyball run` writes its own lines (the banner, the
+// runner's exits); a variable for the tests.
+var runOut io.Writer = os.Stderr
+
+const runUsage = "usage: flyball run <rig-file> [--listen ADDR] [--uv] [--insecure-open] [flyball-runner flags...]"
+
+// run is runDirect with the stop signals given: the first stops the
+// runner (and so the run); after it, signals are no longer caught.
+func run(args []string, sigs <-chan os.Signal) error {
+	o := parseRunArgs(args)
+	if len(o.rest) < 1 || strings.HasPrefix(o.rest[0], "-") {
+		return errors.New(runUsage)
+	}
+	rig := o.rest[0]
+	doc := rigDocument(rig)
+	runner, _ := doc["runner"].(map[string]any)
+	cfg, useUV, bad, warnings := runFront(runner, o.listen)
+	useUV = useUV || o.uv
+
+	plan, proxy := frontwire.Plan(cfg, bad, o.insecureOpen)
+	plan.Warnings = append(warnings, plan.Warnings...)
+	if b := plan.Banner(); b != "" {
+		for _, line := range strings.Split(b, "\n") {
+			fmt.Fprintln(runOut, "flyball:", line)
+		}
 	}
 
-	// args[0] is known present (the guard above), so it's safe to load it now
-	// for `runner.run` defaults -- this must stay after that guard, not
-	// before it, since reading the rig file obviously requires one.
-	runner := runnerSection(args[0])
-	defaults, _ := runner["run"].(map[string]any)
-	runnerPort, _ := asNonEmptyString(runner["port"])
-	serveAddr, wantUI, port, useUV, args := resolveRunFlags(args, defaults, runnerPort)
-	if len(args) < 1 {
-		return fmt.Errorf("usage: flyball run <rig-file> [--serve-ui ADDR] [--uv] [flyball-runner flags...]")
+	id, err := frontdir.FrontID(rig)
+	if err != nil {
+		plan.Close()
+		return fmt.Errorf("front-dir for %s: %w", rig, err)
 	}
-	insecureOpen := insecureOpenRequested(args)
-
-	var cmd *exec.Cmd
-	if useUV {
-		projectDir := filepath.Dir(args[0])
-		uvArgs := append([]string{"run", "--project", projectDir, "flyball-runner"}, args...)
-		cmd = exec.Command(uvCommand, uvArgs...)
-		// uv ignores SIGINT: it leaves it to the terminal, which sends it to
-		// the whole foreground process group, runner included. Stopped from
-		// anywhere else (a script, a service manager) the runner would never
-		// hear it. So uv and the runner get a process group of their own, and
-		// a stop goes to the group -- once, whoever sent it.
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	} else {
-		cmd = exec.Command(runnerCommand, args...)
+	root := frontdir.Root(id)
+	dir, err := frontdir.Dir(root, "run")
+	if err != nil {
+		plan.Close()
+		return err
 	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("starting flyball-runner: %w", err)
+	if root == "" || filepath.Dir(dir) != filepath.Clean(root) {
+		defer os.RemoveAll(dir) // a temp dir: ours alone
 	}
 
-	// Forward Ctrl+C / SIGTERM to the child so it can shut down cleanly,
-	// rather than the CLI exiting and leaving it orphaned mid-signal. The
-	// child (uvicorn) already prints its own graceful-shutdown sequence
-	// once the signal reaches it, but that can take a moment (draining
-	// connections, stopping polling) -- print immediately, at the instant
-	// the signal is caught, so Ctrl+C gets visible feedback right away
-	// rather than a silent pause before the child's own logs show up.
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	s := &supervisor{
+		dir: dir, aud: "run-" + randomHex(4),
+		ep:         endpoint.Endpoint{Network: "unix", Address: filepath.Join(dir, frontdir.Sock)},
+		command:    runnerExec(useUV, rig, append(o.rest, "--front-dir", dir)),
+		minBackoff: time.Second,
+		wake:       make(chan struct{}, 1),
+	}
+	if err := s.ep.Validate(); err != nil {
+		plan.Close()
+		return err
+	}
+
+	name, _ := doc["name"].(string)
+	if name == "" {
+		name = strings.TrimSuffix(filepath.Base(rig), filepath.Ext(rig))
+	}
+	logger := slog.New(slog.NewTextHandler(runOut, nil))
+	f, closeFront := frontwire.Open(plan, proxy, frontwire.RunDir(id),
+		front.SingleRig(front.Rig{Root: "", Name: name, Target: s.target}), nil, logger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	served := make(chan struct{})
 	go func() {
-		sig := <-sigs
-		fmt.Fprintln(os.Stderr, "flyball: stopping...")
-		signal.Stop(sigs) // a second Ctrl+C kills the process the normal way, doesn't hang
-		if cmd.SysProcAttr != nil && cmd.SysProcAttr.Setpgid {
-			_ = syscall.Kill(-cmd.Process.Pid, sig.(syscall.Signal))
-		} else {
-			_ = cmd.Process.Signal(sig)
+		defer close(served)
+		fmt.Fprintf(runOut, "flyball: serving rig %s on %s (%s)\n", name, describeListen(plan), plan.Shape)
+		if err := front.Serve(ctx, plan, f); err != nil {
+			// A front that cannot listen does not stop the rig (D-028):
+			// it runs on, stoppable by signal or `flyball stop`.
+			fmt.Fprintln(runOut, "flyball: the front cannot serve:", err)
+		}
+	}()
+	go func() {
+		sig, ok := <-sigs
+		if ok && sig != nil {
+			fmt.Fprintln(runOut, "flyball: stopping...")
+			s.signal(sig)
 		}
 	}()
 
-	uiCtx, cancelUI := context.WithCancel(context.Background())
-	defer cancelUI()
-	uiDone := make(chan struct{})
-	if !wantUI {
-		close(uiDone)
-	} else {
-		go func() {
-			defer close(uiDone)
-			var plan *exposure.Plan
-			if !exposure.IsLoopback(serveAddr) {
-				// Beyond loopback the front serves nothing until the runner
-				// has said what door it has: an open one gets loopback only.
-				p, err := guardExposure(uiCtx, serveAddr, port, insecureOpen)
-				if err != nil {
-					return // the runner exited first
-				}
-				plan = &p
-				serveAddr = p.Addr
-			}
-			fmt.Fprintf(os.Stderr, "flyball: serving UI on %s, proxying to runner on 127.0.0.1:%s\n", serveAddr, port)
-			if err := serveUI(uiCtx, serveAddr, port, plan); err != nil {
-				fmt.Fprintln(os.Stderr, "flyball: UI server:", err)
-			}
-		}()
-	}
-
-	err := cmd.Wait()
-	cancelUI() // the runner is gone: stop the front, and wait for it
-	<-uiDone
+	err = s.run()
+	cancel()
+	<-served
+	closeFront()
 	return err
 }
 
-// guardExposure waits for the runner on 127.0.0.1:port to answer
-// GET /api/auth, then plans the front on addr (exposure.Decide), logging
-// its warning. A runner whose door cannot be read counts as open. Returns
-// ctx's error if the runner exits first.
-func guardExposure(ctx context.Context, addr, port string, insecureOpen bool) (exposure.Plan, error) {
-	fmt.Fprintf(os.Stderr, "flyball: waiting for the runner on 127.0.0.1:%s before serving the UI on %s\n", port, addr)
-	url := "http://127.0.0.1:" + port + "/api/auth"
-	client := &http.Client{Timeout: 2 * time.Second}
-	for {
-		door, err := exposure.Probe(ctx, client, url)
-		if err == nil || errors.Is(err, exposure.ErrNotADoor) {
-			// It answered; if not as a runner's door, it cannot tell: open.
-			plan := exposure.Decide(addr, door, insecureOpen)
-			if plan.Warning != "" {
-				fmt.Fprintln(os.Stderr, "flyball: WARNING:", plan.Warning)
-			}
-			return plan, nil
-		}
-		// No answer yet: the runner is still starting.
-		select {
-		case <-ctx.Done():
-			return exposure.Plan{}, ctx.Err()
-		case <-time.After(250 * time.Millisecond):
-		}
+func describeListen(p front.Plan) string {
+	if strings.HasPrefix(p.Listen, "unix:") {
+		return p.Listen
 	}
+	scheme := "http"
+	if p.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + p.Listen + "/"
 }
 
-// insecureOpenRequested is the explicit opt-in to serve an open runner
-// beyond loopback, per run only: --insecure-open among the runner's flags
-// (left there, so the runner sees it too), or FLYBALL_INSECURE_OPEN set to
-// 1/true/yes/on (inherited by the runner). Never a rig-file key: a file
-// can be pasted from anywhere, and `extends` would inherit it.
-func insecureOpenRequested(args []string) bool {
-	for _, a := range args {
-		if a == "--insecure-open" {
-			return true
-		}
-	}
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("FLYBALL_INSECURE_OPEN"))) {
-	case "1", "true", "yes", "on":
-		return true
-	}
-	return false
-}
-
-// runYAMLDefaults reads rigPath's own document -- `extends` resolved the
-// same way `flyball rig check` resolves it -- and returns its
-// `runner.run` map, or nil if the file can't be loaded or the key is
-// absent (most rigs won't set it). These are Go-CLI-only defaults for
-// `flyball run`'s own flags (`serve_ui`, `uv`, `port`): the Python side
-// (`RunnerConfig.run` in engine/src/flyball/runtime/config.py) accepts
-// this key but never reads or validates its contents, so any load error
-// here is left for `flyball-runner` itself to report properly once it
-// loads the rig file for real -- this best-effort read must never be
-// the thing that turns a bad rig file into a confusing error.
-func runYAMLDefaults(rigPath string) map[string]any {
-	run, _ := runnerSection(rigPath)["run"].(map[string]any)
-	return run
-}
-
-// runnerSection is rigPath's `runner` map, `extends` resolved; nil if the
-// file cannot be loaded or has none.
-func runnerSection(rigPath string) map[string]any {
-	document, _, err := rigfile.ResolveLayers([]string{rigPath}, nil)
-	if err != nil {
-		return nil
-	}
-	runner, _ := document["runner"].(map[string]any)
-	return runner
-}
-
-// resolveRunFlags pops --serve-ui/--uv out of args (which may appear
-// anywhere, same as popValue/popBool always allowed), falling back to
-// defaults (runner.run's serve_ui/port/uv, as loaded by runYAMLDefaults)
-// for any not explicitly given on the command line. CLI flags always win:
-// a YAML value only ever supplies the default for a flag whose CLI form
-// was absent. Pure and independent of any file I/O, so it's unit-testable
-// without a real rig file.
-//
-// port is where the runner serves, so where the UI proxies to: --port,
-// else runnerPort (the rig file's own runner.port), else runner.run.port,
-// else 8000. --port stays in rest, and a runner.run.port is added to it,
-// so the runner serves where the front proxies; runner.port and the
-// default are the runner's own already.
-func resolveRunFlags(args []string, defaults map[string]any, runnerPort string) (serveAddr string, wantUI bool, port string, useUV bool, rest []string) {
-	serveAddr, args, explicitUI := popValue(args, "--serve-ui")
-	wantUI = explicitUI
-	if !explicitUI {
-		if v, ok := asNonEmptyString(defaults["serve_ui"]); ok {
-			serveAddr, wantUI = v, true
-		}
-	}
-
-	port, args, explicitPort := popValue(args, "--port")
-	switch {
-	case explicitPort:
-		args = append(args, "--port", port)
-	case runnerPort != "":
-		port = runnerPort
-	default:
-		if v, ok := asNonEmptyString(defaults["port"]); ok {
-			port = v
-			args = append(args, "--port", port)
+// runnerExec builds each incarnation's command: flyball-runner bare, or
+// via uv in its own process group (uv ignores SIGINT, leaving it to the
+// terminal; stopped from anywhere else the runner would never hear it, so
+// a stop goes to the group).
+func runnerExec(useUV bool, rig string, args []string) func() *exec.Cmd {
+	return func() *exec.Cmd {
+		var cmd *exec.Cmd
+		if useUV {
+			uvArgs := append([]string{"run", "--project", filepath.Dir(rig), "flyball-runner"}, args...)
+			cmd = exec.Command(uvCommand, uvArgs...)
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		} else {
-			port = "8000"
+			cmd = exec.Command(runnerCommand, args...)
 		}
+		cmd.Stdout, cmd.Stderr, cmd.Stdin = os.Stdout, os.Stderr, os.Stdin
+		return cmd
 	}
-
-	explicitUV, args := popBool(args, "--uv")
-	useUV = explicitUV
-	if !explicitUV {
-		if v, ok := defaults["uv"].(bool); ok && v {
-			useUV = true
-		}
-	}
-
-	return serveAddr, wantUI, port, useUV, args
 }
 
-// asNonEmptyString reads a YAML-decoded scalar as a string, matching the
-// forms `runner.run`'s own values can take (a YAML string for serve_ui, a
-// string or a bare number for port). "" and absent both count as not set.
-func asNonEmptyString(v any) (string, bool) {
-	switch t := v.(type) {
-	case string:
-		return t, t != ""
-	case int:
-		return strconv.Itoa(t), true
-	case int64:
-		return strconv.FormatInt(t, 10), true
-	case float64:
-		return strconv.FormatFloat(t, 'f', -1, 64), true
-	default:
-		return "", false
+// flyball-runner's exit codes that end a run (entrypoint.py).
+const (
+	exitBadConfig = 2 // a bad rig file, or a runner too old to know --front-dir
+	exitRigBusy   = 3 // another runner holds the rig's <store>.lock
+	exitFrontDir  = 4 // the front-dir is unsafe or incomplete: rewrite, respawn once
+)
+
+// supervisor runs one rig's runner for `flyball run`: each incarnation gets
+// the front-dir rewritten with a fresh key, and a crash is followed by
+// another incarnation (1 s backoff, doubling to 30 s, back to 1 s after
+// 10 s up). A small copy of the ProcessBackend's rules, kept in the
+// foreground: the runner's output goes to the terminal, not a log file.
+type supervisor struct {
+	dir, aud   string
+	ep         endpoint.Endpoint
+	command    func() *exec.Cmd
+	minBackoff time.Duration
+	wake       chan struct{}
+
+	mu       sync.Mutex
+	key      [32]byte
+	alive    bool
+	cmd      *exec.Cmd
+	stopping bool
+}
+
+// target is where the front proxies: the live incarnation.
+func (s *supervisor) target(context.Context) (front.Target, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case s.alive:
+		return front.Target{Endpoint: s.ep, Aud: s.aud, Key: s.key}, nil
+	case s.stopping:
+		return front.Target{}, front.ErrNotRunning
 	}
+	return front.Target{}, front.ErrStarting
+}
+
+// signal stops the run: sig goes to the runner (its group under uv), and
+// no incarnation follows.
+func (s *supervisor) signal(sig os.Signal) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopping = true
+	if s.alive {
+		s.forward(sig)
+	}
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+}
+
+// forward sends sig to the live incarnation. s.mu held.
+func (s *supervisor) forward(sig os.Signal) {
+	if s.cmd.SysProcAttr != nil && s.cmd.SysProcAttr.Setpgid {
+		if ss, ok := sig.(syscall.Signal); ok {
+			syscall.Kill(-s.cmd.Process.Pid, ss)
+			return
+		}
+	}
+	s.cmd.Process.Signal(sig)
+}
+
+func (s *supervisor) run() error {
+	backoff := s.minBackoff
+	retried := false // an exit 4 has had its respawn
+	for {
+		key, err := frontdir.Write(s.dir, s.aud, s.ep)
+		if errors.Is(err, frontdir.ErrLive) {
+			return fmt.Errorf("a runner already holds %s in %s: is this rig already running under `flyball run`?", frontdir.Lock, s.dir)
+		}
+		if err != nil {
+			return err
+		}
+		cmd := s.command()
+		s.mu.Lock()
+		if s.stopping {
+			s.mu.Unlock()
+			return nil
+		}
+		if err := cmd.Start(); err != nil {
+			s.mu.Unlock()
+			return fmt.Errorf("starting flyball-runner: %w", err)
+		}
+		s.key, s.cmd, s.alive = key, cmd, true
+		s.mu.Unlock()
+
+		started := time.Now()
+		err = cmd.Wait()
+		s.mu.Lock()
+		s.alive = false
+		stopping := s.stopping
+		s.mu.Unlock()
+		if stopping {
+			return nil
+		}
+		code := cmd.ProcessState.ExitCode()
+		up := time.Since(started) > 10*time.Second
+		switch {
+		case err == nil:
+			return nil
+		case code == exitBadConfig:
+			return fmt.Errorf("flyball-runner: %w (a bad rig file, or a flyball-runner too old for --front-dir)", err)
+		case code == exitRigBusy:
+			return fmt.Errorf("flyball-runner: %w: the rig is busy -- another runner holds its store", err)
+		case code == exitFrontDir && (!retried || up):
+			retried = true
+			fmt.Fprintf(runOut, "flyball: the runner refused its front-dir %s (exit 4); rewriting it and starting it again\n", s.dir)
+			continue
+		case code == exitFrontDir:
+			return fmt.Errorf("flyball-runner: %w: it refused its front-dir %s twice", err, s.dir)
+		}
+		if up {
+			backoff = s.minBackoff
+		}
+		fmt.Fprintf(runOut, "flyball: the runner stopped (%v); starting it again in %s\n", err, backoff)
+		select {
+		case <-time.After(backoff):
+		case <-s.wake:
+		}
+		if backoff < 30*time.Second {
+			backoff *= 2
+		}
+	}
+}
+
+func randomHex(n int) string {
+	b := make([]byte, n)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }

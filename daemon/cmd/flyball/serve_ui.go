@@ -1,158 +1,144 @@
 package main
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"io/fs"
-	"log"
-	"net/http"
-	"net/http/httputil"
-	"net/url"
-	"strconv"
 	"strings"
-	"sync/atomic"
-	"syscall"
-	"time"
 
-	"flyballd/internal/exposure"
-	"flyballd/internal/webui"
+	"flyballd/internal/front"
+	"flyballd/internal/frontwire"
+	"flyballd/internal/rigfile"
 )
 
-// The UI server's limits: a client gets uiReadHeaderTimeout to send its
-// headers (a slow one would otherwise hold a connection for ever -- and
-// enough of them, every rig's UI), a keep-alive connection is closed after
-// uiIdleTimeout with no request, and headers over uiMaxHeaderBytes are
-// refused (431). No ReadTimeout or WriteTimeout: a websocket through the
-// proxy, or a long download, is one request that lasts as long as it
-// needs. Variables so a test can shorten them.
-var (
-	uiReadHeaderTimeout = 10 * time.Second
-	uiIdleTimeout       = 120 * time.Second
-	uiMaxHeaderBytes    = 64 << 10
-)
+// `flyball run` always starts the front (auth.md § "flyball run always
+// starts the front"): the runner binds only the socket in its front-dir,
+// and the front -- the embedded UI, /api/auth*, and /api, /ws, /mcp
+// proxied with a signed principal -- listens where runner.front.listen
+// says, 127.0.0.1:8000 by default. What it serves comes from the rig
+// file's runner.front (runFront) and the run's own flags (parseRunArgs).
 
-// serveUI serves the embedded dashboard UI at "/" and reverse-proxies
-// /api, /ws and /mcp to the runner on 127.0.0.1:port -- so `flyball run
-// RIG-FILE --serve-ui :80` is reachable on its own, no nginx or other
-// reverse proxy needed in front of it. Runs until ctx is cancelled
-// (runDirect cancels it once the runner itself exits). A non-nil plan is
-// the front's own exposure beyond what the runner knows (it listens on
-// loopback): it replaces `exposure` in the runner's GET /api/auth, so the
-// dashboard warns about the front, not the runner behind it. What reaches
-// an open runner is translated (exposure.Front): the front's own loopback
-// names, and with --insecure-open any name, become the runner's own.
-func serveUI(ctx context.Context, addr string, port string, plan *exposure.Plan) error {
-	dist, err := fs.Sub(webui.Dist, "dist")
-	if err != nil {
-		return fmt.Errorf("embedded UI: %w", err)
-	}
-
-	target, err := url.Parse("http://127.0.0.1:" + port)
-	if err != nil {
-		return fmt.Errorf("invalid runner port %q: %w", port, err)
-	}
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	doors := exposure.NewDoors()
-	front := &exposure.Front{
-		Upstream:    target,
-		OpenNetwork: plan != nil && plan.OpenNetwork(),
-		Door: func(ctx context.Context) (exposure.Door, error) {
-			return doors.Get(ctx, target.String()+"/api/auth")
-		},
-	}
-	proxy.Director = front.Director(proxy.Director)
-
-	// The runner takes a couple of seconds to start listening, during
-	// which every proxied request dials a refused connection -- noisy on
-	// every `--serve-ui` start. Stay quiet about that specific error until
-	// the runner has answered a request at least once, then log errors
-	// the way httputil.ReverseProxy does by default.
-	var upstreamReady atomic.Bool
-	proxy.ModifyResponse = func(resp *http.Response) error {
-		upstreamReady.Store(true)
-		if plan != nil {
-			return reportExposure(resp, *plan)
-		}
-		return nil
-	}
-	proxy.ErrorHandler = quietStartupErrors(&upstreamReady)
-
-	mux := http.NewServeMux()
-	mux.Handle("/api/", proxy)
-	mux.Handle("/ws/", proxy)
-	mux.Handle("/mcp/", proxy)
-	mux.Handle("/", http.FileServer(http.FS(dist)))
-
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: uiReadHeaderTimeout,
-		IdleTimeout:       uiIdleTimeout,
-		MaxHeaderBytes:    uiMaxHeaderBytes,
-	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServe() }()
-
-	select {
-	case err := <-errc:
-		if err != nil && err != http.ErrServerClosed {
-			return fmt.Errorf("UI server: %w", err)
-		}
-		return nil
-	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return srv.Shutdown(shutdownCtx)
-	}
+// runOpts are `flyball run`'s own flags, taken out of the runner's.
+type runOpts struct {
+	listen       string // --listen, or its alias --serve-ui; "" = the rig file's
+	uv           bool   // --uv
+	insecureOpen bool   // --insecure-open or FLYBALL_INSECURE_OPEN
+	rest         []string
 }
 
-// reportExposure rewrites `exposure` in a GET /api/auth answer to plan's.
-func reportExposure(resp *http.Response, plan exposure.Plan) error {
-	if resp.StatusCode != http.StatusOK || !strings.HasSuffix(resp.Request.URL.Path, "/api/auth") ||
-		resp.Header.Get("Content-Encoding") != "" {
+// parseRunArgs takes --listen/--serve-ui ADDR (either form, `--x ADDR` or
+// `--x=ADDR`; --listen wins over --serve-ui), --uv and --insecure-open out
+// of args, anywhere; the rest, rig files first, go to flyball-runner.
+func parseRunArgs(args []string) runOpts {
+	var o runOpts
+	var serveUI string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		name, value, hasValue := strings.Cut(a, "=")
+		switch name {
+		case "--listen", "--serve-ui":
+			if !hasValue {
+				if i+1 >= len(args) {
+					o.rest = append(o.rest, a)
+					continue
+				}
+				i++
+				value = args[i]
+			}
+			if name == "--listen" {
+				o.listen = value
+			} else {
+				serveUI = value
+			}
+			continue
+		}
+		switch a {
+		case "--uv":
+			o.uv = true
+		case "--insecure-open":
+			o.insecureOpen = true
+		default:
+			o.rest = append(o.rest, a)
+		}
+	}
+	if o.listen == "" {
+		o.listen = serveUI
+	}
+	o.insecureOpen = o.insecureOpen || frontwire.InsecureOpenEnv()
+	return o
+}
+
+// runFront is the front's configuration for `flyball run` from the rig
+// file's runner section: runner.front, else runner.run (accepted for one
+// release, with a warning: serve_ui is listen, uv is uv; its port means
+// nothing now). listen, when not "", is --listen and beats both. bad is
+// why the block cannot be read; cfg.Listen still says where it asked to
+// listen, for the fallback (frontwire.Plan).
+func runFront(runner map[string]any, listen string) (cfg front.Config, useUV bool, bad error, warnings []string) {
+	block, hasFront := runner["front"]
+	legacy, hasRun := runner["run"]
+	switch {
+	case hasFront:
+		if hasRun {
+			warnings = append(warnings, "runner.run is ignored: runner.front is set")
+		}
+		m, ok := block.(map[string]any)
+		if !ok && block != nil {
+			bad = fmt.Errorf("runner.front is not a mapping")
+			break
+		}
+		m = clone(m)
+		if v, ok := m["uv"]; ok {
+			useUV, ok = v.(bool)
+			if !ok {
+				bad = fmt.Errorf("runner.front.uv: %v is not true or false", v)
+			}
+			delete(m, "uv")
+		}
+		if bad == nil {
+			cfg, bad = frontwire.Decode(m)
+		}
+		if bad != nil {
+			cfg.Listen, _ = m["listen"].(string)
+			bad = fmt.Errorf("runner.front: %w", bad)
+		}
+	case hasRun:
+		warnings = append(warnings, "runner.run is deprecated: use runner.front (serve_ui is now listen, uv is uv; the runner no longer takes a port)")
+		m, ok := legacy.(map[string]any)
+		if !ok && legacy != nil {
+			bad = fmt.Errorf("runner.run is not a mapping")
+			break
+		}
+		if v, ok := m["serve_ui"]; ok && v != nil {
+			if cfg.Listen, ok = v.(string); !ok {
+				bad = fmt.Errorf("runner.run.serve_ui: %v is not an address", v)
+			}
+		}
+		if v, ok := m["uv"]; ok && v != nil {
+			if useUV, ok = v.(bool); !ok {
+				bad = fmt.Errorf("runner.run.uv: %v is not true or false", v)
+			}
+		}
+	}
+	if listen != "" {
+		cfg.Listen = listen
+	}
+	return cfg, useUV, bad, warnings
+}
+
+func clone(m map[string]any) map[string]any {
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+// rigDocument is rigPath's document, `extends` resolved the way `flyball
+// rig check` resolves it; nil if it cannot be loaded -- flyball-runner
+// reports that properly once it loads the file for real.
+func rigDocument(rigPath string) map[string]any {
+	document, _, err := rigfile.ResolveLayers([]string{rigPath}, nil)
+	if err != nil {
 		return nil
 	}
-	raw, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return err
-	}
-	var body map[string]any
-	if json.Unmarshal(raw, &body) == nil {
-		body["exposure"] = plan.Exposure()
-		if rewritten, err := json.Marshal(body); err == nil {
-			raw = rewritten
-		}
-	}
-	resp.Body = io.NopCloser(bytes.NewReader(raw))
-	resp.ContentLength = int64(len(raw))
-	resp.Header.Set("Content-Length", strconv.Itoa(len(raw)))
-	return nil
-}
-
-// quietStartupErrors returns a ReverseProxy ErrorHandler that drops
-// connection-refused errors silently while ready is still false (the
-// runner hasn't answered a proxied request yet), answering with 503
-// instead of logging. Once ready is true -- or for any other kind of
-// error at any time -- it logs and answers 502, matching
-// httputil.ReverseProxy's own default ErrorHandler.
-func quietStartupErrors(ready *atomic.Bool) func(http.ResponseWriter, *http.Request, error) {
-	return func(w http.ResponseWriter, r *http.Request, err error) {
-		if !ready.Load() && isConnRefused(err) {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-		log.Printf("http: proxy error: %v", err)
-		w.WriteHeader(http.StatusBadGateway)
-	}
-}
-
-// isConnRefused reports whether err is (or wraps) ECONNREFUSED, the error
-// a dial gets while the runner hasn't started listening yet.
-func isConnRefused(err error) bool {
-	return errors.Is(err, syscall.ECONNREFUSED)
+	return document
 }
