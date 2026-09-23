@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "flyball-bluesky"
 version = "0.1.0"
-description = "Run flyball devices inside a Bluesky plan: Readable/Movable adapters and event-model export"
+description = "Readable/Movable adapters for Bluesky plans"
 requires-python = ">=3.12"
 authors = [{ name = "Ben Laurence" }]
 dependencies = ["flyball"]
