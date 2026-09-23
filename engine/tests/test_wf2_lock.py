@@ -472,3 +472,57 @@ class TestSharedCollections:
 
 
 # endregion
+
+
+# region 6. Restarting a device whose read hangs (B3)
+
+
+@pytest.fixture
+def hung(fresh) -> Iterator[tuple[Rig, Hanging]]:
+    """A device polled on the wall clock every 50 ms whose read is stuck in its driver."""
+    rig = Rig()
+    hanging = Hanging(fresh("hanging"))
+    hanging.poll_s = 0.05
+    rig.add_device(hanging)
+    rig.start_polling(hanging)
+    assert hanging.reading.wait(2.0)
+    yield rig, hanging
+    hanging.release.set()
+    rig.close()
+
+
+class TestRestartAHungDevice:
+    def test_restart_answers_409_while_a_read_is_in_flight(self, hung):
+        rig, hanging = hung
+        set_rig(rig)
+        try:
+            with TestClient(create_app()) as client:
+                began = time.monotonic()
+                response = client.post(f"/api/devices/{hanging.name}/restart")
+                assert time.monotonic() - began < 1.0, "not waiting on the hung read"
+                hanging.release.set()
+        finally:
+            set_rig(None)
+        assert response.status_code == 409
+        assert "in flight" in response.json()["detail"]
+
+    def test_starting_over_a_loop_stuck_in_a_read_is_bounded(self, hung, monkeypatch):
+        monkeypatch.setattr(polling_module, "STOP_JOIN_S", 0.1)
+        rig, hanging = hung
+        began = time.monotonic()
+        with pytest.raises(ConflictError, match="did not return"):
+            rig.polling.start(hanging, 0.05)
+        assert time.monotonic() - began < 1.0
+        assert rig.polling.run(hanging.name).running is False
+
+    def test_revive_reports_a_hung_device_rather_than_skip_it(self, hung):
+        rig, hanging = hung
+        time.sleep(0.15)  # the read has now been in flight for over its 50 ms period
+        began = time.monotonic()
+        assert rig.polling.revive(hanging.name) is False
+        assert time.monotonic() - began < 0.5
+        [event] = [e for e in rig.recent if e.code == "not_revived"]
+        assert event.subject == hanging.name and event.details["reading_s"] > 0.05
+
+
+# endregion

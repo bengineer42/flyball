@@ -49,6 +49,14 @@ class PeriodicLoop:
     def running(self) -> bool:
         return self._handle is not None or (self._thread is not None and self._thread.is_alive())
 
+    def runs_here(self) -> bool:
+        """Whether this loop's function is running on the calling thread now.
+
+        Always true on a stepped clock, which runs the function on whoever
+        advances it; on a thread of its own, only from inside that thread.
+        """
+        return self._thread is None or self._thread is current_thread()
+
     @property
     def loop_time(self) -> Positive:
         return self._loop_time

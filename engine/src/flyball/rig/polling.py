@@ -20,7 +20,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from flyball.foundation.device import Code, Device, Readable, Sample, Scope, Severity
-from flyball.foundation.errors import NotFoundError
+from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.router import Latest
 from flyball.foundation.time import PeriodicLoop
 
@@ -83,6 +83,8 @@ class Polling:
         self._runs: dict[str, DeviceRun] = {}
         self._streaks: dict[str, tuple[int, int]] = {}
         """Per device: reads in a row over the period, and in a row well under it."""
+        self._reading: dict[str, float] = {}
+        """Per device with a poll's `read` in flight: when it began, in the rig's time."""
 
     def get(self, name: str) -> Device:
         try:
@@ -97,12 +99,34 @@ class Polling:
         """Every polled device's run now, by name: one C-level copy, safe without any lock."""
         return dict(list(self._runs.items()))
 
+    def reading_for(self, device: Device) -> float | None:
+        """How long a read of `device` has been in flight, in the rig's time; None: none is.
+
+        A poll's is timed; a fresh read's only shows as in flight (0).
+        """
+        with self._lock:
+            began = self._reading.get(device.name)
+        if began is not None:
+            return max(0.0, self.rig.clock.monotonic() - began)
+        return 0.0 if device.read_lock.locked() else None
+
     def start(self, device: Device, period_s: float) -> None:
-        """Poll `device` every `period_s`; one already polled is restarted on the new period."""
+        """Poll `device` every `period_s`; one already polled is restarted on the new period.
+
+        Raises:
+            ConflictError: The old loop was still in a read after `STOP_JOIN_S`: it is
+                stopped (it exits when the read returns), and no new one is started.
+        """
         with self._lock:
             old = self.periodic.pop(device.name, None)
         if old is not None:
-            old.stop()  # outside the lock: its read in progress may note its run
+            old.stop(timeout=STOP_JOIN_S)  # outside the lock: its read may note its run
+            if old.running:
+                self._update(device, running=False)
+                raise ConflictError(
+                    f"'{device.name}': a read did not return within {STOP_JOIN_S:g} s;"
+                    " polling is stopped. Try again when it returns"
+                )
         loop = PeriodicLoop(self._read, period_s, False, device, clock=self.rig.clock)
         with self._lock:
             self.by_name[device.name] = device
@@ -115,10 +139,19 @@ class Polling:
     def restart(self, name: str) -> DeviceRun:
         """Poll an offline device again on its period.
 
+        Refused while a read of the device is in flight, rather than wait on a
+        device that may be hung in its driver.
+
         Raises:
             NotFoundError: No such polled device.
+            ConflictError: A read of it is in flight.
         """
         device = self.get(name)
+        if (in_flight := self.reading_for(device)) is not None:
+            raise ConflictError(
+                f"'{name}': a read has been in flight for {in_flight:.1f} s;"
+                " restart it when that read returns"
+            )
         period = self._runs[name].period_s
         # Cleared before the loop starts: a device still broken fails its
         # first read on the loop's thread, and that `offline` must be raised
@@ -134,15 +167,36 @@ class Polling:
         Called after a command on the device succeeds -- from the HTTP route
         and from a program step alike -- since a command that runs on an
         offline device is taken as the fix (`restore`, a reset, a reconnect).
-        A device still broken goes offline again with a fresh event.
+        A device still broken goes offline again with a fresh event. One whose
+        poll is stuck in a read for longer than its period (hung) is not
+        revived, nor waited on: a `not_revived` event on the device says so.
 
         Returns:
             Whether polling was restarted.
         """
-        run = self._runs.get(name)
-        if name not in self.by_name or run is None or run.running or run.period_s is None:
+        with self._lock:
+            run = self._runs.get(name)
+            device = self.by_name.get(name)
+        if device is None or run is None or run.period_s is None:
             return False
-        self.restart(name)
+        if run.running:
+            in_flight = self.reading_for(device)
+            if in_flight is not None and in_flight > run.period_s:
+                self.rig.event(
+                    Severity.WARNING,
+                    Scope.DEVICE,
+                    name,
+                    Code.NOT_REVIVED,
+                    f"the command succeeded, but a read has been in flight for {in_flight:.1f} s"
+                    f" (period {run.period_s:g} s): polling not restarted",
+                    {"reading_s": in_flight, "period_s": run.period_s},
+                )
+            return False
+        try:
+            self.restart(name)
+        except ConflictError as error:  # a read in flight after all: say so, don't wait
+            self.rig.event(Severity.WARNING, Scope.DEVICE, name, Code.NOT_REVIVED, str(error))
+            return False
         return True
 
     def stop(self, name: str) -> None:
@@ -222,7 +276,13 @@ class Polling:
                 raise TypeError(f"{type(device).__name__} has nothing to read")
             with device.read_lock:  # not beside a fresh read of it; never the rig's lock
                 started = self.rig.clock.monotonic()  # in the rig's time, as the period is
-                samples = tuple(device.read(self.rig.clock.now_ns()))
+                with self._lock:
+                    self._reading[device.name] = started
+                try:
+                    samples = tuple(device.read(self.rig.clock.now_ns()))
+                finally:
+                    with self._lock:
+                        self._reading.pop(device.name, None)
                 read_s = self.rig.clock.monotonic() - started
         except Exception as error:
             if not self._polled(device):
@@ -233,7 +293,7 @@ class Polling:
             )
             with self._lock:
                 loop = self.periodic.get(device.name)
-            if loop is not None:
+            if loop is not None and loop.runs_here():  # not a newer loop a restart started
                 loop.stop(join=False)  # from inside the loop: it exits after this call
             return
         if not self._polled(device):

@@ -140,7 +140,14 @@ store's own thread, never under the rig's lock.
 Only `read` itself can put a device offline: a raised exception raises an
 `offline` condition, and the device's loop stops itself until `restart`
 (which clears it), or until a command on it succeeds (`Polling.revive`,
-called by the command route and by a program's `command` step alike). A
+called by the command route and by a program's `command` step alike).
+Neither waits on a read in flight: `restart` is refused (409) while one is
+(`Polling.reading_for`), and stops the old loop for at most `STOP_JOIN_S`
+before refusing too; `revive` on a device whose poll has been stuck in a
+read for longer than its period leaves it alone and says so with a
+`not_revived` event on the device. A loop left to finish its read after a
+restart does not stop the newer loop if that read raises
+(`PeriodicLoop.runs_here`). A
 controller whose law raises is kept to itself: a `step_failed` condition on
 the controller, raised on the first failure and cleared when it steps
 again, its mode left as it was, and every other controller, commit,
