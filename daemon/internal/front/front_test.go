@@ -697,6 +697,23 @@ func TestAnonymous403Becomes401(t *testing.T) {
 	if !strings.Contains(body(resp), `"needed":"operate"`) {
 		t.Fatal("the runner's body was not kept")
 	}
+	// Every 401 the front answers says how to authenticate.
+	if got := resp.Header.Get("WWW-Authenticate"); got != "Bearer" {
+		t.Errorf("anonymous act: WWW-Authenticate %q, want Bearer", got)
+	}
+	for name, hdr := range map[string]http.Header{
+		"unknown token": bearer(store.TokenPrefix+strings.Repeat("A", 43), nil),
+		"not a token":   {"Authorization": {"Bearer not-a-token"}},
+		"stale cookie":  {"Cookie": {h.front.cookie + "=gone"}},
+	} {
+		resp := h.do("GET", "/api/guarded", "", hdr)
+		if resp.StatusCode != 401 || resp.Header.Get("WWW-Authenticate") != "Bearer" {
+			t.Errorf("%s: %d, WWW-Authenticate %q; want 401 Bearer", name, resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
+		}
+	}
+	if resp := h.do("POST", "/api/auth/login", `{"password":"nope"}`, h.origin()); resp.StatusCode != 401 || resp.Header.Get("WWW-Authenticate") != "Bearer" {
+		t.Errorf("wrong password: %d, WWW-Authenticate %q; want 401 Bearer", resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
+	}
 	// A signed-in caller lacking the verb keeps the 403.
 	cookie := h.login()
 	secret := h.createToken(cookie, `{"name":"ro","scopes":["read:*"]}`)

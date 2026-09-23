@@ -478,6 +478,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func detail(w http.ResponseWriter, status int, msg string) {
+	if status == http.StatusUnauthorized {
+		w.Header().Set("WWW-Authenticate", "Bearer") // as the runner's own 401s
+	}
 	writeJSON(w, status, map[string]string{"detail": msg})
 }
 
