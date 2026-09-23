@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable, Iterator
 
 import pytest
@@ -793,3 +794,20 @@ class TestRemoval:
         assert not writer._thread.is_alive(), "the writer exited after its commit"
         assert gated.committed == [1.0], "the write in flight reached the bus"
         assert heater not in gated.written and heater not in rig.router.latest
+
+
+def test_a_blocking_write_with_no_readback_reports_each_committed_value(rig, fresh):
+    """The writer snapshots the router before each commit: the second write is not the first's."""
+    gated = Gated(fresh("gated"))
+    gated.gate.set()
+    rig.add_device(gated)
+    heater = gated.signals["heater"]
+    for value in (1.0, 3.0):
+        rig.demand(gated.root, {heater: value})
+        deadline = time.monotonic() + 2.0
+        while gated.written.get(heater) != WriteState(value=value):
+            assert time.monotonic() < deadline, f"{value} was reported as {gated.written[heater]}"
+            time.sleep(0.005)
+        assert rig.router.value(heater) == value
+    assert gated.committed == [1.0, 3.0]
+    rig.stop()

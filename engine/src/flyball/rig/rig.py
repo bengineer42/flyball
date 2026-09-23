@@ -664,8 +664,12 @@ class Rig:
             pushed, self._pushed = self._pushed, []
             self._deliver_samples(pushed, noted=True)
 
-    def written(self, device: Committable, time_ns: int) -> None:
+    def written(self, device: Committable, time_ns: int, before: Mapping[Signal, int]) -> None:
         """A blocking device's writer finished a commit: publish, deliver and record its states.
+
+        `before` is the router's count per signal from just before the
+        commit ran, as in `_states`: a signal counted since was the driver's
+        readback.
 
         A device removed while the write was in flight is not the rig's any
         more: its states are dropped.
@@ -675,7 +679,7 @@ class Rig:
                 return
             self._touched = {}  # the context for the readbacks `_states` pushes
             try:
-                filled = self._states(device, time_ns, {})
+                filled = self._states(device, time_ns, before)
             finally:
                 self._touched = None
             self._deliver(filled)
