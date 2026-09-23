@@ -161,3 +161,94 @@ func TestTokenCreateDefaultsScopeToRead(t *testing.T) {
 		t.Errorf("scopes = %v, want [read:*]", list)
 	}
 }
+
+// TestTokenCreateHonoursRigFileTokensConfig: `flyball token create --config
+// blender.yaml` applies blender.yaml's `runner.front.tokens` block the same
+// way a running front would -- a request with no --expires gets the
+// configured default, and a request above the configured max is clamped.
+func TestTokenCreateHonoursRigFileTokensConfig(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	rig := filepath.Join(t.TempDir(), "blender.yaml")
+	os.WriteFile(rig, []byte("devices: {}\nrunner:\n  front:\n    tokens:\n      default_lifetime: 5d\n      max_lifetime: 20d\n"), 0o644)
+
+	captureStdout(t, func() {
+		if err := runTokenCreate([]string{"--name", "no-expires", "--config", rig}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	captureStdout(t, func() {
+		if err := runTokenCreate([]string{"--name", "above-max", "--config", rig, "--expires", "100d"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	path, err := tokensPathFor(rig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := store.OpenTokens(path, store.TokensOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tokens.Close()
+	list, err := tokens.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]store.Token{}
+	for _, tok := range list {
+		byName[tok.Name] = tok
+	}
+	if got := byName["no-expires"].Expires.Sub(byName["no-expires"].Created); got != 5*24*time.Hour {
+		t.Errorf("no --expires: lifetime %v, want the configured default 5d", got)
+	}
+	if got := byName["above-max"].Expires.Sub(byName["above-max"].Created); got != 20*24*time.Hour {
+		t.Errorf("--expires 100d, above the configured max: lifetime %v, want clamped to 20d", got)
+	}
+}
+
+// TestTokenCreateFallsBackOnBadTokensConfig: a `max_lifetime` above the
+// built-in ceiling falls back (D-028: it never refuses to create), with a
+// warning on stderr.
+func TestTokenCreateFallsBackOnBadTokensConfig(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	rig := filepath.Join(t.TempDir(), "blender.yaml")
+	os.WriteFile(rig, []byte("devices: {}\nrunner:\n  front:\n    tokens:\n      max_lifetime: 400d\n"), 0o644)
+
+	var stderr strings.Builder
+	origStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	captureStdout(t, func() {
+		if err := runTokenCreate([]string{"--name", "x", "--config", rig}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	w.Close()
+	os.Stderr = origStderr
+	buf := make([]byte, 4096)
+	n, _ := r.Read(buf)
+	stderr.Write(buf[:n])
+	if !strings.Contains(stderr.String(), "max_lifetime") {
+		t.Errorf("stderr = %q, want a max_lifetime warning", stderr.String())
+	}
+
+	path, err := tokensPathFor(rig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := store.OpenTokens(path, store.TokensOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tokens.Close()
+	list, err := tokens.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Expires.Sub(list[0].Created) != store.TokenLifetimeDefault {
+		t.Errorf("tokens = %+v, want one token at the built-in default lifetime", list)
+	}
+}

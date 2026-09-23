@@ -13,12 +13,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"flyballd/internal/endpoint/frontdir"
+	"flyballd/internal/front"
 	"flyballd/internal/front/store"
 	"flyballd/internal/grants"
 
@@ -69,7 +69,14 @@ func runTokenCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	tokens, err := store.OpenTokens(path, store.TokensOptions{})
+	lifetimes, warnings, err := lifetimesFor(config)
+	if err != nil {
+		return err
+	}
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, "token create: "+w)
+	}
+	tokens, err := store.OpenTokens(path, store.TokensOptions{Lifetimes: lifetimes})
 	if err != nil {
 		return err
 	}
@@ -160,25 +167,74 @@ func popAllValues(args []string, name string) ([]string, []string) {
 	return values, out
 }
 
-// parseExpires is time.ParseDuration plus a whole-days form ("30d"),
-// matching auth.md's examples (`--expires 30d`) -- Go's own duration
-// syntax has no unit past hours.
+// parseExpires is store.ParseDuration (Go durations plus a whole-days form,
+// "30d") with --expires-shaped errors, matching auth.md's examples
+// (`--expires 30d`).
 func parseExpires(s string) (time.Duration, error) {
-	if days, ok := strings.CutSuffix(s, "d"); ok {
-		n, err := strconv.Atoi(days)
-		if err != nil {
-			return 0, fmt.Errorf("--expires %q: %w", s, err)
-		}
-		if n < 0 {
-			return 0, fmt.Errorf("--expires %q: a token's lifetime must be positive", s)
-		}
-		return time.Duration(n) * 24 * time.Hour, nil
-	}
-	d, err := time.ParseDuration(s)
+	d, err := store.ParseDuration(s)
 	if err != nil {
 		return 0, fmt.Errorf("--expires %q: %w (also accepts a whole number of days, e.g. 30d)", s, err)
 	}
+	if d < 0 {
+		return 0, fmt.Errorf("--expires %q: a token's lifetime must be positive", s)
+	}
 	return d, nil
+}
+
+// lifetimesFor reads config's tokens: block -- `runner.front.tokens` for a
+// rig file, flyballd.yaml's top-level `tokens:` for a daemon config -- and
+// resolves it the same way the front does (store.ResolveLifetimes), so
+// that an offline `flyball token create --config PATH` applies the same
+// effective default/max lifetimes a running front would.
+func lifetimesFor(config string) (store.Lifetimes, []string, error) {
+	tc, err := tokensConfigFor(config)
+	if err != nil {
+		return store.Lifetimes{}, nil, err
+	}
+	var defaultLifetime, maxLifetime string
+	if tc != nil {
+		defaultLifetime, maxLifetime = tc.DefaultLifetime, tc.MaxLifetime
+	}
+	lifetimes, warnings := store.ResolveLifetimes(defaultLifetime, maxLifetime)
+	return lifetimes, warnings, nil
+}
+
+// tokensConfigFor reads config's tokens: block without validating it
+// (store.ResolveLifetimes does that): the top level for a daemon config,
+// or runner.front.tokens for a rig file. A missing file or block is nil,
+// nil -- the same "not set" lifetimesFor treats as the built-ins.
+func tokensConfigFor(config string) (*front.TokensConfig, error) {
+	daemon, err := looksLikeDaemonConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(config)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading %s: %w", config, err)
+	}
+	if daemon {
+		var cfg struct {
+			Tokens *front.TokensConfig `yaml:"tokens"`
+		}
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", config, err)
+		}
+		return cfg.Tokens, nil
+	}
+	var cfg struct {
+		Runner struct {
+			Front struct {
+				Tokens *front.TokensConfig `yaml:"tokens"`
+			} `yaml:"front"`
+		} `yaml:"runner"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", config, err)
+	}
+	return cfg.Runner.Front.Tokens, nil
 }
 
 // tokensPathFor is where --config PATH's tokens.json lives (§WP0-4):
