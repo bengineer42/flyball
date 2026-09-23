@@ -3,7 +3,8 @@
 `flyball` is a standalone Go binary (`daemon/cmd/flyball`), one client of
 [the server](../../4-server/index.md) -- anything it can do the
 [HTTP API](../../4-server/api.md) can too. Build it with `cd daemon && go
-build ./cmd/flyball` (no packaged install yet --
+build ./cmd/flyball`, or `./build-with-ui.sh` for one whose `flyball run`
+serves the dashboard (no packaged install yet --
 [Installing](../runner/index.md#installing)). Each page of this section is
 one kind of task and names the UI page that does the same thing; the UI
 pages point back here.
@@ -14,7 +15,7 @@ pages point back here.
 | [Controllers and tuning](controllers.md) | `controllers`, regulate / manual (via the API today), tunings | [Controllers](../ui/controllers.md), [Tuning](../autotune.md) |
 | [Programs and waits](programs.md) | `program check / run / status / stop`, `waits`, `wait fire / interrupt` | [Programs](../programs/writing.md#running-one) |
 | [Sessions and export](sessions.md) | `sessions`, `export`, downloads by URL | [Sessions](../ui/sessions.md) |
-| [The rig and the runner](rig.md) | `rig check / schema`, `sim …`, save / versions / restart (via the API today) | [The Config page](../ui/rig.md) |
+| [The rig and the runner](rig.md) | `rig check / schema`, `sim …`, `stop`, `run`, save / versions / restart (via the API today) | [The Config page](../ui/rig.md), the **Software stop** button |
 | [Without a rig](offline.md) | `rig check`, `rig schema`, `program schema`, `new` | -- |
 
 It talks to one runner directly, or through a `flyballd` daemon by name --
@@ -24,9 +25,13 @@ see [addressing](../../7-reference/cli.md) for `-s`/`FLYBALL_URL`/
 ```
 export FLYBALL_URL=http://pi:8000
 flyball devices
-flyball --token T status                    # or export FLYBALL_TOKEN, for a runner started with one
-flyball password                            # the hashed line for runner.auth.password
+flyball login                               # a password front: sign in once, a read token is saved
+flyball login --scope operate               # ... or one that may drive this rig (30 days at most)
+flyball --token T status                    # or export FLYBALL_TOKEN: a named token, or a bare runner's
+flyball password                            # the hashed line for runner.front.password
 ```
+
+Signing in, tokens and scopes: [the CLI reference](../../7-reference/cli.md#signing-in).
 
 There is no schema caching, `--offline` mode, or per-device subcommand
 tree built at start (those were the removed Python `cli.py`'s); a device's
