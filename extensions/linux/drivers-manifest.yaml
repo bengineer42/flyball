@@ -116,26 +116,6 @@ sensors:
       - label: note
         url: "No official Bosch worked numeric example exists for BME280 (unlike MS5611) -- tests are structural/self-consistency only, flagged [Unverified] in the module docstring"
 
-  - tag: bme680
-    part_number: BME680
-    manufacturer: Bosch Sensortec
-    category: gas
-    interface: i2c_bespoke
-    tier: bespoke_driver
-    file: extensions/chips/src/flyball_chips/bme680.py
-    loc_estimate: "100-150 (gas channel only)"
-    loc_actual: 483
-    status: done
-    datasheet_checked: false
-    hardware_tested: false
-    price_approx: "~$8-15 [Unverified]"
-    domains: [greenhouse, mushroom]
-    links:
-      - label: reference source
-        url: "Bosch BME68x_SensorAPI (bme68x.c) -- compensation formula confirmed to genuinely differ from BME280's, transcribed verbatim"
-      - label: caveat
-        url: "Calibration register byte offsets and gas-block layout (low- vs high-range variant) are [Unverified], transcribed from community driver ports not re-derived from a raw datasheet table -- treat as needing a datasheet cross-check before trusting"
-
   - tag: scd30
     part_number: SCD30
     manufacturer: Sensirion

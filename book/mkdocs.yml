@@ -6,6 +6,7 @@ site_dir: ../build/book
 strict: true
 repo_url: https://github.com/bengineer42/flyball
 repo_name: ""          # the logo alone, no text
+copyright: Copyright &copy; 2026 Ben Laurence &mdash; MIT licensed
 
 theme:
   name: material

@@ -1,6 +1,8 @@
 {
   "name": "@flyball/client",
+  "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Typed client for a flyball rig: HTTP routes, websocket streams, wire types. No framework.",
   "type": "module",
   "exports": {

@@ -29,7 +29,6 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`sht31`](#sht31), [`htu21d`](#htu21d) | more Sensirion / TE humidity + temperature | `i2c` | `flyball-chips` | datasheet-checked |
 | [`ms5611`](#ms5611) | TE barometric pressure | `i2c` | `flyball-chips` | known issue |
 | [`bme280`](#bme280) | Bosch temperature / pressure / humidity | `i2c` | `flyball-chips` | partial |
-| [`bme680`](#bme680) | Bosch temperature / pressure / humidity / gas | `i2c` | `flyball-chips` | unverified |
 | [`scd30`](#scd30), [`scd40`](#scd40) | Sensirion CO₂ + temperature + humidity | `i2c` | `flyball-chips` | partial |
 | [`sgp30`](#sgp30), [`sgp40`](#sgp40) | Sensirion eCO₂ / TVOC / VOC index | `i2c` | `flyball-chips` | partial |
 | [`ccs811`](#ccs811) | ams eCO₂ / TVOC | `i2c` | `flyball-chips` | partial |
@@ -366,28 +365,6 @@ don't convert linearly.
 | `link` | required | an `i2c` link |
 | `address` | `0x76` | `0x77` on SDO-high |
 | `has_humidity` | `true` | `false` for a BMP280 (no humidity registers) |
-
-### `bme680`
-
-Bosch BME680: `temperature`, `pressure`, `humidity`, `gas_resistance`, all
-`[RP]`. Its compensation formula genuinely differs from BME280's -- not
-reused. The gas channel runs a timed heater profile before each reading;
-a reading taken before the heater is stable raises rather than returning a
-silently-wrong resistance.
-
-| field | default | |
-| --- | --- | --- |
-| `link` | required | an `i2c` link |
-| `address` | `0x76` | `0x77` on SDO-high |
-| `osrs_t`, `osrs_p`, `osrs_h` | `2`, `4`, `2` | oversampling per channel: `0` (skip), `1`, `2`, `4`, `8` or `16` |
-| `gas_heater_c`, `gas_wait_ms` | `320`, `150` | the gas-sensing heater profile used on every read, 0-400 °C and 0-4032 ms |
-
-!!! warning
-    Calibration register byte offsets and the gas-block layout (low- vs
-    high-range variant) are [Unverified] -- transcribed from community
-    driver ports, not re-derived from a raw datasheet table. Treat
-    readings as provisional until checked against a datasheet and real
-    hardware.
 
 ### `scd30`
 
