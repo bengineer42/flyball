@@ -51,7 +51,7 @@ export { download, saveTable, seriesTable, toCsv, toJson, isoTime, fileName, typ
 export { Tile, type TileProps } from "./panels/Tile.js";
 export { PanelFrame, type PanelFrameProps, type PanelSeverity } from "./panels/PanelFrame.js";
 export { useVisible } from "./hooks/useVisible.js";
-export { useDashboards, invalidateDashboards } from "./hooks/useDashboards.js";
+export { useDashboards, invalidateDashboards, byTabOrder } from "./hooks/useDashboards.js";
 export { debugCounters, countRender, countRedraw, type DebugCounters } from "./store/debug.js";
 export { useTelemetry } from "./provider.js";
 export { TelemetryStore, emptyTrace, emptyControllerView, historyPoints, PLAYBACK_DEBOUNCE_MS, PLAYBACK_MARGIN_S, controllerSetpointKey, controllerNameFromSetpointKey, type PlaybackSession, type TelemetryStoreOptions, type TraceView, type ControllerView, type ReadOptions, type StoreStream, type SocketStream } from "./store/telemetry.js";
