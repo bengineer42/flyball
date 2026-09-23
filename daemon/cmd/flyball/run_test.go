@@ -34,10 +34,7 @@ func TestMain(m *testing.M) {
 	if args := os.Getenv("FLYBALL_TEST_RUN_DIRECT"); args != "" {
 		os.Unsetenv("FLYBALL_TEST_RUN_DIRECT") // the runner it spawns is the fake runner
 		runnerCommand, _ = os.Executable()
-		if err := runDirect(strings.Split(args, "\n")); err != nil {
-			os.Exit(1)
-		}
-		os.Exit(0)
+		os.Exit(runExitCode(runDirect(strings.Split(args, "\n"))))
 	}
 	if os.Getenv("FLYBALL_FAKE_UV") != "" {
 		os.Exit(fakeUV())

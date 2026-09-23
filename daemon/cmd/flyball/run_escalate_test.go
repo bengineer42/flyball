@@ -137,6 +137,10 @@ func TestRunThirdCtrlCKillsAStubbornRunner(t *testing.T) {
 		t.Fatalf("flyball was killed by %v, not exiting on its own", ws.Signal())
 	}
 	out := <-r.outDone
+	// A forced kill is not a clean stop: a wrapper must be able to tell.
+	if code := r.cmd.ProcessState.ExitCode(); code != exitRunnerKilled {
+		t.Errorf("flyball exited %d after its runner was SIGKILLed, want %d (killed, not stopped):\n%s", code, exitRunnerKilled, out)
+	}
 	if !strings.Contains(out, "Ctrl-C again to hurry, a third time kills pid "+strconv.Itoa(r.runner)) {
 		t.Errorf("the 1st Ctrl-C did not say what the next ones do:\n%s", out)
 	}

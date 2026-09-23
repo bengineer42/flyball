@@ -380,6 +380,11 @@ func (s *supervisor) run() error {
 		stopping := s.stopping
 		s.mu.Unlock()
 		if stopping {
+			// The stop's own SIGINT/SIGTERM ending it is a clean stop; a
+			// SIGKILL (the third press) or any other signal is not.
+			if sig, ok := killedBy(cmd.ProcessState); ok && sig != syscall.SIGINT && sig != syscall.SIGTERM {
+				return errRunnerKilled{sig}
+			}
 			return nil
 		}
 		code := cmd.ProcessState.ExitCode()
@@ -416,4 +421,43 @@ func randomHex(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// exitRunnerKilled is `flyball run`'s exit code when the run ended with
+// its runner killed rather than stopped: the third Ctrl-C's SIGKILL, or
+// any signal but the stop's own SIGINT/SIGTERM. Its recording may not
+// have been closed cleanly; a wrapper can tell that from a clean stop (0).
+const exitRunnerKilled = 3
+
+// errRunnerKilled: the run ended with the runner killed (exitRunnerKilled).
+type errRunnerKilled struct{ sig syscall.Signal }
+
+func (e errRunnerKilled) Error() string {
+	return fmt.Sprintf("the runner was killed (%v), not stopped: its recording may not have been closed cleanly", e.sig)
+}
+
+// runExitCode is flyball's exit code for runDirect's result: 0, 1, or
+// exitRunnerKilled.
+func runExitCode(err error) int {
+	var killed errRunnerKilled
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &killed):
+		return exitRunnerKilled
+	}
+	return 1
+}
+
+// killedBy is the signal that ended ps: its own death by a signal, or --
+// under uv, which exits 128+N when its child dies of signal N -- an exit
+// code above 128.
+func killedBy(ps *os.ProcessState) (syscall.Signal, bool) {
+	if ws, ok := ps.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return ws.Signal(), true
+	}
+	if code := ps.ExitCode(); code > 128 && code < 128+65 {
+		return syscall.Signal(code - 128), true
+	}
+	return 0, false
 }

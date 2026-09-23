@@ -212,7 +212,9 @@ sends the runner SIGINT again, which makes it cut its shutdown short, and a
 third kills its process group (SIGKILL). `flyball` exits only once the
 runner has, so no press leaves it running. Only the first gives the runner
 its whole shutdown; after the second or third, the recording may not be
-closed cleanly. A dropped terminal or SSH session
+closed cleanly. A run whose runner was killed rather than stopped (the
+third press, or any signal but the stop's own SIGINT or SIGTERM) exits 3,
+not 0, so a wrapper can tell a forced kill from a clean stop. A dropped terminal or SSH session
 does not (D-038): the front and the runner ignore the hangup and keep the
 rig running, their output also goes to `run.log` in the front's state
 directory (below; mode 0600, rotated once to `run.log.1` past 4 MiB), and a
@@ -444,3 +446,4 @@ the caller's own credential.
 | 0 | done |
 | 1 | the rig, the daemon, or a local check refused; the message is theirs |
 | 2 | no command given |
+| 3 | `flyball run`: the runner was killed (the third Ctrl-C's SIGKILL, or another signal) rather than stopped; its recording may not be closed cleanly |
