@@ -5,6 +5,13 @@
  */
 import { Fragment, type ReactNode } from "react";
 
+/** An operator- or rig-stored URL is safe to put in an `href`: http(s), mailto, an in-page anchor or a
+ * relative path -- never `javascript:`/`data:`/anything else a stored config could smuggle in. Shared
+ * with the Link widget, which takes a raw URL the same way. */
+export function isSafeHref(href: string): boolean {
+  return /^(https?:|mailto:|#|\/)/.test(href);
+}
+
 /** Inline marks inside one line. */
 function inline(text: string, key = 0): ReactNode[] {
   const out: ReactNode[] = [];
@@ -20,7 +27,7 @@ function inline(text: string, key = 0): ReactNode[] {
     else if (m[3]) out.push(<em key={i++}>{whole.slice(1, -1)}</em>);
     else if (m[4]) {
       const href = m[6]!;
-      const safe = /^(https?:|mailto:|#|\/)/.test(href);
+      const safe = isSafeHref(href);
       out.push(
         <a key={i++} href={safe ? href : undefined} target={href.startsWith("#") ? undefined : "_blank"} rel="noopener noreferrer">
           {m[5]}

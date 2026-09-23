@@ -705,7 +705,8 @@
             "type": "string",
             "title": "URL",
             "default": "",
-            "description": "When the page is \"a URL\"."
+            "description": "When the page is \"a URL\".",
+            "pattern": "^$|^(https?:|mailto:|#|/)"
           },
           "label": {
             "type": "string",
