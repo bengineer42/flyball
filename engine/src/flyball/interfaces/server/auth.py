@@ -142,7 +142,11 @@ def same_origin(origin: str | None, host: str, scheme: str) -> bool:
 
 
 class Attempts:
-    """Slows a guesser: at most `limit` wrong tokens a minute from one address."""
+    """Slows a guesser: at most `limit` wrong tokens a minute from one address.
+
+    A bare runner counts both ways of guessing, `POST /api/auth/login` and a wrong
+    `Authorization: Bearer`; while an address is blocked, both are 429 for it.
+    """
 
     def __init__(self, limit: int = 10, window: float = 60.0) -> None:
         self.limit, self.window = limit, window
@@ -162,6 +166,12 @@ class Attempts:
     def failure(self, address: str, now: float | None = None) -> None:
         now = time.monotonic() if now is None else now
         self.failed.setdefault(address, deque()).append(now)
+
+
+def _address(scope: Any) -> str:
+    """The peer's address, as the login route's `request.client.host` names it."""
+    client = scope.get("client")
+    return client[0] if client else "?"
 
 
 def _digest(value: str) -> bytes:
@@ -280,6 +290,7 @@ class Door:
         auth = headers.get(b"authorization", b"").decode(errors="replace")
         if auth.lower().startswith("bearer "):
             if not self.is_token(auth[7:].strip()):
+                self.attempts.failure(_address(scope))
                 return "Wrong token"
             return self.claims(scope, "token:bare", self._token_sid, everything, "service"), "token"
         if "token" in parse_qs(scope.get("query_string", b"").decode(errors="replace")):
@@ -342,6 +353,10 @@ class Door:
                 await _refuse(scope, receive, send, 401, detail, code=e.code)
                 return
             await self._admit(scope, receive, send, claims, "token")
+            return
+        bearer = headers.get(b"authorization", b"")[:7].lower() == b"bearer "
+        if bearer and self.attempts.blocked(_address(scope)):
+            await _refuse(scope, receive, send, 429, "Too many wrong tokens; wait a minute")
             return
         resolved = self._bare(scope, headers)
         if isinstance(resolved, str):
@@ -437,6 +452,8 @@ async def _refuse(
     headers: dict[str, str] = {}
     if status == 401:
         headers["WWW-Authenticate"] = "Bearer"
+    if status == 429:
+        headers["Retry-After"] = "60"
     if code is not None:
         headers[ERROR_HEADER] = code
     content: dict[str, Any] = {"detail": detail}

@@ -227,6 +227,27 @@ def test_ten_wrong_tokens_in_a_minute_lock_the_door(secured):
     assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 429
 
 
+def test_ten_wrong_bearers_in_a_minute_lock_the_door_too(secured):
+    """A guesser using the header (the CLI's and MCP's way) is counted like a login.
+
+    It was never counted: 500 wrong bearers took 0.15 s, every one a plain 401.
+    """
+    for i in range(10):
+        wrong = secured.get("/api/health", headers={"Authorization": f"Bearer no{i}"})
+        assert wrong.status_code == 401
+    blocked = secured.get("/api/health", headers=BEARER)
+    assert blocked.status_code == 429, "the right token too, or the answer tells it apart"
+    assert int(blocked.headers["retry-after"]) > 0
+    with (
+        pytest.raises(WebSocketDisconnect) as closed,
+        secured.websocket_connect("/ws/events", headers=BEARER),
+    ):
+        pass
+    assert closed.value.code == 4429
+    assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 429
+    assert secured.get("/api/health").status_code == 401, "no bearer: not held back"
+
+
 def test_the_link_is_single_use_and_leaves_no_nonce_behind(secured):
     door = secured.app.state.door
     nonce = door.mint_link()

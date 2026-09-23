@@ -238,6 +238,10 @@ dashboard too when one is built beside it:
     dashboard with the nonce gone from the address bar. `POST
     /api/auth/link` with the token makes another. The login page also takes
     the token pasted in. A token never goes in a URL: `?token=` is refused.
+    Ten wrong tokens in a minute from one address, pasted or sent as a
+    bearer, and that address gets `429` for both until the oldest is a
+    minute old -- the right token included, so a script sharing the
+    address waits too.
     A `--token-file` that cannot be read leaves the runner with a token
     nobody knows, so nothing gets in until it is restarted with a readable
     one.
