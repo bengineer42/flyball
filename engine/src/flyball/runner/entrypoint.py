@@ -18,14 +18,16 @@ from typing import IO, Any
 
 from flyball.foundation.optional import require
 from flyball.model.catalog import Catalogs, set_catalog
+from flyball.rig.stopping import Stopper
 from flyball.runtime.config import RigConfig, RunnerConfig, resolve_documents
 from flyball.runtime.drivers import load_drivers
 from flyball.runtime.overlay import resolve_layers
 
 from . import frontdir, locking, logs
 from .cli import parser, settle
-from .serving import serve
+from .serving import ServeFailed, serve
 from .starting import BuildFailed, resumed, start_with_store
+from .stopping import install_break_glass
 
 log = logging.getLogger("flyball.runner")
 
@@ -35,6 +37,11 @@ RIG_BUSY = 3
 """Exit code: another runner holds this rig's lock."""
 FRONT_DIR = 4
 """Exit code: `--front-dir` is unsafe or incomplete; the front writes it again."""
+SERVE_FAILED = 5
+"""Exit code: the runner could not serve -- its socket or port could not be bound, or its
+server failed to start. Not busy (that is 3, a lock held): starting again may work.
+
+The whole table, with `flyball`'s own codes: book/src/7-reference/cli.md#exit-codes."""
 
 
 def _refuse(args: Any, e: Exception) -> int:
@@ -58,7 +65,21 @@ def _needed_extras(args: Any) -> list[str]:
     return needed
 
 
+def _attached_stopper() -> Stopper | None:
+    """The stopper of the rig serving attached, or None while there is none yet.
+
+    Read from the server's module only if it is loaded (nothing attaches a rig before
+    then), so a SIGUSR1 during startup imports nothing on the handler's thread.
+    """
+    deps = sys.modules.get("flyball.interfaces.server.deps")
+    current = getattr(deps, "current_stopper", None)
+    return None if current is None else current()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    # SIGUSR1 first of all: `flyball stop` sends it to the pid the lock files name, which
+    # they do long before the rig is up, and its default action would end the runner.
+    install_break_glass(_attached_stopper)
     args = parser().parse_args(argv)
     logs.configure(args.log_level or "info")
     if args.front_dir is None:
@@ -76,6 +97,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except locking.RigBusy as e:
         print(f"flyball-runner: {e}", file=sys.stderr)
         return RIG_BUSY
+    except OSError as e:  # runner.lock a symlink (O_NOFOLLOW), not ours to open, ...
+        print(f"flyball-runner: --front-dir {args.front_dir}: runner.lock: {e}", file=sys.stderr)
+        return FRONT_DIR
     with mine:
         try:
             front = frontdir.read(args.front_dir)
@@ -171,14 +195,19 @@ def _run(
     # complete" logging) already runs by the time this is caught -- the interrupt
     # still escapes uvicorn's internals and would otherwise print a raw traceback
     # here on top of that, for no reason: the process is exiting cleanly either way.
-    with contextlib.suppress(KeyboardInterrupt):
-        serve(
-            rig,
-            settings,
-            simulation=simulation,
-            store=store,
-            config=config,
-            insecure_open=bool(args.insecure_open),
-            front=front,
-        )
+    try:
+        with contextlib.suppress(KeyboardInterrupt):
+            serve(
+                rig,
+                settings,
+                simulation=simulation,
+                store=store,
+                config=config,
+                insecure_open=bool(args.insecure_open),
+                front=front,
+            )
+    except ServeFailed as e:
+        names = ", ".join(str(p) for p in args.rig) or "(no rig file)"
+        print(f"flyball-runner: {names}: could not serve on {where}: {e}", file=sys.stderr)
+        return SERVE_FAILED
     return 0

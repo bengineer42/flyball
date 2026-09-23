@@ -326,3 +326,38 @@ func TestDirLocation(t *testing.T) {
 		}
 	}
 }
+
+// While Write holds runner.lock, the file names no pid: the one it named
+// is the runner before, which has exited (Write refuses a held lock), and
+// that pid may since belong to another process. A stop that lands in
+// Write's window must find no pid, never the stale one (F4).
+func TestWriteClearsThePidWhileItHoldsTheLock(t *testing.T) {
+	dir := filepath.Join(shortTemp(t), "oven")
+	if err := Prepare(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, Lock), []byte("pid 12345 rig oven\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(dir, Aud+".tmp"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := Write(dir, "oven", sockOf(t, dir)); done <- err }()
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		if held, _ := LockHeld(dir); held {
+			break
+		}
+	}
+	during, err := os.ReadFile(filepath.Join(dir, Lock))
+	fifo, ferr := os.OpenFile(filepath.Join(dir, Aud+".tmp"), os.O_RDONLY, 0)
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	go io.Copy(io.Discard, fifo)
+	<-done
+	fifo.Close()
+	if err != nil || len(during) != 0 {
+		t.Fatalf("runner.lock while Write held it: %q (%v), want empty: the exited runner's pid is not the holder", during, err)
+	}
+}

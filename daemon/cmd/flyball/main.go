@@ -66,11 +66,11 @@ func main() {
 	// daemon just to run one rig. Checked before addressing resolution
 	// since there's nothing to address yet.
 	if args[0] == "run" {
-		if err := runDirect(args[1:]); err != nil {
+		err := runDirect(args[1:])
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "flyball:", err)
-			os.Exit(1)
 		}
-		return
+		os.Exit(runExitCode(err))
 	}
 
 	// `rig ...` is a local operation against the rig file/schema itself,

@@ -342,6 +342,16 @@ func signalStop(pid int, where string) error {
 	if err != nil {
 		return fmt.Errorf("pid %d: %w", pid, err)
 	}
+	// Under `flyball run --uv` or flyballd's `uv_project:` the process
+	// spawned is uv (the pid `flyball runners` shows), with the runner as
+	// its child. uv does not pass SIGUSR1 on: it would die of it, leave
+	// the runner orphaned, and stop nothing.
+	if processName(pid) == "uv" {
+		if child := childOf(pid); child != 0 {
+			return fmt.Errorf("pid %d is uv, which does not pass SIGUSR1 on (it would die of it, and the rig would not stop): nothing was signalled; the runner under it is pid %d -- `flyball stop --pid %d`", pid, child, child)
+		}
+		return fmt.Errorf("pid %d is uv, which does not pass SIGUSR1 on (it would die of it, and the rig would not stop): nothing was signalled; signal the runner under it -- `flyball stop --front-dir DIR` or `flyball stop RIG-FILE` find it by its runner.lock", pid)
+	}
 	return signalProcess(proc, pid, where)
 }
 
@@ -363,14 +373,20 @@ var lockPidRe = regexp.MustCompile(`^pid (\d+)`)
 
 // lockHolder is the runner that holds the lock file at path (runner.lock,
 // or a bare runner's <store>.lock: the runner holds LOCK_EX on either for
-// its life, and writes its pid into it), for signalStop's fallback. The
-// file is never unlinked, so the pid in it outlives its runner and may
-// since have been given to an unrelated process: the pid is signalled only
-// when the lock is held now (a LOCK_SH|LOCK_NB probe must fail, the rule
-// flyballd's own adoption uses, frontdir.LockHeld) and, where
-// /proc/locks exists, held by that very pid. The *os.Process is taken
-// before those checks -- a pidfd on Linux -- so the signal cannot reach a
-// later process given the same pid in between.
+// its life, and writes its pid into it once it holds it), for
+// signalStop's fallback. The file is never unlinked, so the pid in it
+// outlives its runner and may since have been given to an unrelated
+// process. The pid is signalled only when the lock is held now (a
+// LOCK_SH|LOCK_NB probe must fail, the rule flyballd's own adoption uses,
+// frontdir.LockHeld) and that pid is known to be its holder: where
+// /proc/locks exists (Linux), it shows that pid holding it; elsewhere,
+// the process started no later than the file was last written, so it is
+// the runner that wrote it (processStartTime; macOS). Where neither can
+// be known, nothing is signalled. A held lock that names no pid is a
+// runner starting: a front's Write empties runner.lock while it holds it
+// (frontdir), and the runner writes its pid right after it takes it. The
+// *os.Process is taken before those checks -- a pidfd on Linux -- so the
+// signal cannot reach a later process given the same pid in between.
 func lockHolder(path string) (*os.Process, int, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
@@ -381,28 +397,48 @@ func lockHolder(path string) (*os.Process, int, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("reading %s: %w", path, err)
 	}
-	m := lockPidRe.FindSubmatch(data)
-	if m == nil {
-		return nil, 0, fmt.Errorf(`%s: does not start with "pid <n>"`, path)
-	}
-	pid, err := strconv.Atoi(string(m[1]))
-	if err != nil || pid <= 0 {
-		return nil, 0, fmt.Errorf("%s: bad pid %q", path, m[1])
-	}
-	proc, err := os.FindProcess(pid)
+	fi, err := f.Stat()
 	if err != nil {
-		return nil, 0, fmt.Errorf("pid %d: %w", pid, err)
+		return nil, 0, fmt.Errorf("reading %s: %w", path, err)
+	}
+	pid := 0
+	if m := lockPidRe.FindSubmatch(data); m != nil {
+		pid, err = strconv.Atoi(string(m[1]))
+		if err != nil || pid <= 0 {
+			return nil, 0, fmt.Errorf("%s: bad pid %q", path, m[1])
+		}
+	}
+	var proc *os.Process
+	if pid > 0 {
+		if proc, err = os.FindProcess(pid); err != nil {
+			return nil, 0, fmt.Errorf("pid %d: %w", pid, err)
+		}
 	}
 	switch err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); {
 	case err == nil:
 		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		if pid == 0 {
+			return nil, 0, fmt.Errorf("%s is stale: no runner holds it", path)
+		}
 		return nil, 0, fmt.Errorf("%s is stale: no runner holds it (the one that wrote it has exited), so pid %d, which it names, is not signalled", path, pid)
 	case !errors.Is(err, syscall.EWOULDBLOCK):
 		return nil, 0, fmt.Errorf("%s: %w", path, err)
 	}
+	if pid == 0 {
+		return nil, 0, fmt.Errorf("the runner is starting (%s is held but names no pid yet): nothing was signalled; try again in a moment", path)
+	}
 	holders, known := flockHolders(f)
 	if known && !slices.Contains(holders, pid) {
-		return nil, 0, fmt.Errorf("%s names pid %d, but its lock is held by pid %v: not signalling a process that is not the runner (pass --pid N once you know which it is)", path, pid, holders)
+		return nil, 0, fmt.Errorf("%s names pid %d, but its lock is held by pid %v: a runner starting (it names itself in a moment), or not a runner at all; pid %d is not signalled -- try again in a moment, or pass --pid N once you know which is the runner", path, pid, holders, pid)
+	}
+	if !known {
+		started, ok := processStartTime(pid)
+		switch {
+		case !ok:
+			return nil, 0, fmt.Errorf("%s names pid %d, but this system cannot confirm that pid %d holds it (no /proc/locks), and the pid may since be another process's: nothing was signalled; check pid %d is the runner (`ps -p %d`), then `flyball stop --pid %d` -- or press Ctrl-C in the `flyball run` terminal", path, pid, pid, pid, pid, pid)
+		case started.After(fi.ModTime()):
+			return nil, 0, fmt.Errorf("%s names pid %d, but pid %d started after the file was written, so it is not the runner that wrote it (the runner is starting, or has exited): nothing was signalled; try again in a moment, or `flyball stop --pid N` for the runner's own pid", path, pid, pid)
+		}
 	}
 	return proc, pid, nil
 }
@@ -418,7 +454,7 @@ func flockHolders(f *os.File) (pids []int, known bool) {
 	if !ok {
 		return nil, false
 	}
-	locks, err := os.ReadFile("/proc/locks")
+	locks, err := os.ReadFile(procLocks)
 	if err != nil {
 		return nil, false
 	}
@@ -441,6 +477,10 @@ func flockHolders(f *os.File) (pids []int, known bool) {
 	}
 	return pids, true
 }
+
+// procLocks is /proc/locks; a test points it elsewhere to play a system
+// without it (macOS).
+var procLocks = "/proc/locks"
 
 // pidFromLockFile is the pid a lock file names, unverified: for naming it
 // in a message (run.go's refusal). Never signal it -- lockHolder is the

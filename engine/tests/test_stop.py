@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import signal
-import socket
 import subprocess
 import sys
 import threading
@@ -21,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from conftest import TestClient
+from conftest import TestClient, free_port
 from flyball.foundation.device import Access
 from flyball.interfaces.server import create_app, principal, set_programmer, set_rig
 from flyball.interfaces.server.deps import current_stopper, get_dialect, set_stopper
@@ -356,12 +355,6 @@ def test_break_glass_off_the_main_thread_is_a_no_op():
 # region The break-glass, in a real runner
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def _call(port: int, method: str, path: str, body: Any = None) -> Any:
     data = None if body is None else json.dumps(body).encode()
     request = urllib.request.Request(
@@ -400,7 +393,7 @@ class Lines:
 
 
 def test_sigusr1_stops_without_exit(tmp_path):
-    port = _free_port()
+    port = free_port()
     env = {
         k: v
         for k, v in os.environ.items()
@@ -457,6 +450,68 @@ def test_sigusr1_stops_without_exit(tmp_path):
         assert second["controllers_manual"] == ["heater.drive"]
         assert proc.poll() is None
         assert _call(port, "GET", "/api/health") is not None
+    finally:
+        if proc.poll() is None:
+            proc.send_signal(signal.SIGINT)
+            try:
+                proc.wait(15)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+    assert proc.returncode == 0, "".join(err.lines)
+
+
+def test_sigusr1_while_starting_does_not_end_the_runner(tmp_path):
+    """A stop signalled while the rig is still being built is survived, not fatal.
+
+    `flyball stop RIG-FILE` / `--front-dir` signal the pid in the lock file, which the
+    runner writes long before the rig is up (18-22 s on a Pi): SIGUSR1's default action
+    would end it there, and `flyball run` would start it again -- a stop turned restart.
+    Sent the moment `<store>.lock` names the runner, the signal finds no rig to stop yet.
+    """
+    port = free_port()
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("FLYBALL_PASSWORD", "FLYBALL_TOKEN", "FLYBALL_INSECURE_OPEN")
+    }
+    store = tmp_path / "s.sqlite"
+    argv = [str(EXAMPLES / "oven.yaml"), "--port", str(port), "--store", str(store)]
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "flyball.runner", *argv],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert proc.stderr is not None
+    err = Lines(proc.stderr)
+    lock = tmp_path / "s.sqlite.lock"
+    try:
+
+        def named() -> bool:
+            assert proc.poll() is None, "".join(err.lines)
+            return lock.exists() and lock.read_text().startswith(f"pid {proc.pid}")
+
+        _until(named, 30)
+        proc.send_signal(signal.SIGUSR1)
+
+        def up() -> bool:
+            assert proc.poll() is None, (
+                f"SIGUSR1 while starting ended the runner ({proc.returncode})"
+            )
+            try:
+                _call(port, "GET", "/api/auth")
+            except OSError:
+                return False
+            return True
+
+        _until(up, 30)
+        early = err.matching("SIGUSR1: no rig attached yet")
+        late = err.matching("stop report")
+        assert early or late, "".join(err.lines)
+        print("the signal found:", (early or late)[0].strip())
     finally:
         if proc.poll() is None:
             proc.send_signal(signal.SIGINT)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import socket
 import threading
 import traceback
 from collections.abc import Callable, Iterator
@@ -135,3 +136,14 @@ class FakeRunner:
 
     def restart(self) -> None:
         self.asked.append("restart")
+
+
+def free_port() -> int:
+    """A TCP port on 127.0.0.1 that nothing listens on now (the OS's pick), for a real server.
+
+    Never a fixed port: two suites running at once (another worktree's) would each take
+    the other's server for their own.
+    """
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])

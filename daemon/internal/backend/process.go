@@ -401,6 +401,9 @@ const (
 	// The front rewrites it and respawns once, whatever the policy; a
 	// second exit 4 in a row leaves it failed.
 	exitFrontDir = 4
+	// Exit 5, the runner could not serve (its socket not bound, its
+	// server not started), is not among them: a crash, restarted by the
+	// policy. It was uvicorn's own 3 before, taken for busy for good.
 )
 
 // superviseFrom hands rp to a new supervise() goroutine. b.mu held. cmd
@@ -607,12 +610,21 @@ func (b *ProcessBackend) takeOver(rp *runnerProc) (cmd *exec.Cmd, adopted bool) 
 			b.mu.Unlock()
 			return cmd, false
 		}
+		// A runner that has taken the lock but not yet named itself in it
+		// is starting, as is one not listening yet or not answering yet
+		// (a probe that times out, or a connection closed unanswered: a
+		// Pi takes ~20 s to start). Each is retried within adoptWindow;
+		// only an answer that proves the runner is not ours makes it busy.
+		if errors.Is(err, errNoPid) && time.Now().Before(deadline) {
+			b.pause(rp, b.probeInterval)
+			continue
+		}
 		var info endpoint.FrontInfo
 		if err == nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*endpoint.ProbeTimeout)
 			info, err = endpoint.Handshake(ctx, h.ep, rp.rootPath, rp.aud, h.key, sign)
 			cancel()
-			if errors.Is(err, endpoint.ErrNotListening) {
+			if errors.Is(err, endpoint.ErrNotListening) || noAnswer(err) {
 				if time.Now().Before(deadline) {
 					b.pause(rp, b.probeInterval)
 					continue
@@ -742,6 +754,22 @@ type holder struct {
 
 var lockPid = regexp.MustCompile(`^pid (\d+)`)
 
+// errNoPid: runner.lock is held but names no pid -- its runner has taken
+// it and not yet written its pid (a front's Write leaves it empty).
+var errNoPid = errors.New(frontdir.Lock + " names no pid")
+
+// noAnswer: a handshake error that is not an answer -- a probe that timed
+// out, or a connection closed or reset before its answer came -- as
+// against one that proves the runner is not this front's (a wrong status,
+// protocol or aud). front/proxy.go's noAnswer reads it the same way.
+func noAnswer(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout() ||
+		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
+}
+
 // inspect reads the front-dir dir of a runner for aud: whether its
 // runner.lock is held, and if so the key, endpoint and pid a runner there
 // was given. An error: the dir fails frontdir.Check, or it holds what no
@@ -765,12 +793,6 @@ func inspect(dir, aud string) (holder, error) {
 	if err != nil {
 		return h, err
 	}
-	m := lockPid.FindSubmatch(lock)
-	if m == nil {
-		return h, fmt.Errorf("%s names no pid (%q)", frontdir.Lock, strings.TrimSpace(string(lock)))
-	}
-	h.pid, _ = strconv.Atoi(string(m[1]))
-	h.start = processStart(h.pid)
 	if got, err := r.ReadFile(frontdir.Aud); err != nil {
 		return h, err
 	} else if a := strings.TrimSpace(string(got)); a != aud {
@@ -786,6 +808,14 @@ func inspect(dir, aud string) (holder, error) {
 	if h.key, err = frontdir.ReadKey(dir); err != nil {
 		return h, err
 	}
+	// Last: a dir written for this runner whose lock names no pid yet is
+	// one whose runner is starting (errNoPid), not a foreign one.
+	m := lockPid.FindSubmatch(lock)
+	if m == nil {
+		return h, fmt.Errorf("%w (%q)", errNoPid, strings.TrimSpace(string(lock)))
+	}
+	h.pid, _ = strconv.Atoi(string(m[1]))
+	h.start = processStart(h.pid)
 	return h, nil
 }
 

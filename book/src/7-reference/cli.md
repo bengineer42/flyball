@@ -102,7 +102,7 @@ reaches the rig depends on how the rig is named (D-042):
 | `flyball stop`, `flyball stop NAME`, `flyball -s NAME stop` | `POST /api/rig/stop` through the front at `$FLYBALL_URL` (or `flyballd` for a `NAME`); needs `operate` | printed |
 | `flyball stop --front-dir DIR` | `SIGUSR1` to the runner holding `DIR/runner.lock`; no HTTP call | in the runner's log |
 | `flyball stop RIG-FILE` | `SIGUSR1` to the runner holding `runner.lock` in the front-dir `flyball run RIG-FILE` uses (when that is not a temporary directory); no HTTP call | in that run's `run.log`, whose path the CLI prints |
-| `flyball stop --pid N` | `SIGUSR1` to `N` as given; no HTTP call | in the runner's log |
+| `flyball stop --pid N` | `SIGUSR1` to `N` as given -- unless `N` is `uv` (`flyball run --uv`, `uv_project:`), which does not pass the signal on: refused, naming the runner under it; no HTTP call | in the runner's log |
 
 An argument with a `/` or a `.yaml`/`.yml` ending is a rig file; anything
 else is a rig name. `--front-dir` with `-s NAME`, a `NAME` or a `RIG-FILE`
@@ -126,9 +126,22 @@ stop the rig there: use `--front-dir` or the rig file.
 
 A `runner.lock` outlives its runner, and the pid in it may since have been
 given to another process, so a pid read from one is signalled only while a
-runner holds that lock and, on Linux (`/proc/locks`), only when the pid it
-names is the one holding it. A stale lock is refused with an error naming
-the pid, and nothing is signalled; `--pid N` is signalled as given.
+runner holds that lock and that pid is known to be the one holding it: on
+Linux, `/proc/locks` shows it; on macOS, the process started before the
+file was last written, so it is the runner that wrote it. Where neither
+can be known, nothing is signalled, and the error names `--pid N` and
+Ctrl-C in the `flyball run` terminal instead. A stale lock is refused with
+an error naming the pid, and nothing is signalled. While a front rewrites
+its front-dir, and until a runner that has just taken the lock writes its
+pid, `runner.lock` names no pid: the stop says the runner is starting, and
+signals nothing -- try again in a moment. `--pid N` is signalled as given,
+except a `uv` process: under `flyball run --uv` or `uv_project:` the
+process started (the pid `flyball runners` shows) is `uv`, with the runner
+as its child, and `uv` dies of `SIGUSR1` rather than passing it on, so the
+stop refuses and names the runner's pid instead. The lock file always
+names the runner itself. A `SIGUSR1` that reaches a runner still building
+its rig stops nothing (there is nothing to stop yet) and does not end it:
+its log says so.
 
 `flyball stop --all` asks `flyballd` (`$FLYBALLD_URL`) for the rigs this
 credential holds a verb on (`GET /api/rigs`, no `manage` needed) and stops
@@ -202,17 +215,21 @@ websocket or a download is not cut short. A page opened before the runner
 answers gets `503` with `Retry-After: 1`, and the dashboard says
 *starting…* until it does.
 
-A runner that crashes is started again with a fresh key (1 s backoff,
-doubling to 30 s, back to 1 s after 10 s up). The run ends when the runner
-exits cleanly, or with exit 2 (a bad rig file, or a `flyball-runner` too old
-for `--front-dir`), 3 (another runner holds the rig), or 4 twice (its
-front-dir refused). Ctrl-C or SIGTERM stops the runner and ends the run,
+A runner that crashes, or cannot serve (exit 5), is started again with a
+fresh key (1 s backoff, doubling to 30 s, back to 1 s after 10 s up). The
+run ends when the runner exits cleanly, or with exit 2 (a bad rig file, or a
+`flyball-runner` too old for `--front-dir`), 3 (another runner holds the
+rig), or 4 twice (its front-dir refused): `flyball` then exits 1, naming
+it ([exit codes](#exit-codes)). Ctrl-C or SIGTERM stops the runner and ends the run,
 and says what the next presses do (D-045): a second Ctrl-C (or SIGTERM)
 sends the runner SIGINT again, which makes it cut its shutdown short, and a
 third kills its process group (SIGKILL). `flyball` exits only once the
 runner has, so no press leaves it running. Only the first gives the runner
 its whole shutdown; after the second or third, the recording may not be
-closed cleanly. A dropped terminal or SSH session
+closed cleanly. A run whose runner was killed rather than stopped (the
+third press, or any signal but the stop's own SIGINT or SIGTERM) exits
+128+N for signal N -- 137 for the third press's SIGKILL -- not 0, so a
+wrapper can tell a forced kill from a clean stop. A dropped terminal or SSH session
 does not (D-038): the front and the runner ignore the hangup and keep the
 rig running, their output also goes to `run.log` in the front's state
 directory (below; mode 0600, rotated once to `run.log.1` past 4 MiB), and a
@@ -226,8 +243,12 @@ stop the rig: it says so, and the rig runs on, stoppable by signal or
 The front keeps its named tokens and its audit in
 `$XDG_STATE_HOME/flyball/front-<id>/` (`~/.local/state/…`), the id derived
 from the rig file's absolute path, so each rig file has its own. With
-neither `XDG_STATE_HOME` nor `HOME` set, `flyball run` (and `flyball token
---config RIG-FILE`) refuses rather than use a shared directory.
+neither `XDG_STATE_HOME` nor `HOME` set (a systemd unit with no `User=`, a
+minimal init script), `~` is the user's home from the password database,
+such as `/root`. Only if that cannot be looked up, or is not a directory
+the user owns and no one else can write (`/`, anything under `$TMPDIR`),
+does `flyball run` (and `flyball token --config RIG-FILE`) refuse rather
+than use a shared directory.
 
 ### Named tokens
 
@@ -435,8 +456,18 @@ the caller's own credential.
 
 ## Exit codes
 
-| | |
-| --- | --- |
-| 0 | done |
-| 1 | the rig, the daemon, or a local check refused; the message is theirs |
-| 2 | no command given |
+One table for `flyball` and `flyball-runner`: a number means the same
+thing wherever it appears. `flyballd` reads the runner's codes as its
+[runner status](#a-runners-status) says; `flyball run` ends with 1 on the
+runner's 2, 3 or a second 4, naming it, and starts the runner again on
+any other failure.
+
+| code | `flyball` | `flyball-runner` |
+| --- | --- | --- |
+| 0 | done | stopped cleanly (Ctrl-C, SIGTERM, a shutdown asked over the API) |
+| 1 | the rig, the daemon, or a local check refused; the message is theirs | an unexpected error (a traceback) |
+| 2 | no command given | the rig file does not load, the rig cannot be built, or a flag is unknown: one line on stderr; starting again will not help |
+| 3 | -- | the rig is busy: another runner holds its `<store>.lock`, or the front-dir's `runner.lock` (the message names it) |
+| 4 | -- | `--front-dir` is unsafe or incomplete, found before the rig's lock is taken or any hardware touched; the front writes it again |
+| 5 | -- | it could not serve: its socket or port could not be bound, or its server did not start (uvicorn's own exit 3, said as what it is). Not busy: starting again may work |
+| 128+N | `flyball run`: its runner was killed by signal N rather than stopped (137: the third Ctrl-C's SIGKILL); its recording may not be closed cleanly | -- |

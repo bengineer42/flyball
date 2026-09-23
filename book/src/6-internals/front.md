@@ -35,12 +35,14 @@ user, checked with `lstat` (not a symlink) before every spawn:
 | `aud` | the front | 0600 | the audience: the manifest name under `flyballd`, `run-<8 hex>` under `flyball run` |
 | `endpoint` | the front | 0600 | `unix:<front-dir>/sock`, or `tcp:127.0.0.1:<port>` on Windows only |
 | `sock` | the runner | 0600, bound so before it listens | |
-| `runner.lock` | the runner, `flock`ed for its life; the front creates it and holds it while it writes the directory | 0600 | `pid <n> rig <name>` (`pid <n>` until the rig file is read) |
+| `runner.lock` | the runner, `flock`ed for its life; the front creates it and holds it while it writes the directory, emptying it (the pid it named has exited) | 0600 | `pid <n> rig <name>` (`pid <n>` until the rig file is read); empty from a front's write until the runner, just after it takes the lock, names itself |
 
 The front passes the directory in argv, `flyball-runner --front-dir DIR`;
 the key is never in argv or the environment. A runner given a front-dir
 that is unsafe, or whose `key`, `aud` or `endpoint` is missing or
-malformed, exits **4** before it takes the rig's lock or touches hardware;
+malformed (a socket anywhere but in the front-dir itself included), or
+whose `runner.lock` it cannot open as its own (a symlink, say), exits
+**4** before it takes the rig's lock or touches hardware;
 the front rewrites the directory and starts it once more. A second runner
 for the same store exits **3**: the rig's own `<store>.lock` is held. The
 runner takes `runner.lock` first, before it reads `key` (exit **3** if
@@ -208,8 +210,12 @@ on the host, are on the stdio server (`flyball-mcp`) only.
 holds its `runner.lock`, it reads `key`, `aud` and `endpoint`, checks the
 runner with the signed handshake, and routes to it again -- same process,
 same key, no interruption. `GET /api/runners` then says `adopted: true`
-and the `pid`. A runner that does not answer within 60 s, or answers for
-another audience, is left alone and the rig is `busy`, with the `reason`.
+and the `pid`. A runner that holds the lock but has not yet named itself
+in it, is not listening yet, or does not answer the probe in time (a
+timeout, or a connection closed unanswered: a Raspberry Pi takes ~20 s to
+start) is starting, and is tried again; one still not answering after
+60 s, or one whose answer shows it is not this front's (another audience,
+an old runner), is left alone and the rig is `busy`, with the `reason`.
 An adopted runner is not `flyballd`'s child, so its exit status cannot be
 known: when its pid goes, the manifest's `restart` policy treats it as a
 crash. A runner spawned into a front-dir that another runner took

@@ -85,6 +85,9 @@ func TestRunSurvivesADeadStdoutReader(t *testing.T) {
 		if ws := cmd.ProcessState.Sys().(syscall.WaitStatus); ws.Signaled() {
 			t.Fatalf("flyball run was killed by %v after the stop", ws.Signal())
 		}
+		if code := cmd.ProcessState.ExitCode(); code != 0 {
+			t.Fatalf("flyball run exited %d after a clean stop, want 0", code)
+		}
 	case <-time.After(15 * time.Second):
 		t.Fatal("flyball run did not end after SIGTERM")
 	}

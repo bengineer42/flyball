@@ -18,7 +18,6 @@ import time
 from collections.abc import Callable
 from types import FrameType
 
-from flyball.interfaces.server.audit import record_stop
 from flyball.rig.stopping import Actor, DeviceStop, InterimStopper, Stopper, StopReport
 
 __all__ = ["Actor", "DeviceStop", "InterimStopper", "StopReport", "Stopper", "install_break_glass"]
@@ -46,8 +45,11 @@ def install_break_glass(stopper: Callable[[], Stopper | None]) -> None:
     The stop runs on a thread of its own, not in the handler: the handler runs on the
     main thread, which is serving, and a stop may wait on a program's worker. Its report
     is logged as one `stop report: {json}` line at WARNING; with nothing to stop
-    (`stopper()` is None) that is said instead. Main thread only (elsewhere, and where
-    there is no `SIGUSR1`, a no-op); the handler stays installed for the process's life.
+    (`stopper()` is None: the rig is still being built) that is said instead, and the
+    process carries on. Main thread only (elsewhere, and where there is no `SIGUSR1`, a
+    no-op); the handler stays installed for the process's life. The runner installs it
+    first thing in `main`, before the lock files name it, so a stop sent while the rig
+    starts never meets SIGUSR1's default action (the process's end).
     """
     usr1 = getattr(signal, "SIGUSR1", None)
     if usr1 is None or threading.current_thread() is not threading.main_thread():
@@ -62,8 +64,15 @@ def install_break_glass(stopper: Callable[[], Stopper | None]) -> None:
 def _stop(stopper: Callable[[], Stopper | None]) -> None:
     target = stopper()
     if target is None:
-        log.warning("SIGUSR1: no rig attached; nothing to stop")
+        log.warning(
+            "SIGUSR1: no rig attached yet; nothing to stop -- the runner is still starting"
+            " (send it again once the rig is up)"
+        )
         return
+    # Here, not at the top: the entry point installs the handler before it checks that
+    # the server extra (fastapi) is there, and a rig attached means it is.
+    from flyball.interfaces.server.audit import record_stop
+
     at_ns = time.time_ns()
     try:
         report = target.stop(SIGNAL_ACTOR, "SIGUSR1")

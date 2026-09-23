@@ -205,7 +205,13 @@ reference](../../7-reference/cli.md#signing-in).
 (`operate`) or one (`operate:furnace`), and `manage` for `flyballd`'s own
 routes. `read` is every `GET` and every stream, plus checking a rig or a
 program file; `operate` is everything else, stopping the rig included.
-These two verbs are a placeholder: which verbs there are, and what each
+Neither includes the other: a token holding `operate` alone can stop the
+rig but gets `403` from `flyball status` or any stream, even where
+anonymous callers may read. `flyball token create --scope operate` and
+`flyball login --scope operate` add `read` on the same rigs for you (the
+`bench` token above holds `operate:*` and `read:*`); a token made through
+`POST /api/auth/tokens` holds exactly the scopes it asks for, so ask for
+`["read", "operate"]` there. These two verbs are a placeholder: which verbs there are, and what each
 route needs, is still being decided (D-034, pending), so expect the list
 to change.
 
@@ -427,7 +433,10 @@ manual. **In this release it writes nothing to any device**: outputs are
 left at whatever they were last told, and each device is reported
 `unchanged` (`interim: true` in the report). A `SIGUSR1` stop writes its
 report to the runner's log (`stop report: {…}`) and does not end the
-process. Every stop is in the [audit](#what-is-recorded), the `SIGUSR1` one
+process. One that arrives while the rig is still being built (from the
+moment the lock file names the runner; 20 s or so on a Raspberry Pi) finds
+nothing to stop yet: the log says so (`SIGUSR1: no rig attached yet`), the
+runner carries on starting, and the stop is sent again once it serves. Every stop is in the [audit](#what-is-recorded), the `SIGUSR1` one
 as `local:signal`; the signal's sender is not recorded.
 
 !!! warning "Not an emergency stop"

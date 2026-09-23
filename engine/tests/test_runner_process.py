@@ -1,16 +1,20 @@
 """`flyball-runner` as a process: where it binds, what it says, and how it stops.
 
-Real processes on 127.0.0.1, ports 18355-18359 only; each test tears its runner down.
+Real processes on 127.0.0.1, each test on ports of its own (`free_port`, never a fixed one:
+a suite running at once elsewhere would answer for this one's runner); each test tears its
+runner down.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from collections.abc import Callable, Iterator
@@ -19,7 +23,13 @@ from pathlib import Path
 
 import pytest
 
-PORT = 18355
+from conftest import free_port
+
+
+@pytest.fixture
+def port() -> int:
+    """This test's runner's port."""
+    return free_port()
 
 
 def _lan_address() -> str | None:
@@ -82,18 +92,18 @@ def runner(cwd: Path, *argv: str, env: dict[str, str] | None = None) -> Iterator
                 stream.close()
 
 
-def test_an_open_runner_asked_for_the_network_runs_on_loopback(tmp_path):
-    argv = ["--host", "0.0.0.0", "--port", str(PORT), "--store", str(tmp_path / "s.sqlite")]
+def test_an_open_runner_asked_for_the_network_runs_on_loopback(tmp_path, port):
+    argv = ["--host", "0.0.0.0", "--port", str(port), "--store", str(tmp_path / "s.sqlite")]
     with runner(tmp_path, *argv) as proc:
-        _wait_up(proc, PORT)
-        health = _get(f"http://127.0.0.1:{PORT}/api/health")
+        _wait_up(proc, port)
+        health = _get(f"http://127.0.0.1:{port}/api/health")
         assert health["exposure"]["restricted"] and health["exposure"]["host"] == "127.0.0.1"
-        auth = _get(f"http://127.0.0.1:{PORT}/api/auth")
+        auth = _get(f"http://127.0.0.1:{port}/api/auth")
         assert auth["exposure"]["requested"] == "0.0.0.0"
         lan = _lan_address()
         if lan is not None:  # not reachable on the machine's own network address
             with pytest.raises(OSError):
-                _get(f"http://{lan}:{PORT}/api/auth", timeout=0.5)
+                _get(f"http://{lan}:{port}/api/auth", timeout=0.5)
         proc.send_signal(signal.SIGINT)
         _, err = proc.communicate(timeout=15)
     assert proc.returncode == 0
@@ -101,15 +111,15 @@ def test_an_open_runner_asked_for_the_network_runs_on_loopback(tmp_path):
     assert len(warnings) == 1 and "127.0.0.1" in warnings[0] and "--insecure-open" in warnings[0]
 
 
-def test_the_environment_opts_in_for_one_run(tmp_path):
-    argv = ["--host", "0.0.0.0", "--port", str(PORT), "--store", str(tmp_path / "s.sqlite")]
+def test_the_environment_opts_in_for_one_run(tmp_path, port):
+    argv = ["--host", "0.0.0.0", "--port", str(port), "--store", str(tmp_path / "s.sqlite")]
     with runner(tmp_path, *argv, env={"FLYBALL_INSECURE_OPEN": "1"}) as proc:
-        _wait_up(proc, PORT)
-        exposure = _get(f"http://127.0.0.1:{PORT}/api/auth")["exposure"]
+        _wait_up(proc, port)
+        exposure = _get(f"http://127.0.0.1:{port}/api/auth")["exposure"]
         assert exposure["open_network"] and exposure["host"] == "0.0.0.0"
         # Asked for by a network name, it answers: the loopback-Host rule is lifted.
         lan = urllib.request.Request(
-            f"http://127.0.0.1:{PORT}/api/health", headers={"Host": f"192.0.2.7:{PORT}"}
+            f"http://127.0.0.1:{port}/api/health", headers={"Host": f"192.0.2.7:{port}"}
         )
         with urllib.request.urlopen(lan, timeout=1.0) as r:
             assert r.status == 200
@@ -129,13 +139,13 @@ def _open_sessions(store: Path) -> list[int]:
 
 
 @pytest.mark.parametrize("sig", [signal.SIGTERM, signal.SIGINT])
-def test_a_stop_signal_runs_the_cleanup(tmp_path, sig):
+def test_a_stop_signal_runs_the_cleanup(tmp_path, sig, port):
     # flyballd and systemd stop with SIGTERM: the rig must be stopped and the session
     # closed as on Ctrl-C, not left for the next start to find open.
     store = tmp_path / "s.sqlite"
-    argv = [str(EXAMPLES / "oven.yaml"), "--port", str(PORT), "--store", str(store), "--record"]
+    argv = [str(EXAMPLES / "oven.yaml"), "--port", str(port), "--store", str(store), "--record"]
     with runner(tmp_path, *argv) as proc:
-        _wait_up(proc, PORT)
+        _wait_up(proc, port)
         proc.send_signal(sig)
         _, err = proc.communicate(timeout=20)
     assert proc.returncode == 0, err[-2000:]
@@ -143,17 +153,17 @@ def test_a_stop_signal_runs_the_cleanup(tmp_path, sig):
     assert "Traceback" not in err
 
 
-def test_sighup_is_ignored(tmp_path):
+def test_sighup_is_ignored(tmp_path, port):
     # D-038: a dropped terminal (SIGHUP) never stops a runner -- unlike SIGTERM/SIGINT
     # above, the process must still be alive and serving afterwards.
     store = tmp_path / "s.sqlite"
-    argv = [str(EXAMPLES / "oven.yaml"), "--port", str(PORT), "--store", str(store), "--record"]
+    argv = [str(EXAMPLES / "oven.yaml"), "--port", str(port), "--store", str(store), "--record"]
     with runner(tmp_path, *argv) as proc:
-        _wait_up(proc, PORT)
+        _wait_up(proc, port)
         proc.send_signal(signal.SIGHUP)
         time.sleep(0.5)
         assert proc.poll() is None, "SIGHUP stopped the runner"
-        assert _get(f"http://127.0.0.1:{PORT}/api/health")["rig"] == "oven"
+        assert _get(f"http://127.0.0.1:{port}/api/health")["rig"] == "oven"
         assert _open_sessions(store) != [], "SIGHUP closed the recording session"
         proc.send_signal(signal.SIGINT)
         _, err = proc.communicate(timeout=20)
@@ -161,16 +171,16 @@ def test_sighup_is_ignored(tmp_path):
     assert "terminal hung up" in err
 
 
-def test_a_second_runner_for_the_same_rig_leaves_the_live_one_alone(tmp_path):
+def test_a_second_runner_for_the_same_rig_leaves_the_live_one_alone(tmp_path, port):
     # Two runners on one rig would drive the same hardware; the second used to close the
     # live runner's recording session and start the rig before its port bind failed.
     store = tmp_path / "s.sqlite"
-    argv = [str(EXAMPLES / "oven.yaml"), "--port", str(PORT), "--store", str(store), "--record"]
+    argv = [str(EXAMPLES / "oven.yaml"), "--port", str(port), "--store", str(store), "--record"]
     with runner(tmp_path, *argv) as live:
-        _wait_up(live, PORT)
+        _wait_up(live, port)
         before = _open_sessions(store)
         assert len(before) == 1
-        second = [str(EXAMPLES / "oven.yaml"), "--port", str(PORT + 1), "--store", str(store)]
+        second = [str(EXAMPLES / "oven.yaml"), "--port", str(free_port()), "--store", str(store)]
         with runner(tmp_path, *second, "--record") as late:
             _, err = late.communicate(timeout=20)
         assert late.returncode == 3, err[-2000:]
@@ -178,7 +188,7 @@ def test_a_second_runner_for_the_same_rig_leaves_the_live_one_alone(tmp_path):
         assert "rig version" not in err and "recording to" not in err, "nothing was started"
         assert _open_sessions(store) == before, "the live runner's session was touched"
         assert live.poll() is None
-        assert _get(f"http://127.0.0.1:{PORT}/api/health")["recording"] is True
+        assert _get(f"http://127.0.0.1:{port}/api/health")["recording"] is True
 
 
 BOOM = """
@@ -200,13 +210,13 @@ class BoomConfig(DriverConfig[Boom], tag="test_boom"):
 """
 
 
-def test_a_rig_that_fails_to_build_exits_once_with_a_message(tmp_path):
+def test_a_rig_that_fails_to_build_exits_once_with_a_message(tmp_path, port):
     # Under flyballd a traceback exit is a crash, restarted forever; a config that
     # cannot be built is the user's to fix, like one that does not validate.
     (tmp_path / "drivers").mkdir()
     (tmp_path / "drivers" / "boom.py").write_text(BOOM)
     (tmp_path / "rig.yaml").write_text("name: boom\ndevices:\n  probe: {driver: test_boom}\n")
-    with runner(tmp_path, "rig.yaml", "--port", str(PORT)) as proc:
+    with runner(tmp_path, "rig.yaml", "--port", str(port)) as proc:
         _, err = proc.communicate(timeout=20)
     assert proc.returncode == 2, err[-2000:]
     assert "Traceback" not in err
@@ -214,13 +224,33 @@ def test_a_rig_that_fails_to_build_exits_once_with_a_message(tmp_path):
     assert len(lines) == 1 and "rig.yaml" in lines[0] and "/dev/i2c-9" in lines[0], err
 
 
-def test_every_log_line_has_a_timestamp(tmp_path):
+def test_a_port_it_cannot_listen_on_is_not_a_busy_rig(tmp_path, port):
+    # uvicorn exits 3 when it cannot start, and 3 is flyball's "rig busy": under flyballd a
+    # busy rig is never restarted. A runner that could not serve says so, with 5.
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", port))
+        taken.listen()
+        argv = [
+            str(EXAMPLES / "oven.yaml"),
+            "--port",
+            str(port),
+            "--store",
+            str(tmp_path / "s.sqlite"),
+        ]
+        with runner(tmp_path, *argv) as proc:
+            _, err = proc.communicate(timeout=30)
+    assert proc.returncode == 5, err[-2000:]
+    lines = [line for line in err.splitlines() if line.startswith("flyball-runner:")]
+    assert len(lines) == 1 and "could not serve" in lines[0] and "busy" not in lines[0], err
+
+
+def test_every_log_line_has_a_timestamp(tmp_path, port):
     # Under flyballd stdout and stderr are a log file: an untimed line matches nothing.
     import re
 
-    argv = ["--port", str(PORT), "--store", str(tmp_path / "s.sqlite")]
+    argv = ["--port", str(port), "--store", str(tmp_path / "s.sqlite")]
     with runner(tmp_path, *argv) as proc:
-        _wait_up(proc, PORT)  # its requests are access-log lines
+        _wait_up(proc, port)  # its requests are access-log lines
         proc.send_signal(signal.SIGINT)
         out, err = proc.communicate(timeout=15)
     lines = [line for line in (out + err).splitlines() if line.strip()]
@@ -305,6 +335,52 @@ def test_a_front_dir_without_a_key_exits_4_before_the_lock(tmp_path, front_dir):
     assert not store.exists(), "nor touched the store"
 
 
+def test_a_symlinked_runner_lock_exits_4(tmp_path, front_dir):
+    folder = front_dir()
+    (folder / "runner.lock").symlink_to(tmp_path / "elsewhere")
+    store = tmp_path / "s.sqlite"
+    argv = [str(EXAMPLES / "oven.yaml"), "--store", str(store), "--front-dir", str(folder)]
+    with runner(tmp_path, *argv) as proc:
+        _, err = proc.communicate(timeout=20)
+    assert proc.returncode == 4, err[-2000:]
+    assert "runner.lock" in err and "Traceback" not in err
+    assert not (tmp_path / "elsewhere").exists(), "the symlink's target was not touched"
+    assert not store.exists()
+
+
+def test_an_endpoint_outside_the_front_dir_exits_4(tmp_path, front_dir):
+    folder = front_dir()
+    elsewhere = Path(tempfile.mkdtemp(prefix="fb-"))
+    try:
+        (folder / "endpoint").write_text(f"unix:{elsewhere}/sock\n")
+        store = tmp_path / "s.sqlite"
+        argv = [str(EXAMPLES / "oven.yaml"), "--store", str(store), "--front-dir", str(folder)]
+        with runner(tmp_path, *argv) as proc:
+            _, err = proc.communicate(timeout=20)
+        assert proc.returncode == 4, err[-2000:]
+        assert "endpoint" in err and "Traceback" not in err
+        assert not (elsewhere / "sock").exists(), "nothing bound outside the front-dir"
+        assert not store.exists()
+    finally:
+        shutil.rmtree(elsewhere, ignore_errors=True)
+
+
+def test_a_socket_it_cannot_bind_exits_5(tmp_path, front_dir):
+    folder = front_dir()
+    (folder / "sock").mkdir()  # something that is not a socket holds the path
+    argv = [
+        str(EXAMPLES / "oven.yaml"),
+        "--store",
+        str(tmp_path / "s.sqlite"),
+        "--front-dir",
+        str(folder),
+    ]
+    with runner(tmp_path, *argv) as proc:
+        _, err = proc.communicate(timeout=30)
+    assert proc.returncode == 5, err[-2000:]
+    assert "could not serve" in err and "Traceback" not in err
+
+
 def test_a_fronted_runner_takes_only_the_principal(tmp_path, front_dir):
     import fcntl
 
@@ -354,7 +430,7 @@ def test_the_fronted_socket_is_owner_only(tmp_path, front_dir):
     assert proc.returncode == 0, err[-2000:]
 
 
-def test_a_restart_keeps_the_runner_fronted(tmp_path, front_dir):
+def test_a_restart_keeps_the_runner_fronted(tmp_path, front_dir, port):
     """`os.execv` re-runs the same argv: still on the socket, still the principal only."""
     folder = front_dir()
     store = tmp_path / "s.sqlite"
@@ -381,7 +457,7 @@ def test_a_restart_keeps_the_runner_fronted(tmp_path, front_dir):
             assert c.get("/api/health", headers=_principal()).status_code == 401, "the old key"
             assert c.get("/api/health", headers=_principal(fresh)).status_code == 200
         with pytest.raises(OSError):
-            _get(f"http://127.0.0.1:{PORT}/api/auth", timeout=0.5)  # no TCP port
+            _get(f"http://127.0.0.1:{port}/api/auth", timeout=0.5)  # no TCP port
 
 
 # endregion
@@ -390,15 +466,15 @@ def test_a_restart_keeps_the_runner_fronted(tmp_path, front_dir):
 
 
 @pytest.mark.parametrize("how", ["flag", "env"])
-def test_a_removed_password_warns_and_serves_loopback(tmp_path, how):
+def test_a_removed_password_warns_and_serves_loopback(tmp_path, how, port):
     """D-028: an old unit file with --password still starts; the password opens nothing."""
-    argv = ["--host", "0.0.0.0", "--port", str(PORT), "--store", str(tmp_path / "s.sqlite")]
+    argv = ["--host", "0.0.0.0", "--port", str(port), "--store", str(tmp_path / "s.sqlite")]
     env = {"FLYBALL_PASSWORD": "hunter2"} if how == "env" else {}
     if how == "flag":
         argv += ["--password", "hunter2"]
     with runner(tmp_path, *argv, env=env) as proc:
-        _wait_up(proc, PORT)
-        exposure = _get(f"http://127.0.0.1:{PORT}/api/health")["exposure"]
+        _wait_up(proc, port)
+        exposure = _get(f"http://127.0.0.1:{port}/api/health")["exposure"]
         assert exposure["open"] and exposure["host"] == "127.0.0.1" and exposure["notes"]
         proc.send_signal(signal.SIGINT)
         _, err = proc.communicate(timeout=15)
@@ -407,10 +483,10 @@ def test_a_removed_password_warns_and_serves_loopback(tmp_path, how):
     assert len(warnings) == 1 and "removed and ignored" in warnings[0], warnings
 
 
-def test_the_printed_link_signs_in_once(tmp_path):
+def test_the_printed_link_signs_in_once(tmp_path, port):
     import http.client
 
-    argv = ["--port", str(PORT), "--store", str(tmp_path / "s.sqlite")]
+    argv = ["--port", str(port), "--store", str(tmp_path / "s.sqlite")]
     with runner(tmp_path, *argv, env={"FLYBALL_TOKEN": "s3cret"}) as proc:
         assert proc.stderr is not None
         link = ""
@@ -419,17 +495,17 @@ def test_the_printed_link_signs_in_once(tmp_path):
             line = proc.stderr.readline()
             if "link?n=" in line:
                 link = line.split("once, within 10 minutes: ")[1].strip()
-        assert link.startswith(f"http://127.0.0.1:{PORT}/api/auth/link?n="), link
-        _wait_up(proc, PORT)
-        path = link.removeprefix(f"http://127.0.0.1:{PORT}")
+        assert link.startswith(f"http://127.0.0.1:{port}/api/auth/link?n="), link
+        _wait_up(proc, port)
+        path = link.removeprefix(f"http://127.0.0.1:{port}")
         for expected in (302, 401):
-            conn = http.client.HTTPConnection("127.0.0.1", PORT, timeout=2)
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
             conn.request("GET", path)
             answer = conn.getresponse()
             assert answer.status == expected
             if expected == 302:
                 assert answer.getheader("Location") == "/"
-                assert answer.getheader("Set-Cookie", "").startswith(f"flyball-bare-{PORT}=")
+                assert answer.getheader("Set-Cookie", "").startswith(f"flyball-bare-{port}=")
             conn.close()
 
 

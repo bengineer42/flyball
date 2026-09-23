@@ -246,6 +246,7 @@ const (
 	exitBadConfig = 2 // a bad rig file, or a runner too old to know --front-dir
 	exitRigBusy   = 3 // another runner holds the rig's <store>.lock
 	exitFrontDir  = 4 // the front-dir is unsafe or incomplete: rewrite, respawn once
+	// 5, it could not serve (socket or server), is a crash: started again.
 )
 
 // supervisor runs one rig's runner for `flyball run`: each incarnation gets
@@ -380,6 +381,11 @@ func (s *supervisor) run() error {
 		stopping := s.stopping
 		s.mu.Unlock()
 		if stopping {
+			// The stop's own SIGINT/SIGTERM ending it is a clean stop; a
+			// SIGKILL (the third press) or any other signal is not.
+			if sig, ok := killedBy(cmd.ProcessState); ok && sig != syscall.SIGINT && sig != syscall.SIGTERM {
+				return errRunnerKilled{sig}
+			}
 			return nil
 		}
 		code := cmd.ProcessState.ExitCode()
@@ -416,4 +422,45 @@ func randomHex(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// A run that ended with its runner killed rather than stopped -- the
+// third Ctrl-C's SIGKILL, or any signal but the stop's own SIGINT/SIGTERM
+// -- exits 128+N, N the signal (137 for SIGKILL), as a shell reports a
+// process a signal ended: a wrapper can tell it from a clean stop (0), and
+// no number of flyball's or flyball-runner's own means something else
+// (book/src/7-reference/cli.md#exit-codes). Its recording may not have
+// been closed cleanly.
+
+// errRunnerKilled: the run ended with the runner killed by sig (exit 128+sig).
+type errRunnerKilled struct{ sig syscall.Signal }
+
+func (e errRunnerKilled) Error() string {
+	return fmt.Sprintf("the runner was killed (%v), not stopped: its recording may not have been closed cleanly", e.sig)
+}
+
+// runExitCode is flyball's exit code for runDirect's result: 0, 1, or
+// 128+N for a runner killed by signal N.
+func runExitCode(err error) int {
+	var killed errRunnerKilled
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &killed):
+		return 128 + int(killed.sig)
+	}
+	return 1
+}
+
+// killedBy is the signal that ended ps: its own death by a signal, or --
+// under uv, which exits 128+N when its child dies of signal N -- an exit
+// code above 128.
+func killedBy(ps *os.ProcessState) (syscall.Signal, bool) {
+	if ws, ok := ps.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return ws.Signal(), true
+	}
+	if code := ps.ExitCode(); code > 128 && code < 128+65 {
+		return syscall.Signal(code - 128), true
+	}
+	return 0, false
 }
