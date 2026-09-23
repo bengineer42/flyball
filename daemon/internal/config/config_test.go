@@ -85,29 +85,41 @@ func TestManifestPortOptional(t *testing.T) {
 	}
 }
 
-func TestManifestAnonymous(t *testing.T) {
-	for _, a := range []string{"", "none", "read"} {
-		m := valid()
-		m.Anonymous = a
-		if err := m.Validate(); err != nil {
-			t.Errorf("anonymous %q: %v", a, err)
-		}
+func TestManifestAnonymousIsRemoved(t *testing.T) {
+	// A manifest's anonymous: was checked and then read by nothing: the front's own
+	// anonymous: (flyballd.yaml) applies to every rig. Set, it is refused and says where to go.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "oven.yaml"), []byte("name: oven\nserver_config: oven.yaml\nanonymous: read\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	m := valid()
-	m.Anonymous = "operate"
-	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "anonymous") {
-		t.Errorf("anonymous operate accepted (%v)", err)
+	_, err := LoadManifests(dir)
+	if err == nil || !strings.Contains(err.Error(), "anonymous") || !strings.Contains(err.Error(), "flyballd.yaml") {
+		t.Errorf("a manifest with anonymous: loaded (%v)", err)
+	}
+	var m Manifest
+	if err := json.Unmarshal([]byte(`{"name":"oven","server_config":"o.yaml","anonymous":"none"}`), &m); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "flyballd.yaml") {
+		t.Errorf("POST /api/runners with anonymous accepted (%v)", err)
+	}
+	out, err := json.Marshal(valid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "anonymous") {
+		t.Errorf("a manifest without the key still writes it: %s", out)
 	}
 }
 
-func TestLoadManifestsReadsNetworkAndAnonymous(t *testing.T) {
+func TestLoadManifestsReadsNetwork(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name, body string) {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	write("oven.yaml", "name: oven\nserver_config: oven.yaml\nanonymous: read\n")
+	write("oven.yaml", "name: oven\nserver_config: oven.yaml\n")
 	write("kiln.yaml", "name: kiln\nserver_config: kiln.yaml\nnetwork: tcp\nport: 8102\n")
 	ms, err := LoadManifests(dir)
 	if err != nil {
@@ -117,7 +129,7 @@ func TestLoadManifestsReadsNetworkAndAnonymous(t *testing.T) {
 	for _, m := range ms {
 		got[m.Name] = m
 	}
-	if o := got["oven"]; o.Port != 0 || o.Anonymous != "read" || o.RootPath != "/oven" || o.Host != "127.0.0.1" {
+	if o := got["oven"]; o.Port != 0 || o.RootPath != "/oven" || o.Host != "127.0.0.1" {
 		t.Errorf("oven: %+v", o)
 	}
 	if k := got["kiln"]; k.Network != "tcp" || k.Port != 8102 || k.ResolvedNetwork() != "tcp" {
@@ -132,10 +144,10 @@ func TestLoadManifestsReadsNetworkAndAnonymous(t *testing.T) {
 
 func TestManifestJSONKeys(t *testing.T) {
 	var m Manifest
-	if err := json.Unmarshal([]byte(`{"name":"oven","server_config":"o.yaml","network":"tcp","port":8101,"anonymous":"read"}`), &m); err != nil {
+	if err := json.Unmarshal([]byte(`{"name":"oven","server_config":"o.yaml","network":"tcp","port":8101}`), &m); err != nil {
 		t.Fatal(err)
 	}
-	if m.Network != "tcp" || m.Anonymous != "read" {
+	if m.Network != "tcp" || m.Port != 8101 {
 		t.Errorf("%+v", m)
 	}
 }

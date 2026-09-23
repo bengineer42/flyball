@@ -252,10 +252,12 @@ A manifest:
 | `host`, `port` | `127.0.0.1`, none | `network: tcp` only, and `port` is required there; `host` must be loopback |
 | `enabled` | `true` | `false`: not started |
 | `uv_project` | none | a directory to `uv run --project` `flyball-runner` from, when it isn't on `flyballd`'s own `$PATH` |
-| `anonymous` | none | `none` or `read`; checked, but in this release it has no effect: the daemon's own `anonymous` applies to every rig |
 
 A manifest that says otherwise is refused, at start-up or over the API
-(400; 409 for a name or root path already taken).
+(400; 409 for a name or root path already taken). A manifest has no
+`anonymous`: what a caller with no credential may do is set once, for
+every rig, by `anonymous` in `flyballd.yaml`, and a manifest that sets it
+is refused with that said.
 
 ### What stopping `flyballd` does
 
