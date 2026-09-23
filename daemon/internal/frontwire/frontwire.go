@@ -103,19 +103,6 @@ func Plan(c front.Config, bad error, insecureOpen bool, o ProxyOptions) (front.P
 	return p, nil
 }
 
-// loopbackOf is listen moved to 127.0.0.1, keeping its port; a unix socket
-// is kept.
-func loopbackOf(listen string) string {
-	if strings.HasPrefix(listen, "unix:") {
-		return listen
-	}
-	_, port, err := net.SplitHostPort(listen)
-	if err != nil {
-		return front.DefaultListen
-	}
-	return net.JoinHostPort("127.0.0.1", port)
-}
-
 // InsecureOpenEnv is FLYBALL_INSECURE_OPEN set to 1/true/yes/on: the
 // per-invocation opt-in to serve the local shape beyond loopback, as
 // --insecure-open. Never a file key.
