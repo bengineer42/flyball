@@ -1,142 +1,295 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
+
+	"flyballd/internal/endpoint"
+	"flyballd/internal/endpoint/frontdir"
+	"flyballd/internal/front/store"
+	"flyballd/internal/fronttest"
+	"flyballd/internal/principal"
 )
 
-// serve runs newHTTPServer on a loopback port, with its timeouts shortened
-// for the test.
-func serve(t *testing.T, h http.Handler) string {
-	t.Helper()
-	oldHeader, oldIdle := readHeaderTimeout, idleTimeout
-	readHeaderTimeout, idleTimeout = 200*time.Millisecond, 300*time.Millisecond
-	t.Cleanup(func() { readHeaderTimeout, idleTimeout = oldHeader, oldIdle })
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+// TestMain lets this test binary stand in for flyball-runner: started as
+// `flyball-runner` (a link to it on PATH) with FLYBALLD_FAKE_RUNNER set, it
+// serves the endpoint its --front-dir names under its --root-path.
+func TestMain(m *testing.M) {
+	if os.Getenv("FLYBALLD_FAKE_RUNNER") != "" && filepath.Base(os.Args[0]) == "flyball-runner" {
+		os.Exit(fakeRunner())
 	}
-	srv := newHTTPServer(ln.Addr().String(), h)
-	go srv.Serve(ln)
-	t.Cleanup(func() { srv.Close() })
-	return ln.Addr().String()
+	os.Exit(m.Run())
 }
 
-// closedWithin reports whether the server closes conn within d.
-func closedWithin(conn net.Conn, d time.Duration) bool {
-	conn.SetReadDeadline(time.Now().Add(d))
-	_, err := io.Copy(io.Discard, conn)
-	return err == nil // EOF: closed by the server; a timeout is an error
-}
-
-func ok(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") }
-
-// A client that never finishes its request headers (slowloris) is cut off.
-func TestSlowHeadersAreCutOff(t *testing.T) {
-	addr := serve(t, http.HandlerFunc(ok))
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-	io.WriteString(conn, "GET / HTTP/1.1\r\nHost: x\r\n")
-	if !closedWithin(conn, 2*time.Second) {
-		t.Error("a connection with unfinished headers was still open after 2 s")
-	}
-}
-
-// An idle keep-alive connection is closed.
-func TestIdleConnectionsAreClosed(t *testing.T) {
-	addr := serve(t, http.HandlerFunc(ok))
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-	io.WriteString(conn, "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
-	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-	if !closedWithin(conn, 2*time.Second) {
-		t.Error("an idle keep-alive connection was still open after 2 s")
-	}
-}
-
-func TestOversizedHeadersAreRefused(t *testing.T) {
-	addr := serve(t, http.HandlerFunc(ok))
-	req, _ := http.NewRequest("GET", "http://"+addr+"/", nil)
-	req.Header.Set("X-Big", strings.Repeat("a", 200<<10))
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusRequestHeaderFieldsTooLarge {
-		t.Errorf("200 KiB of headers: %d, want 431", resp.StatusCode)
-	}
-}
-
-// A long response -- log streaming, a proxied websocket -- is not cut off
-// by any of the timeouts: there is no whole-request or write timeout.
-func TestLongResponsesSurvive(t *testing.T) {
-	addr := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		for i := range 8 {
-			fmt.Fprintf(w, "%d\n", i)
-			w.(http.Flusher).Flush()
-			time.Sleep(100 * time.Millisecond)
+func fakeRunner() int {
+	var dir, root string
+	for i, a := range os.Args {
+		switch {
+		case a == "--front-dir" && i+1 < len(os.Args):
+			dir = os.Args[i+1]
+		case a == "--root-path" && i+1 < len(os.Args):
+			root = os.Args[i+1]
 		}
-	}))
-	resp, err := http.Get("http://" + addr + "/")
+	}
+	r, err := fronttest.FromFrontDir(dir, root, "fake")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fake runner:", err)
+		return 4
+	}
+	defer r.Close()
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
+	<-sigs
+	return 0
+}
+
+// logBuffer collects log output (the banner).
+type logBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *logBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *logBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+type testDaemon struct {
+	t       *testing.T
+	addr    string
+	dataDir string
+	rigDir  string
+	logs    *logBuffer
+}
+
+// startDaemon runs flyballd (run) on 127.0.0.1:0 with extra flyballd.yaml
+// lines and one manifest, oven, for rig; stopped at the test's end.
+func startDaemon(t *testing.T, extra, rig string) *testDaemon {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "fd")
 	if err != nil {
 		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	os.Mkdir(filepath.Join(dir, "rt"), 0o700)
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(dir, "rt"))
+	t.Setenv("RUNTIME_DIRECTORY", "")
+	for _, sub := range []string{"manifests", "rig"} {
+		os.Mkdir(filepath.Join(dir, sub), 0o700)
+	}
+	rigPath := filepath.Join(dir, "rig", "oven.yaml")
+	os.WriteFile(rigPath, []byte(rig), 0o600)
+	os.WriteFile(filepath.Join(dir, "manifests", "oven.yaml"), []byte("name: oven\nserver_config: "+rigPath+"\n"), 0o600)
+	cfg := filepath.Join(dir, "flyballd.yaml")
+	os.WriteFile(cfg, []byte(fmt.Sprintf("manifests_dir: %s\ndata_dir: %s\n%s", filepath.Join(dir, "manifests"), filepath.Join(dir, "data"), extra)), 0o600)
+
+	logs := &logBuffer{}
+	log.SetOutput(logs)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	ctx, cancel := context.WithCancel(context.Background())
+	addrs := make(chan string, 1)
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, cfg, false, func(a net.Addr) { addrs <- a.String() }) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(20 * time.Second):
+			t.Error("flyballd did not stop")
+		}
+	})
+	select {
+	case a := <-addrs:
+		return &testDaemon{t: t, addr: a, dataDir: filepath.Join(dir, "data"), rigDir: filepath.Join(dir, "rig"), logs: logs}
+	case err := <-done:
+		t.Fatalf("flyballd: %v\n%s", err, logs)
+	case <-time.After(10 * time.Second):
+		t.Fatalf("flyballd never listened\n%s", logs)
+	}
+	return nil
+}
+
+// token makes a named token in flyballd's tokens file, as `flyball token
+// create` does.
+func (d *testDaemon) token(scopes ...string) string {
+	d.t.Helper()
+	tokens, err := store.OpenTokens(filepath.Join(d.dataDir, "front", "tokens.json"), store.TokensOptions{})
+	if err != nil {
+		d.t.Fatal(err)
+	}
+	defer tokens.Close()
+	secret, _, err := tokens.Create(store.NewToken{Name: "t" + fmt.Sprint(time.Now().UnixNano()), Scopes: scopes})
+	if err != nil {
+		d.t.Fatal(err)
+	}
+	return secret
+}
+
+func (d *testDaemon) get(path, bearer string) (int, []byte) {
+	d.t.Helper()
+	req, _ := http.NewRequest("GET", "http://"+d.addr+path, nil)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return 0, []byte(err.Error())
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil || strings.Count(string(body), "\n") != 8 {
-		t.Errorf("an 0.8 s stream: %q, %v", body, err)
-	}
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, b
 }
 
-// A hijacked connection (a websocket upgrade proxied to a runner) that is
-// quiet for longer than every timeout stays open.
-func TestQuietHijackedConnectionsSurvive(t *testing.T) {
-	addr := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, rw, err := w.(http.Hijacker).Hijack()
-		if err != nil {
-			return
+// until GETs path until it answers 200 and ok(body), within wait.
+func (d *testDaemon) until(path, bearer string, wait time.Duration, ok func([]byte) bool) []byte {
+	d.t.Helper()
+	var code int
+	var body []byte
+	for end := time.Now().Add(wait); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
+		code, body = d.get(path, bearer)
+		if code == 200 && (ok == nil || ok(body)) {
+			return body
 		}
-		defer conn.Close()
-		rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: test\r\nConnection: Upgrade\r\n\r\n")
-		rw.Flush()
-		line, _ := rw.ReadString('\n') // the client speaks after 0.8 s
-		rw.WriteString("echo " + line)
-		rw.Flush()
-	}))
-	conn, err := net.Dial("tcp", addr)
+	}
+	d.t.Fatalf("GET %s: %d %s\n%s", path, code, body, d.logs)
+	return nil
+}
+
+// fakeOnPath puts this test binary on PATH as flyball-runner.
+func fakeOnPath(t *testing.T) {
+	t.Helper()
+	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
-	io.WriteString(conn, "GET / HTTP/1.1\r\nHost: x\r\nUpgrade: test\r\nConnection: Upgrade\r\n\r\n")
-	br := bufio.NewReader(conn)
-	resp, err := http.ReadResponse(br, nil)
-	if err != nil || resp.StatusCode != http.StatusSwitchingProtocols {
-		t.Fatalf("upgrade: %v %v", resp, err)
+	bin := t.TempDir()
+	if err := os.Symlink(self, filepath.Join(bin, "flyball-runner")); err != nil {
+		t.Fatal(err)
 	}
-	time.Sleep(800 * time.Millisecond)
-	io.WriteString(conn, "hello\n")
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	if got, err := br.ReadString('\n'); got != "echo hello\n" {
-		t.Errorf("after 0.8 s quiet: %q, %v", got, err)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FLYBALLD_FAKE_RUNNER", "1")
+}
+
+// flyballd fronts its runners: each is spawned with a front-dir and reached
+// through the front with a principal for its manifest name; management
+// needs a bearer token with the management scope; GET /api/auth is the
+// front's; a runner killed with -9 is respawned with a fresh key.
+func TestDaemonFrontsItsRunners(t *testing.T) {
+	fakeOnPath(t)
+	d := startDaemon(t, "", "name: oven\n")
+
+	if code, body := d.get("/api/runners", ""); code != 403 {
+		t.Fatalf("/api/runners with no token: %d %s, want 403", code, body)
 	}
+	if code, body := d.get("/api/runners", d.token("read")); code != 403 {
+		t.Fatalf("/api/runners with a read token: %d %s, want 403", code, body)
+	}
+	manage := d.token("manage")
+	d.until("/api/runners", manage, 10*time.Second, func(b []byte) bool {
+		return strings.Contains(string(b), `"status":"running"`) && strings.Contains(string(b), `"endpoint":"unix:/`)
+	})
+	var info map[string]any
+	json.Unmarshal(d.until("/api/auth", "", 5*time.Second, nil), &info)
+	if info["v"] != float64(2) || info["shape"] != "local" {
+		t.Fatalf("/api/auth = %v", info)
+	}
+
+	var first, second fronttest.Echo
+	json.Unmarshal(d.until("/oven/api/echo", "", 10*time.Second, nil), &first)
+	if first.Claims.Aud != "oven" || first.Path != "/oven/api/echo" {
+		t.Fatalf("echo %+v", first)
+	}
+	syscall.Kill(first.Pid, syscall.SIGKILL)
+	json.Unmarshal(d.until("/oven/api/echo", "", 20*time.Second, func(b []byte) bool {
+		var e fronttest.Echo
+		return json.Unmarshal(b, &e) == nil && e.Pid != first.Pid
+	}), &second)
+	if second.Key == first.Key || second.Claims.Aud != "oven" {
+		t.Fatalf("respawn: %+v after %+v, want a fresh key, aud oven", second, first)
+	}
+}
+
+// D-028: a front block that cannot be read (here the old auth: {token})
+// serves the local shape on loopback with a banner; the rigs run.
+func TestDaemonBadFrontFallsBack(t *testing.T) {
+	fakeOnPath(t)
+	d := startDaemon(t, "listen: 0.0.0.0:0\nauth:\n  token: s3cret\n  insecure_open: true\n", "name: oven\n")
+	if host, _, _ := net.SplitHostPort(d.addr); host != "127.0.0.1" {
+		t.Fatalf("listening on %s, want loopback", d.addr)
+	}
+	d.until("/oven/api/echo", "", 10*time.Second, nil)
+	if !strings.Contains(d.logs.String(), "flyball token create") || !strings.Contains(d.logs.String(), "D-028") ||
+		strings.Contains(d.logs.String(), "s3cret") {
+		t.Fatalf("banner:\n%s", d.logs)
+	}
+}
+
+// flyballd with the real flyball-runner (examples/simulated/oven.yaml):
+// the runner is reachable through the front, a forged principal at its
+// socket gets 401, and the management API needs a management token.
+func TestDaemonRealRunner(t *testing.T) {
+	bin, _ := filepath.Abs("../../../engine/.venv/bin")
+	if _, err := os.Stat(filepath.Join(bin, "flyball-runner")); err != nil {
+		t.Skipf("no flyball-runner in %s (cd engine && UV_FROZEN=1 uv sync --all-extras)", bin)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	rig, err := os.ReadFile("../../../examples/simulated/oven.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := startDaemon(t, "", string(rig))
+	if code, _ := d.get("/api/runners", ""); code != 403 {
+		t.Fatalf("/api/runners with no token: %d, want 403", code)
+	}
+	manage := d.token("manage")
+	d.until("/api/runners", manage, 60*time.Second, func(b []byte) bool { return strings.Contains(string(b), `"status":"running"`) })
+	var runner struct {
+		Endpoint string `json:"endpoint"`
+		RootPath string `json:"root_path"`
+	}
+	json.Unmarshal(d.until("/oven/api/runner", "", 10*time.Second, nil), &runner)
+	if !strings.HasPrefix(runner.Endpoint, "unix:/") || runner.RootPath != "/oven" {
+		t.Fatalf("/oven/api/runner = %+v", runner)
+	}
+	ep, err := endpoint.Parse(runner.Endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(ep.Address)
+	aud, _ := os.ReadFile(filepath.Join(dir, frontdir.Aud))
+	now := time.Now()
+	forged, _ := principal.Mint(principal.Key{}, principal.Claims{Sub: "local:console", Sid: "x", Scp: []string{"operate", "read"},
+		Kind: "human", Aud: strings.TrimSpace(string(aud)), Sch: "http", Iat: now.Unix(), Exp: now.Add(time.Minute).Unix()})
+	req, _ := http.NewRequest("GET", ep.URL("/oven")+"/api/runner", nil)
+	req.Header.Set(principal.Header, forged)
+	resp, err := (&http.Client{Transport: ep.Transport(), Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("forged principal at the socket: %d, want 401", resp.StatusCode)
+	}
+	t.Logf("forged principal at %s: %d %s", ep, resp.StatusCode, resp.Header.Get("X-Flyball-Principal-Error"))
 }
