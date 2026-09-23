@@ -14,7 +14,7 @@ license-files = ["LICENSE"]
 # `private: true` does for the npm packages.
 classifiers = ["Private :: Do Not Upload"]
 authors = [{ name = "Ben Laurence" }]
-dependencies = ["flyball", "flyball-sim"]
+dependencies = ["flyball[server]", "flyball-sim"]
 
 # What `flyball rig check`, the runner and the schema load to make
 # `sim_furnace` a valid tag in a rig file.
