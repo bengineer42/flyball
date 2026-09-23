@@ -555,6 +555,31 @@ def test_over_the_socket_unsigned_is_401_and_signed_is_200(uds):
         assert c.post("/api/probe", headers=signed(("read",))).json()["needed"] == "operate"
 
 
+def test_over_the_socket_the_fronts_anonymous_visitor_is_refused_before_the_handshake(uds):
+    """The front turns an anonymous 403 into sign-in (4401): only if the runner says 403.
+
+    A visitor the front let through as `anon:` lacking read was accepted and closed 4403,
+    which the front passes on as is, so the UI said "no permission" instead of offering
+    sign-in. An identified caller lacking the verb still sees the handshake, then 4403.
+    """
+    from websockets.exceptions import ConnectionClosed, InvalidStatus
+    from websockets.sync.client import unix_connect
+
+    visitor = {"X-Flyball-Principal": principal((), sub="anon:", sid="v-1")}
+    with (
+        pytest.raises(InvalidStatus) as refused,
+        unix_connect(str(uds), "ws://localhost/ws/events", additional_headers=visitor),
+    ):
+        pass
+    assert refused.value.response.status_code == 403
+    with (
+        unix_connect(str(uds), "ws://localhost/ws/events", additional_headers=signed(())) as ws,
+        pytest.raises(ConnectionClosed) as closed,
+    ):
+        ws.recv(timeout=5)
+    assert closed.value.rcvd is not None and closed.value.rcvd.code == 4403
+
+
 def test_over_the_socket_a_websocket_closes_4401_after_accept(uds):
     from websockets.exceptions import ConnectionClosed
     from websockets.sync.client import unix_connect

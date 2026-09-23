@@ -11,8 +11,10 @@ the front mints is the only credential. `runner.auth`, a bearer token, a cookie,
 and anonymous access are all ignored. A request with no principal, more than one, another
 `x-flyball-*` header (any spelling, `_` for `-` included) or one that does not verify is
 401 with `X-Flyball-Principal-Error: <code>`; a websocket is accepted and closed with 4401.
-A principal lacking the route's verb is 403 `{"detail", "needed"}` (4403). Host and Origin
-are the front's business: it sends `Host: localhost` and never forwards `Origin`.
+A principal lacking the route's verb is 403 `{"detail", "needed"}` (4403) -- for the front's
+anonymous visitor (`anon:`) a socket's upgrade is refused 403 without a handshake, which the
+front closes with 4401 (sign in). Host and Origin are the front's business: it sends
+`Host: localhost` and never forwards `Origin`.
 
 **Bare** (no front: a laptop, a container, the public demo): a *token* is the one
 credential. A machine sends it as `Authorization: Bearer`; a person trades it, or a one-time
@@ -47,6 +49,7 @@ from starlette.routing import compile_path
 
 from flyball.interfaces.server import verbs
 from flyball.interfaces.server.principal import (
+    ANONYMOUS,
     ERROR_HEADER,
     HEADER,
     LIFETIME,
@@ -311,7 +314,7 @@ class Door:
         if self.cookie in cookie and (found := self.session(cookie[self.cookie].value)):
             return self.claims(scope, "token:bare", found.sid, everything, "human"), "session"
         scp = frozenset({verbs.READ}) if self.config.anonymous == "read" else frozenset()
-        return self.claims(scope, "anon:", secrets.token_urlsafe(12), scp, "human"), "anonymous"
+        return self.claims(scope, ANONYMOUS, secrets.token_urlsafe(12), scp, "human"), "anonymous"
 
     # -- serving --
 
@@ -429,6 +432,9 @@ class Door:
             await _refuse(scope, receive, send, 401, detail)
             return
         detail = f"This needs {needed!r}, which the caller does not hold here"
+        # The front's visitor with no credential: a plain 403, which the front answers as
+        # sign-in (a socket closed 4401); after a handshake it could only pass on a 4403.
+        accept = accept and claims.sub != ANONYMOUS
         await _refuse(scope, receive, send, 403, detail, needed=needed, accept=accept)
 
     async def _held(self, scope: Any, receive: Any, send: Any, sid: str) -> None:
