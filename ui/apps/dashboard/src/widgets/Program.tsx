@@ -22,7 +22,7 @@ const ROW_PX = 20;
  */
 const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComponentProps) {
   const rig = useRig();
-  const { programmer, rowHeight } = useRigData();
+  const { programmer, rowHeight, canWrite } = useRigData();
   const events = useEventsData();
   const [busy, setBusy] = useState(false);
   const p = programmer.data;
@@ -57,7 +57,7 @@ const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComp
           {!p ? "…" : running ? `step ${stepOf(p)}${p.command ? ` · ${humanise(p.command)}` : ""}` : failed ? `failed${p.error ? ` · ${p.error}` : ""}` : "nothing is running"}
         </Typography>
         {running && config.interrupt !== false && (
-          <Button size="small" variant="outlined" color="error" startIcon={<StopIcon />} onClick={interrupt} disabled={busy} sx={{ ml: "auto", flex: "none" }}>
+          <Button size="small" variant="outlined" color="error" startIcon={<StopIcon />} onClick={interrupt} disabled={busy || !canWrite} sx={{ ml: "auto", flex: "none" }}>
             Interrupt
           </Button>
         )}
