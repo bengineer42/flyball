@@ -5,13 +5,18 @@ A client then needs a URL and nothing installed:
     claude mcp add --transport http rig http://pi:8000/mcp/author
 
 The tools still go through `flyball.interfaces.client`, so the runner hands `mount` a
-client pointed back at itself.
+client pointed back at itself, and a `sign` that makes each of a tool's calls carry the
+caller: a principal minted for that one request, with the caller's identity and the verbs
+it holds that the mode allows (the runner's `serving.mcp_signer`). Listing the tools and
+refreshing the schema are the runner's own reads. Tools that run code on this machine
+(`check_driver`, `search_drivers`) are not served here: the stdio server keeps them.
 """
 
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from functools import partial
 from typing import Any
 
 from fastapi import FastAPI
@@ -19,12 +24,17 @@ from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, Streamable
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.routing import Route
 
-from flyball.interfaces.client import Rig
+from flyball.interfaces.client import Rig, RigError
 
 from .server import build
 from .tools import MODES
 
-__all__ = ["mount"]
+__all__ = ["Sign", "mount"]
+
+Sign = Callable[[Any, str], str]
+"""`sign(principal, mode)`: an `X-Flyball-Principal` for one call a tool makes, fresh each
+time. `principal` is the MCP request's own (`request.state.principal`), or None for the
+runner's own reads (listing tools, refreshing the schema)."""
 
 
 # An open runner's names (`interfaces/server/auth.py`'s `LOOPBACK`), any port.
@@ -52,15 +62,31 @@ def _security(app: FastAPI) -> TransportSecuritySettings:
     )
 
 
-def mount(app: FastAPI, rig: Rig, name: str | None = None) -> None:
+def _server(rig: Rig, mode: str, name: str | None, sign: Sign | None) -> Any:
+    if sign is None:
+        return build(rig, mode, name, host_code=False)
+    own = rig.acting(partial(sign, None, mode))
+
+    def caller(ctx: Any) -> Rig:
+        principal = getattr(getattr(ctx.request, "state", None), "principal", None)
+        if principal is None:  # not through the door: act for no one
+            raise RigError(401, "This MCP request carries no principal to act for")
+        return own.acting(partial(sign, principal, mode))
+
+    return build(own, mode, name, caller=caller, host_code=False)
+
+
+def mount(app: FastAPI, rig: Rig, name: str | None = None, *, sign: Sign | None = None) -> None:
     """Add `/mcp/read`, `/mcp/author` and `/mcp/operate` to `app`, and their lifecycle to its.
 
     `name` is the rig's own name, passed straight through to `build` -- the runner
     already knows it and is not listening yet, so `build` cannot ask itself over `rig`.
+    `sign` makes every call a tool makes carry a principal for its caller (`Sign`); None
+    sends whatever `rig` sends (a test's in-process client).
     """
     managers = {
         mode: StreamableHTTPSessionManager(
-            build(rig, mode, name),
+            _server(rig, mode, name, sign),
             json_response=True,
             security_settings=_security(app),
         )
