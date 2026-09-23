@@ -25,8 +25,14 @@ export interface MultiSeriesTrace {
   key?: string;
   /** Any CSS colour. Defaults cycle through `--fb-series-1` … `--fb-series-6`. */
   color?: string;
-  /** Dashed line: `true` for a default dash, or a canvas dash array. */
+  /** Dashed line: `true` for a default dash, or a canvas dash array. A stroke style only -- it
+   * says nothing about how the segments between points are drawn; see `stepped` for that. */
   dash?: boolean | number[];
+  /** Draws as a step (holds the previous value until the next point, then jumps) rather than
+   * interpolating a straight line between points: for a value that only actually changes at a
+   * tick -- a written setpoint, a fixed clamp limit -- confirmed against a sim rig's controller
+   * ticks (a `regulate` write lands between two ticks as an instant step, not a ramp). */
+  stepped?: boolean;
   width?: number;
   /** Shown on hover over the legend entry: what this trace is, in a sentence. */
   hint?: string;
@@ -143,7 +149,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
   const latest = useRef<uPlot.AlignedData>([[]]);
   // Rebuild only when something structural changes, not on every data tick.
   const shape = JSON.stringify(
-    series.map((s) => [s.label, s.unit ?? null, s.quantity ?? null, s.color ?? null, s.dash ?? null, s.width ?? null, s.precision ?? null]),
+    series.map((s) => [s.label, s.unit ?? null, s.quantity ?? null, s.color ?? null, s.dash ?? null, s.stepped ?? null, s.width ?? null, s.precision ?? null]),
   );
 
   const [yFit, setYFit] = useState<YScale | null>(null);
@@ -223,6 +229,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         value: (_u, raw) => displayValue(raw, s),
       };
       if (s.dash) line.dash = Array.isArray(s.dash) ? s.dash : DASH;
+      if (s.stepped) line.paths = uPlot.paths!.stepped!({ align: 1 });
       plotted.push(line);
     });
 
