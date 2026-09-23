@@ -13,8 +13,10 @@ from pydantic import Field
 class FakeRegisterLink:
     """A dict of registers."""
 
-    def __init__(self, registers: dict[int, int] | None = None) -> None:
+    def __init__(self, registers: dict[int, int] | None = None, blocking: bool = False) -> None:
         self.registers = dict(registers or {})
+        self.blocking = blocking
+        """Whether a device built over this link should run its writes on the Writer thread."""
         self.writes: list[tuple[int, list[int]]] = []
 
     def read_registers(self, address: int, count: int = 1, unit: int = 1) -> list[int]:
@@ -28,13 +30,19 @@ class FakeRegisterLink:
 
 class FakeRegisterLinkConfig(Config[RegisterLink], tag="fake_registers"):
     registers: dict[int, int] = Field(default_factory=dict)
+    blocking: bool = Field(
+        default=False,
+        description="Run this fake's writes on the Writer thread, as a real bus would.",
+    )
 
     def build(self) -> RegisterLink:
-        return FakeRegisterLink(self.registers)
+        return FakeRegisterLink(self.registers, blocking=self.blocking)
 
 
 class ModbusLink:
     """Modbus TCP or RTU through pymodbus. Needs the `modbus` extra."""
+
+    blocking = True
 
     def __init__(self, client: Any) -> None:
         self._client = client
@@ -42,10 +50,10 @@ class ModbusLink:
         client.connect()
 
     @classmethod
-    def tcp(cls, host: str, port: int = 502) -> ModbusLink:
+    def tcp(cls, host: str, port: int = 502, timeout_s: float = 3.0) -> ModbusLink:
         from pymodbus.client import ModbusTcpClient
 
-        return cls(ModbusTcpClient(host, port=port))
+        return cls(ModbusTcpClient(host, port=port, timeout=timeout_s))
 
     @classmethod
     def rtu(cls, port: str, baud: int = 9600) -> ModbusLink:
@@ -70,9 +78,10 @@ class ModbusLink:
 class ModbusTcpConfig(Config[RegisterLink], tag="modbus_tcp"):
     host: str
     port: int = 502
+    timeout_s: float = Field(default=3.0, description="Socket timeout for the pymodbus client.")
 
     def build(self) -> RegisterLink:
-        return ModbusLink.tcp(self.host, self.port)
+        return ModbusLink.tcp(self.host, self.port, self.timeout_s)
 
 
 class ModbusRtuConfig(Config[RegisterLink], tag="modbus_rtu"):
