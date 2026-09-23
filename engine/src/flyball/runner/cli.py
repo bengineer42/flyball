@@ -218,6 +218,26 @@ def settle(
         for key in RunnerConfig.model_fields
         if key != "auth" and (value := getattr(args, key, None)) is not None
     }
+    if (
+        getattr(args, "front_dir", None) is not None
+        and "root_path" not in given
+        and section is not None
+        and section.root_path
+    ):
+        # A fronted runner is reached wherever its front put it -- "" under
+        # `flyball run`, a manifest's root_path under flyballd, always passed as
+        # --root-path when it matters (given["root_path"] above) -- never the rig
+        # file's own runner.root_path, which would put the handshake out of step
+        # with the front (a 404 on GET <front's root>/api/auth/front). Ignored
+        # the same way a fronted runner already ignores runner.auth.
+        print(
+            f"flyball-runner: WARNING: runner.root_path {section.root_path!r} is ignored"
+            " when fronted (--front-dir): the front decides where the rig is served"
+            " (flyballd: the manifest's root_path; `flyball run`: /)",
+            file=sys.stderr,
+            flush=True,
+        )
+        given["root_path"] = None
     settings = (section or RunnerConfig()).model_copy(update=given)
     auth = {
         key: value

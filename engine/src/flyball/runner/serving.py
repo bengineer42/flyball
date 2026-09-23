@@ -81,6 +81,25 @@ def _terminate_as_interrupt() -> signal.Handlers | Callable[..., object] | int |
     return signal.signal(signal.SIGTERM, _interrupt)
 
 
+def _ignore_hangup() -> None:
+    """Make SIGHUP a no-op (D-038): a dropped terminal must not kill the runner.
+
+    `flyball run` puts the runner in its own process group and the front ignores SIGHUP
+    too, but a bare `flyball-runner` run directly in a terminal gets the same protection
+    here -- there is no other place its signal handling is set up. Logged once so a
+    hangup is visible in the log without stopping anything. Main thread only, and a
+    no-op on a platform with no SIGHUP.
+    """
+    hup = getattr(signal, "SIGHUP", None)
+    if hup is None or threading.current_thread() is not threading.main_thread():
+        return
+
+    def handler(signum: int, frame: object) -> None:
+        log.info("terminal hung up; the rig keeps running")
+
+    signal.signal(hup, handler)
+
+
 # region The MCP mount: its tools call the runner back, as whoever called them
 
 
@@ -305,6 +324,7 @@ def serve(
 
     install_break_glass(current_stopper)  # SIGUSR1: stop the rig, without exiting
     previous = _terminate_as_interrupt()
+    _ignore_hangup()  # SIGHUP: log it, keep running (D-038)
     try:
         server.run()
     finally:
