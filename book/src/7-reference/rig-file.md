@@ -113,7 +113,8 @@ controller regulated from the signal is held -- its law does not step and
 its demand is not applied;
 `max_rate` is `{per_second: N}` (or `per_minute`, `per_hour`, ...), the
 fastest a demand may move -- a faster one is clamped to the largest step the
-elapsed time allows, not refused); `access` names the set to keep (`"r"`), and
+elapsed time allows, up to one update period (`poll_s`, else the controller's
+`min_period_s`, else 1 s), not refused); `access` names the set to keep (`"r"`), and
 `readable`/`publishing`/`writable` drop one flag each and take only
 `false` — the driver declares what it can honour, the file cannot add to
 it, unless the driver also names a ceiling for that signal (a Python-level

@@ -70,7 +70,10 @@ Then:
 4. **Write it**: the controller calls `rig.demand(target.node, {target:
    demand}, by=self)`, which validates, clamps to `limits`, and commits;
    `expected` is what came back — `None` if the commit is deferred (a
-   blocking device's writer thread) or the driver cannot say. The rig
+   blocking device's writer thread) or the driver cannot say. A target
+   with `max_rate` moves at most `max_rate` × one update period per write
+   (its `poll_s`, else this controller's `min_period_s`, else 1 s), so the
+   first write after a hold does not spend the allowance banked during it. The rig
    makes the same check on every write it is handed by a
    controller (a `regulate` while held is applied to the controller, not
    the target). A law that raises (no law set, say) is a `step_failed`

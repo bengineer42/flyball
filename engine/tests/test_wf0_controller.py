@@ -1,4 +1,4 @@
-"""WF0: a held write freezes the law; bounded back-calculation."""
+"""WF0: a held write freezes the law; bounded back-calculation; an unbanked rate window."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from flyball.foundation.device import (
 )
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Percent, Watt
+from flyball.foundation.time import Rate, TimeUnit
 from flyball.model.law import ControlLaw, Transfer
 from flyball.rig import Rig
 
@@ -42,6 +43,29 @@ class Supplied(Committable):
     supply = Output("supply", "Supply humidity", HUMIDITY)
     chamber = Output("chamber", "Chamber humidity", HUMIDITY)
     humidity = Demand("humidity", "Target humidity", HUMIDITY, limits=(0.0, supply))
+
+
+class Rated(Committable):
+    """Demands capped at 10 W/s: one polled every 0.5s, one with no poll period."""
+
+    TREE = (
+        SignalSpec(name="zone", quantity=TEMP, access=Access.RP),
+        SignalSpec(
+            name="polled",
+            quantity=POWER,
+            role=Role.DEMAND,
+            access=Access.RPW,
+            max_rate=Rate(10.0, TimeUnit.SECOND),
+            poll_s=0.5,
+        ),
+        SignalSpec(
+            name="unpolled",
+            quantity=POWER,
+            role=Role.DEMAND,
+            access=Access.RPW,
+            max_rate=Rate(10.0, TimeUnit.SECOND),
+        ),
+    )
 
 
 def at(clock: SteppedClock, seconds: float) -> int:
@@ -157,3 +181,46 @@ class TestBackCalculation:
         assert law.step(0.001, 50.0, 50.0, last_applied=60.0) == pytest.approx(
             96.0 - 7.2e-3, rel=1e-6
         )
+
+
+class TestRateWindow:
+    """B18: the slew allowance is capped at one update period, so a hold banks none."""
+
+    @pytest.fixture
+    def setup(self) -> tuple[Rig, Rated, SteppedClock]:
+        clock = SteppedClock(0)
+        rig = Rig()
+        rig.clock = clock
+        dev = Rated("rated")
+        rig.add_device(dev)
+        return rig, dev, clock
+
+    def test_the_window_is_the_targets_poll_period(self, setup):
+        rig, dev, clock = setup
+        polled = dev.signals["polled"]
+        rig.demand(dev.root, {polled: 0.0})
+        at(clock, 100)
+        assert rig.demand(dev.root, {polled: 1000.0})[polled].value == pytest.approx(5.0)
+
+    def test_within_the_window_the_elapsed_time_counts(self, setup):
+        rig, dev, clock = setup
+        polled = dev.signals["polled"]
+        rig.demand(dev.root, {polled: 0.0})
+        at(clock, 0.2)
+        assert rig.demand(dev.root, {polled: 1000.0})[polled].value == pytest.approx(2.0)
+
+    def test_without_a_poll_period_a_controllers_min_period(self, setup):
+        rig, dev, clock = setup
+        unpolled, zone = dev.signals["unpolled"], dev.signals["zone"]
+        controller = rig.attach_controller(unpolled, zone, law=PI(kp=1.0), min_period_s=2.0)
+        rig.demand(dev.root, {unpolled: 0.0}, by=controller)
+        at(clock, 100)
+        state = rig.demand(dev.root, {unpolled: 1000.0}, by=controller)[unpolled]
+        assert state.value == pytest.approx(20.0)
+
+    def test_else_one_second(self, setup):
+        rig, dev, clock = setup
+        unpolled = dev.signals["unpolled"]
+        rig.demand(dev.root, {unpolled: 0.0})
+        at(clock, 100)
+        assert rig.demand(dev.root, {unpolled: 1000.0})[unpolled].value == pytest.approx(10.0)

@@ -562,7 +562,7 @@ class Rig:
                 self._limit_unknown(by, e)
                 return {}
             if (max_rate := signal.spec.max_rate) is not None:
-                value = self._rate_clamped(signal, value, max_rate, now_ns)
+                value = self._rate_clamped(signal, value, max_rate, now_ns, by)
             if value != original:
                 requested[signal] = original
             clamped[signal] = value
@@ -646,8 +646,20 @@ class Rig:
                 {"signal": error.address, "unknown": error.unknown},
             )
 
-    def _rate_clamped(self, signal: Signal, value: float, max_rate: Rate, now_ns: int) -> float:
+    def _rate_clamped(
+        self,
+        signal: Signal,
+        value: float,
+        max_rate: Rate,
+        now_ns: int,
+        by: Controller | None = None,
+    ) -> float:
         """`value`, held to at most `max_rate` away from the last commit's, over the elapsed time.
+
+        The elapsed time counts up to one update period and no further: the
+        signal's `poll_s`, else the demanding controller's `min_period_s`,
+        else 1 s. A demand after a long quiet spell (a hold, an idle signal)
+        moves one period's worth, not the whole allowance banked meanwhile.
 
         Nothing to compare against yet (no prior commit), or a last value
         that is not finite (a readback gone wrong): `value` passes through
@@ -656,7 +668,8 @@ class Rig:
         last = self.router.latest.get(signal)
         if last is None or not math.isfinite(last.value):
             return value
-        elapsed_s = (now_ns - last.time_ns) / 1e9
+        window_s = signal.poll_s or (by.min_period_s if by is not None else None) or 1.0
+        elapsed_s = min((now_ns - last.time_ns) / 1e9, window_s)
         if elapsed_s <= 0:
             return last.value
         step = max_rate.per_second * elapsed_s
