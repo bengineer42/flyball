@@ -332,10 +332,20 @@ class RunOut(BaseModel):
     period_s: float | None
     running: bool
     last_read_ns: int | None
+    read_s: float | None = None
+    """How long the last read took (the driver's `read` alone), in seconds of rig time."""
+    missed: int = 0
+    """Reads that took longer than the period since polling began."""
 
     @classmethod
     def of(cls, run: DeviceRun) -> RunOut:
-        return cls(period_s=run.period_s, running=run.running, last_read_ns=run.last_read_ns)
+        return cls(
+            period_s=run.period_s,
+            running=run.running,
+            last_read_ns=run.last_read_ns,
+            read_s=run.read_s,
+            missed=run.missed,
+        )
 
 
 class DeviceOut(BaseModel):

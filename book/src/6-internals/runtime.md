@@ -149,8 +149,14 @@ read — an observer, the recorder — is the rig's, not the read's: a
 `delivery_failed` event, and the device's samples are still noted as read. After a gap in its readings
 longer than three usual intervals (an outage), a controller's next step
 counts as one ordinary step, not the whole gap.
-A poll that takes longer than its period logs a `slow` condition but does
-not resynchronise or catch up; it just runs again next period.
+A poll whose `read` takes longer than its period does not resynchronise or
+catch up; it just runs again next period. Only the driver's `read` is timed
+(`DeviceRun.read_s`), not the lock wait or the delivery after it, and each
+over-period read counts in `DeviceRun.missed`. The `slow` condition is
+de-flapped: raised after three reads in a row over the period, cleared
+after five in a row at or under 0.8 of it, and a read in between starts
+both counts again -- one `raised` and one `cleared` per spell, however the
+reads wander inside it.
 
 ## Threads and the lock
 

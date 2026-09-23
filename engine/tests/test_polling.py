@@ -141,7 +141,7 @@ def test_a_failure_in_the_delivery_itself_is_delivery_failed(rig, clock, furnace
     assert "a bug downstream" in event.message
 
 
-def test_a_slow_read_raises_a_warning_condition(rig, furnace):
+def test_three_slow_reads_raise_a_warning_condition(rig, furnace):
     class Slow(Furnace):
         def read(self, time_ns, node=None):
             rig.clock.sleep(2.0)  # the rig's time is what "slow" is judged in
@@ -152,6 +152,9 @@ def test_a_slow_read_raises_a_warning_condition(rig, furnace):
     rig.add_device(slow)
     rig.start_polling(slow)
     rig.polling.stop_all()
+    rig.polling._read(slow)
+    rig.polling._read(slow)
+    assert rig.conditions.of(slow) == [], "two slow reads are not yet slow"
     rig.polling._read(slow)
     (condition,) = rig.conditions.of(slow)
     assert condition.code == "slow" and condition.severity is Severity.WARNING

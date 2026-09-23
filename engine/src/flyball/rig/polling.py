@@ -28,6 +28,12 @@ log = logging.getLogger("flyball.polling")
 STOP_JOIN_S = 2.0
 """How long `stop_all` waits, over all polling threads together, for reads in progress."""
 
+SLOW_AFTER = 3
+"""Reads in a row over the period before a device is `slow`."""
+FAST_AFTER = 5
+"""Reads in a row at or under `FAST_FRACTION` of the period before `slow` clears."""
+FAST_FRACTION = 0.8
+
 if TYPE_CHECKING:
     from .rig import Rig
 
@@ -50,6 +56,10 @@ class DeviceRun:
     period_s: float | None = None
     running: bool = False
     last_read_ns: int | None = None
+    read_s: float | None = None
+    """How long the last read took, in the rig's time: `read` alone, not its delivery."""
+    missed: int = 0
+    """How many reads took longer than the period since polling began."""
 
 
 class Polling:
@@ -60,6 +70,8 @@ class Polling:
         self.runs: Latest[str, DeviceRun] = Latest()
         """The newest run of each polled device, by name, after every read or failure."""
         self._runs: dict[str, DeviceRun] = {}
+        self._streaks: dict[str, tuple[int, int]] = {}
+        """Per device: reads in a row over the period, and in a row well under it."""
 
     def get(self, name: str) -> Device:
         try:
@@ -74,6 +86,7 @@ class Polling:
         """Poll `device` every `period_s`; one already polled is restarted on the new period."""
         self.by_name[device.name] = device
         self._runs.setdefault(device.name, DeviceRun())
+        self._streaks.pop(device.name, None)  # a new period: count reads against it afresh
         if (loop := self.periodic.pop(device.name, None)) is not None:
             loop.stop()
         loop = PeriodicLoop(self._read, period_s, False, device, clock=self.rig.clock)
@@ -125,6 +138,7 @@ class Polling:
             loop.stop(join=False)
         self.by_name.pop(name, None)
         self._runs.pop(name, None)
+        self._streaks.pop(name, None)
         self.runs.discard(name)
 
     def stop_all(self) -> None:
@@ -177,7 +191,9 @@ class Polling:
 
         Only `read` itself can put the device offline; delivery failures are
         handled in [delivered][flyball.rig.polling.Polling.delivered].
-        A device that went offline stays stopped until `restart`.
+        A device that went offline stays stopped until `restart`. Only
+        `read` is timed for `slow`: the delivery after it, and the rig lock
+        it waits for, are not the device's.
         """
         started = self.rig.clock.monotonic()  # in the rig's time, as the period is
         try:
@@ -194,22 +210,50 @@ class Polling:
             if (loop := self.periodic.get(device.name)) is not None:
                 loop.stop(join=False)  # from inside the loop: it exits after this call
             return
+        read_s = self.rig.clock.monotonic() - started
         if not self._polled(device):
             return  # removed while it was being read: what it read goes nowhere
         self.delivered(device, samples)
+        self._paced(device, read_s)
+
+    def _paced(self, device: Device, read_s: float) -> None:
+        """Note how long a read took; raise `slow` on a run of slow reads, clear it on fast ones.
+
+        Raised after `SLOW_AFTER` reads in a row over the period; cleared
+        after `FAST_AFTER` in a row at or under `FAST_FRACTION` of it. A read
+        between the two starts both counts again. So a read that is slow now
+        and then raises nothing, and one that hovers at its period does not
+        flicker: one `raised` and one `cleared` per spell, whatever it does
+        in between.
+        """
         if (run := self._runs.get(device.name)) is None:
             return
         period = run.period_s
-        took = self.rig.clock.monotonic() - started
-        if period is not None and took > period:
+        over = period is not None and read_s > period
+        self._update(device, read_s=read_s, missed=run.missed + over)
+        if period is None:
+            return
+        slow, fast = self._streaks.get(device.name, (0, 0))
+        if over:
+            slow, fast = slow + 1, 0
+        elif read_s <= FAST_FRACTION * period:
+            slow, fast = 0, fast + 1
+        else:
+            slow, fast = 0, 0
+        self._streaks[device.name] = (slow, fast)
+        held = self.rig.conditions.get(device, Code.SLOW) is not None
+        if over and (held or slow >= SLOW_AFTER):
             self.rig.conditions.set(
                 device,
                 Code.SLOW,
                 Severity.WARNING,
-                f"read took {took:.2f} s against a {period} s period",
+                f"reads take longer than the {period:g} s period: the last took {read_s:.2f} s",
+                {"read_s": read_s, "period_s": period},
             )
-        elif period is not None:
-            self.rig.conditions.clear(device, Code.SLOW, message="reads keep up again")
+        elif held and fast >= FAST_AFTER:
+            self.rig.conditions.clear(
+                device, Code.SLOW, message=f"reads keep up again: the last took {read_s:.2f} s"
+            )
 
     def touch(self, name: str) -> None:
         """Push `name`'s run to watchers again unchanged: its conditions changed, not its run."""

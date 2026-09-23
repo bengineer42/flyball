@@ -210,7 +210,10 @@ it — `readable`/`writable` whether it implements `read`/`commit`,
 `conditions` what the rig's condition store holds on the device (`offline`,
 `slow`, `write_failed`, `commit_failed`), then what its driver pushed onto its
 `conditions` output, and `run` `{period_s, running,
-last_read_ns}` for a polled device (null otherwise).
+last_read_ns, read_s, missed}` for a polled device (null otherwise):
+`read_s` is how long the last read took (the driver's `read` alone, in
+seconds of the rig's time, not the delivery after it), `missed` how many
+reads have taken longer than the period since polling began.
 
 A signal in the tree is `{name, address, access, role, tags, label,
 quantity, unit, dimension, dtype, shape, range, precision, warning, alarm,
@@ -505,7 +508,7 @@ flush sends nothing.
 
 | socket | on connect | then |
 | --- | --- | --- |
-| `/ws/samples` | the newest published sample per node, and every polled device's run | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, conditions}]}`, either key present only when something in it changed; at most one sample per node, and one run per device, per flush. A run's `conditions` are what the rig holds on the device now; a condition raised or cleared on it sends the run again |
+| `/ws/samples` | the newest published sample per node, and every polled device's run | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, read_s, missed, conditions}]}`, either key present only when something in it changed; at most one sample per node, and one run per device, per flush. A run's `conditions` are what the rig holds on the device now; a condition raised or cleared on it sends the run again |
 | `/ws/controllers` | every controller | `{controllers: [ControllerOut]}` of those that ticked |
 | `/ws/activities` | every registered activity | `{activities: [ActivityOut]}` as each registers or settles |
 | `/ws/events` | the recent events | `{events: [Event]}` as each happens |

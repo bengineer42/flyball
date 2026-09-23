@@ -416,3 +416,80 @@ def test_health_conditions_come_from_the_store_with_scope_and_subject(rig, fresh
 
 
 # endregion
+
+# region `slow`, de-flapped
+
+
+class Paced(Furnace):
+    """A furnace whose reads take what `took` says, in the rig's time, one per read."""
+
+    def __init__(self, name: str, rig) -> None:
+        super().__init__(name)
+        self.rig = rig
+        self.took: list[float] = []
+
+    def read(self, time_ns, node=None):
+        if self.took:
+            self.rig.clock.sleep(self.took.pop(0))
+        return super().read(time_ns, node)
+
+
+def _paced(rig, fresh) -> Paced:
+    paced = Paced(fresh("paced"), rig)
+    paced.poll_s = 1.0
+    rig.add_device(paced)
+    rig.start_polling(paced)
+    rig.polling.stop_all()  # reads are driven by hand, one `_read` each
+    return paced
+
+
+def _reads(rig, paced: Paced, took: list[float]) -> None:
+    paced.took = list(took)
+    for _ in took:
+        rig.polling._read(paced)
+
+
+class TestSlow:
+    def test_a_flapping_read_raises_nothing(self, rig, fresh):
+        paced = _paced(rig, fresh)
+        _reads(rig, paced, [1.5, 0.1, 1.5, 1.5, 0.1, 1.5, 0.1] * 3)
+        assert _edges(rig, Code.SLOW) == [], "never three over the period in a row"
+        run = rig.polling.run(paced.name)
+        assert run.missed == 12 and run.read_s == pytest.approx(0.1)
+
+    def test_raised_after_three_over_and_cleared_after_five_well_under(self, rig, fresh):
+        paced = _paced(rig, fresh)
+        _reads(rig, paced, [1.5, 1.5])
+        assert _edges(rig, Code.SLOW) == []
+        _reads(rig, paced, [1.5])
+        assert _edges(rig, Code.SLOW) == [("raised", paced.name)]
+        _reads(rig, paced, [1.5, 2.0, 0.1, 0.1, 0.1, 0.1])
+        assert _edges(rig, Code.SLOW) == [("raised", paced.name)], "one edge, not one per read"
+        _reads(rig, paced, [0.9])  # under the period, over 0.8 of it: starts the count again
+        _reads(rig, paced, [0.1, 0.1, 0.1, 0.1])
+        assert [c.code for c in rig.conditions.of(paced)] == ["slow"]
+        _reads(rig, paced, [0.1])
+        assert _edges(rig, Code.SLOW) == [("raised", paced.name), ("cleared", paced.name)]
+
+    def test_only_the_read_is_timed_not_the_delivery(self, rig, fresh):
+        paced = _paced(rig, fresh)
+        real = rig.on_samples
+
+        def slow_delivery(samples):
+            rig.clock.sleep(5.0)  # a controller, the recorder, the lock: not the device's
+            real(samples)
+
+        rig.on_samples = slow_delivery  # type: ignore[method-assign]
+        _reads(rig, paced, [0.1, 0.1, 0.1, 0.1])
+        assert _edges(rig, Code.SLOW) == [] and rig.polling.run(paced.name).missed == 0
+
+    def test_the_run_on_the_wire_carries_read_s_and_missed(self, rig, fresh):
+        from flyball.interfaces.server.schemas import RunOut
+
+        paced = _paced(rig, fresh)
+        _reads(rig, paced, [1.5, 0.25])
+        out = RunOut.of(rig.polling.run(paced.name)).model_dump()
+        assert out["read_s"] == pytest.approx(0.25) and out["missed"] == 1
+
+
+# endregion

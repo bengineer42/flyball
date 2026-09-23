@@ -1013,7 +1013,13 @@ def test_a_command_on_an_offline_device_restarts_it(client, rig, daq):
         rig.polling._read(daq)  # one poll, as the loop would: it fails and stops
         assert rig.polling.run(daq.name).running is False
         body = client.get(f"/api/devices/{daq.name}").json()
-        assert body["run"] == {"period_s": 0.5, "running": False, "last_read_ns": None}
+        assert body["run"] == {
+            "period_s": 0.5,
+            "running": False,
+            "last_read_ns": None,
+            "read_s": None,
+            "missed": 0,
+        }
         assert body["conditions"][0]["code"] == "offline"
 
         assert client.post(f"/api/devices/{daq.name}/commands/restore").status_code == 200

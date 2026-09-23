@@ -249,6 +249,10 @@ export interface RunOut {
   period_s: number | null;
   running: boolean;
   last_read_ns: Nanoseconds | null;
+  /** How long the last read took (the driver's `read` alone), in seconds of rig time; null before one. */
+  read_s: number | null;
+  /** Reads that took longer than the period since polling began. */
+  missed: number;
 }
 
 /**

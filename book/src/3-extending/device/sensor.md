@@ -133,4 +133,4 @@ last delivered, and an `offline` condition if a read raised. Polling
 continues after a failure, and the next successful delivery clears the
 condition; nothing else in the rig stops. `GET /api/devices/{name}` shows
 both the device's own state and the run (`run: {period_s, running,
-last_read_ns}`).
+last_read_ns, read_s, missed}`).
