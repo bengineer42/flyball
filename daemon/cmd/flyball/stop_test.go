@@ -19,6 +19,7 @@ import (
 
 	"flyballd/internal/endpoint"
 	"flyballd/internal/front"
+	"flyballd/internal/frontwire"
 	"flyballd/internal/principal"
 )
 
@@ -263,6 +264,64 @@ func TestStopUnreachableWithNoFallbackErrors(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	if err := runStopCommand("", "", nil); err == nil {
 		t.Fatal("expected an error when the front is unreachable and no --pid/--front-dir was given")
+	}
+}
+
+// TestStopDerivesFrontDirFromARigFilePath: `flyball stop RIG-FILE` (no
+// --front-dir, no --pid), the front unreachable, falls back to the same
+// front-dir `flyball run RIG-FILE` would have used
+// (frontwire.RunFrontDir), so a rig started with `flyball run rig.yaml`
+// can be stopped with `flyball stop rig.yaml` from elsewhere.
+func TestStopDerivesFrontDirFromARigFilePath(t *testing.T) {
+	rt := t.TempDir()
+	os.Chmod(rt, 0o700)
+	t.Setenv("RUNTIME_DIRECTORY", "")
+	t.Setenv("XDG_RUNTIME_DIR", rt)
+	t.Setenv("FLYBALL_URL", "http://127.0.0.1:1") // nothing listens on port 1
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	rigDir := t.TempDir()
+	rig := filepath.Join(rigDir, "rig.yaml")
+	if err := os.WriteFile(rig, []byte("name: t\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dir, ok := frontwire.RunFrontDir(rig)
+	if !ok {
+		t.Fatal("RunFrontDir: not derivable in this environment")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	lock := filepath.Join(dir, "runner.lock")
+	if err := os.WriteFile(lock, []byte("pid "+strconv.Itoa(os.Getpid())+" rig blender\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ch := make(chan os.Signal, 1)
+	notifyUSR1(t, ch)
+
+	if err := runStopCommand("", "", []string{rig}); err != nil {
+		t.Fatalf("runStopCommand: %v", err)
+	}
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SIGUSR1 was not delivered via the rig-path front-dir fallback")
+	}
+}
+
+// TestStopWithNonRigNameStillErrors: a NAME that isn't a real file on
+// disk (the ordinary daemon-registered-runner-name case) must not be
+// treated as a rig path -- no lock file exists to guess, so the usual
+// "pass --front-dir or --pid" error still applies.
+func TestStopWithNonRigNameStillErrors(t *testing.T) {
+	t.Setenv("FLYBALL_URL", "http://127.0.0.1:1")
+	t.Setenv("FLYBALLD_URL", "http://127.0.0.1:1")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	if err := runStopCommand("", "", []string{"not-a-real-rig-file"}); err == nil {
+		t.Fatal("expected an error for a name that is not a rig file on disk")
 	}
 }
 

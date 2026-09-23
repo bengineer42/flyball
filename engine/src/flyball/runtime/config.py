@@ -305,6 +305,30 @@ class ProxyConfig(BaseModel):
     jwt: CustomJwt | None = None
 
 
+class TokensConfig(BaseModel):
+    """`runner.front.tokens` (or flyballd.yaml's top-level `tokens:`): named-token lifetimes.
+
+    Read and validated by the front (Go, `daemon/internal/front.ResolveLifetimes`); this side
+    only shapes the block and forbids unknown keys. An unparseable, out-of-range or
+    otherwise invalid value falls back to the built-in, with a warning at start -- it never
+    stops the runner (D-028).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    default_lifetime: str | None = Field(
+        default=None,
+        description="A token's lifetime when created without an explicit `expires_in`. A Go"
+        " duration plus a `d` suffix for days (e.g. `90d`, `36h`). Unset: the built-in 90 days.",
+    )
+    max_lifetime: str | None = Field(
+        default=None,
+        description="The hard cap on a token's lifetime, for tokens that are neither cleartext"
+        " nor kind `agent` (those keep a fixed 30-day cap, tightened further if this is"
+        " smaller). May only tighten the built-in ceiling of 365 days, never loosen it."
+        " Unset: the built-in 365 days.",
+    )
+
+
 class FrontConfig(BaseModel):
     """`runner.front`: how `flyball run`'s front serves this rig. Read by the front, never here."""
 
@@ -323,6 +347,9 @@ class FrontConfig(BaseModel):
     uv: bool = False
     session: str = "12h"
     trusted_proxies: list[str] = Field(default_factory=list)
+    tokens: TokensConfig | None = Field(
+        default=None, description="Named-token lifetime ceilings: default_lifetime, max_lifetime."
+    )
 
 
 def is_loopback(host: str) -> bool:

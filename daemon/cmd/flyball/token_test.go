@@ -35,10 +35,43 @@ func TestTokensPathForDaemonConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join("mydata", "front", "tokens.json")
+	// frontwire.DaemonDir resolves data_dir against the process's cwd, the
+	// same way flyballd itself does (cmd/flyballd/main.go), so this and a
+	// running flyballd --config flyballd.yaml agree whatever directory
+	// each is run from -- not the (relative, so cwd-fragile) path this
+	// used to return.
+	want := filepath.Join(mustAbs(t, "mydata"), "front", "tokens.json")
 	if path != want {
 		t.Errorf("path = %q, want %q", path, want)
 	}
+}
+
+// TestTokensPathForDaemonConfigWithoutManifestsDir: none of flyballd.yaml's
+// own keys is required (DefaultDaemonConfig fills them in), so a file
+// naming only data_dir must still be recognised as a daemon config, not
+// mistaken for a rig file.
+func TestTokensPathForDaemonConfigWithoutManifestsDir(t *testing.T) {
+	dir := t.TempDir()
+	daemonYAML := filepath.Join(dir, "flyballd.yaml")
+	os.WriteFile(daemonYAML, []byte("data_dir: mydata\n"), 0o644)
+
+	path, err := tokensPathFor(daemonYAML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(mustAbs(t, "mydata"), "front", "tokens.json")
+	if path != want {
+		t.Errorf("path = %q, want %q", path, want)
+	}
+}
+
+func mustAbs(t *testing.T, p string) string {
+	t.Helper()
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return abs
 }
 
 func TestParseExpiresDays(t *testing.T) {
@@ -159,5 +192,96 @@ func TestTokenCreateDefaultsScopeToRead(t *testing.T) {
 	}
 	if len(list) != 1 || len(list[0].Scopes) != 1 || list[0].Scopes[0] != "read:*" {
 		t.Errorf("scopes = %v, want [read:*]", list)
+	}
+}
+
+// TestTokenCreateHonoursRigFileTokensConfig: `flyball token create --config
+// blender.yaml` applies blender.yaml's `runner.front.tokens` block the same
+// way a running front would -- a request with no --expires gets the
+// configured default, and a request above the configured max is clamped.
+func TestTokenCreateHonoursRigFileTokensConfig(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	rig := filepath.Join(t.TempDir(), "blender.yaml")
+	os.WriteFile(rig, []byte("devices: {}\nrunner:\n  front:\n    tokens:\n      default_lifetime: 5d\n      max_lifetime: 20d\n"), 0o644)
+
+	captureStdout(t, func() {
+		if err := runTokenCreate([]string{"--name", "no-expires", "--config", rig}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	captureStdout(t, func() {
+		if err := runTokenCreate([]string{"--name", "above-max", "--config", rig, "--expires", "100d"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	path, err := tokensPathFor(rig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := store.OpenTokens(path, store.TokensOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tokens.Close()
+	list, err := tokens.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]store.Token{}
+	for _, tok := range list {
+		byName[tok.Name] = tok
+	}
+	if got := byName["no-expires"].Expires.Sub(byName["no-expires"].Created); got != 5*24*time.Hour {
+		t.Errorf("no --expires: lifetime %v, want the configured default 5d", got)
+	}
+	if got := byName["above-max"].Expires.Sub(byName["above-max"].Created); got != 20*24*time.Hour {
+		t.Errorf("--expires 100d, above the configured max: lifetime %v, want clamped to 20d", got)
+	}
+}
+
+// TestTokenCreateFallsBackOnBadTokensConfig: a `max_lifetime` above the
+// built-in ceiling falls back (D-028: it never refuses to create), with a
+// warning on stderr.
+func TestTokenCreateFallsBackOnBadTokensConfig(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	rig := filepath.Join(t.TempDir(), "blender.yaml")
+	os.WriteFile(rig, []byte("devices: {}\nrunner:\n  front:\n    tokens:\n      max_lifetime: 400d\n"), 0o644)
+
+	var stderr strings.Builder
+	origStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	captureStdout(t, func() {
+		if err := runTokenCreate([]string{"--name", "x", "--config", rig}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	w.Close()
+	os.Stderr = origStderr
+	buf := make([]byte, 4096)
+	n, _ := r.Read(buf)
+	stderr.Write(buf[:n])
+	if !strings.Contains(stderr.String(), "max_lifetime") {
+		t.Errorf("stderr = %q, want a max_lifetime warning", stderr.String())
+	}
+
+	path, err := tokensPathFor(rig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := store.OpenTokens(path, store.TokensOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tokens.Close()
+	list, err := tokens.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Expires.Sub(list[0].Created) != store.TokenLifetimeDefault {
+		t.Errorf("tokens = %+v, want one token at the built-in default lifetime", list)
 	}
 }

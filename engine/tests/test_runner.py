@@ -262,6 +262,31 @@ class TestSettle:
         assert full.front is not None and full.front.proxy is not None
         assert full.front.proxy.from_ == ["10.0.0.0/8"]
 
+    def test_front_accepts_a_tokens_block(self):
+        """`runner.front.tokens`: shaped and forbidden-unknown here; Go validates the values."""
+        section = RunnerConfig(
+            front={"tokens": {"default_lifetime": "90d", "max_lifetime": "365d"}}
+        )
+        assert section.front is not None and section.front.tokens is not None
+        assert (section.front.tokens.default_lifetime, section.front.tokens.max_lifetime) == (
+            "90d",
+            "365d",
+        )
+        # Documented, not validated here: an out-of-range or nonsense value still parses.
+        loose = RunnerConfig(front={"tokens": {"max_lifetime": "nonsense"}})
+        assert loose.front is not None and loose.front.tokens.max_lifetime == "nonsense"
+
+    def test_a_bad_tokens_block_never_stops_the_runner(self, caplog):
+        """D-028, same wrap-validator as a bad `front` block.
+
+        An unknown key inside `tokens` does not stop the runner -- `front` falls back to
+        None with a warning.
+        """
+        with caplog.at_level("WARNING"):
+            section = RunnerConfig(front={"tokens": {"default_lifetime": "90d", "nope": 1}})
+        assert section.front is None
+        assert "runner.front" in caplog.text and "nope" in caplog.text
+
 
 def test_main_reads_the_runner_section_from_the_rig_file(tmp_path, monkeypatch):
     rig_file = tmp_path / "lab.yaml"

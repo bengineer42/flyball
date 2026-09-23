@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"flyballd/internal/front/store"
 )
 
 func TestResolveDefault(t *testing.T) {
@@ -146,5 +148,51 @@ func TestResolveUnixListen(t *testing.T) {
 	p := Resolve(Config{Listen: "unix:/run/flyball/front.sock"}, false)
 	if p.Shape != "local" || p.Listen != "unix:/run/flyball/front.sock" || p.Fallback != "" {
 		t.Fatalf("plan: %+v", p)
+	}
+}
+
+func TestResolveTokensUnsetUsesBuiltins(t *testing.T) {
+	p := Resolve(Config{}, false)
+	if p.Lifetimes != store.DefaultLifetimes() {
+		t.Fatalf("Lifetimes = %+v, want the built-ins %+v", p.Lifetimes, store.DefaultLifetimes())
+	}
+	if len(p.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", p.Warnings)
+	}
+}
+
+func TestResolveTokensTightenMax(t *testing.T) {
+	p := Resolve(Config{Tokens: &TokensConfig{DefaultLifetime: "30d", MaxLifetime: "60d"}}, false)
+	if p.Lifetimes.Default != 30*24*time.Hour || p.Lifetimes.Max != 60*24*time.Hour {
+		t.Fatalf("Lifetimes = %+v", p.Lifetimes)
+	}
+	if len(p.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", p.Warnings)
+	}
+}
+
+func TestResolveTokensMaxAboveBuiltinFallsBackWithWarning(t *testing.T) {
+	p := Resolve(Config{Tokens: &TokensConfig{MaxLifetime: "400d"}}, false)
+	if p.Lifetimes.Max != store.TokenLifetimeMax {
+		t.Fatalf("max = %v, want the built-in ceiling %v", p.Lifetimes.Max, store.TokenLifetimeMax)
+	}
+	if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "max_lifetime") {
+		t.Fatalf("warnings = %v, want one naming max_lifetime", p.Warnings)
+	}
+}
+
+func TestResolveTokensDefaultAboveMaxFallsBack(t *testing.T) {
+	p := Resolve(Config{Tokens: &TokensConfig{DefaultLifetime: "100d", MaxLifetime: "50d"}}, false)
+	if p.Lifetimes.Default != store.TokenLifetimeDefault {
+		t.Fatalf("default = %v, want the built-in %v", p.Lifetimes.Default, store.TokenLifetimeDefault)
+	}
+	if p.Lifetimes.Max != 50*24*time.Hour {
+		t.Fatalf("max = %v, want 50d", p.Lifetimes.Max)
+	}
+	if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "default_lifetime") {
+		t.Fatalf("warnings = %v, want one naming default_lifetime", p.Warnings)
+	}
+	if !strings.Contains(p.Banner(), "default_lifetime") {
+		t.Fatalf("Banner() = %q, want the tokens warning", p.Banner())
 	}
 }

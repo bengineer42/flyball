@@ -645,6 +645,18 @@
           },
           "title": "Trusted Proxies",
           "type": "array"
+        },
+        "tokens": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TokensConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Named-token lifetime ceilings: default_lifetime, max_lifetime."
         }
       },
       "title": "FrontConfig",
@@ -2189,6 +2201,40 @@
         "key"
       ],
       "title": "TlsFiles",
+      "type": "object"
+    },
+    "TokensConfig": {
+      "additionalProperties": false,
+      "description": "`runner.front.tokens` (or flyballd.yaml's top-level `tokens:`): named-token lifetimes.\n\nRead and validated by the front (Go, `daemon/internal/front.ResolveLifetimes`); this side\nonly shapes the block and forbids unknown keys. An unparseable, out-of-range or\notherwise invalid value falls back to the built-in, with a warning at start -- it never\nstops the runner (D-028).",
+      "properties": {
+        "default_lifetime": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A token's lifetime when created without an explicit `expires_in`. A Go duration plus a `d` suffix for days (e.g. `90d`, `36h`). Unset: the built-in 90 days.",
+          "title": "Default Lifetime"
+        },
+        "max_lifetime": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The hard cap on a token's lifetime, for tokens that are neither cleartext nor kind `agent` (those keep a fixed 30-day cap, tightened further if this is smaller). May only tighten the built-in ceiling of 365 days, never loosen it. Unset: the built-in 365 days.",
+          "title": "Max Lifetime"
+        }
+      },
+      "title": "TokensConfig",
       "type": "object"
     },
     "VisaLinkConfigTagged": {
