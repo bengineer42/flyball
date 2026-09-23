@@ -38,6 +38,16 @@ value)` is the simple case: *put one committed value on the hardware*.
 `oven.py`'s `Heater` only needs this one method — the default `commit`
 calls it once per pending signal.
 
+A demand `commit` never looks at — not through `self.pending` (walking it,
+`[]`, `get`, `pop`, `in`) nor `signal.pending` — was not set: the rig does
+not echo it as a reading, reports it with the reading unchanged and the
+demand as `requested`, and raises a `demand_ignored` event once until one
+is read again. A composite that drives from its target and has no use for a
+line demand in its present mode gets exactly this for that demand. If
+`commit` raises, the device's pending demands are dropped (not sent with a
+later commit) and a `commit_failed` event names it; the rest of the
+delivery goes on.
+
 There is no dirty flag to maintain in a driver: the rig tracks which
 devices a delivery touched and calls `commit` once per device, however many
 signals on it changed.
@@ -172,7 +182,8 @@ as well as anything it publishes.
   only records.
 - `commit` returns nothing; push a readback (`signal.push(...)`) if the
   committed value differs from the demand, and set `signal.at_limit` if it
-  railed.
+  railed. Read every demand it acts on from `pending`: one it never reads is
+  reported as `demand_ignored`.
 - Anything slow is in `commit`, not `apply` — mark `blocking = True` if
   `commit` may wait on a bus, so the rig runs it on a thread of its own.
 - Conditions cover every way the device can fail to do what it was asked.

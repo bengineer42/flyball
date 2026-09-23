@@ -35,6 +35,7 @@ from flyball.foundation.device import (
     Limit,
     LimitNotKnownError,
     Node,
+    Pending,
     Readable,
     Reading,
     Role,
@@ -123,6 +124,9 @@ class Rig:
     """The controllers stepped since the outermost delivery began, through every delivery of
     what its commits pushed; None outside one. A controller steps at most once in that chain:
     a commit that pushes back its own source would otherwise step it again, for ever."""
+    _ignored: set[Signal]
+    """Demands whose driver's `commit` did not read them: one event when a signal's demand
+    first goes unread, none per demand after, until one is read again."""
     _commit_failures: dict[Device, Condition]
     """Devices whose last `commit` on the delivery path raised, with what it raised: one
     event on the first failure, one when a commit succeeds again, none per failing commit
@@ -175,6 +179,7 @@ class Rig:
         self._touched = None
         self._stepped = None
         self._commit_failures = {}
+        self._ignored = set()
         self.entries = {}
         self.link_entries = {}
         self.files = []
@@ -739,14 +744,32 @@ class Rig:
         asked for, when the clamp changed it, and which controller drives
         the signal; the device's `written` gets the filled-in state too, so
         the wire shows one thing.
+
+        A demand the driver's `commit` never read (a composite that drives
+        from its target and ignores its line demands while blending) was not
+        set: it is not echoed as a reading, its state keeps the reading
+        as it was (None with none) with the demand as `requested`, and a
+        `demand_ignored` event says so, once until one is read again.
         """
         states: dict[Signal, WriteState] = {}
         seq = self.router.seq
-        for signal, value in device.pending.items():
-            if seq.get(signal, 0) != before.get(signal, 0):  # the driver pushed the readback
+        pending = device.pending
+        unread = set(pending.unread()) if isinstance(pending, Pending) else set()
+        for signal, value in dict.items(pending):
+            pushed = seq.get(signal, 0) != before.get(signal, 0)  # the driver's readback
+            requested = self._requested.pop(signal, None)
+            ignored = signal in unread
+            if ignored:
+                self._demand_ignored(device, signal, value)
+                requested = value if requested is None else requested
+                reading = self.router.latest.get(signal)
+                value = None if reading is None else reading.value
+            else:
+                self._ignored.discard(signal)
+            if pushed:
                 value = self.router.value(signal)
             at_limit = signal.at_limit
-            if at_limit is None and (limits := signal.limits) is not None:
+            if at_limit is None and (limits := signal.limits) is not None and value is not None:
                 if value <= limits[0]:
                     at_limit = Limit.LOW
                 elif value >= limits[1]:
@@ -754,7 +777,7 @@ class Rig:
             holder = self.controllers.driving(signal)
             state = WriteState(
                 value=value,
-                requested=self._requested.pop(signal, None),
+                requested=requested,
                 at_limit=at_limit,
                 controller=None if holder is None else holder.name,
             )
@@ -762,7 +785,7 @@ class Rig:
             if self.write_states.watched:
                 self.write_states.set(signal.address, state)
             signal.at_limit = None
-            if seq.get(signal, 0) == before.get(signal, 0):  # no readback: the value stands
+            if not pushed and not ignored:  # no readback: the value stands
                 signal.push(value, time_ns)
             # Fold the write record into the reading itself, so it rides the samples stream
             # with the value instead of a separate `/ws/writes` cell.
@@ -775,6 +798,19 @@ class Rig:
                 )
         device.pending.clear()
         return states
+
+    def _demand_ignored(self, device: Committable, signal: Signal, value: float) -> None:
+        if signal in self._ignored:
+            return
+        self._ignored.add(signal)
+        self.event(
+            Level.WARNING,
+            Scope.DEVICE,
+            device.name,
+            Kind.DEMAND_IGNORED,
+            f"'{signal.address}': {value} was not read by the driver's commit; nothing was set",
+            {"signal": signal.address, "demand": value},
+        )
 
     def _flush_pushed(self) -> None:
         """Deliver what commits pushed, each batch as one more delivery, until nothing is left.
@@ -948,6 +984,7 @@ class Rig:
             self.router.seq.pop(signal, None)
             self.write_states.discard(signal.address)
             self._requested.pop(signal, None)
+            self._ignored.discard(signal)
         self._commit_failures.pop(device, None)
         for node in (device.root, *device.root.descendants()):
             self.router.samples.pop(node, None)

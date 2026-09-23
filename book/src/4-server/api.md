@@ -381,7 +381,7 @@ one of a fixed set:
 
 | scope | kinds |
 | --- | --- |
-| `device` | `offline`, `restarted`, `slow`, `write_failed`, `write_recovered`, `commit_failed`, `commit_recovered` |
+| `device` | `offline`, `restarted`, `slow`, `write_failed`, `write_recovered`, `commit_failed`, `commit_recovered`, `demand_ignored` |
 | `controller` | `step_failed`, `step_recovered`, `stale_input`, `limit_unknown`, `limit_known`, `interrupted` |
 | `program` | `started`, `step`, `step_timed_out`, `step_failed`, `finished`, `failed`, `interrupted`, `run_from_library` |
 | `rig` | `delivery_failed`, `recording_failed`, `restored` |
@@ -399,6 +399,12 @@ of the delivery -- other devices' commits, the recorder -- goes on. A
 manual demand or a command whose commit raises also gets the error back.
 `write_failed` / `write_recovered` are the same for a blocking device's
 writer thread.
+
+`demand_ignored` (`WARNING`) is a demand the driver's `commit` never read
+(`details: {signal, demand}`): nothing was set, so the demand is not
+echoed as the signal's reading. Its write record keeps the reading as it
+was and carries the demand as `requested`. Once per signal until a demand
+on it is read again.
 
 ## Websockets
 

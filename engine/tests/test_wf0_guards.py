@@ -21,6 +21,7 @@ from flyball.foundation.device import (
     Readable,
     Sample,
     Scope,
+    WriteState,
 )
 from test_rig import FakeRecorder, FakeStore, recorder_module  # noqa: F401  a fixture
 from test_rig_devices import POWER, TEMP, Furnace
@@ -187,6 +188,52 @@ def test_a_controller_on_its_own_target_s_device_is_attached(rig, furnace):
     furnace.commits = 0
     _deliver(rig, furnace)
     assert furnace.commits == 1
+
+
+# endregion
+
+# region 3. A demand the driver never read
+
+
+class Picky(Committable):
+    """Reads only `a` in `commit`, as a blender reads its target and not its flows."""
+
+    a = Demand("a", "A", POWER, limits=(0.0, 100.0))
+    b = Demand("b", "B", POWER, limits=(0.0, 100.0))
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.seen: list[float] = []
+
+    def commit(self, time_ns: int) -> None:
+        if (value := self.signals["a"].pending) is not None:
+            self.seen.append(value)
+
+
+def test_a_demand_the_driver_did_not_read_is_reported_not_echoed(rig, fresh):
+    picky = Picky(fresh("picky"))
+    rig.add_device(picky)
+    a, b = picky.signals["a"], picky.signals["b"]
+    states = rig.demand(picky.root, {b: 5.0})
+    (event,) = _events(rig, Kind.DEMAND_IGNORED)
+    assert event.scope == Scope.DEVICE and event.subject == picky.name
+    assert event.level is Level.WARNING and event.details["signal"] == b.address
+    assert rig.latest.get(b) is None, "not echoed as a readback"
+    assert states[b] == WriteState(value=None, requested=5.0)
+    assert picky.pending == {}
+    rig.demand(picky.root, {b: 6.0})
+    assert len(_events(rig, Kind.DEMAND_IGNORED)) == 1, "one event while it goes unread"
+
+    rig.demand(picky.root, {a: 7.0})
+    assert picky.seen == [7.0] and rig.latest[a].value == 7.0, "a read demand is echoed"
+    assert len(_events(rig, Kind.DEMAND_IGNORED)) == 1
+
+
+def test_a_driver_that_writes_pending_through_raises_nothing(rig, furnace):
+    rig.demand(furnace.root, {"heater1": 100.0, "heater2": 200.0})
+    assert furnace.inputs == {"heater1": 100.0, "heater2": 200.0}
+    assert rig.latest[furnace.signals["heater1"]].value == 100.0
+    assert not _events(rig, Kind.DEMAND_IGNORED)
 
 
 # endregion
