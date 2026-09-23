@@ -275,7 +275,8 @@ and `iat`), a second copy of an identity header, a copy under another
 spelling (`Remote_User`), groups without a user -- is `401`, never
 anonymous. Keys the front cannot fetch make every such request `503`; keys
 are refetched after an hour, and for an unknown key id at most once a
-minute. A proxy identity is `proxy:<issuer>#<subject>`: for an unsigned
+minute. A fetch holds up only the requests that need it, which share it: a
+token whose key is already known is checked at once. A proxy identity is `proxy:<issuer>#<subject>`: for an unsigned
 preset the issuer is the preset's name (`proxy:authelia#ben`), for a
 signed one the token's `iss`. The subject is the proxy's stable id --
 never the e-mail address: oauth2-proxy run so that the user header carries

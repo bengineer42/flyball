@@ -165,12 +165,21 @@ type keySet struct {
 	refetched time.Time // the last refetch for an unknown kid
 	failedAt  time.Time
 	failErr   error
+	inflight  *flight // the fetch under way, if any
+}
+
+// flight is one fetch; the callers that need it wait on done.
+type flight struct {
+	done chan struct{}
+	err  error
 }
 
 // lookup is the keys that may have signed a token with this kid (every
 // key when there is none). It fetches when there are no keys or they are
 // older than MaxKeyAge, and refetches for an unknown kid at most once per
-// RefetchEvery. An error is a failed fetch: 503, never anonymous.
+// RefetchEvery (or joins the refetch under way). An error is a failed
+// fetch: 503, never anonymous. A fetch runs without ks.mu held, so a
+// token whose key is cached never waits on the IdP.
 func (ks *keySet) lookup(kid string) ([]jose.JSONWebKey, error) {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
@@ -183,8 +192,11 @@ func (ks *keySet) lookup(kid string) ([]jose.JSONWebKey, error) {
 		fresh = true
 	}
 	m := ks.match(kid)
-	if len(m) == 0 && kid != "" && !fresh && (ks.refetched.IsZero() || now.Sub(ks.refetched) >= RefetchEvery) {
-		ks.refetched = now
+	if len(m) == 0 && kid != "" && !fresh &&
+		(ks.inflight != nil || ks.refetched.IsZero() || now.Sub(ks.refetched) >= RefetchEvery) {
+		if ks.inflight == nil {
+			ks.refetched = now
+		}
 		if err := ks.fetch(now); err != nil {
 			return nil, err
 		}
@@ -206,42 +218,66 @@ func (ks *keySet) match(kid string) []jose.JSONWebKey {
 	return out
 }
 
+// fetch fetches the keys, or waits for the fetch under way. It is called
+// with ks.mu held and returns with it held, but releases it while the
+// network call runs (sec F4: one slow IdP no longer stalls every request).
 func (ks *keySet) fetch(now time.Time) error {
+	if f := ks.inflight; f != nil {
+		ks.mu.Unlock()
+		<-f.done
+		ks.mu.Lock()
+		return f.err
+	}
 	if !ks.failedAt.IsZero() && now.Sub(ks.failedAt) < RetryAfterFailure && now.Sub(ks.failedAt) >= 0 {
 		return ks.failErr
 	}
-	err := ks.fetchNow()
+	f := &flight{done: make(chan struct{})}
+	ks.inflight = f
+	u := ks.url
+	ks.mu.Unlock()
+	keys, u, err := ks.fetchNow(u)
+	ks.mu.Lock()
+	ks.inflight = nil
+	if u != "" {
+		ks.url = u
+	}
 	if err != nil {
 		ks.failedAt, ks.failErr = now, err
-		return err
+	} else {
+		ks.keys = keys
+		ks.failedAt, ks.failErr = time.Time{}, nil
+		ks.fetched = now
 	}
-	ks.failedAt, ks.failErr = time.Time{}, nil
-	ks.fetched = now
-	return nil
+	f.err = err
+	close(f.done)
+	return err
 }
 
-func (ks *keySet) fetchNow() error {
-	if ks.url == "" {
+// fetchNow fetches the JWKS at u (discovering u first when it is ""),
+// touching nothing in ks but its immutable fields: it runs without ks.mu.
+// The URL it returns is the one it used, once discovered even on an error.
+func (ks *keySet) fetchNow(u string) ([]jose.JSONWebKey, string, error) {
+	if u == "" {
 		var doc struct {
 			Issuer  string `json:"issuer"`
 			JWKSURI string `json:"jwks_uri"`
 		}
 		if err := ks.getJSON(strings.TrimSuffix(ks.discover, "/")+"/.well-known/openid-configuration", &doc); err != nil {
-			return fmt.Errorf("OIDC discovery: %w", err)
+			return nil, "", fmt.Errorf("OIDC discovery: %w", err)
 		}
 		if doc.Issuer != ks.discover {
-			return fmt.Errorf("OIDC discovery: issuer %q is not %q", doc.Issuer, ks.discover)
+			return nil, "", fmt.Errorf("OIDC discovery: issuer %q is not %q", doc.Issuer, ks.discover)
 		}
 		if err := checkFetchURL(doc.JWKSURI); err != nil {
-			return fmt.Errorf("OIDC discovery: jwks_uri: %v", err)
+			return nil, "", fmt.Errorf("OIDC discovery: jwks_uri: %v", err)
 		}
-		ks.url = doc.JWKSURI
+		u = doc.JWKSURI
 	}
 	var set struct {
 		Keys []json.RawMessage `json:"keys"`
 	}
-	if err := ks.getJSON(ks.url, &set); err != nil {
-		return fmt.Errorf("JWKS: %w", err)
+	if err := ks.getJSON(u, &set); err != nil {
+		return nil, u, fmt.Errorf("JWKS: %w", err)
 	}
 	var keys []jose.JSONWebKey
 	for _, raw := range set.Keys {
@@ -264,10 +300,9 @@ func (ks *keySet) fetchNow() error {
 		keys = append(keys, k)
 	}
 	if len(keys) == 0 {
-		return errors.New("JWKS: no usable public signing keys at " + ks.url)
+		return nil, u, errors.New("JWKS: no usable public signing keys at " + u)
 	}
-	ks.keys = keys
-	return nil
+	return keys, u, nil
 }
 
 func (ks *keySet) getJSON(u string, v any) error {
