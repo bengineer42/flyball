@@ -80,8 +80,10 @@ func Decode(block map[string]any) (front.Config, error) {
 
 // Plan resolves c with the presets (Presets.Factory, built with o). bad is
 // why c's block could not be read (Decode's error): then the front serves
-// the local shape on loopback, on c.Listen's port, with bad in the banner
-// -- a front misconfiguration never stops the rig (D-028).
+// the local shape on a fresh loopback address and answers 503 on c.Listen,
+// with bad in the banner -- the block may have asked for password or proxy,
+// and a reverse proxy may still forward to c.Listen; a front
+// misconfiguration never stops the rig (D-028, amended: sec F1).
 func Plan(c front.Config, bad error, insecureOpen bool, o ProxyOptions) (front.Plan, front.Client) {
 	if bad == nil {
 		var factory front.ProxyFactory
@@ -94,7 +96,8 @@ func Plan(c front.Config, bad error, insecureOpen bool, o ProxyOptions) (front.P
 	if requested == "" {
 		requested = front.DefaultListen
 	}
-	p, _ := front.ResolveWith(front.Config{Listen: loopbackOf(requested)}, false, nil)
+	// Not a shape: ResolveWith falls back as for any credential shape.
+	p, _ := front.ResolveWith(front.Config{Listen: requested, Auth: "unreadable"}, false, nil)
 	p.Requested = requested
 	p.Fallback = fmt.Sprintf("the front's configuration cannot be read (%v)", bad)
 	return p, nil

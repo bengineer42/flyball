@@ -83,7 +83,7 @@ runner:
 are reference material: [The front](../7-reference/rig-file.md#the-front).
 A wrong value in this block never stops the rig: the front falls back to
 the `local` shape on loopback and says why; when a `password` or `proxy`
-front falls back, the address it was asked for answers `503` and the
+front falls back, or the block cannot be read at all, the address it was asked for answers `503` and the
 `local` shape moves to a fresh loopback port
 ([Access](../1-running/runner/access.md#when-a-setting-is-wrong)).
 

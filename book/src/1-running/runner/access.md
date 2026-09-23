@@ -96,7 +96,8 @@ loopback instead, and says why.
 When the setting that is wrong belongs to a shape with credentials -- a
 shape that is not one of the three, `sso`, a password that is missing or
 not a `$scrypt$` line, TLS files that cannot be read, a `url` that does not
-parse, or a `proxy` block that cannot be vouched for -- the address it was
+parse, or a `proxy` block that cannot be vouched for -- or when the
+`runner.front` block fails validation, so its shape is unknown, the address it was
 asked to listen on answers every request `503` with the reason, and the
 `local` shape is served somewhere else: a fresh port on `127.0.0.1`, or a
 socket beside a `unix:` one (`front.sock.local` next to `front.sock`). A
@@ -108,10 +109,8 @@ flyball: front: the password is not a $scrypt$ line (…); plaintext passwords a
 flyball: serving rig furnace on http://127.0.0.1:40321/ (local)
 ```
 
-A `listen` that does not parse, or a `runner.front` block that fails
-validation, serves the `local` shape on `127.0.0.1` (a `listen` that does
-not parse on `127.0.0.1:8000`; a block that fails validation on its own
-port, or its `unix:` socket).
+A `listen` that does not parse serves the `local` shape on
+`127.0.0.1:8000`, with nothing to refuse.
 
 The reason is in `GET /api/auth` (`exposure.warning`, with `exposure.port`
 the console's), and a `fallback` record goes to the front's
