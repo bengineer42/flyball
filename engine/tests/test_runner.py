@@ -908,21 +908,35 @@ def test_the_restart_log_line_holds_no_secret(monkeypatch, caplog):
 
 
 def test_serve_fronted_binds_the_endpoint_only(tmp_path, monkeypatch, capsys):
+    import os
+    import socket
+    import stat
+
     from flyball.rig import Rig
     from flyball.runner.frontdir import read
     from flyball.runtime.config import AuthConfig
 
     seen = {}
-    monkeypatch.setattr("uvicorn.Server.run", lambda self: seen.update(config=self.config))
+
+    def run(self):
+        sock = socket.socket(fileno=os.dup(self.config.fd))
+        with sock:
+            seen.update(config=self.config, name=sock.getsockname())
+        seen["mode"] = stat.S_IMODE(os.lstat(tmp_path / "f" / "sock").st_mode)
+
+    monkeypatch.setattr("uvicorn.Server.run", run)
     front = read(front_dir(tmp_path / "f"))
     settings = RunnerConfig(host="0.0.0.0", port=9, auth=AuthConfig(token="x", anonymous="read"))
     runner.serve(Rig("t"), settings, front=front)
     config = seen["config"]
-    assert config.uds == f"{tmp_path}/f/sock"
+    assert seen["name"] == f"{tmp_path}/f/sock" and seen["mode"] == 0o600
+    assert config.uds is None and config.fd is not None
+    assert not (tmp_path / "f" / "sock").exists(), "removed after serving"
     assert config.app.state.door.fronted is not None and config.app.state.door.aud == front.aud
     lines = [line for line in capsys.readouterr().err.splitlines() if "WARNING" in line]
     assert len(lines) == 1 and "--front-dir" in lines[0] and "link?n=" not in lines[0]
     tcp = read(front_dir(tmp_path / "t", endpoint="tcp:127.0.0.1:8102\n"))
+    monkeypatch.setattr("uvicorn.Server.run", lambda self: seen.update(config=self.config))
     runner.serve(Rig("t"), RunnerConfig(), front=tcp)
     assert (seen["config"].host, seen["config"].port, seen["config"].uds) == (
         "127.0.0.1",

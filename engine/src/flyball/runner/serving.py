@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import secrets
 import signal
+import socket
+import stat
 import sys
 import threading
 import time
@@ -99,6 +102,34 @@ def _ignore_hangup() -> None:
         log.info("terminal hung up; the rig keeps running")
 
     signal.signal(hup, handler)
+
+
+def _owner_socket(path: str) -> tuple[socket.socket, str, int]:
+    """A unix socket bound at `path`, mode 0600, not yet listening; `path` and its inode.
+
+    Only this uid (and root) can connect, whatever the directory's mode; nobody can connect
+    before the chmod, since nothing connects to a socket that does not listen yet. A stale
+    socket at `path` (a runner before this one) is replaced, as uvicorn would.
+    """
+    with contextlib.suppress(FileNotFoundError):
+        if stat.S_ISSOCK(os.lstat(path).st_mode):
+            os.unlink(path)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.bind(path)
+        os.chmod(path, 0o600)
+        return sock, path, os.lstat(path).st_ino
+    except OSError:
+        sock.close()
+        raise
+
+
+def _remove_socket(sock: socket.socket, path: str, inode: int) -> None:
+    """Close `sock` and unlink `path` if it is still the socket bound there (not a successor's)."""
+    sock.close()
+    with contextlib.suppress(OSError):
+        if os.lstat(path).st_ino == inode:
+            os.unlink(path)
 
 
 # region The MCP mount: its tools call the runner back, as whoever called them
@@ -291,8 +322,11 @@ def serve(
         port=settings.port,
         open_network=exposure.open_network,
     )
+    bound = None
     if front is not None and front.network == "unix":
-        bind: dict[str, Any] = {"uds": front.address}
+        # uvicorn would make the socket itself, 0666; bound here, it is 0600 before it listens.
+        bound = _owner_socket(front.address)
+        bind: dict[str, Any] = {"fd": bound[0].fileno()}
     elif front is not None:
         bind = {"host": front.host, "port": front.port}
     else:
@@ -329,6 +363,8 @@ def serve(
     try:
         server.run()
     finally:
+        if bound is not None:
+            _remove_socket(*bound)
         programmer.interrupt()
         if retention is not None:
             retention.stop()

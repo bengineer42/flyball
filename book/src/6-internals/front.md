@@ -34,7 +34,7 @@ user, checked with `lstat` (not a symlink) before every spawn:
 | `key` | the front, fresh at **every** spawn | 0600 | 64 lower-case hex characters (32 bytes) and a newline |
 | `aud` | the front | 0600 | the audience: the manifest name under `flyballd`, `run-<8 hex>` under `flyball run` |
 | `endpoint` | the front | 0600 | `unix:<front-dir>/sock`, or `tcp:127.0.0.1:<port>` |
-| `sock` | the runner (uvicorn) | 0666, protected by the directory | |
+| `sock` | the runner | 0600, bound so before it listens | |
 | `runner.lock` | the runner, `flock`ed for its life; the front creates it and holds it while it writes the directory | 0600 | `pid <n> rig <name>` (`pid <n>` until the rig file is read) |
 
 The front passes the directory in argv, `flyball-runner --front-dir DIR`;
