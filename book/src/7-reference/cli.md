@@ -96,10 +96,13 @@ password: give the CLI its token (`--token`, `FLYBALL_TOKEN`).
 (program interrupted, every controller in manual, nothing written) and
 prints the report. It needs `operate`. `NAME` addresses a rig behind
 `flyballd` as `-s` would. When the front answers -- even with a refusal --
-that answer stands; when it cannot be reached, or has not answered within
-5 seconds (each HTTP call a stop makes is bounded so: connecting, and the
-whole answer), the CLI sends `SIGUSR1` to the runner's process instead,
-which needs only the OS's own permission (the same user, or root), and says
+that answer stands. Only a `200` carrying a stop report counts as a stop;
+a redirect (a sign-in proxy in front, with no session for the CLI) is not
+followed and is refused with the address it pointed to, and any other
+answer is refused with its status and body, exit non-zero. When the front
+cannot be reached, or has not answered within 5 seconds (each HTTP call a
+stop makes is bounded so: connecting, and the whole answer), the CLI sends
+`SIGUSR1` to the runner's process instead, which needs only the OS's own permission (the same user, or root), and says
 so -- the report is then in the runner's log. A front that was only slow
 may still carry out its stop as well; a second stop changes nothing. With
 no pid to signal, `flyball stop` exits non-zero and says how to give one:
@@ -119,9 +122,10 @@ the pid, and nothing is signalled; `--pid N` is signalled as given.
 `flyball stop --all` asks `flyballd` (`$FLYBALLD_URL`) for the rigs this
 credential holds a verb on (`GET /api/rigs`, no `manage` needed) and stops
 each, printing each report under its name. The runner processes stay up.
-It exits non-zero if any stop was refused or failed, or if the list is
-empty; with `flyballd` unreachable (or not answering within 5 seconds,
-the list and each rig's stop alike) nothing is signalled, and each runner
+It exits non-zero if any stop was refused or failed (a redirect, of the
+list or of a rig's stop, is not followed and counts as a refusal), or if
+the list is empty; with `flyballd` unreachable (or not answering within 5
+seconds, the list and each rig's stop alike) nothing is signalled, and each runner
 is stopped with `--pid` or `--front-dir`.
 
 ## Local (no rig or daemon involved)
