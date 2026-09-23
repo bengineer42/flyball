@@ -138,7 +138,7 @@ func TestLoginSavesATokenThatWorksAgainstAFreshTarget(t *testing.T) {
 	srv, _ := newTestFront(t, er)
 
 	target := Target{BaseURL: srv.URL}
-	tok, err := Login(target, testPassword)
+	tok, err := Login(target, testPassword, LoginOptions{})
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -147,6 +147,9 @@ func TestLoginSavesATokenThatWorksAgainstAFreshTarget(t *testing.T) {
 	}
 	if tok.Scopes[0] != "read:*" {
 		t.Errorf("scopes = %v, want [read:*] (the default per auth.md)", tok.Scopes)
+	}
+	if tok.Elevated {
+		t.Errorf("Elevated = true for a default read-only login")
 	}
 
 	// A fresh Target (no WithToken) must pick the saved token back up.
@@ -166,7 +169,7 @@ func TestLoginWrongPassword(t *testing.T) {
 	er := newEchoRunner(t, "run-test")
 	srv, _ := newTestFront(t, er)
 
-	if _, err := Login(Target{BaseURL: srv.URL}, "wrong"); err == nil {
+	if _, err := Login(Target{BaseURL: srv.URL}, "wrong", LoginOptions{}); err == nil {
 		t.Fatal("Login with the wrong password did not error")
 	}
 }
@@ -177,7 +180,7 @@ func TestLogoutClearsTheSavedTokenOnly(t *testing.T) {
 	srv, _ := newTestFront(t, er)
 
 	target := Target{BaseURL: srv.URL}
-	if _, err := Login(target, testPassword); err != nil {
+	if _, err := Login(target, testPassword, LoginOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := Logout(target); err != nil {

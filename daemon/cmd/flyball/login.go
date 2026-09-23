@@ -5,6 +5,11 @@
 // back up (Target.AuthHeaders). The password is never a command-line
 // argument (merge requirement 6's "never in argv" applies here too, not
 // only to the front-dir key): it is always read from the terminal.
+//
+// `--scope` (repeatable) asks for more than the default read-only token,
+// under D-036's four safeguards -- see internal/client/auth.go's
+// resolveLoginScopes for the bare-verb rewrite and the manage refusal,
+// and the warning below for the rest.
 package main
 
 import (
@@ -16,8 +21,9 @@ import (
 )
 
 func runLoginCommand(server string, args []string) error {
+	scopes, args := popAllValues(args, "--scope")
 	if len(args) > 1 {
-		return fmt.Errorf("usage: flyball login [URL]")
+		return fmt.Errorf("usage: flyball login [URL] [--scope SCOPE]...")
 	}
 	var target client.Target
 	if len(args) == 1 {
@@ -44,9 +50,16 @@ func runLoginCommand(server string, args []string) error {
 		return fmt.Errorf("an empty password is no password")
 	}
 
-	tok, err := client.Login(target, password)
+	tok, err := client.Login(target, password, client.LoginOptions{Scopes: scopes})
 	if err != nil {
 		return err
+	}
+	if tok.Elevated {
+		// Safeguard 1: anything above read, named so it can be found and
+		// revoked (`flyball token revoke`) without hunting for it.
+		fmt.Fprintf(os.Stderr,
+			"warning: saved token %q at %s carries %v -- anything running as this user can use it until it expires or is revoked with `flyball token revoke`\n",
+			tok.Name, tok.Path, tok.Scopes)
 	}
 	fmt.Printf("signed in; saved token %q (scopes %v, expires %s)\n",
 		tok.Name, tok.Scopes, tok.Expires.Format("2006-01-02T15:04:05Z07:00"))

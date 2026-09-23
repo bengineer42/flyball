@@ -210,7 +210,7 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `usage: flyball [-s NAME] [--token TOKEN] <command> ...
 
 runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
-  login [URL]                         admin password -> a saved named token (prompted, never on argv)
+  login [URL] [--scope SCOPE]...       admin password -> a saved named token (prompted, never on argv)
   logout                              drop the saved token (locally only; see token revoke)
   stop [NAME] [--pid N] [--front-dir DIR] [--reason TEXT]
                                       POST /api/rig/stop; SIGUSR1 if the front can't be reached
@@ -234,7 +234,7 @@ runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
 
 local (no runner or daemon involved):
   rig schema                          the rig file's JSON Schema, for an editor
-  run RIG-FILE [--serve-ui ADDR] [--uv] [flyball-runner flags...]   start a runner directly, foreground
+  run RIG-FILE [--listen ADDR] [--uv] [--insecure-open] [flyball-runner flags...]   start a runner directly, foreground
   password [PASSWORD]                 hash a password for runner.auth.password
   new NAME [--dir PATH]                write a starting point for a device driver
   token create --name N --config PATH [--scope S ...] [--kind human|service|agent] [--expires D]
