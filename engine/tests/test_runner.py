@@ -858,6 +858,55 @@ def test_hold_front_still_refuses_a_live_runner(tmp_path, monkeypatch):
             locking.hold_front(folder, "lab")
 
 
+def test_the_store_lock_is_owner_only_from_its_creation_and_holds_no_secret(tmp_path, monkeypatch):
+    import fcntl
+    import os
+    import stat
+
+    from flyball.runner import locking
+
+    argv = ["flyball-runner", "rig.yaml", "--token", "s3cret", "--password=hunter2"]
+    argv += ["--set", "runner.auth.token=t0ken", "--port", "8100"]
+    monkeypatch.setattr(sys, "argv", argv)
+    modes = []
+    real = fcntl.flock
+
+    def flock(handle, how):
+        modes.append(stat.S_IMODE(os.fstat(handle.fileno()).st_mode))
+        return real(handle, how)
+
+    monkeypatch.setattr(locking.fcntl, "flock", flock)
+    old = os.umask(0o022)
+    try:
+        held = locking.hold(tmp_path / "s.sqlite")
+    finally:
+        os.umask(old)
+    with held:
+        assert modes and modes[0] == 0o600, f"created {oct(modes[0])} before the chmod"
+        text = (tmp_path / "s.sqlite.lock").read_text()
+        with pytest.raises(locking.RigBusy) as busy:
+            locking.hold(tmp_path / "s.sqlite")
+    for secret in ("s3cret", "hunter2", "t0ken"):
+        assert secret not in text and secret not in str(busy.value)
+    assert "--port 8100" in text and "--token ***" in text
+
+
+def test_the_restart_log_line_holds_no_secret(monkeypatch, caplog):
+    from flyball.rig import Rig
+
+    def fake_run(self):
+        from flyball.interfaces.server import deps
+
+        deps.current_runner().restart()
+
+    monkeypatch.setattr("uvicorn.Server.run", fake_run)
+    monkeypatch.setattr("os.execv", lambda exe, argv: None)
+    monkeypatch.setattr("sys.orig_argv", ["python3", "flyball-runner", "--token", "s3cret"])
+    with caplog.at_level("INFO", logger="flyball.runner"):
+        runner.serve(Rig("t"), RunnerConfig(port=1, log_level="warning"))
+    assert "restarting" in caplog.text and "s3cret" not in caplog.text
+
+
 def test_serve_fronted_binds_the_endpoint_only(tmp_path, monkeypatch, capsys):
     from flyball.rig import Rig
     from flyball.runner.frontdir import read

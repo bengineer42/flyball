@@ -20,6 +20,7 @@ from flyball.runtime.config import Exposure, RigConfig, RunnerConfig, settle_exp
 from flyball.runtime.retention import Retention
 
 from . import logs
+from .locking import redacted
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -348,5 +349,5 @@ def serve(
         # The interpreter's own argv, so `python -m flyball.runner` restarts as `-m` too (and
         # `--front-dir` comes back with the rest: fronted stays fronted).
         argv = [sys.executable, *sys.orig_argv[1:]]
-        log.info("restarting: %s", " ".join(argv))
+        log.info("restarting: %s", " ".join(redacted(argv)))
         os.execv(sys.executable, argv)
