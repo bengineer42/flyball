@@ -9,9 +9,10 @@ flyball-runner rig.yaml                          # loopback, port 8000
 FLYBALL_PASSWORD=… flyball-runner rig.yaml --host 0.0.0.0 --record  # reachable, with a session open
 ```
 
-Reachable needs a password or a token: an open runner (neither) serves on
-loopback only, and refuses to start on any other address unless told
-`--insecure-open` -- [the door](access.md#the-door-a-password-a-token-or-open).
+Reachable needs a password or a token: an open runner (neither) asked for
+any other address still runs the rig but serves on `127.0.0.1` only, with a
+warning, unless that run says `--insecure-open` (or `FLYBALL_INSECURE_OPEN=1`)
+-- [the door](access.md#the-door-a-password-a-token-or-open).
 
 The file is validated first (`flyball rig check rig.yaml` does the same
 without serving); a bad file is a one-line message and exit code 2. With

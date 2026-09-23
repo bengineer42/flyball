@@ -12,7 +12,7 @@ paths in the file to the first rig file.
 
 | flag | env | `runner:` key | |
 | --- | --- | --- | --- |
-| `--host ADDR` | | `host` | bind address; default `127.0.0.1`. Beyond loopback an open runner refuses to start: give a password or a token, or `--insecure-open` |
+| `--host ADDR` | | `host` | bind address; default `127.0.0.1`. Beyond loopback an open runner serves on `127.0.0.1` instead, with a warning: give a password or a token, or `--insecure-open` |
 | `--port N` | | `port` | default 8000 |
 | `--root-path /PREFIX` | `FLYBALL_ROOT_PATH` | `root_path` | serve everything under a prefix |
 | `--log-level LEVEL` | | `log_level` | uvicorn's; default `info` |
@@ -20,7 +20,7 @@ paths in the file to the first rig file.
 | `--token T` | `FLYBALL_TOKEN` | `auth.token` | bearer token for the CLI, MCP clients and scripts |
 | `--anonymous none\|read` | `FLYBALL_ANONYMOUS` | `auth.anonymous` | what a caller with neither may do; default `none` |
 | `--session D` | `FLYBALL_SESSION` | `auth.session` | how long a login lasts; default `12h` |
-| `--insecure-open` | | `auth.insecure_open` | serve with no password and no token beyond loopback, knowingly; default: refuse |
+| `--insecure-open` | `FLYBALL_INSECURE_OPEN=1` | none (per run only) | serve with no password and no token on the `--host` asked for, beyond loopback, knowingly; default: `127.0.0.1` instead |
 | `--no-mcp` | `FLYBALL_NO_MCP=1` | `mcp: false` | do not mount `/mcp` |
 | `--compose` | | `compose` | let the API build up a hardware rig |
 | `--allow-save` | | `allow_save` | let the API write rig files |

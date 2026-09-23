@@ -23,7 +23,7 @@ reachable.
 
 | | route | |
 | --- | --- | --- |
-| `GET` | `/api/auth` | `{scheme, level, anonymous, password, token}`: how this caller got in (`anonymous`, `password`, `token`), what they may do (`none`, `read`, `operate`), what anyone may do, and which of a password and a token the runner has |
+| `GET` | `/api/auth` | `{scheme, level, anonymous, password, token, exposure}`: how this caller got in (`anonymous`, `password`, `token`), what they may do (`none`, `read`, `operate`), what anyone may do, and which of a password and a token the runner has. `exposure` is where it serves against where it was asked to -- `{requested, host, port, open, restricted, open_network, warning}`: `restricted` an open runner moved to `127.0.0.1`, `open_network` an open one on the network by `--insecure-open` ([the door](../1-running/runner/access.md#the-door-a-password-a-token-or-open)); `null` when not served by `flyball-runner`. `flyball run --serve-ui` replaces it with its own front's |
 | `POST` | `/api/auth/login` | `{secret}` -- the password, or the token; sets the cookie (`HttpOnly; SameSite=Lax; Path=<root path>`, `Secure` over https) and answers as `GET`. Wrong: `401` after half a second; ten wrong in a minute from one address: `429` |
 | `POST` | `/api/auth/logout` | clears the cookie |
 
@@ -65,7 +65,7 @@ transaction begun inside another under the same error; `detail` says which.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, waits, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warn` band (amber) or `alarm` band (red, not double-counted as warn), plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `{ok: false, rig: null}` with no rig |
+| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, waits, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every device's own (`[{device, kind, level, message, since_ns}]`), then the runtime's (`offline`, `slow` from polling, `write_failed` from a blocking writer); `alarms` is `{warn, alarm, max_level}`: the latest reading on every signal, those outside their `warn` band (amber) or `alarm` band (red, not double-counted as warn), plus conditions at `WARNING` (30, counts as warn) or `ERROR` (40, counts as alarm); `max_level` is `40`/`30`/`0`; `exposure` as in `GET /api/auth`; `{ok: false, rig: null, exposure}` with no rig |
 | `GET` | `/api/schema` | `{devices: {name: DeviceSchema}}` |
 | `GET` | `/api/clock` | `ClockOut`: `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 | `GET` | `/api/tunings` | `{tag: LawConfig}` |

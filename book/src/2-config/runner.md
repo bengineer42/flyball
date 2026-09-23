@@ -10,7 +10,7 @@ relative to the first rig file's directory.
 
 | key | type | default | flag | |
 | --- | --- | --- | --- | --- |
-| `host` | string | `127.0.0.1` | `--host` | bind address; loopback unless the rig should be reachable. Anything else needs `auth.password` or `auth.token` (or `auth.insecure_open`) |
+| `host` | string | `127.0.0.1` | `--host` | bind address; loopback unless the rig should be reachable. Anything else needs `auth.password` or `auth.token`: an open runner asked for it serves on `127.0.0.1` instead, with a warning, unless run with `--insecure-open` / `FLYBALL_INSECURE_OPEN=1` (a per-run switch; no key here) |
 | `port` | int | `8000` | `--port` | |
 | `root_path` | `/prefix` | none | `--root-path`, `FLYBALL_ROOT_PATH` | serve everything under a path: `/furnace/api`, `/furnace/ws`, … for several rigs on one origin -- [a sub-path](../1-running/runner/access.md#a-sub-path) |
 | `log_level` | string | `info` | `--log-level` | uvicorn's |
@@ -20,7 +20,6 @@ relative to the first rig file's directory.
 | `auth.anonymous` | `none` / `read` | `none` | `--anonymous`, `FLYBALL_ANONYMOUS` | what a caller with neither may do: nothing, or every `GET` and stream |
 | `auth.session` | duration | `12h` | `--session`, `FLYBALL_SESSION` | how long a login lasts |
 | `auth.secret` | string | a key file beside the store | | what signs sessions; set it to keep sessions across machines or without a store |
-| `auth.insecure_open` | bool | `false` | `--insecure-open` | serve with no password and no token on a `host` beyond loopback: anyone who can reach it may operate the rig. Without it such a runner refuses to start; `flyball run --serve-ui` and `flyballd` read it too |
 | `mcp` | bool | `true` | `--no-mcp`, `FLYBALL_NO_MCP` | mount the MCP servers at `/mcp/{read,author,operate}` |
 | `compose` | bool | `false` | `--compose` | let the API add links and devices to a *hardware* rig; a simulated or bare rig always may |
 | `allow_save` | bool | `false` | `--allow-save` | let the API write rig files: `/api/rig/save` to a path, `/api/sim/save`. The overlay save (`<rig>.d/added.yaml`) needs no flag |
@@ -66,7 +65,7 @@ runner:
 
 | key | type | same as | |
 | --- | --- | --- | --- |
-| `serve_ui` | string | `--serve-ui ADDR` | a non-empty value serves the embedded dashboard UI on `ADDR`. `":8000"` is every interface: the runner then needs a password or a token, or `auth.insecure_open` -- see [behind `flyball run --serve-ui`](../1-running/runner/access.md#behind-flyball-run-serve-ui) |
+| `serve_ui` | string | `--serve-ui ADDR` | a non-empty value serves the embedded dashboard UI on `ADDR`. `":8000"` is every interface: the runner then needs a password or a token, or the UI is served on `127.0.0.1` only (unless `--insecure-open` / `FLYBALL_INSECURE_OPEN=1`) -- see [behind `flyball run --serve-ui`](../1-running/runner/access.md#behind-flyball-run-serve-ui) |
 | `uv` | bool | `--uv` | run `flyball-runner` via `uv run --project <dir>` instead of a bare exec |
 | `port` | string or int | `--port PORT` | where `--serve-ui`'s proxy expects the runner to be listening |
 
