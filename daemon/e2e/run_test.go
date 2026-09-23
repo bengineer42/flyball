@@ -332,12 +332,11 @@ func TestRunLocal(t *testing.T) {
 		if code != 0 || !strings.Contains(out, fmt.Sprintf("sent SIGUSR1 to pid %d", pid)) {
 			t.Fatalf("flyball stop with the front down: %d\n%s%s", code, out, errOut)
 		}
+		// The runner's own stdout/stderr (D-038's log tee) are a pipe the
+		// dead front would have drained; with the front gone, nobody
+		// reads it, so the break-glass report is confirmed from the
+		// audit trail, not from `fr`'s own (already-dead) output.
 		waitAudit(t, store, map[string]string{"method": "SIGNAL", "route": "SIGUSR1", "sub": "local:signal", "via": "signal", "outcome": "done"})
-		m := fr.waitOutput(`stop report: (\{.*\})`, 10*time.Second)
-		var rep stopReport
-		if err := json.Unmarshal([]byte(m[1]), &rep); err != nil || !rep.ProgramInterrupted || rep.Actor.Via != "signal" {
-			t.Fatalf("the break-glass report: %s (%v)", m[1], err)
-		}
 		time.Sleep(time.Second)
 		if !alive(pid) {
 			t.Fatal("SIGUSR1 ended the runner; it must stop the rig, not the process")
@@ -759,6 +758,61 @@ func TestRunTLS(t *testing.T) {
 			t.Fatalf("after a bad renewal: %v", r)
 		}
 	})
+}
+
+// D-038: a hangup (SIGHUP to the whole foreground process group, as a
+// terminal that goes away sends it) never stops `flyball run` or its
+// runner, bare (no TLS) as well as under TLS (TestRunTLS's "renewal on
+// SIGHUP" covers the TLS reload half). The front answers after, the
+// runner is still alive with the same pid, and run.log carries output
+// written after the hangup. A later SIGTERM (Ctrl-C's signal) still
+// stops both cleanly.
+func TestRunSurvivesHangup(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	rig := e.rig("hup", "")
+	fr, base := e.flyballRun("front", rig, "--listen", "127.0.0.1:0")
+	waitStatus(t, hc, "GET", base+"/api/runner", nil, 200, 90*time.Second)
+	sock := strings.TrimPrefix(endpointOf(t, hc, base+"/api/runner", nil), "unix:")
+	dir := filepath.Dir(sock)
+	pid := lockPid(t, dir)
+
+	// `flyball run` itself is the group leader (e.start's Setpgid); a
+	// hangup delivers SIGHUP to every process in that group, the front
+	// included -- exactly what a dropped terminal does.
+	if err := syscall.Kill(-fr.pid(), syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	fr.waitOutput(`terminal hung up; the rig keeps running`, 5*time.Second)
+	if fr.exited() {
+		t.Fatal("SIGHUP stopped flyball run")
+	}
+	if !alive(pid) {
+		t.Fatal("SIGHUP reached the runner: it is in its own process group (D-038)")
+	}
+	if lockPid(t, dir) != pid {
+		t.Fatal("the runner was respawned: SIGHUP reached it")
+	}
+	waitStatus(t, hc, "GET", base+"/api/runner", nil, 200, 10*time.Second)
+
+	matches, err := filepath.Glob(e.path("state", "flyball", "front-*", "run.log"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("run.log: %v %v", matches, err)
+	}
+	if st, err := os.Stat(matches[0]); err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("run.log %s: %v %v, want 0600", matches[0], st, err)
+	}
+	if b, err := os.ReadFile(matches[0]); err != nil || !strings.Contains(string(b), "terminal hung up") {
+		t.Fatalf("run.log = %q (%v), want the post-hangup line", b, err)
+	}
+
+	fr.stop(10 * time.Second) // SIGTERM to the group: the runner's clean shutdown
+	if !fr.exited() {
+		t.Fatal("flyball run did not stop on SIGTERM after a hangup")
+	}
+	if alive(pid) {
+		t.Fatal("the runner outlived SIGTERM")
+	}
 }
 
 // The proxy shape with the authelia preset: the front listens on a unix

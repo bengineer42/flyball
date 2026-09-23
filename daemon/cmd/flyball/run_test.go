@@ -446,7 +446,8 @@ func TestRunExitCodes(t *testing.T) {
 }
 
 // A second `flyball run` of the same rig file finds the first's runner
-// holding the front-dir, and stops without touching its key.
+// holding the front-dir, and stops without touching its key. The refusal
+// names the pid holding it and `flyball stop <rig file>`.
 func TestRunTwiceRefusesTheLiveFrontDir(t *testing.T) {
 	r := startRun(t, "name: t\n", "--listen", "127.0.0.1:0")
 	first := echoAt(t, r, r.addr(), nil)
@@ -456,10 +457,89 @@ func TestRunTwiceRefusesTheLiveFrontDir(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "runner.lock") {
 		t.Fatalf("second run = %v, want refused on runner.lock", err)
 	}
+	if !strings.Contains(err.Error(), fmt.Sprint(first.Pid)) || !strings.Contains(err.Error(), "flyball stop "+rig) {
+		t.Fatalf("second run = %v, want the pid %d and `flyball stop %s`", err, first.Pid, rig)
+	}
 	runOut = r
 	again := echoAt(t, r, r.addr(), nil)
 	if again.Key != first.Key || again.Pid != first.Pid {
 		t.Fatal("the second run disturbed the first runner")
+	}
+}
+
+// D-038: bare (no --uv) also puts the runner in a process group of its
+// own, the same as --uv, so a hangup's SIGHUP -- delivered to the whole
+// foreground group when there is a controlling terminal -- never reaches
+// it (the front ignores its own copy; see TestRunSurvivesSIGHUP).
+func TestRunBareRunnerHasItsOwnProcessGroup(t *testing.T) {
+	r := startRun(t, "name: t\n", "--listen", "127.0.0.1:0")
+	first := echoAt(t, r, r.addr(), nil)
+	pgid, err := syscall.Getpgid(first.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pgid != first.Pid {
+		t.Fatalf("runner pid %d is in group %d, want its own (Setpgid)", first.Pid, pgid)
+	}
+	if pgid == syscall.Getpgrp() {
+		t.Fatalf("the runner shares this test process's group %d", pgid)
+	}
+}
+
+// D-038: `flyball run` also writes its own output and the runner's to
+// <state dir>/run.log (frontwire.RunDir), 0600 in a 0700 directory, so
+// what happened is not lost with a dead terminal.
+func TestRunWritesRunLog(t *testing.T) {
+	r := startRun(t, "name: t\n", "--listen", "127.0.0.1:0")
+	echoAt(t, r, r.addr(), nil)
+	matches, err := filepath.Glob(filepath.Join(r.dir, "state", "flyball", "front-*"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("front state dir: %v %v", matches, err)
+	}
+	fi, err := os.Stat(matches[0])
+	if err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("front state dir %s: %v %v, want 0700", matches[0], fi, err)
+	}
+	logPath := filepath.Join(matches[0], "run.log")
+	lfi, err := os.Stat(logPath)
+	if err != nil || lfi.Mode().Perm() != 0o600 {
+		t.Fatalf("run.log %s: %v %v, want 0600", logPath, lfi, err)
+	}
+	if err := r.stop(); err != nil {
+		t.Fatalf("run = %v", err)
+	}
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "serving rig t on") {
+		t.Fatalf("run.log = %q, want the front's own banner lines", got)
+	}
+}
+
+// D-038: SIGHUP -- what a dropped terminal sends the foreground process
+// group -- never stops `flyball run` or its runner: the front logs one
+// line and keeps serving, the runner (already in its own group, see
+// TestRunBareRunnerHasItsOwnProcessGroup) never sees it at all.
+func TestRunSurvivesSIGHUP(t *testing.T) {
+	r := startRun(t, "name: t\n", "--listen", "127.0.0.1:0")
+	before := echoAt(t, r, r.addr(), nil)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(r.output(), "terminal hung up") {
+		if time.Now().After(deadline) {
+			t.Fatalf("no \"terminal hung up\" line within 5s; output:\n%s", r.output())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	after := echoAt(t, r, r.addr(), nil)
+	if after.Pid != before.Pid {
+		t.Fatalf("the runner was respawned (pid %d -> %d): SIGHUP reached it", before.Pid, after.Pid)
+	}
+	if err := r.stop(); err != nil {
+		t.Fatalf("run did not stop cleanly by SIGTERM after a hangup: %v", err)
 	}
 }
 

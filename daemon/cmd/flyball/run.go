@@ -84,16 +84,33 @@ func run(args []string, sigs <-chan os.Signal) error {
 	if err != nil {
 		return fmt.Errorf("front-dir for %s: %w", rig, err)
 	}
-	logger := slog.New(slog.NewTextHandler(runOut, nil))
 	state := frontwire.RunDir(id)
+	rl, err := openRunLog(state)
+	if err != nil {
+		return err
+	}
+	defer rl.Close()
+	out := rl.tee(runOut) // flyball run's own output: the terminal and run.log (D-038)
+
+	logger := slog.New(slog.NewTextHandler(out, nil))
 	audit := frontwire.OpenAudit(state, logger)
 	plan, proxy := frontwire.Plan(cfg, bad, o.insecureOpen, frontwire.ProxyOptions{Logger: logger, Audit: audit})
 	plan.Warnings = append(warnings, plan.Warnings...)
 	if b := plan.Banner(); b != "" {
 		for _, line := range strings.Split(b, "\n") {
-			fmt.Fprintln(runOut, "flyball:", line)
+			fmt.Fprintln(out, "flyball:", line)
 		}
 	}
+	fmt.Fprintf(out, "flyball: closing this terminal does not stop the rig -- Ctrl-C or `flyball stop` does; the log is %s; for a rig that survives reboots use flyballd\n", rl.path)
+
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	go func() {
+		for range hup {
+			logger.Info("terminal hung up; the rig keeps running")
+		}
+	}()
 
 	root := frontdir.Root(id)
 	dir, err := frontdir.Dir(root, frontwire.RunRig) // frontwire.RunFrontDir(rig) when not a temp dir
@@ -107,11 +124,12 @@ func run(args []string, sigs <-chan os.Signal) error {
 	}
 
 	s := &supervisor{
-		dir: dir, aud: "run-" + randomHex(4),
+		dir: dir, aud: "run-" + randomHex(4), rig: rig,
 		ep:         endpoint.Endpoint{Network: "unix", Address: filepath.Join(dir, frontdir.Sock)},
-		command:    runnerExec(useUV, rig, append(o.rest, "--front-dir", dir)),
+		command:    runnerExec(useUV, rig, append(o.rest, "--front-dir", dir), rl.tee(os.Stdout), rl.tee(os.Stderr)),
 		minBackoff: time.Second,
 		wake:       make(chan struct{}, 1),
+		out:        out,
 	}
 	if err := s.ep.Validate(); err != nil {
 		plan.Close()
@@ -133,7 +151,7 @@ func run(args []string, sigs <-chan os.Signal) error {
 	go func() {
 		defer close(served)
 		ready := func(a net.Addr) {
-			fmt.Fprintf(runOut, "flyball: serving rig %s on %s (%s)\n", name, describeListen(plan, a), plan.Shape)
+			fmt.Fprintf(out, "flyball: serving rig %s on %s (%s)\n", name, describeListen(plan, a), plan.Shape)
 			if onListen != nil {
 				onListen(a)
 			}
@@ -141,13 +159,13 @@ func run(args []string, sigs <-chan os.Signal) error {
 		if err := frontwire.Serve(ctx, plan, f, ready); err != nil {
 			// A front that cannot listen does not stop the rig (D-028):
 			// it runs on, stoppable by signal or `flyball stop`.
-			fmt.Fprintln(runOut, "flyball: the front cannot serve:", err)
+			fmt.Fprintln(out, "flyball: the front cannot serve:", err)
 		}
 	}()
 	go func() {
 		sig, ok := <-sigs
 		if ok && sig != nil {
-			fmt.Fprintln(runOut, "flyball: stopping...")
+			fmt.Fprintln(out, "flyball: stopping...")
 			s.signal(sig)
 		}
 	}()
@@ -174,20 +192,24 @@ func describeListen(p front.Plan, a net.Addr) string {
 }
 
 // runnerExec builds each incarnation's command: flyball-runner bare, or
-// via uv in its own process group (uv ignores SIGINT, leaving it to the
-// terminal; stopped from anywhere else the runner would never hear it, so
-// a stop goes to the group).
-func runnerExec(useUV bool, rig string, args []string) func() *exec.Cmd {
+// via uv -- either way in its own process group (D-038), the same as
+// flyballd's ProcessBackend: uv ignores SIGINT, leaving it to the
+// terminal, and a bare runner would share the terminal's group and die
+// with it on a hangup; stopped from anywhere else the runner would never
+// hear it either, so a stop goes to the group (supervisor.forward).
+// stdout/stderr are where the runner's own output goes (run's log tee);
+// stdin is not the terminal -- nothing the runner does needs it.
+func runnerExec(useUV bool, rig string, args []string, stdout, stderr io.Writer) func() *exec.Cmd {
 	return func() *exec.Cmd {
 		var cmd *exec.Cmd
 		if useUV {
 			uvArgs := append([]string{"run", "--project", filepath.Dir(rig), "flyball-runner"}, args...)
 			cmd = exec.Command(uvCommand, uvArgs...)
-			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		} else {
 			cmd = exec.Command(runnerCommand, args...)
 		}
-		cmd.Stdout, cmd.Stderr, cmd.Stdin = os.Stdout, os.Stderr, os.Stdin
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Stdout, cmd.Stderr = stdout, stderr
 		return cmd
 	}
 }
@@ -203,13 +225,16 @@ const (
 // the front-dir rewritten with a fresh key, and a crash is followed by
 // another incarnation (1 s backoff, doubling to 30 s, back to 1 s after
 // 10 s up). A small copy of the ProcessBackend's rules, kept in the
-// foreground: the runner's output goes to the terminal, not a log file.
+// foreground: the runner's own stdout/stderr are wired straight to
+// run.go's log tee (runnerExec); out is where this type's own lines go,
+// the same tee.
 type supervisor struct {
-	dir, aud   string
-	ep         endpoint.Endpoint
-	command    func() *exec.Cmd
-	minBackoff time.Duration
-	wake       chan struct{}
+	dir, aud, rig string
+	ep            endpoint.Endpoint
+	command       func() *exec.Cmd
+	minBackoff    time.Duration
+	wake          chan struct{}
+	out           io.Writer
 
 	mu       sync.Mutex
 	key      [32]byte
@@ -263,6 +288,10 @@ func (s *supervisor) run() error {
 	for {
 		key, err := frontdir.Write(s.dir, s.aud, s.ep)
 		if errors.Is(err, frontdir.ErrLive) {
+			lock := filepath.Join(s.dir, frontdir.Lock)
+			if pid, perr := pidFromLockFile(lock); perr == nil {
+				return fmt.Errorf("this rig is already running as pid %d (%s): `flyball stop %s` to stop it", pid, lock, s.rig)
+			}
 			return fmt.Errorf("a runner already holds %s in %s: is this rig already running under `flyball run`?", frontdir.Lock, s.dir)
 		}
 		if err != nil {
@@ -301,7 +330,7 @@ func (s *supervisor) run() error {
 			return fmt.Errorf("flyball-runner: %w: the rig is busy -- another runner holds its store", err)
 		case code == exitFrontDir && (!retried || up):
 			retried = true
-			fmt.Fprintf(runOut, "flyball: the runner refused its front-dir %s (exit 4); rewriting it and starting it again\n", s.dir)
+			fmt.Fprintf(s.out, "flyball: the runner refused its front-dir %s (exit 4); rewriting it and starting it again\n", s.dir)
 			continue
 		case code == exitFrontDir:
 			return fmt.Errorf("flyball-runner: %w: it refused its front-dir %s twice", err, s.dir)
@@ -309,7 +338,7 @@ func (s *supervisor) run() error {
 		if up {
 			backoff = s.minBackoff
 		}
-		fmt.Fprintf(runOut, "flyball: the runner stopped (%v); starting it again in %s\n", err, backoff)
+		fmt.Fprintf(s.out, "flyball: the runner stopped (%v); starting it again in %s\n", err, backoff)
 		select {
 		case <-time.After(backoff):
 		case <-s.wake:
