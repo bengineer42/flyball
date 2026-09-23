@@ -5,7 +5,7 @@
 
 No runner, no threads: the rig's clock is stepped, so a ten-minute run takes
 a moment. Everything the runner would do -- tick, apply, record -- happens
-the same way, which is the point of `flyball.sim`.
+the same way, which is the point of `flyball_sim`.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 
 from flyball.record.sqlite import SqliteStore
 from flyball.runtime.config import load_rig_config
-from flyball.sim import SteppedClock
+from flyball_sim import SteppedClock
 
 
 def main(path: str, setpoint: float, seconds: float) -> None:

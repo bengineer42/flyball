@@ -24,7 +24,8 @@ zone needs for the same step is several times larger at 900 than at 200.
 The two device names are the point of the shape: a real furnace's file
 would declare `furnace` (a thermocouple DAQ) and `heaters` (an SSR bank)
 with the same addresses, and a `sim.yaml` overlay would swap only the
-drivers for these (`temp-docs/DEVICE-MODEL-PLAN.md` §1.6, §2).
+drivers for these (see the book, *Writing a sensor* / *Writing an
+actuator*, `book/src/3-extending/device/{sensor,actuator}.md`).
 
 Five programs in `programs/`, each a different lesson:
 
@@ -47,7 +48,7 @@ flyball watch controllers
 ```
 
 `flyball program run programs/firing.yaml` starts a firing; `flyball
-program status` says where it is; `flyball signal fire wait` answers the
+program status` says where it is; `flyball wait fire wait` answers the
 operator prompt at the end. With `clock: { stepped: true }` instead of a
 speed, the same firing runs to completion in the time the arithmetic takes
 — every poll, tick and hold in order — which is how

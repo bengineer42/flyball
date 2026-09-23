@@ -1,7 +1,8 @@
 # Simulated sensor configs
 
-One overlay per sensor in `../sensors/`, on the humidity example's pattern
-(`examples/humidity/sim.yaml`): the device keeps its real driver's signal
+One overlay per sensor in `../sensors/`, on the pattern of
+[the humidity rig](https://bengineer42.github.io/humctrl/)'s `sim.yaml`:
+the device keeps its real driver's signal
 names, units and (where namespaced) addresses, but the driver itself is
 swapped for the engine's generic `sim_daq`, bound to `sim_plant` links
 (`engine/src/flyball/sim/plant.py`) instead of real hardware. A program or
@@ -25,8 +26,8 @@ temperature/pressure) gets one small plant *per quantity*, not one shared
 plant -- a shared plant would make every signal read the same number under
 different units, not correlated values. Real correlation (temperature and
 humidity moving together as a room breathes) would need a bespoke
-multi-output plant class, like `examples/humidity`'s `sim_humidity_chamber`;
-that's Python, so it's out of scope for this config-only pass and noted
+multi-output plant class, like [the humidity rig](https://bengineer42.github.io/humctrl/)'s
+`sim_humidity_chamber`; that's Python, so it's out of scope for this config-only pass and noted
 per file where it would otherwise apply.
 
 ## Covered

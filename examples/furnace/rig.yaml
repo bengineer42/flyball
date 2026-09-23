@@ -15,7 +15,7 @@
 # the name `furnace`, one `sim_drive` driving its heaters under the name
 # `heaters`. Those two names, and every address under them, are what a real
 # furnace's file would declare with a thermocouple DAQ and an SSR bank
-# (`temp-docs/DEVICE-MODEL-PLAN.md` §2); when such drivers exist this file
+# (book/src/3-extending/device/{sensor,actuator}.md); when such drivers exist this file
 # splits into that real rig plus a `sim.yaml` overlay that swaps only the
 # drivers, and every program, dashboard and session stays the same.
 #

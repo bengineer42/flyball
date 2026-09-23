@@ -4,7 +4,8 @@
 # device key). Humidity and temperature would plausibly move together in
 # a room, but a bare `sim_plant` has one scalar output and a `sim_daq`
 # binds one link, so faking that correlation needs a bespoke multi-output
-# plant (as `examples/humidity` has); out of scope here (see README) --
+# plant (as the humidity rig has, https://bengineer42.github.io/humctrl/);
+# out of scope here (see README) --
 # each gets its own small plant instead: humidity tau 45 s, ambient
 # 45 %RH; temperature tau 30 s, ambient 21 degC.
 
