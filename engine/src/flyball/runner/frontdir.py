@@ -4,7 +4,8 @@ The front makes one directory per runner, mode 0700, and writes three files into
 0600: `key` (64 lower-case hex characters, the principal's HMAC key, fresh at every
 spawn), `aud` (the audience the front assigned) and `endpoint` (`unix:<abs path>`, or
 `tcp:<loopback>:<port>`, on Windows only: D-044). The runner holds `runner.lock` there for
-its life, taken before it reads `key`; it binds `endpoint` and nothing else, and takes a
+its life, taken before it reads `key`; it binds `endpoint` -- a socket in the front-dir
+itself, never elsewhere -- and nothing else, and takes a
 principal only if it verifies with `key` for `aud`.
 
 Anything unsafe or missing means the front and the runner disagree about how they talk, not
@@ -135,4 +136,14 @@ def read(path: Path) -> FrontDir:
     line = endpoint.removesuffix("\n")
     if "\n" in line:
         raise Unusable(f"endpoint: {endpoint!r} is not one line")
-    return FrontDir(path, key, aud.removesuffix("\n"), parse_endpoint(line))
+    parsed = parse_endpoint(line)
+    network, _, address = parsed.partition(":")
+    if network == "unix":
+        # The front-dir is the protection (0700, this user's): a socket anywhere else is not.
+        try:
+            inside = Path(address).parent.samefile(path)
+        except OSError:
+            inside = False
+        if not inside:
+            raise Unusable(f"endpoint: {address} is not a socket in the front-dir {path}")
+    return FrontDir(path, key, aud.removesuffix("\n"), parsed)

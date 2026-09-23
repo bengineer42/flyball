@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from collections.abc import Callable, Iterator
@@ -311,6 +313,23 @@ def test_a_front_dir_without_a_key_exits_4_before_the_lock(tmp_path, front_dir):
     assert "--front-dir" in err and "key" in err and "Traceback" not in err
     assert not (tmp_path / "s.sqlite.lock").exists(), "exited before taking the rig's lock"
     assert not store.exists(), "nor touched the store"
+
+
+def test_an_endpoint_outside_the_front_dir_exits_4(tmp_path, front_dir):
+    folder = front_dir()
+    elsewhere = Path(tempfile.mkdtemp(prefix="fb-"))
+    try:
+        (folder / "endpoint").write_text(f"unix:{elsewhere}/sock\n")
+        store = tmp_path / "s.sqlite"
+        argv = [str(EXAMPLES / "oven.yaml"), "--store", str(store), "--front-dir", str(folder)]
+        with runner(tmp_path, *argv) as proc:
+            _, err = proc.communicate(timeout=20)
+        assert proc.returncode == 4, err[-2000:]
+        assert "endpoint" in err and "Traceback" not in err
+        assert not (elsewhere / "sock").exists(), "nothing bound outside the front-dir"
+        assert not store.exists()
+    finally:
+        shutil.rmtree(elsewhere, ignore_errors=True)
 
 
 def test_a_fronted_runner_takes_only_the_principal(tmp_path, front_dir):
