@@ -133,12 +133,14 @@ func clone(m map[string]any) map[string]any {
 }
 
 // rigDocument is rigPath's document, `extends` resolved the way `flyball
-// rig check` resolves it; nil if it cannot be loaded -- flyball-runner
-// reports that properly once it loads the file for real.
-func rigDocument(rigPath string) map[string]any {
+// rig check` resolves it. err is why it cannot be loaded: the caller's
+// front then falls back (D-028) rather than serve the local shape as if
+// the file had no runner.front; flyball-runner reports the error properly
+// once it loads the file for real.
+func rigDocument(rigPath string) (map[string]any, error) {
 	document, _, err := rigfile.ResolveLayers([]string{rigPath}, nil)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return document
+	return document, nil
 }

@@ -161,3 +161,27 @@ func mustWrite(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+// An absolute extends path is that path, as flyball.runtime.overlay's
+// `path.parent / name` makes it -- not joined under the file's directory.
+func TestResolveLayers_absoluteExtends(t *testing.T) {
+	baseDir, dir := t.TempDir(), t.TempDir()
+	base := filepath.Join(baseDir, "base.yaml")
+	top := filepath.Join(dir, "top.yaml")
+	mustWrite(t, base, "name: base\nlinks:\n  chamber:\n    tag: sim_plant\n")
+	mustWrite(t, top, "extends: ["+base+"]\nrunner:\n  front:\n    auth: password\n")
+
+	doc, files, err := ResolveLayers([]string{top}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc["links"].(map[string]any)["chamber"]; !ok {
+		t.Fatalf("expected 'chamber' from the absolute base, got %#v", doc)
+	}
+	if doc["runner"].(map[string]any)["front"].(map[string]any)["auth"] != "password" {
+		t.Fatalf("expected the file's own runner.front, got %#v", doc["runner"])
+	}
+	if len(files) != 2 || files[0] != base {
+		t.Fatalf("expected [%s %s], got %v", base, top, files)
+	}
+}

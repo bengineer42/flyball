@@ -129,7 +129,10 @@ func loadLayer(path string, stack []string) (map[string]any, []string, error) {
 	var contributed []string
 	nextStack := append(append([]string{}, stack...), resolved)
 	for _, name := range extends {
-		baseDoc, baseFiles, err := loadLayer(filepath.Join(filepath.Dir(path), name), nextStack)
+		if !filepath.IsAbs(name) { // an absolute name is itself, as Python's path.parent / name
+			name = filepath.Join(filepath.Dir(path), name)
+		}
+		baseDoc, baseFiles, err := loadLayer(name, nextStack)
 		if err != nil {
 			return nil, nil, err
 		}

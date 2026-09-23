@@ -92,8 +92,9 @@ clear.
 A wrong setting in the front never stops the rig: it narrows who can reach
 it. A shape that is not one of the three, `sso`, a password that is missing
 or not a `$scrypt$` line, TLS files that cannot be read, a `proxy` block
-that cannot be vouched for, a `listen` that does not parse, or a
-`runner.front` block that fails validation -- each makes the front serve the
+that cannot be vouched for, a `listen` that does not parse, a
+`runner.front` block that fails validation, or a rig file whose `extends`
+cannot be resolved (so its `runner.front` cannot be read) -- each makes the front serve the
 `local` shape on `127.0.0.1` (same port) instead, and say why:
 
 ```
