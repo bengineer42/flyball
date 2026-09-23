@@ -27,7 +27,7 @@ func main() {
 	}
 
 	logDir := filepath.Join(daemonCfg.DataDir, "logs")
-	be, err := backend.NewProcessBackend(logDir)
+	be, err := backend.NewProcessBackend(logDir, daemonCfg.LogMaxSize)
 	if err != nil {
 		log.Fatalf("starting process backend: %v", err)
 	}

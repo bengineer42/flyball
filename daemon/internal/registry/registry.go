@@ -46,7 +46,10 @@ func (r *Registry) Start(m config.Manifest) error {
 	if taken {
 		return fmt.Errorf("a runner named %q is already registered", m.Name)
 	}
-	endpoint, err := r.be.Start(m.Name, m.ServerConfig, m.Host, m.Port, m.RootPath, m.UvProject)
+	endpoint, err := r.be.Start(m.Name, backend.Spec{
+		ServerConfig: m.ServerConfig, Host: m.Host, Port: m.Port,
+		RootPath: m.RootPath, UvProject: m.UvProject, Restart: m.Restart,
+	})
 	if err != nil {
 		return err
 	}

@@ -1,7 +1,9 @@
 package backend
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"testing"
@@ -15,7 +17,7 @@ const cleanOnTerm = `trap 'exit 0' TERM; while :; do sleep 0.02; done`
 // newTestBackend runs script under sh in place of flyball-runner.
 func newTestBackend(t *testing.T, script string) *ProcessBackend {
 	t.Helper()
-	b, err := NewProcessBackend(t.TempDir())
+	b, err := NewProcessBackend(t.TempDir(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +64,12 @@ func eventually(t *testing.T, what string, cond func() bool) {
 
 func mustStart(t *testing.T, b *ProcessBackend, name string) {
 	t.Helper()
-	if _, err := b.Start(name, "rig.yaml", "127.0.0.1", 1, "", ""); err != nil {
+	mustStartWith(t, b, name, "")
+}
+
+func mustStartWith(t *testing.T, b *ProcessBackend, name, restart string) {
+	t.Helper()
+	if _, err := b.Start(name, Spec{ServerConfig: "rig.yaml", Host: "127.0.0.1", Port: 1, Restart: restart}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -173,4 +180,82 @@ func TestACleanExitIsStopped(t *testing.T) {
 	b := newTestBackend(t, `exit 0`)
 	mustStart(t, b, "r")
 	eventually(t, "stopped", func() bool { return status(b, "r") == StatusStopped })
+}
+
+// countingCommand runs script and counts how often it was started.
+func countingCommand(b *ProcessBackend, script string) func() int {
+	var mu sync.Mutex
+	n := 0
+	b.command = func(string, []string) *exec.Cmd {
+		mu.Lock()
+		n++
+		mu.Unlock()
+		return exec.Command("sh", "-c", script)
+	}
+	return func() int { mu.Lock(); defer mu.Unlock(); return n }
+}
+
+func TestRestartNeverLeavesACrashFailed(t *testing.T) {
+	b := newTestBackend(t, "")
+	spawned := countingCommand(b, `exit 3`)
+	mustStartWith(t, b, "r", RestartNever)
+	eventually(t, "failed", func() bool { return status(b, "r") == StatusFailed })
+	time.Sleep(5 * b.minBackoff)
+	if n := spawned(); n != 1 {
+		t.Errorf("restart: never started it %d times", n)
+	}
+}
+
+func TestRestartAlwaysRestartsACleanExit(t *testing.T) {
+	b := newTestBackend(t, "")
+	spawned := countingCommand(b, `exit 0`)
+	mustStartWith(t, b, "r", RestartAlways)
+	eventually(t, "a clean exit restarted", func() bool { return spawned() >= 3 })
+}
+
+func TestRestartOnFailureStopsAfterACleanExit(t *testing.T) {
+	b := newTestBackend(t, "")
+	spawned := countingCommand(b, `exit 0`)
+	mustStartWith(t, b, "r", RestartOnFailure)
+	eventually(t, "stopped", func() bool { return status(b, "r") == StatusStopped })
+	time.Sleep(5 * b.minBackoff)
+	if n := spawned(); n != 1 {
+		t.Errorf("restart: on-failure started a cleanly exited runner %d times", n)
+	}
+}
+
+// A runner that has stopped or failed comes back on Restart.
+func TestRestartBringsBackAFailedRunner(t *testing.T) {
+	b := newTestBackend(t, "")
+	spawned := countingCommand(b, `sleep 0.1; exit 3`)
+	mustStartWith(t, b, "r", RestartNever)
+	eventually(t, "failed", func() bool { return status(b, "r") == StatusFailed })
+	if err := b.Restart("r"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "started again", func() bool { return spawned() == 2 })
+	eventually(t, "failed again", func() bool { return status(b, "r") == StatusFailed })
+}
+
+// log_max_size: past the cap the log moves to NAME.log.1 and starts again,
+// so a chatty runner cannot fill the disk.
+func TestTheCapturedLogIsCapped(t *testing.T) {
+	b := newTestBackend(t, `while :; do echo 0123456789012345678901234567890123456789; sleep 0.002; done`)
+	b.maxLogSize = 4000
+	b.logCheckInterval = 20 * time.Millisecond
+	mustStart(t, b, "r")
+	log := filepath.Join(b.logDir, "r.log")
+	eventually(t, "r.log.1", func() bool {
+		_, err := os.Stat(log + ".1")
+		return err == nil
+	})
+	for range 20 {
+		time.Sleep(20 * time.Millisecond)
+		if fi, err := os.Stat(log); err != nil || fi.Size() > 4*b.maxLogSize {
+			t.Fatalf("r.log: %v, %v; the cap is %d", fi.Size(), err, b.maxLogSize)
+		}
+	}
+	if fi, _ := os.Stat(log + ".1"); fi.Size() < b.maxLogSize {
+		t.Errorf("r.log.1 is %d bytes, less than the cap it was rotated at", fi.Size())
+	}
 }

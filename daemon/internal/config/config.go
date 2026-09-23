@@ -111,6 +111,11 @@ func (m Manifest) Validate() error {
 	if rp := m.RootPath; !rootPathPattern.MatchString(rp) || path.Clean(rp) != rp {
 		return fmt.Errorf("runner %s: root_path %q must be /segments of lower-case letters, digits, - and _, such as /%s", m.Name, rp, m.Name)
 	}
+	switch m.Restart {
+	case "", "always", "on-failure", "never":
+	default:
+		return fmt.Errorf("runner %s: restart %q: use always, on-failure (the default) or never", m.Name, m.Restart)
+	}
 	return nil
 }
 

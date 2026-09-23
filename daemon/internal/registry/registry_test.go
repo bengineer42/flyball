@@ -17,7 +17,7 @@ type fakeBackend struct {
 	status backend.Status
 }
 
-func (f *fakeBackend) Start(name, serverConfig, host string, port int, rootPath, uvProject string) (string, error) {
+func (f *fakeBackend) Start(name string, spec backend.Spec) (string, error) {
 	return "127.0.0.1:1", nil
 }
 func (f *fakeBackend) Stop(name string) error              { return nil }

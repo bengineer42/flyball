@@ -82,9 +82,9 @@ its `root_path`. `flyballd --config flyballd.yaml`; every key has a default:
 | key | default | |
 | --- | --- | --- |
 | `listen` | `127.0.0.1:9000` | the address it serves on |
-| `manifests_dir` | `manifests` | one `NAME.yaml` per runner: `name`, `server_config` (the runner's rig file), `port`, and optionally `host`, `root_path` (default `/NAME`), `restart` (`always`, `on-failure`, `never`), `enabled`, `uv_project` (a directory to `uv run --project` `flyball-runner` from, when it isn't already on `flyballd`'s own `$PATH` -- same need as `flyball run`'s `--uv`) |
-| `data_dir` | `data` | captured runner logs, under `logs/` |
-| `log_max_size` | 10 MiB | per-runner captured-log cap |
+| `manifests_dir` | `manifests` | one `NAME.yaml` per runner: `name`, `server_config` (the runner's rig file), `port`, and optionally `host`, `root_path` (default `/NAME`), `restart` (below), `enabled`, `uv_project` (a directory to `uv run --project` `flyball-runner` from, when it isn't already on `flyballd`'s own `$PATH` -- same need as `flyball run`'s `--uv`) |
+| `data_dir` | `data` | captured runner logs, under `logs/`: `NAME.log`, and `NAME.log.1` once it has been capped |
+| `log_max_size` | 10 MiB (`10485760`, in bytes) | per-runner captured-log cap; `0` for none. Checked every 2 s: past it, `NAME.log` is copied to `NAME.log.1` (replacing the last one) and emptied, so a runner's logs take at most about twice the cap. The runner keeps writing to the same file, so a daemon crash does not cut its output; a line written at the moment of the copy can be lost |
 | `auth.token` | none | the bearer token the registration routes below need. **With no token they answer 503**: the runners in `manifests_dir` still start, but nothing can start, stop, restart or read one over the API |
 
 A runner's `name` is lower-case letters, digits, `-` and `_` (it names the
@@ -97,12 +97,20 @@ A runner's `status` (in `GET /api/runners`) follows its process:
 | --- | --- |
 | `starting` | spawned, not yet answering `GET <root_path>/api/auth` (probed every 0.5 s) |
 | `running` | answering |
-| `restarting` | it crashed and is waiting out its backoff: 1 s, doubling to 30 s, back to 1 s once a restart reaches `running` |
-| `stopped` | it exited cleanly on its own |
-| `failed` | it could not be started again |
+| `restarting` | it exited, its `restart` policy restarts it, and it is waiting out the backoff: 1 s, doubling to 30 s, back to 1 s once a restart reaches `running` |
+| `stopped` | it exited cleanly on its own, and its `restart` policy says not to restart it |
+| `failed` | it crashed and its `restart` policy says not to restart it, or it could not be started again |
+
+A manifest's `restart` says what happens when a runner exits on its own:
+
+| `restart` | a crash (non-zero exit) | a clean exit (0) |
+| --- | --- | --- |
+| `on-failure` (default) | restarted, after the backoff | `stopped` |
+| `always` | restarted, after the backoff | restarted, after the backoff |
+| `never` | `failed` | `stopped` |
 
 `daemon restart` restarts a runner at once, whatever its exit code, and
-cuts short a crash backoff. `daemon stop` sends `SIGTERM`, `SIGKILL`s a
+cuts short a crash backoff; a `stopped` or `failed` runner starts again. `daemon stop` sends `SIGTERM`, `SIGKILL`s a
 runner still there after 10 s, and returns once it is gone -- also for a
 runner in backoff, which does not come back.
 
@@ -114,7 +122,7 @@ runner in backoff, which does not come back.
 | `daemon start MANIFEST.json` | `POST /api/runners` | register and start one |
 | `daemon stop NAME` | `DELETE /api/runners/NAME` | stop and deregister it |
 | `daemon restart NAME` | `POST /api/runners/NAME/restart` | restart it |
-| `logs NAME` | `GET /api/runners/NAME/logs` | its captured stdout/stderr |
+| `logs NAME` | `GET /api/runners/NAME/logs` | its captured stdout/stderr (`NAME.log`; not the capped-off `NAME.log.1`) |
 
 All but `daemon runners` send `Authorization: Bearer $FLYBALLD_TOKEN` --
 the daemon's token, not a runner's -- and are 401 without it. `GET
