@@ -173,4 +173,7 @@ crash. A runner spawned into a front-dir that another runner took
 meanwhile exits 3 on its `runner.lock`; that one is adopted the same way.
 A runner in a temporary front-dir (no private runtime directory, or one
 too deep for a socket path under it) cannot be found: `flyballd` warns of
-it at start. `flyball run` has no adoption: its runner stops with it.
+it at start. `flyball run` has no adoption: when it ends normally its
+runner ends first, but a `flyball run` that is killed (`SIGKILL`, a crash)
+or a second Ctrl-C leaves its runner running, to be ended with
+`kill <pid>` (`runner.lock` names it).

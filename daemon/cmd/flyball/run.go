@@ -290,7 +290,8 @@ func (s *supervisor) run() error {
 		if errors.Is(err, frontdir.ErrLive) {
 			lock := filepath.Join(s.dir, frontdir.Lock)
 			if pid, perr := pidFromLockFile(lock); perr == nil {
-				return fmt.Errorf("this rig is already running as pid %d (%s): `flyball stop %s` to stop it", pid, lock, s.rig)
+				return fmt.Errorf("this rig is already running as pid %d (%s): end that run first -- Ctrl-C in its terminal, or `kill %d`"+
+					" (`flyball stop %s` stops the rig, not the runner)", pid, lock, pid, s.rig)
 			}
 			return fmt.Errorf("a runner already holds %s in %s: is this rig already running under `flyball run`?", frontdir.Lock, s.dir)
 		}

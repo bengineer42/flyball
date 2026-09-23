@@ -97,8 +97,8 @@ the command line always wins. A runner that crashes is started again; the
 run ends with the runner. Closing the terminal does not end it: the front
 and the runner keep running, their output also goes to a log file in the
 state directory (`~/.local/state/flyball/front-<id>/run.log`), and a notice
-at start says so. Ctrl-C, SIGTERM or
-`flyball stop` stop it. Every flag:
+at start says so. Ctrl-C or SIGTERM ends it;
+`flyball stop` stops the rig and leaves it running. Every flag:
 [`flyball run`](../../7-reference/cli.md#flyball-run).
 
 ## Unattended runs
