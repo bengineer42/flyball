@@ -30,8 +30,7 @@ class SignalOverride(BaseModel):
     `access` names the set to keep (`"r"`); `readable`, `publishing` and
     `writable` drop one flag each and take only `false` -- the driver
     declares what it can honour, the file cannot add to it. `limits` only
-    narrows the driver's (see
-    [Signal.narrow][flyball.foundation.device.signal.Signal.narrow]).
+    narrows the driver's: a demand is clamped to both.
 
     A key left out leaves the driver's value; a key given as `null` clears
     it back to the unset default (`label: null` is the titlecased name,
