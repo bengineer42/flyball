@@ -7,9 +7,10 @@ const RigContext = createContext<{ client: RigClient; store: TelemetryStore } | 
 export interface RigProviderProps {
   /** Absolute origin of the runner, or omit for same-origin. Ignored when `transport` is given. */
   url?: string;
-  /** The runner's bearer token, when it was started with `--token`: a header on every request, `?token=` on
-   * every socket. Ignored when `transport` is given -- bring your own auth on a custom transport. Changing it
-   * rebuilds the client and its store, so a token entered after a 401 reconnects everything at once. */
+  /** A bearer token, carried as an `Authorization` header on every request; never on a socket or a
+   * download URL (see `Transport.token`). Ignored when `transport` is given -- bring your own auth
+   * on a custom transport. Changing it rebuilds the client and its store, so a token entered after
+   * a 401 reconnects everything at once. */
   token?: string;
   /** Supply your own transport (a mock, a test double, another protocol). */
   transport?: Transport;

@@ -6,6 +6,7 @@ import { Shell } from "./Shell.js";
 import { EventToasts } from "./EventToasts.js";
 import { AuthChip, LoginPage } from "./Login.js";
 import { useAuth } from "./auth.js";
+import { StopButton } from "./StopButton.js";
 import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
 import { Status, SimChip, PausedChip } from "./Status.js";
 import { readYScale, writeYScale, type ChartSettings } from "./YScaleSelect.js";
@@ -116,6 +117,10 @@ function AppStatus({ onSignIn, playback, page }: { onSignIn(): void; playback: P
       <Status recording={recording} programmer={programmer} streams={streams} byStream={byStream} />
       {simulated && <SimChip speed={simulationSpeed} />}
       {simulated && page !== "simulation" && <PausedChip playback={playback} />}
+      {/* Self-contained: renders nothing without OPERATE, so it costs nothing to mount everywhere.
+          Reachable from every page by living in the app bar, ahead of the UI split (brain/plans/ui-split.md)
+          that will move this row into a redesigned shell. */}
+      <StopButton />
       <AuthChip onSignIn={onSignIn} />
     </>
   );

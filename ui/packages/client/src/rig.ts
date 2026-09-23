@@ -52,6 +52,7 @@ import type {
   SimulationPlant,
   Span,
   StartRecording,
+  StopReport,
   StreamName,
   Streams,
   Tick,
@@ -120,12 +121,12 @@ export class RigClient {
     return response.json as T;
   }
 
-  /** A route's URL under the transport's base, for a link the browser follows itself (a download). A plain
-   * navigation cannot set a header, so the token travels as `?token=`, which the runner accepts on any GET. */
+  /** A route's URL under the transport's base, for a link the browser follows itself (a download).
+   * No credential travels here: a signed-in browser carries its session cookie regardless, and a
+   * bearer token never appears in a URL (a plain navigation cannot set a header for one anyway). */
   private url(path: string, query: Record<string, string | number | undefined> = {}): string {
     const q = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) if (value !== undefined) q.set(key, String(value));
-    if (this.transport.token) q.set("token", this.transport.token);
     const search = q.toString();
     return `${this.transport.base ?? ""}${path}${search ? `?${search}` : ""}`;
   }
@@ -254,20 +255,33 @@ export class RigClient {
   /** Every version of the rig this store has seen, newest first: when, and why it changed. */
   // region Auth
 
-  /** Who this caller is here and what the runner's door is like (`GET /api/auth`); always answers. */
+  /** Who this caller is here and what this rig's door is like (`GET /api/auth`); always answers. */
   auth(): Promise<AuthInfo> {
     return this.get("/api/auth");
   }
 
-  /** Trade the password (or the runner's token) for a session cookie the browser then carries on every
-   * request, socket and download. 401 for a wrong one; 429 after ten wrong ones in a minute. */
-  login(secret: string): Promise<AuthInfo> {
-    return this.call({ method: "POST", path: "/api/auth/login", body: { secret } });
+  /**
+   * Trade the admin password (a `password`-shape front) or a pasted token (a `bare` runner) for a
+   * session cookie the browser then carries on every request, socket and download. 401 wrong;
+   * 429 with `Retry-After` when limited.
+   */
+  login(credential: { password: string } | { token: string }): Promise<AuthInfo> {
+    return this.call({ method: "POST", path: "/api/auth/login", body: credential });
   }
 
-  /** Clear the session cookie. */
+  /** Clear the session cookie; the answer is the anonymous view. */
   logout(): Promise<AuthInfo> {
     return this.call({ method: "POST", path: "/api/auth/logout" });
+  }
+
+  /**
+   * Stop the rig for everyone: interrupt any running program, put every controller in manual and
+   * hold every writable device (`POST <root>/api/rig/stop`). Needs `OPERATE`; never rate-limited.
+   * Answers 501 until package A8 wires the real stopper -- callers must surface that honestly
+   * rather than treating the call as having stopped anything.
+   */
+  stopRig(reason?: string): Promise<StopReport> {
+    return this.call({ method: "POST", path: "/api/rig/stop", body: reason === undefined ? {} : { reason } });
   }
 
   // endregion

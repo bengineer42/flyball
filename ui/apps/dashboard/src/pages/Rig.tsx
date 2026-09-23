@@ -199,7 +199,7 @@ function ConnectModelCard() {
   const { info } = useAuth();
   const base = pageBase();
   const urls = MCP_MODES.map((m) => ({ ...m, url: `${base}/mcp/${m.mode}` }));
-  const needsToken = Boolean(info && (info.token || info.password));
+  const needsToken = Boolean(info && (info.login.token || info.login.password));
   const config = {
     mcpServers: Object.fromEntries(
       urls.map((m) => [m.server, { type: "http", url: m.url, ...(needsToken ? { headers: { Authorization: "Bearer <token>" } } : {}) }]),
@@ -230,9 +230,9 @@ function ConnectModelCard() {
         <Box>
           <Typography variant="subtitle2">Client config</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
-            {info?.token
+            {info?.login.token
               ? "Every server here needs the runner's bearer token (--token), since any of them can drive the rig: put it where <token> is."
-              : info?.password
+              : info?.login.password
                 ? "This runner has a password but no token, and a model cannot type one: start it with --token as well and put that where <token> is."
                 : "This runner has no password and no token: it is open to anyone who can reach it, so the config below carries no headers."}
           </Typography>
