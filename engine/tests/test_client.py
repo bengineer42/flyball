@@ -58,7 +58,7 @@ class TestValidate:
 
 
 class TestClientSurfaces:
-    """`Rig.demand`/`.read`/`.controllers` build the routes the plan documents."""
+    """`Rig.write`/`.read`/`.controllers` build the routes the plan documents."""
 
     def test_demand_read_and_controllers_build_the_documented_routes(self):
         from flyball.interfaces.client import Rig

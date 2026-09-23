@@ -147,7 +147,7 @@ def migrate(document: dict[str, Any]) -> dict[str, Any]:
     or `gauge`'s `channel` becomes `address`, a `chart`'s `channels`
     become `addresses`, a `loop`'s `loop` becomes `controller`, and the
     `actuator` widget becomes a `device` widget bound by `device`. A loop
-    was named by its actuator and a controller is named by its target's
+    was named by its actuator and a controller is named by its output's
     address, so the name is carried as it was; `problems` says if it no
     longer resolves.
     """

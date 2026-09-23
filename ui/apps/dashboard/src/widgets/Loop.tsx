@@ -71,13 +71,13 @@ const ControllerWidget = memo(function ControllerWidget({ config }: WidgetCompon
   const wantsTrends = config.view === "full";
   const { show: trends, height: trendHeight } = trendBudget(box, wantsTrends);
   const trace = useFrozen(history[name] ?? EMPTY, visible);
-  // The source signal (units, bands) from the bindings; the target (limits) from its device's tree, which may not publish.
+  // The measured signal (units, bands) from the bindings; the output (limits) from its device's tree, which may not publish.
   const source = controller ? bindings.signalAt(controller.measured_signal) : undefined;
   const target = controller ? bindings.devices.flatMap((d) => signalsOf(d.signals)).find((s) => s.address === controller.output_signal) : undefined;
-  // Source-offline (B-3): the source signal's own staleness, its device's period against its last sample.
+  // Measured-offline (B-3): the measured signal's own staleness, its device's period against its last sample.
   const fresh = useFreshness(controller?.measured_signal);
   const offline = alarmLevel(null, {}, fresh) === "stale";
-  // A controller is named by its target's label; a target with none is titled like any signal, never by its address.
+  // A controller is named by its output's label; an output with none is titled like any signal, never by its address.
   const title = useMemo(
     () => (controller ? <Ref kind="controller" name={controller.name}>{controller.label ? describeController(controller) : target ? signalTitle(target, bindings.devices) : controller.name}</Ref> : undefined),
     [controller?.name, controller?.label, target, bindings], // eslint-disable-line react-hooks/exhaustive-deps
@@ -89,7 +89,7 @@ const ControllerWidget = memo(function ControllerWidget({ config }: WidgetCompon
   const status = useMemo(() => (controller ? <span className={`fb-badge fb-mode fb-mode-${controller.mode}`}>{controller.mode}</span> : undefined), [controller?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
   useWidgetChrome(controller ? { title, subtitle, status, severity: offline ? "stale" : undefined } : null);
   if (!controller) return <Missing what="controller" name={name} hint={bindings.controllers.length ? "Configure the widget to pick one of this rig's controllers." : "This rig has no controllers."} />;
-  if (!source) return <Missing what="signal" name={controller.measured_signal} hint="The controller's source does not publish on this rig." />;
+  if (!source) return <Missing what="signal" name={controller.measured_signal} hint="The controller's measured signal does not publish on this rig." />;
   return (
     <div ref={host} className="fb-fill fb-loop-host">
       <ControllerPanel controller={controller} source={source} target={target} history={trace} trends={trends} trendHeight={trendHeight} windowS={charts.windowS} yScale={charts.yScale} exportHref={exports.ticks(controller.name)} bare />

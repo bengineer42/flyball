@@ -203,12 +203,12 @@ function MiniTrend({ series, height, every, yScale, range, windowS, settledBand:
 
 export interface ControllerPanelProps {
   controller: ControllerOut;
-  /** The signal the controller regulates (`controller.source`): its unit, range, bands and precision shape the PV/SP rows and the process trend. */
+  /** The signal the controller regulates (`controller.measured_signal`): its unit, range, bands and precision shape the PV/SP rows and the process trend. */
   source: SignalOut;
   /**
-   * The signal it drives (`controller.target`): its `limits` draw the OP bar
+   * The signal it drives (`controller.output_signal`): its `limits` draw the OP bar
    * and its unit labels the drive rows. Omitted, the unit is
-   * `controller.demand_unit` and the OP row has no bar.
+   * `controller.output_unit` and the OP row has no bar.
    */
   target?: SignalOut;
   /** The controller's recent ticks; `useControllers` supplies one per controller. Omit for a readout-only panel. */
@@ -377,7 +377,7 @@ function useRigStartS(): number | null {
  * the source reads), SP (where it aims, with the entry and Move controls),
  * OP (what the target was set to, after limits) -- each with a bar, and the
  * Process/Drive trends stacked beside them. `useControllers` supplies the
- * history and the caller the controls; the live PV, the target's write
+ * history and the caller the controls; the live PV, the output's write
  * state and the source device's run come from the telemetry store, so the
  * panel needs a `RigProvider` above it.
  *
@@ -650,7 +650,7 @@ export function ControllerPanel({
             </p>
           )}
           {ffTag && (
-            <p className="fb-loop-law-line fb-loop-feedforward" title="What the controller asks for before the law corrects: the setpoint mapped into the target's unit">
+            <p className="fb-loop-law-line fb-loop-feedforward" title="What the controller asks for before the law corrects: the setpoint mapped into the output's unit">
               <span className="fb-tag">{ffTag}</span>
               <span> · {unit === dUnit ? dUnit : `${unit} → ${dUnit}`}</span>
               {(() => {

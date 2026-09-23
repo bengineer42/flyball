@@ -118,7 +118,7 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
   const rig = useRig();
   const live = useWriteState(signal.address);
   const write = live ?? given ?? signal.write ?? null;
-  // A controller is named by its target, so the store's entry under this address is the one attached here.
+  // A controller is named by its output, so the store's entry under this address is the one attached here.
   const attached = useController(signal.address);
   // Until something has been set, the last reading stands in for the set value: a published signal's live readback, else the last read the rig has.
   const liveReading = useSignal(publishes(signal) ? signal.address : undefined);
@@ -168,7 +168,7 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
       driven by <Ref kind="controller" name={driven} />
     </span>
   );
-  // A controller's target has nothing to type into: it says which controller instead.
+  // A controller's output has nothing to type into: it says which controller instead.
   const entry = driven ? (
     drivenNote
   ) : (

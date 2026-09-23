@@ -88,7 +88,7 @@ export function useWriteStates(): Record<Address, WriteOut> {
   return store.writes();
 }
 
-/** The latest state of one controller, by its name (the target's address); re-renders this component only, at most four times a second. */
+/** The latest state of one controller, by its name (the output's address); re-renders this component only, at most four times a second. */
 export function useController(name: Address | undefined): ControllerOut | undefined {
   const store = useTelemetry();
   const subscribe = useCallback((cb: () => void) => (name === undefined ? () => undefined : store.subscribeController(name, cb, READOUT_MS)), [store, name]);

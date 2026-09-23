@@ -191,7 +191,7 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
   // The trend charts at the foot of the section: a non-number never reaches a chart axis.
   const numericSignals = useMemo(() => signals.filter(isNumeric), [signals]);
   const byAddress = useMemo(() => new Map(signals.map((s) => [s.address, s])), [signals]);
-  // Every signal of the rig by address (a controller's target need not publish), with where it sits, for titles.
+  // Every signal of the rig by address (a controller's output need not publish), with where it sits, for titles.
   const everySignal = useMemo(() => new Map(devices.flatMap((d) => signalsOf(d.signals).map((s) => [s.address, s] as const))), [devices]);
   const titleOf = (address: string) => {
     const signal = everySignal.get(address);

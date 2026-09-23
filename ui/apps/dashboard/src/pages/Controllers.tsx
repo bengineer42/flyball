@@ -69,8 +69,8 @@ const EMPTY_DRAFT: Draft = { output: null, measured: null, lawChoice: "none", tu
 
 /**
  * What the rig would pick when no feedforward is given: `setpoint` when the
- * target takes the source's unit (demand = setpoint), else `none` (the law
- * does all the work, in the target's unit).
+ * output takes the measured signal's unit (output = setpoint), else `none`
+ * (the law does all the work, in the output's unit).
  */
 const defaultFeedforward = (target: SignalChoice | null, source: SignalChoice | null): FeedforwardConfig | null =>
   target && source ? { tag: target.unit === source.unit ? "setpoint" : "none" } : null;
@@ -108,11 +108,11 @@ function withoutSetpoint(schema: JsonSchema): JsonSchema {
  * labelled "Output"), a published signal to regulate (labelled
  * "Measured"), the law, and the feedforward that maps the
  * setpoint into the output's unit (defaulted from the units, as the rig
- * would). Sources another controller already regulates and targets already
- * driven are disabled; sources in the target's own unit that nothing
+ * would). Signals another controller already regulates and outputs already
+ * driven are disabled; measured signals in the output's own unit that nothing
  * regulates yet are listed first as "Suggested". Opened either from the
- * page bar (any target) or from an undriven signal's own card, which
- * preselects it (`initialTarget`) and jumps straight to the source step.
+ * page bar (any output) or from an undriven signal's own card, which
+ * preselects it (`initialTarget`) and jumps straight to the measured step.
  */
 export const AddControllerDialog = memo(function AddControllerDialog({
   open,
@@ -157,8 +157,8 @@ export const AddControllerDialog = memo(function AddControllerDialog({
   const demandUnit = draft.output?.unit ?? null;
   const unitsAgree = source !== null && demandUnit === source.unit;
 
-  // Publishing signals by device; any unit may be regulated, the feedforward maps it into the target's.
-  // Ranked once a target is chosen: a "Suggested" group (the target's own unit, not yet regulated)
+  // Published signals by device; any unit may be regulated, the feedforward maps it into the output's.
+  // Ranked once an output is chosen: a "Suggested" group (the output's own unit, not yet regulated)
   // above "All signals"; one flat list when there is no target or nothing matches -- never an empty
   // Suggested group.
   const sourceGroups = useMemo(() => {
@@ -728,7 +728,7 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
   const stored = useRecordingExports();
   const { controllers, history, status } = useControllers(3600);
   const signals = useMemo(() => new Map(devices.flatMap((d) => signalsOf(d.signals)).map((s) => [s.address, s])), [devices]);
-  // A controller's target is a demand: settable, with a readback that updates. A demand the driver
+  // A controller's output is a demand: settable, with a readback that updates. A demand the driver
   // declares read-only (a composite's readback, e.g. a blender's per-pump flows) is not one.
   const targets = useMemo(() => [...signals.values()].filter((s) => s.role === "demand" && writable(s)), [signals]);
   const controllerSchema = useQuery(() => rig.controllerSchema(), [rig]);

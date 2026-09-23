@@ -6,7 +6,7 @@ built from the registry. Application-specific requests live with the
 application.
 
 Addresses are the only names on the wire: a signal's, a node's, a
-controller's (its target's). The rig resolves them once at the boundary.
+controller's (its output's). The rig resolves them once at the boundary.
 """
 
 from __future__ import annotations

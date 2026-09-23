@@ -567,7 +567,7 @@ class Rig:
             holder = self.controllers.driving(signal)
             if holder is not None and holder is not by and holder.mode.active():
                 # As a command: refused while the controller drives it; in
-                # manual the target takes demands directly.
+                # manual the output takes demands directly.
                 raise ConflictError(
                     f"'{signal.address}' is driven by controller {holder.name!r}:"
                     " set its reference, put it in manual, or detach it"
@@ -907,7 +907,7 @@ class Rig:
             self._flush_pushed()
 
     def _deliver(self, states: Mapping[Signal, WriteState]) -> None:
-        """Close each controller's tick with the state its target was committed to."""
+        """Close each controller's tick with the state its output was committed to."""
         for signal, state in states.items():
             if (controller := self.controllers.driving(signal)) is not None:
                 controller.delivered(state)
@@ -1404,7 +1404,7 @@ class Rig:
                     name,
                     Kind.STEP_FAILED,
                     f"{type(error).__name__}: {error}",
-                    {"source": reading.signal.address},
+                    {"measured": reading.signal.address},
                 )
             return
         if name in self._failing:

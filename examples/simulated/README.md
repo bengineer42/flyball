@@ -55,7 +55,7 @@ which may also sit flat beside the envelope. The simulated drivers:
 A dotted key in `ports` (`dry.humidity: dry_h`) puts the signal in a
 namespace, one atomic namespace per prefix, so a sim overlay can mirror a
 namespaced real device address for address (`hum_sensors.dry.humidity`).
-Range, precision, `warn`/`alarm` bands, a longer `poll_s` for one signal,
+Range, precision, `warning`/`alarm` bands, a longer `poll_s` for one signal,
 or narrower `limits` go in the envelope's `signals:`; the plant's own
 parameters (and its sensor lag and noise) are on the link, adjustable live
 through `flyball sim set`. Several devices may share one link, which is how

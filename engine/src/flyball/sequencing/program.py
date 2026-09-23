@@ -7,7 +7,7 @@ run twice, or on two rigs at once.
 The library's own steps, each a `Command` subclass whose wire form (and the
 program file's JSON schema) is derived from its constructor by
 [flyball.interfaces.server.dialect][]: `regulate`/`ramp`/`hold`/`arrive`/`manual` name a
-controller by its target address, or a list, or none for the rig's default
+controller by its output address, or a list, or none for the rig's default
 (`sequencing/loops.py`); `set` puts values on one device's writable signals
 as a demand, and `command` calls one of a device's own commands
 (`sequencing/devices.py`); `wait` pauses for an operator or an external

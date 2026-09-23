@@ -7,16 +7,16 @@ import { READOUT_MS, useStoreStatus } from "../store/hooks.js";
 
 /**
  * A controller's recent ticks as parallel arrays, oldest first: `t` in
- * seconds since the epoch, `reference` and `reading` in the source's unit,
- * `demand`, `expected` and `correction` in the target's
- * (`ControllerOut.demand_unit`). Null where the controller had no value at
+ * seconds since the epoch, `reference` and `measured` in the measured unit,
+ * `output`, `expected` and `correction` in the output's
+ * (`ControllerOut.output_unit`). Null where the controller had no value at
  * that tick, e.g. `expected` for a device that returns none, or `reference`
  * while a ramp runs under a feedforward the setpoint cannot be recovered
  * through (see `setpointOf`).
  */
 export type ControllerTrace = ControllerView;
 
-/** Traces by controller name (the target's address). */
+/** Traces by controller name (the output's address). */
 export type ControllerTraces = Record<Address, ControllerTrace>;
 
 /**

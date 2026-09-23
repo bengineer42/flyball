@@ -6,7 +6,7 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 
-/** What a name can refer to: a device by name, a signal by address, a controller by its name (its target's address). */
+/** What a name can refer to: a device by name, a signal by address, a controller by its name (its output's address). */
 export type RefKind = "device" | "signal" | "controller" | "session" | "event";
 
 export interface Ref {

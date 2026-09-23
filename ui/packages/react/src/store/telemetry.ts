@@ -51,7 +51,7 @@ export const emptyControllerView = (): ControllerView => ({ t: [], reference: []
  * store's `read`/`subscribeTrace` are the only callers): distinct from any
  * address, since an address never contains `:` (`addressOf` joins node and
  * name with `.`). `controllerNameFromSetpointKey` recovers the controller's
- * name (its target address) from one, or null for a plain signal address.
+ * name (its output address) from one, or null for a plain signal address.
  */
 const CONTROLLER_SETPOINT_PREFIX = "controller-setpoint:";
 export const controllerSetpointKey = (name: Address): string => `${CONTROLLER_SETPOINT_PREFIX}${name}`;
@@ -222,7 +222,7 @@ export class TelemetryStore {
   private playbackTimer: ReturnType<typeof setTimeout> | null = null;
   /** What the playback session declared, asked once per session: anything else is a 409 the console would log. */
   private playbackDeclared: { id: number; signals: Promise<Set<Address>>; controllers: Promise<Set<Address>> } | null = null;
-  /** A controller's live state with its `reading` swapped for the source's point at `atS`; rebuilt only when either changes. */
+  /** A controller's live state with its `measured` swapped for the measured signal's point at `atS`; rebuilt only when either changes. */
   private playbackControllers = new Map<Address, { live: ControllerOut; t: number | undefined; v: number | undefined; out: ControllerOut }>();
 
   constructor(

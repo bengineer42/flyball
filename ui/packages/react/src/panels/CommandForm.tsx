@@ -29,7 +29,7 @@ export interface CommandFormProps {
   currentMode?: Value;
 }
 
-/** The one argument's name, when a command takes exactly one -- the common "ask for a single number" shape (`demand`, `set_reference`, ...). */
+/** The one argument's name, when a command takes exactly one -- the common "ask for a single number" shape (`demand`, `set_setpoint`, ...). */
 function onlyArgument(schema: JsonSchema): string | null {
   const keys = Object.keys(schema.properties ?? {});
   return keys.length === 1 ? keys[0]! : null;
