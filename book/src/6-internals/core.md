@@ -78,26 +78,26 @@ objects.
 | `Write` | one or more values written to `W` signals under one node at one instant — a Sample in reverse |
 | `WriteState` | what a device reports after a commit: the value after limits, what was asked for if the clamp changed it, `at_limit`, the controller driving it |
 
-## Mutability: three tiers
+## Mutability: declared, running, one instant
 
 Three kinds of object, told apart by who changes them and when:
 
-| tier | objects | mutable? |
+| kind | objects | mutable? |
 | --- | --- | --- |
-| declaration | `SignalSpec`, `NodeSpec`, `Quantity` | frozen — the driver's word; one spec object may back many devices |
-| structure (rig level) | `Node`, `Signal`, `Device`, `Rig`, `Controller` | mutable, identity-hashed, made once at startup — the running graph: things happen *to* them |
-| values (per instant) | `Reading`, `Sample`, `Write`, `WriteState`, `Event` | frozen — facts about one moment; recorded, streamed, compared; never changed after the fact |
+| what a driver declares | `SignalSpec`, `NodeSpec`, `Quantity` | frozen — the driver's word; one spec object may back many devices |
+| the running rig | `Node`, `Signal`, `Device`, `Rig`, `Controller` | mutable, identity-hashed, made once at startup — the running graph: things happen *to* them |
+| one instant | `Reading`, `Sample`, `Write`, `WriteState`, `Event` | frozen — facts about one moment; recorded, streamed, compared; never changed after the fact |
 
-A device's own signal roles echo the same split at finer grain (below): a
-`Role.CONFIG` signal is effective at the structure tier; a
-`Role.DEMAND`/`Role.SETTING`/`Role.READOUT` signal's readings are the values
-tier. Two rules
+A device's own signal roles follow the same split (below): a
+`Role.CONFIG` signal is set when the rig is built; a
+`Role.DEMAND`/`Role.SETTING`/`Role.READOUT` signal's readings are facts
+about one instant. Two rules
 keep "mutable" from meaning "anything goes": after startup, mutation goes
 through the rig, under its lock, and is an event — `Signal.set_meta(...)`
 and `restrict(...)` are the primitives, but the only caller once the rig
 runs is a `Rig` method that takes the lock, applies the change,
-re-validates what depends on it, and emits an event; and declared and
-effective both stay visible — `Signal.spec` is what the driver declared,
+re-validates what depends on it, and emits an event; and what was declared
+and what is in force both stay visible — `Signal.spec` is what the driver declared,
 `Signal.access` is what is in force, so `rig check` and the wire can show
 both.
 

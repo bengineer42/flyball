@@ -216,7 +216,7 @@ quantity, unit, dimension, dtype, shape, range, precision, warning, alarm,
 poll_s, limits, initial, latest, write}`: `access` is the set in force as
 letters (`rp`, `w`, `rw`, `rpw`), `role` one of `demand`, `readout`,
 `setting`, `config`, `tags` the section as `{axis: name}` (empty without
-one), `limits` the effective numbers now, `latest` `{time_ns, value}` once
+one), `limits` the numbers in force now, `latest` `{time_ns, value}` once
 it has been read (null before), `write` a `WriteOut` for a writable signal
 once it has been set. A namespace is `{name, address, atomic, label,
 poll_s, signals: [...]}`, nesting the same shapes.
@@ -243,7 +243,7 @@ for the signal's own type), `inputs` `{role: {label, quantity, unit,
 bound}}`, and `commands` `{command: {description, arguments, simulation,
 commit, mode, interrupts, demand_of}}` — `arguments` a JSON Schema whose
 properties linked to a demand also carry `x-signal`, `unit` and
-`minimum`/`maximum` from that signal's effective limits.
+`minimum`/`maximum` from that signal's limits now.
 
 ## Reading
 

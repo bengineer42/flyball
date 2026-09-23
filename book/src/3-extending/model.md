@@ -51,7 +51,7 @@ device's life. The role sets the signal's default access:
 | `Role.DEMAND` | `RPW` | settable, with a current value (its readback) that updates — the only thing a controller drives, and only while it is `W` |
 | `Role.READOUT` | `RP` | produced by the device, never written from outside: a measurement, a derived value, a mode |
 | `Role.SETTING` | `RP` | re-set by a command while the device runs, shown; never a controller's output, even when a driver or the rig file makes it `W` |
-| `Role.CONFIG` | `R` | effective at build, shown, never set at run time |
+| `Role.CONFIG` | `R` | set at build, shown, never written at run time |
 
 An **input** is not a role: it is another device's signal, bound by the rig
 (`inputs:`), and not in this device's tree; an `Input` descriptor is told
@@ -163,21 +163,22 @@ built on `sht4x_set`/`dual_pump_blender` against real I²C and PWM links,
 the other on the generic `sim_daq`/`sim_drive` against one shared plant
 link.
 
-## Three tiers, told apart by who changes them
+## What is declared, what runs, what happened
 
-| tier | objects | mutable? | changed by |
+Three kinds of object, told apart by who changes them:
+
+| kind | objects | mutable? | changed by |
 | --- | --- | --- | --- |
-| **declaration** | a driver's `SignalSpec`/`NodeSpec`, a `Quantity` | frozen | never; the driver's word |
-| **structure** (rig level) | `Node`, `Signal`, `Device`, `Rig`, `Controller` | mutable, identity-hashed, made once at startup | the rig, under its lock, as an event — a file override, a live limit change, a controller attached |
-| **values** (per instant) | `Reading`, `Sample`, `Write`, `WriteState`, `Event` | frozen | never after the fact; recorded, streamed, compared |
+| **what a driver declares** | a driver's `SignalSpec`/`NodeSpec`, a `Quantity` | frozen | never; the driver's word |
+| **the running rig** | `Node`, `Signal`, `Device`, `Rig`, `Controller` | mutable, identity-hashed, made once at startup | the rig, under its lock, as an event — the rig file's signal metadata, a live limit change, a controller attached |
+| **one instant** | `Reading`, `Sample`, `Write`, `WriteState`, `Event` | frozen | never after the fact; recorded, streamed, compared |
 
-A device's own signals echo the same split at finer grain: a role's *access*
-is the declaration tier, a `Role.CONFIG` signal is effective at the
-structure tier (merged from class defaults, config and the rig file at
-build), and a `Role.DEMAND`/`Role.SETTING`/`Role.READOUT` signal's readings
-are the values tier. `Signal.spec` is what the driver declared;
-`Signal.access` and its overridden metadata are what is in force —
-`rig check`, the wire and the UI can show both ("driver says RPW, file made
-it RP").
+A device's own signals follow the same split: a role's *access* is
+declared; a `Role.CONFIG` signal is set when the rig is built (from class
+defaults, config and the rig file); a `Role.DEMAND`/`Role.SETTING`/
+`Role.READOUT` signal's readings are facts about one instant.
+`Signal.spec` is what the driver declared; `Signal.access` and its
+metadata as the rig file set it are what is in force — `rig check`, the
+wire and the UI can show both ("driver says RPW, file made it RP").
 
 Next: [How a controller works](../2-config/controllers.md#how-a-controller-works).

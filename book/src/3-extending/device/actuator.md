@@ -58,8 +58,8 @@ A `W` signal's `limits` — numbers on the descriptor, or a reference to
 another signal of the same device (`limits=(0.0, max_flow_config)`,
 resolved live) — are enforced by the rig before `apply` is ever called: a
 demand outside them is clamped, and the committed state's `at_limit` says
-which rail it landed on. `signal.limits` always gives the effective
-numbers, whichever way they were declared, and `None` while a referenced
+which rail it landed on. `signal.limits` always gives the
+numbers in force, whichever way they were declared, and `None` while a referenced
 signal has no value yet or a non-finite one (NaN, inf). That case fails closed: the rig clamps through
 `signal.clamp(value)`, which raises `LimitNotKnownError` (a
 `NotReadyError`, 503 over HTTP) rather than let the demand through --
@@ -78,7 +78,7 @@ refused.
 A device declares what each of its signals is with a **role**: `Demand`
 (settable, `RPW`; the only thing a controller drives), `Readout` (produced
 by the device, never written from outside, `RP`), `Setting` (re-set by a
-command, `RP`) and `ConfigSignal` (effective at build, `R`). On the class a
+command, `RP`) and `ConfigSignal` (set at build, `R`). On the class a
 descriptor is its spec; on an instance it is the bound signal. Checked on
 subclassing: pydantic must be able to describe every `vtype`.
 
@@ -116,7 +116,7 @@ when the parameter must be called something else, when it is annotated
 `Annotated[<type>, <descriptor>]` (`dry: Annotated[Flow, dry_flow]`; legal
 in the class body because the descriptor's name is already bound there).
 Either way it is filled from the demand's current value when left out,
-clamped to its effective limits (the command is refused, not run, while
+clamped to its limits (the command is refused, not run, while
 one of them is not known yet), and shown in the schema with the
 demand's address, unit and limits:
 

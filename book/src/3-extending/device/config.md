@@ -1,8 +1,8 @@
 # Config and build
 
 A **config** is a description that builds something: a pydantic model with
-`build() -> T`. It is the *config* tier of a device, and it is how a rig is
-eventually described in a file rather than in code.
+`build() -> T`. It is what a device is built from, and it is how a rig is
+described in a file rather than in code.
 
 ```python
 --8<-- "device.py:heater-config"

@@ -19,19 +19,20 @@ now: offline, railed).
 reads 412.0 °C. Its **address** -- device, then dots, then name -- is
 written on every readout and is the same everywhere: the chart legend, the
 export's column, the program step, the CLI. Some signals are only read;
-some can be **set** (a target box on the card); a signal that can be set is
-what a controller drives.
+some can be **written** (a box on the card); a **demand** -- a signal whose
+writing takes control of the process -- is what a controller drives.
 
-**A controller** holds one signal at a **setpoint** by driving another: the
-faceplate on the Controllers page, with a *reading* bar, a *target* box and
-an *output* bar. It is in **manual** (holding whatever was last set) or
+**A controller** -- a control loop, not a device -- holds one **measured**
+signal at a **setpoint** by writing an **output**, a demand on a device: the
+faceplate on the Controllers page reads *Measured*, *Setpoint* and *Output*.
+It is in **manual** (the output keeps whatever was last written) or
 **regulating** (working towards the setpoint, which may be a value or a
-ramp). The name of a controller is the address of the signal it drives.
+ramp). The name of a controller is the address of its output.
 
 **A program** is a list of steps run against the rig -- *regulate this to
 400*, *ramp to 800 at 2 °C/min*, *wait 30 min*, *prompt for the door* --
-written as a file, shown as steps on the Programs page, run and stopped
-from there, the CLI or the API. A single command from the CLI is a program
+written as a file, shown as steps on the Programs page, run and cancelled
+from there, the CLI or the API. A single step from the CLI is a program
 of one step.
 
 **A session** is a recording: everything the rig read, was told and did
@@ -43,13 +44,13 @@ can be kept after the event.
 ## How it fits together
 
 ```
- config file ──▶ flyball-runner ──▶ the rig ──▶ /api, /ws, /mcp ──▶ the UI
+ rig file ─────▶ flyball-runner ──▶ the rig ──▶ /api, /ws, /mcp ──▶ the UI
  (links, devices,   builds and       reads, drives,                  the CLI
   controllers,      serves it        regulates, records               a script
   runner: how)                                                        a model
 ```
 
-The config file says what is on the rig and how it is served
+The rig file says what is on the rig and how it is served
 ([Configuration](../2-config/index.md)); the runner builds the rig from it
 and serves it ([Starting a rig](../1-running/runner/index.md)); everything
 that faces a person -- the UI, the CLI, a script, a model -- is a client of

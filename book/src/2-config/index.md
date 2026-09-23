@@ -1,4 +1,4 @@
-# The config file
+# The rig file
 
 !!! abstract "Where you are: Configuration"
     For the person **setting a rig up**: the file that says what is on the rig, what regulates what and how it is served. No code, only YAML.

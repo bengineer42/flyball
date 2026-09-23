@@ -1,6 +1,6 @@
 # Starting a rig
 
-A rig that a [config file](../../2-config/index.md) can describe needs no
+A rig that a [rig file](../../2-config/index.md) can describe needs no
 Python at all. The usual way to start one is `flyball run`, which starts
 the rig's runner behind a front that serves the dashboard:
 
