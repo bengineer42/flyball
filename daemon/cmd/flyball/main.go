@@ -180,10 +180,10 @@ func main() {
 		return
 	}
 
-	// `stop` tries the front first (POST /api/rig/stop) and falls back to
-	// SIGUSR1 when it can't be reached, so it resolves its own target
-	// rather than sharing the generic block below (a stop must still work
-	// when that resolution, or the front itself, is unreachable).
+	// `stop` resolves its own target rather than sharing the generic block
+	// below: a rig named locally (--front-dir, RIG-FILE, --pid) is stopped
+	// by SIGUSR1 with no HTTP at all (D-042), and -s NAME with --front-dir
+	// is a usage error.
 	if args[0] == "stop" {
 		if err := runStopCommand(server, token, args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "flyball:", err)
@@ -230,8 +230,10 @@ func usage(w io.Writer) {
 runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
   login [URL] [--scope SCOPE]...       admin password -> a saved named token (prompted, never on argv)
   logout                              drop the saved token (locally only; see token revoke)
-  stop [NAME] [--pid N] [--front-dir DIR] [--reason TEXT]
-                                      POST /api/rig/stop; SIGUSR1 if the front can't be reached
+  stop [NAME] [--reason TEXT]         POST /api/rig/stop through the front (-s NAME / NAME: via flyballd)
+  stop RIG-FILE | --front-dir DIR | --pid N
+                                      on the rig's host: SIGUSR1 to its runner, no HTTP; the report
+                                      goes to the runner's log (RIG-FILE: its run.log)
   stop --all [--reason TEXT]          the rig stop on every rig flyballd lists (needs operate on each);
                                       runners stay up; non-zero if any stop was refused or failed
   read ADDRESS [--fresh]              GET /api/read/{address}
@@ -254,12 +256,15 @@ runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
 
 local (no runner or daemon involved):
   rig schema                          the rig file's JSON Schema, for an editor
-  run RIG-FILE [--listen ADDR] [--uv] [--insecure-open] [flyball-runner flags...]   start a runner directly, foreground
+  run RIG-FILE [RIG-FILE ...] [--listen ADDR] [--uv] [--insecure-open] [--set KEY=VALUE ...] [flyball-runner flags...]
+                                      start a runner directly, foreground; the front reads every file and --set
   password [PASSWORD]                 hash a password for a front: runner.front.password in a rig
                                       file, or password: in flyballd.yaml
   new NAME [--dir PATH]                write a starting point for a device driver
-  token create --name N --config PATH [--daemon] [--scope S ...] [--kind human|service|agent] [--expires D]
-                                      write a token into the front's tokens.json offline; prints it once
+  token create --name N --config PATH [--config PATH ...] [--set KEY=VALUE ...] [--daemon]
+               [--scope S ...] [--kind human|service|agent] [--expires D]
+                                      write a token into the front's tokens.json offline; prints it once;
+                                      rig files and --set merge as flyball run merges them
   token list --config PATH [--daemon] list tokens (never their secrets)
   token revoke ID --config PATH [--daemon]
                                       remove a token; the front picks this up at its next check

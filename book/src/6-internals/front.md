@@ -182,6 +182,7 @@ meanwhile exits 3 on its `runner.lock`; that one is adopted the same way.
 A runner in a temporary front-dir (no private runtime directory, or one
 too deep for a socket path under it) cannot be found: `flyballd` warns of
 it at start. `flyball run` has no adoption: when it ends normally its
-runner ends first, but a `flyball run` that is killed (`SIGKILL`, a crash)
-or a second Ctrl-C leaves its runner running, to be ended with
-`kill <pid>` (`runner.lock` names it).
+runner ends first -- a second Ctrl-C hurries the runner (SIGINT again) and
+a third kills its group, and `flyball run` still waits for it (D-045) --
+but a `flyball run` that is killed (`SIGKILL`, a crash) leaves its runner
+running, to be ended with `kill <pid>` (`runner.lock` names it).

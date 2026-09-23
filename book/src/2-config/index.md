@@ -94,6 +94,10 @@ flyball-runner rig.yaml --set clock.speed=60  # a one-key overlay on top
 flyball-runner site.yaml                    # one file that `extends` the rest
 ```
 
+`flyball run` takes the same arguments (`flyball run rig.yaml sim.yaml
+--set clock.speed=60`), and its front reads `runner.front` from the
+merged result, as the runner does.
+
 The conventional split is one file per concern: the hardware rig
 (`links`, `devices`, `controllers`); a simulation overlay that swaps the
 links and drivers under the same names (`examples/humidity/rig-multi-sensor.yaml` +

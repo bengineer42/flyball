@@ -76,7 +76,7 @@ func TestPidFromLockFileBadContent(t *testing.T) {
 func TestSignalStopDeliversSIGUSR1(t *testing.T) {
 	ch := make(chan os.Signal, 1)
 	notifyUSR1(t, ch)
-	if err := signalStop(os.Getpid()); err != nil {
+	if err := signalStop(os.Getpid(), "the runner's log"); err != nil {
 		t.Fatal(err)
 	}
 	select {

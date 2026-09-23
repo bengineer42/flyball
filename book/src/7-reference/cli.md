@@ -51,7 +51,8 @@ no per-device subcommand tree built from the schema -- those were `cli.py`'s
 | `export SESSION [--format csv\|json\|zip] [--out PATH]` | `GET /api/history/sessions/SESSION/export` | a session as a table; written to `PATH` or stdout |
 | `program check\|run\|status\|stop PATH` | `/api/programs/*` | validate, start, watch, stop a program (`run` takes `[--interrupt]`) |
 | `sim show\|clock\|step\|set\|reset\|config\|save` | `/api/sim/*` | a simulated rig's knobs |
-| `stop [NAME\|RIG-FILE] [--reason TEXT]` | `POST /api/rig/stop` | the [software stop](#stopping-a-rig); `SIGUSR1` to the runner when the front cannot be reached |
+| `stop [NAME] [--reason TEXT]` | `POST /api/rig/stop` | the [software stop](#stopping-a-rig) |
+| `stop RIG-FILE \| --front-dir DIR \| --pid N` | none: `SIGUSR1` | the [software stop](#stopping-a-rig) by signal, for a runner on this host |
 | `stop --all [--reason TEXT]` | `GET /api/rigs`, then `POST /api/rig/stop` on each | the software stop on every rig `flyballd` lists for this credential |
 | `login [URL] [--scope SCOPE]...` | `POST /api/auth/login`, `POST /api/auth/tokens` | [sign in](#signing-in): the admin password for a saved named token |
 | `logout` | | forget the saved token |
@@ -93,25 +94,35 @@ password: give the CLI its token (`--token`, `FLYBALL_TOKEN`).
 ### Stopping a rig
 
 `flyball stop` sends the [software stop](../1-running/runner/access.md#stopping-the-rig)
-(program interrupted, every controller in manual, nothing written) and
-prints the report. It needs `operate`. `NAME` addresses a rig behind
-`flyballd` as `-s` would. When the front answers -- even with a refusal --
-that answer stands. Only a `200` carrying a stop report counts as a stop;
-a redirect (a sign-in proxy in front, with no session for the CLI) is not
-followed and is refused with the address it pointed to, and any other
-answer is refused with its status and body, exit non-zero. When the front
-cannot be reached, or has not answered within 5 seconds (each HTTP call a
-stop makes is bounded so: connecting, and the whole answer), the CLI sends
-`SIGUSR1` to the runner's process instead, which needs only the OS's own permission (the same user, or root), and says
-so -- the report is then in the runner's log. A front that was only slow
-may still carry out its stop as well; a second stop changes nothing. With
-no pid to signal, `flyball stop` exits non-zero and says how to give one:
+(program interrupted, every controller in manual, nothing written). How it
+reaches the rig depends on how the rig is named (D-042):
 
-| | the pid comes from |
-| --- | --- |
-| `--pid N` | `N`, with no HTTP request first |
-| `--front-dir DIR` | `DIR/runner.lock` |
-| `RIG-FILE` | the front-dir `flyball run RIG-FILE` uses, when that is not a temporary directory |
+| | how | the report |
+| --- | --- | --- |
+| `flyball stop`, `flyball stop NAME`, `flyball -s NAME stop` | `POST /api/rig/stop` through the front at `$FLYBALL_URL` (or `flyballd` for a `NAME`); needs `operate` | printed |
+| `flyball stop --front-dir DIR` | `SIGUSR1` to the runner holding `DIR/runner.lock`; no HTTP call | in the runner's log |
+| `flyball stop RIG-FILE` | `SIGUSR1` to the runner holding `runner.lock` in the front-dir `flyball run RIG-FILE` uses (when that is not a temporary directory); no HTTP call | in that run's `run.log`, whose path the CLI prints |
+| `flyball stop --pid N` | `SIGUSR1` to `N` as given; no HTTP call | in the runner's log |
+
+An argument with a `/` or a `.yaml`/`.yml` ending is a rig file; anything
+else is a rig name. `--front-dir` with `-s NAME`, a `NAME` or a `RIG-FILE`
+is a usage error. A signal needs only the OS's own permission (the same
+user, or root) -- no front, credential or network -- and cannot reach
+another rig that happens to answer at `$FLYBALL_URL`. It carries no
+`--reason`: the runner records the stop as `local:signal`.
+
+Over HTTP, when the front answers -- even with a refusal -- that answer
+stands. Only a `200` carrying a stop report counts as a stop; a redirect (a
+sign-in proxy in front, with no session for the CLI) is not followed and is
+refused with the address it pointed to, and any other answer is refused
+with its status and body, exit non-zero. When the front cannot be reached,
+or has not answered within 5 seconds (each HTTP call a stop makes is
+bounded so: connecting, and the whole answer), `flyball stop` exits
+non-zero and names the signal forms above; a front that was only slow may
+still carry out its stop, and a second stop changes nothing. In the
+[D-028 refused state](../1-running/runner/access.md#when-a-setting-is-wrong)
+the front's listen address answers `503`, so a plain `flyball stop` cannot
+stop the rig there: use `--front-dir` or the rig file.
 
 A `runner.lock` outlives its runner, and the pid in it may since have been
 given to another process, so a pid read from one is signalled only while a
@@ -137,7 +148,7 @@ is stopped with `--pid` or `--front-dir`.
 | `program schema` | the program file's JSON Schema |
 | `run RIG-FILE [--listen ADDR] [--uv] [--insecure-open] [flyball-runner flags...]` | [start a rig](#flyball-run) behind a front, in the foreground |
 | `password [PASSWORD]` | hash a password for `runner.front.password` (or `password:` in `flyballd.yaml`); prompts if omitted |
-| `token create --name N --config PATH [--daemon] [--scope S]... [--kind human\|service\|agent] [--expires D]` | [make a named token](#named-tokens) in the front's tokens file; prints it once |
+| `token create --name N --config PATH [--config PATH]... [--set KEY=VALUE]... [--daemon] [--scope S]... [--kind human\|service\|agent] [--expires D]` | [make a named token](#named-tokens) in the front's tokens file; prints it once |
 | `token list --config PATH [--daemon]` | the tokens in that file: id, name, scopes, kind, created, expires, last used -- never a secret |
 | `token revoke ID --config PATH [--daemon]` | remove one; the front stops accepting it within a second |
 | `new NAME [--dir PATH]` | write `NAME.py`: a complete device driver with a tag, ready to edit |
@@ -155,13 +166,21 @@ no local, offline-against-installed-commands mode as `cli.py` had.
 
 ### `flyball run`
 
-`flyball run RIG-FILE` starts the rig's front and runs `flyball-runner`
+`flyball run RIG-FILE [RIG-FILE…]` starts the rig's front and runs `flyball-runner`
 behind it, in the foreground, no daemon involved. The front serves the
 dashboard and passes `/api`, `/ws` and `/mcp` to the runner, which listens
 only on a socket in its [front-dir](../6-internals/front.md#the-front-dir).
-What the front serves comes from the rig file's
+What the front serves comes from
 [`runner.front`](../2-config/runner.md#front-how-flyball-run-serves-the-rig)
-(`extends` resolved), and it prints where:
+in the rig as the runner builds it: every leading rig file, later
+overlaying earlier, `extends` resolved, then every `--set KEY=VALUE`
+([several files](../2-config/index.md#several-files); D-046). So
+`flyball run rig.yaml sim.yaml --set runner.front.anonymous=none` serves
+what the runner reads, and `--set name=x` names the front's rig `x` too.
+The rig files are the arguments before the first flag; `--` and an
+argument shaped like a negative number (`-1`, `-.5`), which the runner
+would take as rig files, are refused. The first file names the front's
+state and front-dir. The front prints where it serves:
 
 ```
 flyball: serving rig oven on http://127.0.0.1:8000/ (local)
@@ -187,10 +206,13 @@ A runner that crashes is started again with a fresh key (1 s backoff,
 doubling to 30 s, back to 1 s after 10 s up). The run ends when the runner
 exits cleanly, or with exit 2 (a bad rig file, or a `flyball-runner` too old
 for `--front-dir`), 3 (another runner holds the rig), or 4 twice (its
-front-dir refused). Ctrl-C or SIGTERM stops the runner and ends the run; a
-second Ctrl-C ends `flyball` at once, leaving a runner that has not
-finished its shutdown running in its own process group (end it with
-`kill <pid>`). A dropped terminal or SSH session
+front-dir refused). Ctrl-C or SIGTERM stops the runner and ends the run,
+and says what the next presses do (D-045): a second Ctrl-C (or SIGTERM)
+sends the runner SIGINT again, which makes it cut its shutdown short, and a
+third kills its process group (SIGKILL). `flyball` exits only once the
+runner has, so no press leaves it running. Only the first gives the runner
+its whole shutdown; after the second or third, the recording may not be
+closed cleanly. A dropped terminal or SSH session
 does not (D-038): the front and the runner ignore the hangup and keep the
 rig running, their output also goes to `run.log` in the front's state
 directory (below; mode 0600, rotated once to `run.log.1` past 4 MiB), and a
@@ -211,8 +233,12 @@ neither `XDG_STATE_HOME` nor `HOME` set, `flyball run` (and `flyball token
 
 `flyball token create|list|revoke --config PATH` work offline on the file a
 front reads its named tokens from, under a lock, so they are safe while the
-front runs; it notices a change at its next check. `PATH` is the front's
-config:
+front runs; it notices a change at its next check. `create` takes
+`--config` more than once and `--set KEY=VALUE`, merged as `flyball run
+PATH PATH… --set …` merges them, so `runner.front.tokens` limits the token
+as that front would; the tokens file is the first `PATH`'s (a
+`flyballd.yaml` takes one `--config` and no `--set`). `PATH` is the
+front's config:
 
 - a rig file: the tokens of `flyball run PATH`,
   `$XDG_STATE_HOME/flyball/front-<id>/tokens.json`;
@@ -229,6 +255,13 @@ config:
 (`audit.jsonl`, by `local:cli`); a token whose record cannot be written is
 not created, and a revoke that cannot be recorded still happens and exits
 non-zero ([what is recorded](../1-running/runner/access.md#what-is-recorded)).
+
+Run as root (`sudo flyball token …`) against a front whose state directory
+belongs to another user -- or, if it does not exist yet, whose nearest
+existing parent does, or whose `tokens.json` or `audit.jsonl` does -- a
+token command refuses and names `sudo -u <owner>`: a file it made there
+would be root's, and that front could no longer read its tokens or write
+its audit, and would refuse sign-ins.
 
 | flag | default | |
 | --- | --- | --- |

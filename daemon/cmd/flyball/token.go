@@ -15,8 +15,11 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -47,14 +50,16 @@ func runTokenCommand(args []string) error {
 
 func runTokenCreate(args []string) error {
 	name, args, _ := popValue(args, "--name")
-	config, args, _ := popValue(args, "--config")
+	configs, args := popAllValues(args, "--config")
+	sets, args := popSets(args)
 	daemon, args := popBool(args, "--daemon")
 	kind, args, _ := popValue(args, "--kind")
 	expires, args, hasExpires := popValue(args, "--expires")
 	scopes, args := popAllValues(args, "--scope")
-	if name == "" || config == "" || len(args) != 0 {
-		return fmt.Errorf("usage: flyball token create --name NAME --config PATH [--daemon] [--scope SCOPE ...] [--kind human|service|agent] [--expires DURATION]")
+	if name == "" || len(configs) == 0 || len(args) != 0 {
+		return fmt.Errorf("usage: flyball token create --name NAME --config PATH [--config PATH ...] [--set KEY=VALUE ...] [--daemon] [--scope SCOPE ...] [--kind human|service|agent] [--expires DURATION]")
 	}
+	config := configs[0] // the tokens file is the first rig file's, as `flyball run`'s front is
 	if len(scopes) == 0 {
 		scopes = []string{grants.Read} // auth.md: "Default scope for automation, MCP included: read"
 	}
@@ -75,7 +80,10 @@ func runTokenCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	lifetimes, warnings, err := lifetimesFor(config, daemon)
+	if err := refuseAnotherUsersState(path); err != nil {
+		return err
+	}
+	lifetimes, warnings, err := lifetimesFor(configs, sets, daemon)
 	if err != nil {
 		return err
 	}
@@ -127,6 +135,9 @@ func runTokenList(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := refuseAnotherUsersState(path); err != nil {
+		return err
+	}
 	tokens, err := store.OpenTokens(path, store.TokensOptions{})
 	if err != nil {
 		return err
@@ -160,6 +171,9 @@ func runTokenRevoke(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := refuseAnotherUsersState(path); err != nil {
+		return err
+	}
 	tokens, err := store.OpenTokens(path, store.TokensOptions{})
 	if err != nil {
 		return err
@@ -188,6 +202,56 @@ func runTokenRevoke(args []string) error {
 		return fmt.Errorf("token %s is revoked, but %w", id, auditErr)
 	}
 	fmt.Println("revoked", id)
+	return nil
+}
+
+// tokenEuid is swapped by a test to play root.
+var tokenEuid = os.Geteuid
+
+// refuseAnotherUsersState refuses a token command run as root (`sudo
+// flyball token ...`) against a front whose state directory -- or, when
+// that does not exist yet, its nearest existing ancestor -- belongs to
+// another user, or holds a tokens file or audit that does. Every file the
+// command would create there (the directory, tokens.json, rewritten each
+// time through a temp file and a rename, its .lock, audit.jsonl) would be
+// root's, 0600: that front could then no longer read its tokens or write
+// its audit, and it refuses sign-ins without one. Refusing is the choice
+// over creating as root and chowning afterwards, which would have to
+// follow the tokens store's own temp-and-rename writes.
+func refuseAnotherUsersState(tokensPath string) error {
+	if tokenEuid() != 0 {
+		return nil
+	}
+	dir := filepath.Dir(tokensPath)
+	check := []string{filepath.Join(dir, filepath.Base(tokensPath)), filepath.Join(dir, frontwire.AuditFile)}
+	for p := dir; ; p = filepath.Dir(p) {
+		if _, err := os.Lstat(p); err == nil {
+			check = append(check, p)
+			break
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		if filepath.Dir(p) == p {
+			break
+		}
+	}
+	for _, p := range check {
+		fi, err := os.Lstat(p)
+		if err != nil {
+			continue
+		}
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		if !ok || st.Uid == 0 {
+			continue
+		}
+		owner := strconv.FormatUint(uint64(st.Uid), 10)
+		if u, err := user.LookupId(owner); err == nil {
+			owner = u.Username
+		}
+		return fmt.Errorf("this runs as root, but %s belongs to %s: a file made here now would be root's,"+
+			" and that front could no longer read its tokens or write its audit (it then refuses sign-ins);"+
+			" run it as the front's user: `sudo -u %s flyball token ...`", p, owner, owner)
+	}
 	return nil
 }
 
@@ -246,6 +310,26 @@ func popAllValues(args []string, name string) ([]string, []string) {
 	return values, out
 }
 
+// popSets collects every --set VALUE and --set=VALUE (order preserved),
+// returning them and the remaining args.
+func popSets(args []string) ([]string, []string) {
+	var sets []string
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if v, ok := strings.CutPrefix(args[i], "--set="); ok {
+			sets = append(sets, v)
+			continue
+		}
+		if args[i] == "--set" && i+1 < len(args) {
+			sets = append(sets, args[i+1])
+			i++
+			continue
+		}
+		out = append(out, args[i])
+	}
+	return sets, out
+}
+
 // parseExpires is store.ParseDuration (Go durations plus a whole-days form,
 // "30d") with --expires-shaped errors, matching auth.md's examples
 // (`--expires 30d`).
@@ -265,8 +349,8 @@ func parseExpires(s string) (time.Duration, error) {
 // resolves it the same way the front does (store.ResolveLifetimes), so
 // that an offline `flyball token create --config PATH` applies the same
 // effective default/max lifetimes a running front would.
-func lifetimesFor(config string, forceDaemon bool) (store.Lifetimes, []string, error) {
-	tc, err := tokensConfigFor(config, forceDaemon)
+func lifetimesFor(configs, sets []string, forceDaemon bool) (store.Lifetimes, []string, error) {
+	tc, err := tokensConfigFor(configs, sets, forceDaemon)
 	if err != nil {
 		return store.Lifetimes{}, nil, err
 	}
@@ -278,18 +362,24 @@ func lifetimesFor(config string, forceDaemon bool) (store.Lifetimes, []string, e
 	return lifetimes, warnings, nil
 }
 
-// tokensConfigFor reads config's tokens: block without validating it
-// (store.ResolveLifetimes does that): the top level for a daemon config,
-// or runner.front.tokens for a rig file. A missing file or block is nil,
-// nil -- the same "not set" lifetimesFor treats as the built-ins.
-func tokensConfigFor(config string, forceDaemon bool) (*front.TokensConfig, error) {
+// tokensConfigFor reads the tokens: block without validating it
+// (store.ResolveLifetimes does that): the top level for a daemon config
+// (one file, no --set), or runner.front.tokens for rig files, every file
+// and --set merged as `flyball run` merges them (D-046). A missing single
+// file or block is nil, nil -- the same "not set" lifetimesFor treats as
+// the built-ins.
+func tokensConfigFor(configs, sets []string, forceDaemon bool) (*front.TokensConfig, error) {
+	config := configs[0]
 	daemon, err := isDaemonConfig(config, forceDaemon)
 	if err != nil {
 		return nil, err
 	}
+	if daemon && (len(configs) > 1 || len(sets) > 0) {
+		return nil, fmt.Errorf("%s is flyballd's config: a second --config or a --set applies to rig files only", config)
+	}
 	data, err := os.ReadFile(config)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if os.IsNotExist(err) && len(configs) == 1 && len(sets) == 0 {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("reading %s: %w", config, err)
@@ -303,10 +393,11 @@ func tokensConfigFor(config string, forceDaemon bool) (*front.TokensConfig, erro
 		}
 		return cfg.Tokens, nil
 	}
-	// A rig file: its extends resolved, as the front reads it (rigDocument).
-	document, err := rigDocument(config)
+	// Rig files: extends resolved, layered and --set, as the front reads
+	// them (rigDocument).
+	document, err := rigDocument(configs, sets)
 	if err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", config, err)
+		return nil, fmt.Errorf("parsing %s: %w", strings.Join(configs, ", "), err)
 	}
 	runner, _ := document["runner"].(map[string]any)
 	frontBlock, _ := runner["front"].(map[string]any)
