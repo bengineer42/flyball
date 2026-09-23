@@ -373,7 +373,15 @@ class Door:
         *,
         accept: bool = False,
     ) -> None:
-        """Serve the request if `claims` holds the verb its route needs; refuse it otherwise."""
+        """Serve the request if `claims` holds the verb its route needs; refuse it otherwise.
+
+        The principal goes on the request's state before the check, so the action audit
+        (outside the door) knows who was refused too.
+        """
+        state = scope.setdefault("state", {})
+        state["principal"] = claims
+        state["auth"] = claims  # the name routes read before the principal (stop's actor)
+        state["scheme"] = scheme
         try:
             needed = verbs.needed(scope)
         except verbs.Unmapped:
@@ -385,10 +393,6 @@ class Door:
             await _refuse(scope, receive, send, 403, detail, needed=None, accept=accept)
             return
         if verbs.allows(claims.scp, scope):
-            state = scope.setdefault("state", {})
-            state["principal"] = claims
-            state["auth"] = claims  # the name routes read before the principal (stop's actor)
-            state["scheme"] = scheme
             await self.app(scope, receive, send)
             return
         if scheme == "anonymous":

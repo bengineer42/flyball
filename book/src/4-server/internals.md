@@ -26,6 +26,12 @@ module-level instance for `uvicorn flyball.interfaces.server:app`. Routes take t
 dependencies (`RigDep`, `StoreDep`), which raise `NotReadyError` (503) when
 nothing is attached.
 
+Between the door and `RootPath` sits `Audit` (`server/audit.py`): each
+request that acts -- its verb neither read nor open -- and carries a verified
+principal is one row in the store's append-only `audit` table, written off
+the loop; an audit write that fails is logged and refuses nothing
+([Storage](../6-internals/db.md#sqlite)).
+
 The store is synchronous and serialised by one lock
 ([Storage](../6-internals/db.md#sqlite)), so a route that touches it is a plain
 `def` — FastAPI runs it on a worker thread — or, when it must be `async` (to

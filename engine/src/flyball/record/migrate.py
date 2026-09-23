@@ -41,8 +41,19 @@ def current(connection: sqlite3.Connection) -> int:
 
 
 def migrate(connection: sqlite3.Connection) -> int:
-    """Bring `connection` up to the newest migration. Returns the version now in force."""
+    """Bring `connection` up to the newest migration. Returns the version now in force.
+
+    Raises:
+        SchemaError: The store is at a version newer than any shipped here: a newer
+            flyball wrote it, and this one would misread what it cannot know.
+    """
     applied = current(connection)
+    newest = max(available(), default=0)
+    if applied > newest:
+        raise SchemaError(
+            f"the store is at schema version {applied}, newer than this flyball's {newest}:"
+            " open it with the flyball that wrote it"
+        )
     pending = sorted(v for v in available() if v > applied)
     for version in pending:
         sql = available()[version].read_text()
