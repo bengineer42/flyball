@@ -12,6 +12,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -132,10 +133,36 @@ func TestServeUILogsAfterUpstreamHasAnswered(t *testing.T) {
 // "token"), writes FLYBALL_FAKE_RUNNER (a file) when it is stopped by
 // SIGTERM, and exits on its own after FLYBALL_FAKE_LIFETIME.
 func TestMain(m *testing.M) {
+	if os.Getenv("FLYBALL_FAKE_UV") != "" {
+		os.Exit(fakeUV())
+	}
 	if marker := os.Getenv("FLYBALL_FAKE_RUNNER"); marker != "" {
 		os.Exit(fakeRunner(marker))
 	}
 	os.Exit(m.Run())
+}
+
+// fakeUV stands in for `uv run ... flyball-runner ARGS`: it runs the fake
+// runner (this binary again) as its child and waits for it, ignoring
+// SIGINT as uv does when it has no terminal -- uv leaves SIGINT to the
+// terminal, which sends it to the whole foreground process group.
+func fakeUV() int {
+	signal.Ignore(syscall.SIGINT)
+	self, _ := os.Executable()
+	args := os.Args[1:]
+	for i, a := range args { // drop "run --project DIR flyball-runner"
+		if a == "flyball-runner" {
+			args = args[i+1:]
+			break
+		}
+	}
+	child := exec.Command(self, args...)
+	child.Env = append(os.Environ(), "FLYBALL_FAKE_UV=")
+	child.Stdout, child.Stderr = os.Stdout, os.Stderr
+	if err := child.Run(); err != nil {
+		return 1
+	}
+	return 0
 }
 
 func fakeRunner(marker string) int {
@@ -161,10 +188,10 @@ func fakeRunner(marker string) int {
 	go http.Serve(ln, mux)
 	lifetime, _ := time.ParseDuration(os.Getenv("FLYBALL_FAKE_LIFETIME"))
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGTERM)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
 	select {
-	case <-sigs:
-		os.WriteFile(marker, []byte("stopped"), 0o644)
+	case sig := <-sigs:
+		os.WriteFile(marker, []byte(sig.String()), 0o644)
 		return 0
 	case <-time.After(lifetime):
 		return 0
@@ -389,5 +416,51 @@ func TestServeUIProxiesToTheRunnersOwnPort(t *testing.T) {
 				t.Fatalf("the front did not reach the runner on %s: stderr %q, /api/auth %v", fakeRunnerPort, out, saw.auth)
 			}
 		})
+	}
+}
+
+// `flyball run --uv` stopped from outside a terminal (a script, a service
+// manager): the SIGINT it is sent must reach the runner, although uv
+// ignores SIGINT -- it leaves it to the terminal's process group.
+func TestRunUVDeliversTheStopToTheRunner(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := uvCommand
+	uvCommand = self
+	defer func() { uvCommand = old }()
+	t.Setenv("FLYBALL_FAKE_UV", "1")
+	dir := t.TempDir()
+	rig := filepath.Join(dir, "rig.yaml")
+	os.WriteFile(rig, []byte("name: t\n"), 0o644)
+	marker := filepath.Join(dir, "stopped")
+	t.Setenv("FLYBALL_FAKE_RUNNER", marker)
+	t.Setenv("FLYBALL_FAKE_PORT", fakeRunnerPort)
+	t.Setenv("FLYBALL_FAKE_DOOR", "open")
+	t.Setenv("FLYBALL_FAKE_LIFETIME", "20s")
+
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- runDirect([]string{rig, "--uv", "--port", fakeRunnerPort}) }()
+	client := &http.Client{Timeout: 300 * time.Millisecond}
+	for up := false; !up; time.Sleep(50 * time.Millisecond) {
+		if time.Since(start) > 10*time.Second {
+			t.Fatal("the fake runner never answered")
+		}
+		if resp, err := client.Get("http://127.0.0.1:" + fakeRunnerPort + "/api/auth"); err == nil {
+			resp.Body.Close()
+			up = true
+		}
+	}
+	syscall.Kill(os.Getpid(), syscall.SIGINT) // as `kill -INT <flyball>` would
+	select {
+	case err := <-done:
+		got, _ := os.ReadFile(marker)
+		if string(got) != "interrupt" {
+			t.Fatalf("runDirect = %v; the runner saw %q, want interrupt", err, got)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("the runner kept running: the SIGINT never reached it")
 	}
 }

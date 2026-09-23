@@ -50,6 +50,9 @@ import (
 // variable so a test can stand a fake runner in for it.
 var runnerCommand = "flyball-runner"
 
+// uvCommand is `uv`, a variable for the same reason.
+var uvCommand = "uv"
+
 func runDirect(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: flyball run <rig-file> [--serve-ui ADDR] [--uv] [flyball-runner flags...]")
@@ -71,7 +74,13 @@ func runDirect(args []string) error {
 	if useUV {
 		projectDir := filepath.Dir(args[0])
 		uvArgs := append([]string{"run", "--project", projectDir, "flyball-runner"}, args...)
-		cmd = exec.Command("uv", uvArgs...)
+		cmd = exec.Command(uvCommand, uvArgs...)
+		// uv ignores SIGINT: it leaves it to the terminal, which sends it to
+		// the whole foreground process group, runner included. Stopped from
+		// anywhere else (a script, a service manager) the runner would never
+		// hear it. So uv and the runner get a process group of their own, and
+		// a stop goes to the group -- once, whoever sent it.
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	} else {
 		cmd = exec.Command(runnerCommand, args...)
 	}
@@ -96,7 +105,11 @@ func runDirect(args []string) error {
 		sig := <-sigs
 		fmt.Fprintln(os.Stderr, "flyball: stopping...")
 		signal.Stop(sigs) // a second Ctrl+C kills the process the normal way, doesn't hang
-		_ = cmd.Process.Signal(sig)
+		if cmd.SysProcAttr != nil && cmd.SysProcAttr.Setpgid {
+			_ = syscall.Kill(-cmd.Process.Pid, sig.(syscall.Signal))
+		} else {
+			_ = cmd.Process.Signal(sig)
+		}
 	}()
 
 	uiCtx, cancelUI := context.WithCancel(context.Background())
