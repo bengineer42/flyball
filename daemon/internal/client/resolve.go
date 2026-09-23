@@ -6,6 +6,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -60,7 +61,13 @@ func Resolve(server string) (Target, error) {
 // runner registered, or one marked default (layer 1's default_server),
 // else error listing the names.
 func ResolveDefault(daemonURL string) (Target, error) {
-	req, err := http.NewRequest("GET", strings.TrimRight(daemonURL, "/")+"/api/runners", nil)
+	return ResolveDefaultContext(context.Background(), daemonURL)
+}
+
+// ResolveDefaultContext is ResolveDefault with the list call bound to ctx
+// (`flyball stop` gives it a deadline: a stop is never blockable).
+func ResolveDefaultContext(ctx context.Context, daemonURL string) (Target, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(daemonURL, "/")+"/api/runners", nil)
 	if err != nil {
 		return Target{}, err
 	}

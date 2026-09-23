@@ -8,6 +8,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,10 +19,18 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"flyballd/internal/client"
 	"flyballd/internal/frontwire"
 )
+
+// stopTimeout bounds each HTTP call a stop makes (resolving the target,
+// POST /api/rig/stop, flyballd's rig list): connect, request and the whole
+// response. A front that accepts and never answers counts as unreachable
+// -- the stop falls through to the signal, or says how to send one -- so
+// nothing on the network can block a stop.
+var stopTimeout = 5 * time.Second
 
 func runStopCommand(server, token string, args []string) error {
 	all, args := popBool(args, "--all")
@@ -51,6 +60,7 @@ func runStopCommand(server, token string, args []string) error {
 		pid = n
 	}
 
+	var unreachable error
 	// --pid is the direct escape hatch (a bare runner has no front at
 	// all to try first, and no runner.lock either): skip the HTTP route
 	// and signal straight away.
@@ -59,19 +69,26 @@ func runStopCommand(server, token string, args []string) error {
 		if name != "" {
 			addressed = name
 		}
-		target, err := resolveTarget(addressed)
+		ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)
+		target, err := resolveTargetContext(ctx, addressed)
 		if err == nil {
 			target = target.WithToken(token)
-			refused, postErr := postStop(target, reason)
+			var refused bool
+			refused, err = postStop(ctx, target, reason)
 			switch {
-			case postErr == nil:
+			case err == nil:
+				cancel()
 				return nil
 			case refused:
-				return postErr
+				cancel()
+				return err
 			}
-			// A network-level failure (dial/timeout/refused): fall
-			// through to the signal fallback below rather than giving up.
 		}
+		cancel()
+		// A network-level failure (dial, refused, no answer within
+		// stopTimeout): fall through to the signal fallback below rather
+		// than giving up.
+		unreachable = err
 	}
 
 	switch {
@@ -82,6 +99,7 @@ func runStopCommand(server, token string, args []string) error {
 		if err != nil {
 			return err
 		}
+		fmt.Fprintf(os.Stderr, "the front could not be reached (%v); signalling the runner\n", unreachable)
 		return signalStop(p)
 	}
 
@@ -94,12 +112,13 @@ func runStopCommand(server, token string, args []string) error {
 		if fi, err := os.Stat(name); err == nil && !fi.IsDir() {
 			if dir, ok := frontwire.RunFrontDir(name); ok {
 				if p, err := pidFromLockFile(dir + "/runner.lock"); err == nil {
+					fmt.Fprintf(os.Stderr, "the front could not be reached (%v); signalling the runner\n", unreachable)
 					return signalStop(p)
 				}
 			}
 		}
 	}
-	return fmt.Errorf("the front could not be reached; pass --front-dir DIR (its runner.lock names the pid) or --pid N to stop the runner directly")
+	return fmt.Errorf("the front could not be reached (%v); pass --front-dir DIR (its runner.lock names the pid) or --pid N to stop the runner directly", unreachable)
 }
 
 // stopAllRigs is `flyball stop --all` (D-037): the rig stop -- POST
@@ -114,7 +133,9 @@ func runStopCommand(server, token string, args []string) error {
 func stopAllRigs(token, reason string) error {
 	base := daemonURL()
 	daemon := client.Target{BaseURL: base}.WithToken(token)
-	req, err := http.NewRequest("GET", base+"/api/rigs", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", base+"/api/rigs", nil)
 	if err != nil {
 		return err
 	}
@@ -146,7 +167,10 @@ func stopAllRigs(token, reason string) error {
 	for _, rig := range rigs {
 		fmt.Printf("%s:\n", rig.Name)
 		target := client.Target{BaseURL: base, Prefix: rig.RootPath}.WithToken(token)
-		if _, err := postStop(target, reason); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)
+		_, err := postStop(ctx, target, reason)
+		cancel()
+		if err != nil {
 			fmt.Printf("  software stop refused or failed: %v\n", err)
 			failed = append(failed, rig.Name)
 		}
@@ -161,14 +185,15 @@ func stopAllRigs(token, reason string) error {
 // answered (a real refusal, e.g. missing OPERATE, or any other >=400):
 // the caller should report that error, not fall back to a signal. A nil
 // error with refused false is success (the report was printed already).
-func postStop(t client.Target, reason string) (refused bool, err error) {
+// ctx bounds the whole exchange (stopTimeout).
+func postStop(ctx context.Context, t client.Target, reason string) (refused bool, err error) {
 	body := map[string]string{}
 	if reason != "" {
 		body["reason"] = reason
 	}
 	data, _ := json.Marshal(body)
 	url := strings.TrimRight(t.BaseURL, "/") + t.Prefix + "/api/rig/stop"
-	req, err := http.NewRequest("POST", url, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
 	if err != nil {
 		return false, err
 	}

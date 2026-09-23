@@ -263,7 +263,8 @@ manual, for everyone at once. Anyone holding `operate` can do it:
 - `POST /api/rig/stop` with an optional `{"reason": "…"}`;
 - the MCP tool `stop_rig`, in `operate` mode;
 - `SIGUSR1` to the runner's process, which needs no front, no credential
-  and no network: when the front cannot be reached, `flyball stop` sends
+  and no network: when the front cannot be reached or does not answer
+  within 5 seconds, `flyball stop` sends
   it to the pid in the runner's lock file (`--front-dir DIR`, `--pid N`, or
   the rig file `flyball run` was started with).
 
