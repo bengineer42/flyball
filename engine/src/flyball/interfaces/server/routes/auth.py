@@ -168,8 +168,8 @@ def read_auth(request: Request) -> AuthInfo:
 async def login(request: Request, response: Response, body: Login) -> AuthInfo:
     """Trade the token for a session cookie, so the browser keeps no secret.
 
-    A wrong token is 401 after a short pause; ten wrong ones in a minute from one address
-    are 429 until the minute is up.
+    A wrong token is 401 after a short pause; ten different wrong ones in a minute from one
+    address (or a hundred wrong attempts) are 429 until the minute is up.
     """
     door = _door(request)
     if door.open:
@@ -182,7 +182,7 @@ async def login(request: Request, response: Response, body: Login) -> AuthInfo:
             headers={"Retry-After": "60"},
         )
     if not door.is_token(body.token):
-        door.attempts.failure(address)
+        door.attempts.failure(address, body.token)
         if door.delay:
             await asyncio.sleep(door.delay)
         raise HTTPException(status_code=401, detail="Wrong token")

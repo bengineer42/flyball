@@ -22,12 +22,21 @@ link the runner prints at start (`/api/auth/link?n=`), for a session cookie held
 With neither, a caller is anonymous and gets what `runner.auth.anonymous` says: nothing, or
 read. With no token at all the runner is *open*: whoever reaches it gets every verb, and it
 answers only a loopback `Host` (`localhost`, `127.0.0.1`, `[::1]`) so a page whose name was
-pointed at loopback (DNS rebinding) is refused -- unless the run opted into serving it open
-on the network (`--insecure-open`). In every bare mode a request that acts (any method but
-GET, HEAD and OPTIONS, and every websocket) with an `Origin` that is not the runner's own,
-or `null`, is refused -- unless it brings the token or a principal, which a page on another
-site cannot have. `?token=` is refused: nothing secret goes in a URL but the one-time nonce.
-The runner's own MCP calls carry a principal it signed with its in-memory key.
+pointed at loopback (DNS rebinding) is refused. Served open on the network by the run's
+choice (`--insecure-open`), it answers a *known* name on every route: an IP address,
+`localhost`, or this machine's own name (`hostname`, `<hostname>.local`) -- names a page
+elsewhere cannot own. An anonymous caller on a runner with a token is held to the same
+names on everything that needs a verb; `/api/auth` and the UI's own files answer any name,
+so a person can still sign in, and a credential is served by any name (D-043). In every bare
+mode a request that acts (any method but GET, HEAD and OPTIONS, and every websocket) with an
+`Origin` that is not the runner's own, or `null`, is refused -- unless it brings the token
+or a principal, which a page on another site cannot have. `?token=` is refused: nothing
+secret goes in a URL but the one-time nonce. The runner's own MCP calls carry a principal it
+signed with its in-memory key.
+
+A wrong token, as a login or a Bearer, counts against the caller's address (`Attempts`):
+ten *different* wrong tokens in a minute, or a hundred wrong attempts of any kind, and every
+Bearer and login from that address is 429 until the count ages below both.
 """
 
 from __future__ import annotations
@@ -35,12 +44,16 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import ipaddress
+import logging
 import secrets
+import socket
 import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
+from itertools import islice
 from typing import Any, Final, Literal
 from urllib.parse import parse_qs, urlsplit
 
@@ -62,10 +75,15 @@ from flyball.runtime.config import AuthConfig
 Scheme = Literal["local", "anonymous", "session", "token", "proxy"]
 """How a caller got in: AuthInfo v2's `scheme`."""
 
+log = logging.getLogger(__name__)
+
 # The names an open runner answers to: loopback, and nothing a page elsewhere can own.
 LOOPBACK: Final = ("localhost", "127.0.0.1", "::1")
 # The methods that change nothing, so need no `Origin` check; everything else acts.
 SAFE_METHODS: Final = ("GET", "HEAD", "OPTIONS")
+SHORT_TOKEN: Final = 22
+"""A bare token shorter than this is warned about at start: `secrets.token_urlsafe(16)`'s
+length, about 128 bits."""
 SESSION_S: Final = 12 * 3600
 """How long a bare runner's session cookie lasts."""
 LINK_S: Final = 600
@@ -119,6 +137,32 @@ def loopback(host: str) -> bool:
     return authority is not None and authority[0] in LOOPBACK
 
 
+def own_names() -> frozenset[str]:
+    """This machine's names: `hostname`, its first label, and each with `.local` (mDNS)."""
+    name = socket.gethostname().lower()
+    names = {name, name.split(".")[0]} - {""}
+    return frozenset(names | {f"{n}.local" for n in names})
+
+
+def known_host(host: str, names: frozenset[str]) -> bool:
+    """Whether a `Host` header is a name no page elsewhere can own, any port.
+
+    An IP address, a loopback name, or one of `names` (this machine's own). Anything else
+    is a DNS name, which whoever owns it may point at this runner (DNS rebinding).
+    """
+    authority = _authority(host, "http")
+    if authority is None:
+        return False
+    name = authority[0]
+    if name in LOOPBACK or name in names:
+        return True
+    try:
+        ipaddress.ip_address(name)
+    except ValueError:
+        return False
+    return True
+
+
 def acts(scope: Any) -> bool:
     """Whether a request can change something: a websocket, or any method but a safe one."""
     return scope["type"] == "websocket" or scope.get("method") not in SAFE_METHODS
@@ -147,15 +191,32 @@ def same_origin(origin: str | None, host: str, scheme: str) -> bool:
 
 
 class Attempts:
-    """Slows a guesser: at most `limit` wrong tokens a minute from one address.
+    """Slows a guesser: `limit` different wrong tokens, or `flood` wrong attempts, a minute.
 
-    A bare runner counts both ways of guessing, `POST /api/auth/login` and a wrong
-    `Authorization: Bearer`; while an address is blocked, both are 429 for it.
+    Per address, over a rolling `window`. A bare runner counts both ways of guessing,
+    `POST /api/auth/login` and a wrong `Authorization: Bearer`; while an address is
+    blocked, both are 429 for it, the right token included (else the answer would tell it
+    apart). Different values, because a guesser never repeats one and a script left with an
+    old token repeats nothing else: it is one guess, and never locks its address out.
+    `flood` still bounds the repeats.
+
+    A blocked request is never counted (`blocked` only lets the counts fall, as they age),
+    so a block lasts until the window has passed over enough of what caused it.
+
+    At most `cap` addresses are held, so a caller rotating addresses (an IPv6 prefix has
+    plenty) cannot grow it without bound: each failure sweeps the addresses whose window
+    has passed, and at the cap the least recently wrong address that is not blocked goes.
     """
 
-    def __init__(self, limit: int = 10, window: float = 60.0) -> None:
-        self.limit, self.window = limit, window
+    def __init__(
+        self, limit: int = 10, window: float = 60.0, flood: int = 100, cap: int = 4096
+    ) -> None:
+        self.limit, self.window, self.flood, self.cap = limit, window, flood, cap
         self.failed: dict[str, deque[float]] = {}
+        """By address: when each wrong attempt came, oldest first; the least recently wrong
+        address first."""
+        self.values: dict[str, dict[bytes, float]] = {}
+        """By address: each different wrong token's digest, and when it last came."""
 
     def blocked(self, address: str, now: float | None = None) -> bool:
         now = time.monotonic() if now is None else now
@@ -164,13 +225,56 @@ class Attempts:
             return False
         while recent and now - recent[0] > self.window:
             recent.popleft()
-        if not recent:
+        if not recent:  # every value came at one of these times, so none is left either
             del self.failed[address]
-        return len(recent) >= self.limit
+            self.values.pop(address, None)
+            return False
+        seen = self.values.get(address, {})
+        for digest in [d for d, at in seen.items() if now - at > self.window]:
+            del seen[digest]
+        return len(seen) >= self.limit or len(recent) >= self.flood
 
-    def failure(self, address: str, now: float | None = None) -> None:
+    def failure(self, address: str, value: str, now: float | None = None) -> None:
+        """Count a wrong token, `value`, from `address`; only its digest is kept."""
         now = time.monotonic() if now is None else now
-        self.failed.setdefault(address, deque()).append(now)
+        recent = self.failed.pop(address, None) or deque()
+        recent.append(now)
+        self.failed[address] = recent  # to the end: the most recently wrong
+        self.values.setdefault(address, {})[_digest(value)] = now
+        self._sweep(now)
+
+    def _sweep(self, now: float) -> None:
+        """Forget the addresses whose window has passed, then one unblocked one over `cap`.
+
+        Oldest first, stopping at the first live address: the cost is what goes.
+        """
+        stale = []
+        for address, recent in self.failed.items():
+            if now - recent[-1] <= self.window:
+                break
+            stale.append(address)
+        for address in stale:
+            self._forget(address)
+        if len(self.failed) <= self.cap:
+            return
+        # Over by one at most: look at the oldest few for one that is not blocked.
+        for address in list(islice(self.failed, 64)):
+            if not self.blocked(address, now):
+                self._forget(address)
+                return
+        self._forget(next(iter(self.failed)))  # all of those blocked: the oldest still goes
+
+    def _forget(self, address: str) -> None:
+        self.failed.pop(address, None)
+        self.values.pop(address, None)
+
+
+def _needs_a_verb(scope: Any) -> bool:
+    """Whether a request is the rig's (a verb or refused), not the door's or the UI's files."""
+    try:
+        return verbs.needed(scope) is not None
+    except verbs.Unmapped:
+        return True
 
 
 def _address(scope: Any) -> str:
@@ -201,6 +305,8 @@ class Door:
     open_network: bool = False
     key: bytes = field(default=b"", init=False)
     aud: str = field(default="", init=False)
+    names: frozenset[str] = field(default=frozenset(), init=False)
+    """This machine's own names (`own_names`), known to a caller with no credential."""
     attempts: Attempts = field(default_factory=Attempts, init=False)
     _sessions: dict[bytes, _Session] = field(default_factory=dict, init=False)
     _links: dict[bytes, float] = field(default_factory=dict, init=False)
@@ -213,9 +319,19 @@ class Door:
         else:
             self.key = secrets.token_bytes(32)
             self.aud = f"bare-{secrets.token_hex(4)}"
-        # Open and served on the network by the user's choice: any `Host` is its own name.
+        # Open and served on the network by the user's choice: a known name, not only loopback.
         self.open_network = self.open and self.open_network
+        self.names = own_names()
         self._token_sid = secrets.token_urlsafe(12)
+        token = self.config.token
+        if self.fronted is None and token and len(token) < SHORT_TOKEN:
+            log.warning(
+                "the runner's token is %d characters: a short token can be guessed; use at"
+                " least %d random ones (python -c 'import secrets;"
+                " print(secrets.token_urlsafe(16))'), or run it under `flyball run`",
+                len(token),
+                SHORT_TOKEN,
+            )
 
     @property
     def open(self) -> bool:
@@ -300,8 +416,8 @@ class Door:
             ), "local"
         auth = headers.get(b"authorization", b"").decode(errors="replace")
         if auth.lower().startswith("bearer "):
-            if not self.is_token(auth[7:].strip()):
-                self.attempts.failure(_address(scope))
+            if not self.is_token(given := auth[7:].strip()):
+                self.attempts.failure(_address(scope), given)
                 return "Wrong token"
             return self.claims(scope, "token:bare", self._token_sid, everything, "service"), "token"
         if "token" in parse_qs(scope.get("query_string", b"").decode(errors="replace")):
@@ -355,6 +471,14 @@ class Door:
             )
             await _refuse(scope, receive, send, 403, detail)
             return
+        if self.open and not known_host(host, self.names):  # --insecure-open: every route
+            detail = (
+                f"This runner has no token, so it answers only {self._known()} -- not a DNS"
+                " name, which a page elsewhere could point at it; give it --token to reach it"
+                " by another name, or run it under `flyball run`"
+            )
+            await _refuse(scope, receive, send, 403, detail)
+            return
         signed = headers.get(HEADER.encode())
         if signed is not None:  # the runner's own MCP call, signed with its in-memory key
             try:
@@ -374,6 +498,19 @@ class Door:
             await _refuse(scope, receive, send, 401, resolved)
             return
         claims, scheme = resolved
+        if (
+            scheme == "anonymous"
+            and claims.scp  # with nothing to serve, the sign-in 401 below says more
+            and _needs_a_verb(scope)
+            and not known_host(host, self.names)
+        ):
+            detail = (
+                f"Without a credential this runner answers only {self._known()}; to reach it"
+                " by another name, sign in (POST /api/auth/login with the token, or the link"
+                " the runner printed) or send the token (Authorization: Bearer ...)"
+            )
+            await _refuse(scope, receive, send, 403, detail)
+            return
         origin = headers.get(b"origin")
         if (
             scheme != "token"
@@ -388,6 +525,10 @@ class Door:
             await _refuse(scope, receive, send, 403, detail)
             return
         await self._admit(scope, receive, send, claims, scheme)
+
+    def _known(self) -> str:
+        names = ", ".join(sorted(self.names))
+        return f"an IP address, localhost or this machine's name ({names})"
 
     async def _admit(
         self,

@@ -86,9 +86,10 @@ The stdio server takes `--token` or `FLYBALL_TOKEN`. A bare runner with no
 token answers only to `localhost`, `127.0.0.1` and `[::1]`, and its MCP
 transport checks the same itself (the MCP SDK's DNS rebinding protection:
 `Host` and any `Origin` on a loopback name, else `421` / `403`), unless it
-was served open on the network by `--insecure-open`. Behind a front, or
-with a token, that check is off and the door's `Host` and `Origin` rules
-apply instead ([Authentication](api.md#authentication)).
+was served open on the network by `--insecure-open`, where the door takes
+only an IP address, a loopback name or the machine's own name. Behind a
+front, or with a token, that check is off and the door's `Host` and `Origin`
+rules apply instead ([Authentication](api.md#authentication)).
 
 Every tool call is recorded like any other request that needs more than
 `read`: in the runner's audit, as the caller, `via: mcp`.

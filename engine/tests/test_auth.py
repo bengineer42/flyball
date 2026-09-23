@@ -272,8 +272,8 @@ def test_the_old_login_body_is_refused(secured):
 
 
 def test_ten_wrong_tokens_in_a_minute_lock_the_door(secured):
-    for _ in range(10):
-        assert secured.post("/api/auth/login", json={"token": "no"}).status_code == 401
+    for i in range(10):
+        assert secured.post("/api/auth/login", json={"token": f"no{i}"}).status_code == 401
     assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 429
 
 
@@ -346,6 +346,114 @@ def test_the_link_honours_the_root_path(rig):
 
 
 # endregion
+
+
+def test_a_stale_token_poller_never_locks_its_address_out(secured):
+    """One wrong token, again and again, is one guess: a script left with an old token.
+
+    Every wrong attempt used to count, and a 429 was never counted, so when the oldest aged
+    out one request got through, failed and re-blocked: the address stayed locked for as long
+    as the script polled, the correct token beside it included.
+    """
+    stale = {"Authorization": "Bearer an-old-token"}
+    for _ in range(45):  # 90 in well under a minute; the flood limit is 100
+        assert secured.get("/api/health", headers=stale).status_code == 401
+        assert secured.post("/api/auth/login", json={"token": "an-old-token"}).status_code == 401
+    assert secured.get("/api/health", headers=BEARER).status_code == 200
+
+
+def test_a_flood_of_one_wrong_token_is_still_blocked(secured):
+    """The raw limit: 100 wrong attempts a minute from one address, whatever they are."""
+    stale = {"Authorization": "Bearer an-old-token"}
+    for _ in range(100):
+        assert secured.get("/api/health", headers=stale).status_code == 401
+    assert secured.get("/api/health", headers=stale).status_code == 429
+    assert secured.get("/api/health", headers=BEARER).status_code == 429
+    assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 429
+
+
+def test_login_and_bearer_share_the_distinct_count(secured):
+    for i in range(5):
+        assert secured.post("/api/auth/login", json={"token": f"no{i}"}).status_code == 401
+        wrong = secured.get("/api/health", headers={"Authorization": f"Bearer x{i}"})
+        assert wrong.status_code == 401
+    assert secured.get("/api/health", headers=BEARER).status_code == 429
+
+
+def test_the_counts_are_a_rolling_minute():
+    attempts = auth_module.Attempts()
+    for i in range(9):
+        attempts.failure("a", f"guess{i}", now=0.0)
+    assert not attempts.blocked("a", now=1.0)
+    attempts.failure("a", "guess9", now=30.0)
+    assert attempts.blocked("a", now=30.0), "ten distinct in a minute"
+    assert attempts.blocked("b", now=30.0) is False, "per address"
+    assert not attempts.blocked("a", now=61.0), "the first nine aged out"
+    attempts.failure("a", "guess10", now=61.0)
+    assert not attempts.blocked("a", now=61.0), "two distinct in the last minute"
+    assert not attempts.blocked("a", now=200.0) and "a" not in attempts.failed
+
+
+def test_a_poller_every_few_seconds_is_never_blocked():
+    attempts = auth_module.Attempts()
+    for tick in range(400):  # every 3 s for 20 minutes, the same stale token
+        now = tick * 3.0
+        assert not attempts.blocked("a", now=now), now
+        attempts.failure("a", "stale", now=now)
+
+
+def test_a_flood_blocks_until_it_ages_out():
+    attempts = auth_module.Attempts()
+    for i in range(100):
+        attempts.failure("a", "same", now=i * 0.1)
+    assert attempts.blocked("a", now=10.0)
+    assert attempts.blocked("a", now=60.0)
+    assert not attempts.blocked("a", now=70.1), "blocked() only lets the count fall"
+
+
+def test_rotating_addresses_cannot_grow_the_count_without_bound():
+    """One wrong token from each of 10 000 addresses (an IPv6 /64 has plenty): bounded."""
+    attempts = auth_module.Attempts()
+    for i in range(10_000):
+        attempts.failure(f"2001:db8::{i:x}", "guess", now=i * 0.001)
+    assert len(attempts.failed) <= 4096 and len(attempts.values) <= 4096
+
+
+def test_addresses_whose_minute_has_passed_are_swept():
+    attempts = auth_module.Attempts()
+    for i in range(100):
+        attempts.failure(f"10.0.0.{i}", "guess", now=0.0)
+    attempts.failure("10.0.1.1", "guess", now=120.0)
+    assert list(attempts.failed) == ["10.0.1.1"] and list(attempts.values) == ["10.0.1.1"]
+
+
+def test_at_the_cap_a_blocked_address_stays_blocked():
+    attempts = auth_module.Attempts()
+    for i in range(10):
+        attempts.failure("192.0.2.1", f"guess{i}", now=0.0)
+    for i in range(10_000):
+        attempts.failure(f"2001:db8::{i:x}", "guess", now=1.0 + i * 0.001)
+    assert attempts.blocked("192.0.2.1", now=20.0), "rotation must not unblock a guesser"
+
+
+@pytest.mark.parametrize(
+    ("auth", "fronted", "warned"),
+    [
+        (AuthConfig(token="s3cret"), False, True),
+        (AuthConfig(token="x" * 21), False, True),
+        (AuthConfig(token="x" * 22), False, False),
+        (AuthConfig(), False, False),
+        (AuthConfig(token="s3cret"), True, False),
+    ],
+)
+def test_a_short_bare_token_is_warned_about_at_start(auth, fronted, warned, caplog):
+    with caplog.at_level("WARNING", logger="flyball.interfaces.server.auth"):
+        create_app(auth, front=Fronted(KEY, AUD) if fronted else None)
+    said = [r.getMessage() for r in caplog.records if "characters" in r.getMessage()]
+    assert bool(said) is warned, said
+    if warned:
+        assert "22" in said[0] and auth.token not in said[0], "the token is never logged"
+
 
 # region Bare: anonymous read, and the runner's own principal
 

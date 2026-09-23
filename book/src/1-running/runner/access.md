@@ -299,7 +299,11 @@ dashboard too when one is built beside it:
   the equipment uncontrolled -- but binds `127.0.0.1` on the same port and
   prints one warning line. It answers only the names `localhost`,
   `127.0.0.1` and `[::1]`. `--insecure-open` (or `FLYBALL_INSECURE_OPEN=1`)
-  serves it where asked, for that run only.
+  serves it where asked, for that run only, and then it answers, on every
+  route, an IP address, `localhost`, or the machine's own name
+  (`hostname`, and `<hostname>.local`) -- never another DNS name, which a
+  web page elsewhere could point at it (DNS rebinding). Anything else is
+  `403`, naming the names it takes.
 - **A token** (`runner.auth.token`, `--token`, `--token-file PATH`,
   `FLYBALL_TOKEN`): machines send `Authorization: Bearer T`. For a person,
   the runner prints a one-time link at start:
@@ -312,15 +316,23 @@ dashboard too when one is built beside it:
     dashboard with the nonce gone from the address bar. `POST
     /api/auth/link` with the token makes another. The login page also takes
     the token pasted in. A token never goes in a URL: `?token=` is refused.
-    Ten wrong tokens in a minute from one address, pasted or sent as a
-    bearer, and that address gets `429` for both until the oldest is a
-    minute old -- the right token included, so a script sharing the
-    address waits too.
+    Ten different wrong tokens in a minute from one address, pasted or
+    sent as a bearer, or a hundred wrong attempts of any kind, and that
+    address gets `429` for both until the count has aged below both
+    limits -- the right token included, so a script sharing the address
+    waits too. A script left polling with an old token is one wrong token,
+    however often it asks, and locks no one out. A token shorter than 22
+    characters gets a warning at start: make one with
+    `python -c 'import secrets; print(secrets.token_urlsafe(16))'`.
     A `--token-file` that cannot be read leaves the runner with a token
     nobody knows, so nothing gets in until it is restarted with a readable
     one.
 - `runner.auth.anonymous` (`--anonymous`, `FLYBALL_ANONYMOUS`): `read` lets
-  anyone watch.
+  anyone watch -- by an IP address, `localhost` or the machine's own name,
+  as for `--insecure-open`. By another DNS name anonymous gets `403` on
+  everything that needs a verb, while `/api/auth`, the sign-in and the
+  dashboard's own files answer any name, so a person can sign in and a
+  session or the token is served by any name.
 
 A bare runner has no passwords. `runner.auth.password`, `.session` and
 `.secret`, `--password`, `--session`, `FLYBALL_PASSWORD` and
@@ -330,6 +342,11 @@ serves loopback only. The way up from a bare runner is `flyball run`.
 
 A bare runner with a token that serves beyond loopback warns at start that
 the token and cookies cross the network in the clear; it does no TLS.
+
+A bare runner does not belong behind a reverse proxy: it takes the
+client's address from the connection, so behind one every client shares
+the proxy's address, and one client's wrong tokens lock out all of them.
+Behind a proxy, use `flyball run`.
 
 ## Stopping the rig
 
