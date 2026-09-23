@@ -313,6 +313,44 @@ func TestPeerAllowList(t *testing.T) {
 
 func noLocalAddrs() ([]netip.Addr, error) { return nil, nil }
 
+// sec F3: a from: range wider than one host (/32, /128) lets every host in
+// it assert any identity with no secret. It is allowed (a proxy whose
+// address changes, in a container network, needs one) but warned of, once,
+// at start; a host route, or a range with secret_file:, is not.
+func TestWideFromRangeWarns(t *testing.T) {
+	secret := filepath.Join(t.TempDir(), "proxy-secret")
+	if err := os.WriteFile(secret, []byte("s3cret-s3cret-s3cret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		from   front.StringList
+		secret string
+		warn   string // "" = no warning
+	}{
+		{front.StringList{"10.0.0.0/8"}, "", "10.0.0.0/8"},
+		{front.StringList{"10.9.9.9", "192.168.1.0/24", "fd00::/64"}, "", "192.168.1.0/24, fd00::/64"},
+		{front.StringList{"10.9.9.8/31"}, "", "10.9.9.8/31"},
+		{front.StringList{"10.9.9.9"}, "", ""},
+		{front.StringList{"10.9.9.9/32", "fd00::5", "::ffff:10.9.9.7/128"}, "", ""},
+		{front.StringList{"10.0.0.0/8"}, secret, ""},
+	} {
+		var buf strings.Builder
+		log := slog.New(slog.NewTextHandler(&buf, nil))
+		_, err := New(&front.ProxyConfig{Preset: "authelia", From: c.from, SecretFile: c.secret},
+			front.Plan{Listen: "0.0.0.0:8000"}, Options{Logger: log, LocalAddrs: noLocalAddrs})
+		if err != nil {
+			t.Fatalf("from %v: %v", c.from, err)
+		}
+		out := buf.String()
+		switch {
+		case c.warn == "" && out != "":
+			t.Errorf("from %v: warned %q, want nothing", c.from, out)
+		case c.warn != "" && (strings.Count(out, "\n") != 1 || !strings.Contains(out, "level=WARN") || !strings.Contains(out, c.warn)):
+			t.Errorf("from %v: logged %q, want one warning naming %s", c.from, out, c.warn)
+		}
+	}
+}
+
 // Shapes that cannot be vouched for are refused at start.
 func TestUnsignedShapeRefusals(t *testing.T) {
 	secret := filepath.Join(t.TempDir(), "s")

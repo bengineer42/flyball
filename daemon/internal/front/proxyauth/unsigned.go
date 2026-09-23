@@ -104,6 +104,21 @@ func newUnsigned(c *front.ProxyConfig, p front.Plan, o Options, hs headerSet) (f
 		return nil, fmt.Errorf("from: %s includes a loopback or this host's own address, which means every local process (F15); add secret_file: and have the proxy send it as %s",
 			strings.Join(from, ", "), SecretHeader)
 	}
+	if u.secret == nil {
+		// A range is allowed (a proxy in a container network changes
+		// address), but anything wider than one host lets every host in it
+		// assert any identity: say so once, at start (sec F3).
+		var wide []string
+		for _, pr := range u.peers {
+			if !pr.IsSingleIP() {
+				wide = append(wide, pr.String())
+			}
+		}
+		if len(wide) > 0 {
+			o.Logger.Warn(fmt.Sprintf("proxy from: %s is more than one host, and every host in it can assert any identity"+
+				" to this front; name the proxy's own address, or add secret_file:", strings.Join(wide, ", ")))
+		}
+	}
 	for _, name := range append([]string{hs.user, hs.groups, hs.name, hs.email, SecretHeader}, hs.extra...) {
 		if name != "" {
 			canon := textproto.CanonicalMIMEHeaderKey(name)
