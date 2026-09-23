@@ -4,8 +4,8 @@
 Nothing in it knows what is simulated; an application composes them into
 its own simulator, and the library's tests use them directly. It is its
 own top-level package (a sibling of `engine/`, not nested under it), with
-zero third-party dependencies of its own -- `flyball[web]` pulls it in by
-default, so `pip install flyball[web]` alone can already run a simulated rig.
+zero third-party dependencies of its own -- `flyball[server]` pulls it in by
+default, so `pip install flyball[server]` alone can already run a simulated rig.
 
 | | |
 | --- | --- |

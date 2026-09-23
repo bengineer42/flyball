@@ -43,7 +43,7 @@ worktree's own `engine/` and `ui/` instead of `rig-up.sh`, e.g.:
 ```bash
 S=/tmp/flyball-check; mkdir -p "$S/logs" "$S/stores"
 rig=$(realpath examples/simulated/furnace.yaml)   # from the worktree root
-(cd engine && setsid nohup uv run --extra web --extra cli flyball-runner "$rig" --port 8091 \
+(cd engine && setsid nohup uv run --extra server --extra cli flyball-runner "$rig" --port 8091 \
   --store "$S/stores/furnace.sqlite" > "$S/logs/furnace-runner.log" 2>&1 &)
 (cd ui && FLYBALL_URL="http://127.0.0.1:8091" setsid nohup npx vite \
   --config apps/dashboard/vite.config.ts apps/dashboard --port 5291 --strictPort \
