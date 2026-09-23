@@ -20,6 +20,7 @@ import (
 	"flyballd/internal/endpoint/frontdir"
 	"flyballd/internal/front"
 	"flyballd/internal/front/store"
+	"flyballd/internal/frontwire"
 	"flyballd/internal/grants"
 
 	"gopkg.in/yaml.v3"
@@ -237,17 +238,21 @@ func tokensConfigFor(config string) (*front.TokensConfig, error) {
 	return cfg.Runner.Front.Tokens, nil
 }
 
-// tokensPathFor is where --config PATH's tokens.json lives (§WP0-4):
+// tokensPathFor is where --config PATH's tokens.json lives (§WP0-4), using
+// the same directories the two fronts themselves use
+// (daemon/internal/frontwire), so a running front and this offline command
+// always agree on the file:
 //
-//   - PATH looks like flyballd.yaml (has a manifests_dir key, the layer-1
-//     key no rig file or `flyball run` config has) -> its data_dir
-//     ("data" by default, matching config.DefaultDaemonConfig, resolved
-//     the same way flyballd itself resolves it: relative to the process's
-//     cwd, not to PATH) + "front/tokens.json";
-//   - otherwise PATH is a rig file -> the `flyball run` front-id path,
-//     $XDG_STATE_HOME/flyball/front-<id>/tokens.json, id =
-//     frontdir.FrontID(the absolute rig path), the same id `flyball run`
-//     computes from its own first rig file.
+//   - PATH looks like flyballd.yaml (has one of its own top-level keys,
+//     none required alone -- see looksLikeDaemonConfig) -> its data_dir
+//     ("data" by default, matching config.DefaultDaemonConfig) ->
+//     frontwire.DaemonDir(dataDir), the same absolute directory
+//     `flyballd --config flyballd.yaml` opens its tokens file in,
+//     whatever the process's cwd is;
+//   - otherwise PATH is a rig file -> frontwire.RunDir(id), id =
+//     frontdir.FrontID(the absolute rig path), the same id and
+//     $XDG_STATE_HOME-relative directory `flyball run` uses for its
+//     front.
 //
 // This mirrors flyballd's own `--config` flag (cmd/flyballd/main.go) by
 // name and shape deliberately: `flyball token create --config
@@ -270,25 +275,24 @@ func tokensPathFor(config string) (string, error) {
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return "", fmt.Errorf("parsing %s: %w", config, err)
 		}
-		return filepath.Join(cfg.DataDir, "front", "tokens.json"), nil
+		return filepath.Join(frontwire.DaemonDir(cfg.DataDir), frontwire.TokensFile), nil
 	}
 	id, err := frontdir.FrontID(config)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", config, err)
 	}
-	stateHome := os.Getenv("XDG_STATE_HOME")
-	if stateHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("finding a state directory: %w", err)
-		}
-		stateHome = filepath.Join(home, ".local", "state")
-	}
-	return filepath.Join(stateHome, "flyball", "front-"+id, "tokens.json"), nil
+	return filepath.Join(frontwire.RunDir(id), frontwire.TokensFile), nil
 }
 
-// looksLikeDaemonConfig: config parses as YAML with a top-level
-// manifests_dir key, the layer-1-only marker (config.DaemonConfig).
+// daemonOnlyKeys are flyballd.yaml's own top-level keys
+// (config.daemonKeys, duplicated here: cmd/flyball does not import the
+// internal/config package). None is required, so a file with any one of
+// them, but none of a rig file's keys such as devices or runner, is a
+// daemon config; a rig file has none of them at its top level.
+var daemonOnlyKeys = []string{"manifests_dir", "data_dir", "default_server", "log_max_size"}
+
+// looksLikeDaemonConfig: config parses as YAML with any of daemonOnlyKeys
+// at the top level.
 func looksLikeDaemonConfig(config string) (bool, error) {
 	data, err := os.ReadFile(config)
 	if os.IsNotExist(err) {
@@ -305,6 +309,10 @@ func looksLikeDaemonConfig(config string) (bool, error) {
 	if err := yaml.Unmarshal(data, &top); err != nil {
 		return false, fmt.Errorf("parsing %s: %w", config, err)
 	}
-	_, has := top["manifests_dir"]
-	return has, nil
+	for _, k := range daemonOnlyKeys {
+		if _, has := top[k]; has {
+			return true, nil
+		}
+	}
+	return false, nil
 }

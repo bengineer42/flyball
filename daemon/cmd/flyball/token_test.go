@@ -35,10 +35,43 @@ func TestTokensPathForDaemonConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join("mydata", "front", "tokens.json")
+	// frontwire.DaemonDir resolves data_dir against the process's cwd, the
+	// same way flyballd itself does (cmd/flyballd/main.go), so this and a
+	// running flyballd --config flyballd.yaml agree whatever directory
+	// each is run from -- not the (relative, so cwd-fragile) path this
+	// used to return.
+	want := filepath.Join(mustAbs(t, "mydata"), "front", "tokens.json")
 	if path != want {
 		t.Errorf("path = %q, want %q", path, want)
 	}
+}
+
+// TestTokensPathForDaemonConfigWithoutManifestsDir: none of flyballd.yaml's
+// own keys is required (DefaultDaemonConfig fills them in), so a file
+// naming only data_dir must still be recognised as a daemon config, not
+// mistaken for a rig file.
+func TestTokensPathForDaemonConfigWithoutManifestsDir(t *testing.T) {
+	dir := t.TempDir()
+	daemonYAML := filepath.Join(dir, "flyballd.yaml")
+	os.WriteFile(daemonYAML, []byte("data_dir: mydata\n"), 0o644)
+
+	path, err := tokensPathFor(daemonYAML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(mustAbs(t, "mydata"), "front", "tokens.json")
+	if path != want {
+		t.Errorf("path = %q, want %q", path, want)
+	}
+}
+
+func mustAbs(t *testing.T, p string) string {
+	t.Helper()
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return abs
 }
 
 func TestParseExpiresDays(t *testing.T) {
