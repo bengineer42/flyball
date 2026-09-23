@@ -53,6 +53,10 @@ class Controllers:
     def __getitem__(self, name: str) -> Controller:
         return self._controllers[name]
 
+    def get(self, name: str) -> Controller | None:
+        """By name, or None; one dict lookup, safe without the rig's lock."""
+        return self._controllers.get(name)
+
     def __iter__(self) -> Iterator[str]:
         return iter(self._controllers)
 

@@ -44,7 +44,11 @@ def _first_call[F: Callable[..., Any]](fn: F, grow: Callable[[], object]) -> F:
 
     def wrapped(*args: Any, **kwargs: Any) -> Any:
         if pending:
-            pending.pop()()
+            # As another request would: on a thread of its own, not the route's (maybe the
+            # event loop, which must not take the rig's lock).
+            thread = threading.Thread(target=pending.pop())
+            thread.start()
+            thread.join()
         return fn(*args, **kwargs)
 
     return wrapped  # type: ignore[return-value]

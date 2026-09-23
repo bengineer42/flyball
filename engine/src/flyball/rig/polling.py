@@ -82,6 +82,10 @@ class Polling:
     def run(self, name: str) -> DeviceRun:
         return self._runs[name]
 
+    def snapshot(self) -> dict[str, DeviceRun]:
+        """Every polled device's run now, by name: one C-level copy, safe without any lock."""
+        return dict(list(self._runs.items()))
+
     def start(self, device: Device, period_s: float) -> None:
         """Poll `device` every `period_s`; one already polled is restarted on the new period."""
         self.by_name[device.name] = device

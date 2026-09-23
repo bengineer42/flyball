@@ -46,8 +46,10 @@ class SaveIn(BaseModel):
     )
 
 
+# The reads here are plain `def`: the plants' stats and the rendered config take the rig's
+# lock (a copy of recent readings, `Rig.document`), which the event loop must never wait on.
 @router.get("")
-async def read_simulation() -> dict[str, Any]:
+def read_simulation() -> dict[str, Any]:
     """The clock, every plant with its config and state, and what has changed since the last save.
 
     `{"simulated": false}` for a rig with real hardware. `device` says
@@ -77,7 +79,7 @@ def advance_clock(body: AdvanceIn, simulation: SimulationDep) -> dict[str, Any]:
 
 
 @router.get("/plants/{name}")
-async def read_plant(name: str, simulation: SimulationDep) -> dict[str, Any]:
+def read_plant(name: str, simulation: SimulationDep) -> dict[str, Any]:
     return {
         "config": simulation.plant_config(name).model_dump(mode="json"),
         **simulation.plant_state(name),
@@ -97,7 +99,7 @@ def reset_plant(name: str, body: ResetIn, simulation: SimulationDep) -> dict[str
 
 
 @router.get("/config")
-async def read_config(simulation: SimulationDep) -> dict[str, Any]:
+def read_config(simulation: SimulationDep) -> dict[str, Any]:
     """The rig file as it now stands, with every change applied.
 
     Of `runner:`, only what a reader may see: this route needs only `read`.

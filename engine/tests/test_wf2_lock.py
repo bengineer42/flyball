@@ -9,6 +9,7 @@ from collections.abc import Iterator
 import pytest
 from flyball_sim import SteppedClock
 
+from conftest import TestClient
 from flyball.foundation.device import (
     Access,
     Device,
@@ -22,6 +23,7 @@ from flyball.foundation.device import (
 from flyball.foundation.errors import ConflictError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import One
+from flyball.interfaces.server import create_app, set_rig
 from flyball.rig import Rig
 from flyball.sequencing import Programmer
 from flyball.sequencing.devices import RunCommand
@@ -276,6 +278,59 @@ class TestFreshReads:
         hanging.release.set()
         thread.join(2.0)
         assert hanging.signals["v"] not in rig.latest
+
+
+# endregion
+
+
+# region 3. No `rig.lock` on the event loop (ENG-26)
+
+
+@pytest.fixture
+def held_rig(fresh) -> Iterator[tuple[Rig, threading.Event]]:
+    """A served rig whose lock another thread holds (a delivery stuck on a bus) until released."""
+    rig = Rig()
+    ticker = Ticker(fresh("ticker"))
+    ticker.poll_s = 1.0
+    rig.add_device(ticker)
+    rig.on_samples([Sample(ticker.root, rig.clock.now_ns(), {ticker.signals["n"]: 1.0})])
+    release, holding = threading.Event(), threading.Event()
+
+    def hold() -> None:
+        with rig.lock:
+            holding.set()
+            release.wait(10.0)
+
+    thread = threading.Thread(target=hold, daemon=True)
+    set_rig(rig)
+    thread.start()
+    assert holding.wait(2.0)
+    yield rig, release
+    release.set()
+    thread.join(2.0)
+    set_rig(None)
+
+
+class TestNothingOnTheLoop:
+    def test_health_answers_while_a_delivery_holds_the_lock(self, held_rig):
+        _, release = held_rig
+        with TestClient(create_app()) as client:
+            began = time.monotonic()
+            response = client.get("/api/health")
+            assert time.monotonic() - began < 1.0, "not waiting for the rig's lock"
+            release.set()  # the app's shutdown may take it
+        assert response.status_code == 200
+        assert response.json()["alarms"]["alarm"] == 0
+
+    def test_a_websocket_primes_while_a_delivery_holds_the_lock(self, held_rig):
+        rig, release = held_rig
+        with TestClient(create_app()) as client:
+            began = time.monotonic()
+            with client.websocket_connect("/ws/samples") as ws:
+                frame = ws.receive_json()
+                assert time.monotonic() - began < 1.0, "primed without the rig's lock"
+            release.set()
+        assert frame["samples"][0]["values"] == {"n": 1.0}
 
 
 # endregion

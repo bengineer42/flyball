@@ -55,8 +55,7 @@ def _alarm_summary(rig: Rig, conditions: list[dict[str, Any]]) -> dict[str, int]
     the same way, by its own severity.
     """
     warn = alarm = 0
-    with rig.lock:
-        latest = list(rig.latest.items())
+    latest = list(rig.latest.items())  # one C-level copy: no lock, as the loop must not wait
     for signal, reading in latest:
         if _outside(reading.value, signal.spec.alarm):
             alarm += 1
@@ -93,7 +92,11 @@ def _conditions(rig: Rig) -> list[dict[str, Any]]:
 
 @router.get("/health")
 async def read_health() -> dict[str, Any]:
-    """One look: is anything offline, slow or pending. What a watchdog or a status line polls."""
+    """One look: is anything offline, slow or pending. What a watchdog or a status line polls.
+
+    Lock-free: on the event loop, a watchdog must be answered while a delivery holds the
+    rig's lock, so it reads C-level `list(...)` snapshots of the rig's dicts instead.
+    """
     rig = current_rig()
     if rig is None:
         return {"ok": False, "rig": None, "exposure": current_exposure()}
@@ -104,9 +107,9 @@ async def read_health() -> dict[str, Any]:
         "uptime_s": rig.clock.elapsed_s(),
         "devices": {
             name: {"running": run.running, "last_read_ns": run.last_read_ns}
-            for name, run in ((n, rig.polling.run(n)) for n in rig.polling.by_name)
+            for name, run in rig.polling.snapshot().items()
         },
-        "controllers": {name: c.mode.value for name, c in rig.controllers.items()},
+        "controllers": {name: c.mode.value for name, c in list(rig.controllers.items())},
         "conditions": conditions,
         "alarms": _alarm_summary(rig, conditions),
         "activities": sorted(rig.triggers.states()),

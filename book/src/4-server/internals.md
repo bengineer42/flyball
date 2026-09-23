@@ -63,7 +63,11 @@ The store is synchronous and serialised by one lock
 read a request body), hands the store call to `anyio.to_thread`. `StoreDep`
 holds one of a few `STORE_SLOTS` for the request, so store requests queued
 behind a long one wait on the loop, not on worker threads. `async def` is for
-routes and websockets that never reach the store or the rig's lock. The
+routes and websockets that never reach the store or the rig's lock: they
+read the rig's dicts through C-level `list(...)` copies instead (`/api/health`,
+the controllers routes, the websockets' first frame), and the simulation's
+reads, which do take it, are plain `def`. The suite fails any test in which
+the app's loop took the rig's lock, as it does for the store's. The
 same holds for any other slow, blocking work. `POST /api/rig/stop` runs its
 stop on a limiter of its own (four threads), so a stop never queues behind
 the worker threads other routes share.

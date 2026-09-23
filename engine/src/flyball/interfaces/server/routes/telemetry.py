@@ -60,11 +60,12 @@ async def _flush[V](
     websocket: WebSocket,
     latest: Latest[str, V],
     key: str,
-    encode: Callable[[Rig, str, V], dict[str, Any]],
+    encode: Callable[[Rig, str, V], dict[str, Any] | None],
 ) -> None:
     """Send everything, then every `FLUSH_S` whatever changed, until the client or rig goes.
 
-    Frames are `{key: [encoded, ...]}`; an empty flush sends nothing.
+    Frames are `{key: [encoded, ...]}`, leaving out what encodes to None (gone meanwhile);
+    an empty flush sends nothing.
     """
     rig = current_rig()
     if rig is None:
@@ -76,8 +77,9 @@ async def _flush[V](
         with latest.watch():
             while current_rig() is rig:
                 version, changed = latest.changed_since(version)
-                if changed:
-                    await send(websocket, {key: [encode(rig, k, v) for k, v in changed.items()]})
+                encoded = [e for k, v in changed.items() if (e := encode(rig, k, v)) is not None]
+                if encoded:
+                    await send(websocket, {key: encoded})
                 done, _ = await asyncio.wait({closed}, timeout=FLUSH_S)
                 if closed in done:
                     raise WebSocketDisconnect
@@ -89,12 +91,17 @@ def _sample_out(rig: Rig, node: str, sample: Any) -> dict[str, Any]:
     return SampleOut.of(sample, rig.latest).model_dump(mode="json")
 
 
-def _controller_out(rig: Rig, name: str, state: Any) -> dict[str, Any]:
-    """The tick's state joined to the settings, under the lock: a retune swaps the law."""
-    with rig.lock:
-        controller = rig.controllers[name]
-        out = ControllerOut.of(controller, name == rig.controllers.default, state)
-    return out.model_dump(mode="json")
+def _controller_out(rig: Rig, name: str, state: Any) -> dict[str, Any] | None:
+    """The tick's state joined to the settings; None for one detached meanwhile.
+
+    On the event loop, so not under the rig's lock: a retune landing while this
+    reads shows on the next flush.
+    """
+    if (controller := rig.controllers.get(name)) is None:
+        return None
+    return ControllerOut.of(controller, name == rig.controllers.default, state).model_dump(
+        mode="json"
+    )
 
 
 def _run_out(rig: Rig, name: str, run: Any) -> dict[str, Any]:
@@ -119,31 +126,34 @@ def _prime(rig: Rig) -> None:
     own node and stamped with the newest of the group -- not the last sample
     delivered on each node, which for a device that pushes by namespace at
     start and on its root afterwards would show the start-up values again.
+
+    On the event loop, so not under the rig's lock (ENG-26): every dict is read
+    through a C-level `list(...)` copy, so one changed meanwhile is not an error;
+    a value that lands meanwhile arrives in the next flush.
     """
-    with rig.lock:
-        for name, controller in rig.controllers.items():
-            rig.controller_states.set(name, controller.state)
-        for device in rig.devices.values():
-            for signal, state in device.written.items():
-                rig.write_states.set(signal.address, state)
-            by_node: dict[Node, dict[Signal, Any]] = {}
-            newest: dict[Node, int] = {}
-            for signal in device.published.values():
-                if (reading := rig.router.reading(signal)) is None:
-                    continue
-                by_node.setdefault(signal.node, {})[signal] = reading.value
-                newest[signal.node] = max(newest.get(signal.node, 0), reading.time_ns)
-            for node, values in by_node.items():
-                rig.samples.set(node.address, Sample(node, newest[node], values))
-        for name in rig.polling.by_name:
-            rig.polling.runs.set(name, rig.polling.run(name))
+    for name, controller in list(rig.controllers.items()):
+        rig.controller_states.set(name, controller.state)
+    for device in list(rig.devices.values()):
+        for signal, state in list(device.written.items()):
+            rig.write_states.set(signal.address, state)
+        by_node: dict[Node, dict[Signal, Any]] = {}
+        newest: dict[Node, int] = {}
+        for signal in list(device.published.values()):
+            if (reading := rig.router.reading(signal)) is None:
+                continue
+            by_node.setdefault(signal.node, {})[signal] = reading.value
+            newest[signal.node] = max(newest.get(signal.node, 0), reading.time_ns)
+        for node, values in by_node.items():
+            rig.samples.set(node.address, Sample(node, newest[node], values))
+    for name, run in rig.polling.snapshot().items():
+        rig.polling.runs.set(name, run)
 
 
 async def _serve[V](
     websocket: WebSocket,
     cell: Callable[[Rig], Latest[str, V]],
     key: str,
-    encode: Callable[[Rig, str, V], dict[str, Any]],
+    encode: Callable[[Rig, str, V], dict[str, Any] | None],
 ) -> None:
     await websocket.accept()
     with contextlib.suppress(WebSocketDisconnect):

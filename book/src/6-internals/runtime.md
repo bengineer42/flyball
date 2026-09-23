@@ -190,10 +190,15 @@ own thread, finds under the lock that its device is gone (by identity: a
 device re-added under the same name is another one) and drops what it read
 or wrote.
 
-The server's async routes answer on the event loop and do not take the lock,
-which a delivery may hold for a bus transaction: they iterate a
-`list(...)` snapshot of the rig's dicts, so a device or controller added
-meanwhile is not an error. `Rig.document` and `attach_controller` take it.
+The server's async routes and websockets answer on the event loop and never
+take the lock, which a delivery may hold for a bus transaction: they iterate a
+`list(...)` snapshot of the rig's dicts (`Polling.snapshot()` for the runs,
+`Controllers.get` for one controller), so a device or controller added or
+removed meanwhile is not an error. `/api/health` is lock-free. What must take
+the lock (`Rig.document`, `attach_controller`, `recent_readings`) is reached
+only from plain `def` routes, on the threadpool. A test fixture
+(`tests/conftest.py`) fails any test in which a thread running an event loop
+took `rig.lock`, as another does for the store's.
 
 ## Controllers
 
