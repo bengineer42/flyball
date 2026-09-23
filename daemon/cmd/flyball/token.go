@@ -247,17 +247,26 @@ func tokensConfigFor(config string, forceDaemon bool) (*front.TokensConfig, erro
 		}
 		return cfg.Tokens, nil
 	}
-	var cfg struct {
-		Runner struct {
-			Front struct {
-				Tokens *front.TokensConfig `yaml:"tokens"`
-			} `yaml:"front"`
-		} `yaml:"runner"`
-	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	// A rig file: its extends resolved, as the front reads it (rigDocument).
+	document, err := rigDocument(config)
+	if err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", config, err)
 	}
-	return cfg.Runner.Front.Tokens, nil
+	runner, _ := document["runner"].(map[string]any)
+	frontBlock, _ := runner["front"].(map[string]any)
+	block, ok := frontBlock["tokens"]
+	if !ok || block == nil {
+		return nil, nil
+	}
+	raw, err := yaml.Marshal(block)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", config, err)
+	}
+	var tc front.TokensConfig
+	if err := yaml.Unmarshal(raw, &tc); err != nil {
+		return nil, fmt.Errorf("parsing %s: runner.front.tokens: %w", config, err)
+	}
+	return &tc, nil
 }
 
 // tokensPathFor is where --config PATH's tokens.json lives (§WP0-4), using
