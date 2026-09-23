@@ -123,7 +123,7 @@ class TestAHeldWriteFreezesTheLaw:
             ref_dev.written[ref_dev.signals["heater"]].value
         ), "the first output after the hold is the one without the gap"
         assert law.state == reference.state
-        stale = [e for e in rig.recent if e.kind == "stale_input"]
+        stale = [e for e in rig.recent if e.code == "stale_input"]
         assert len(stale) == 1, "one event on entering the hold, not one per tick"
 
     def test_an_unknown_limit_freezes_the_integral(self):
@@ -158,7 +158,7 @@ class TestAHeldWriteFreezesTheLaw:
         assert held.state == reference.state
         humidity = dev.signals["humidity"]
         assert dev.written[humidity].value == ref_dev.written[ref_dev.signals["humidity"]].value
-        assert [e.kind for e in rig.recent if e.kind.startswith("limit_")] == [
+        assert [e.code for e in rig.recent if e.code.startswith("limit_")] == [
             "limit_unknown",
             "limit_known",
         ]

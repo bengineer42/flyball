@@ -270,7 +270,7 @@ class Store(Protocol):
         ...
 
     def events(
-        self, session_id: int, window: Window | None = None, kind: str | None = None
+        self, session_id: int, window: Window | None = None, code: str | None = None
     ) -> list[Event]: ...
 
     def spans(self, session_id: int) -> list[Span]:

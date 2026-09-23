@@ -113,8 +113,8 @@ def test_check_and_run_and_delete(client):
     run = client.post("/api/programs/library/dry/run")
     assert run.status_code == 200
     events = client.get("/api/events").json()
-    kinds = [e["kind"] for e in events if e["scope"] == "program"]
-    assert "run_from_library" in kinds and "started" in kinds
+    codes = [e["code"] for e in events if e["scope"] == "program"]
+    assert "run_from_library" in codes and "started" in codes
 
     assert client.delete("/api/programs/library/dry").status_code == 204
     assert client.get("/api/programs/library/dry").status_code == 404

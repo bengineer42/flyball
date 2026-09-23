@@ -572,7 +572,7 @@ def test_flushes_from_two_threads_write_one_after_the_other():
     from types import SimpleNamespace
 
     from flyball.foundation.device import Event as RigEvent
-    from flyball.foundation.device import Level
+    from flyball.foundation.device import Severity
     from flyball.runtime.recorder import Recorder
 
     first_inside = threading.Event()
@@ -606,12 +606,12 @@ def test_flushes_from_two_threads_write_one_after_the_other():
                 if not first_inside.is_set():
                     first_inside.set()
                     assert release.wait(5), "the test never released the first write"
-                self.written.append(row.kind)
+                self.written.append(row.code)
             finally:
                 self.inside -= 1
 
     def note(kind: str) -> RigEvent:
-        return RigEvent(1, Level.INFO, "rig", "rig", kind, kind)
+        return RigEvent(1, Severity.INFO, "rig", "rig", kind, kind)
 
     writer = Writer()
     recorder = Recorder(writer, (), flush_s=3600)  # type: ignore[arg-type]  # never flushes itself

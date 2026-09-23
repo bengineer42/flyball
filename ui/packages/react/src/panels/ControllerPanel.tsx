@@ -512,7 +512,7 @@ export function ControllerPanel({
   // The measured signal's device run says whether anything is arriving at all; freshness catches a device
   // that is nominally running but has gone quiet. Open loop is not a mode (D23): it is the `open_loop` law
   // type, under "regulating" (it is still driving the output), just with nothing correcting for error.
-  const offline = !!run && (!run.running || run.conditions.some((c) => c.kind === "offline"));
+  const offline = !!run && (!run.running || run.conditions.some((c) => c.code === "offline"));
   const stale = alarmLevel(reading, source, fresh) === "stale";
   const banner = offline
     ? { text: "measured offline", hint: `${deviceOf(controller.measured_signal)} is not being read; the controller has nothing to regulate on.` }

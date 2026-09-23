@@ -158,7 +158,10 @@ since `ControllerEntry` refuses unknown keys and an older version would not
 load again (`--resume`, a restart from the head, a restore); in the same
 migration `tick.reading`/`tick.demand` became `measured`/`output` and
 `controller.source` became `measured`. A session's `config` keeps the
-spelling it was recorded with: it is never loaded again.
+spelling it was recorded with: it is never loaded again. Migration 0019
+renamed `event.kind` to `code` and rewrote the severity each event's JSON
+`detail` carries from `logging`'s number (`level`: 10-40) to the lowercase
+string the wire uses (`severity`: `debug`, `info`, `warning`, `error`).
 
 The scratch record and retention (D-008) are migration 0010: `session.kind`,
 `origin_ns`, `pinned`, `continues`, `bytes`. Trimming a scratch session

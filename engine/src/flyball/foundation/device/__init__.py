@@ -31,7 +31,7 @@ from .signal import (
     Write,
     WriteState,
 )
-from .state import Condition, Event, Kind, Level, Scope
+from .state import Code, Condition, Event, Scope, Severity
 
 __all__ = [
     "RESERVED_NAMES",
@@ -39,6 +39,7 @@ __all__ = [
     "AddressNotFoundError",
     "BoundInput",
     "Bounds",
+    "Code",
     "CommandSpec",
     "Committable",
     "Condition",
@@ -50,8 +51,6 @@ __all__ = [
     "DriverConfig",
     "Event",
     "Input",
-    "Kind",
-    "Level",
     "Limit",
     "LimitNotKnownError",
     "LimitsInvertedError",
@@ -66,6 +65,7 @@ __all__ = [
     "Sample",
     "Scope",
     "Setting",
+    "Severity",
     "Signal",
     "SignalRef",
     "SignalSpec",

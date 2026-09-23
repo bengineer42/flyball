@@ -1,6 +1,6 @@
 import { type SessionDetail, useSessionSeries, useEverShown } from "../hooks/useSession.js";
 import { useEffect, useRef, useState } from "react";
-import { describeDevice, describeEventKind, describeStateKey, describeSubject, isHousekeeping, isNumeric, isScratch, type Dtype, type SignalOut, type SignalRow, fixed } from "@flyball/client";
+import { describeDevice, describeEventCode, describeStateKey, describeSubject, isHousekeeping, isNumeric, isScratch, type Dtype, type SignalOut, type SignalRow, fixed } from "@flyball/client";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
 import { TimeSeries } from "./TimeSeries.js";
 import type { YScale } from "./yscale.js";
@@ -67,12 +67,11 @@ function lawSummary(config: unknown): { type: string | null; gains: string } {
   return { type: typeof type === "string" ? type : null, gains: gains_ };
 }
 
-/** `recorder.py`'s `event()` wraps the level, scope and message around the emitter's own `details`. */
-const LEVEL_NAME: Record<number, string> = { 10: "DEBUG", 20: "INFO", 30: "WARNING", 40: "ERROR" };
-function storedEvent(detail: unknown): { level?: string; message?: string; details: unknown } {
+/** `recorder.py`'s `event()` wraps the severity, scope and message around the emitter's own `details`. */
+function storedEvent(detail: unknown): { severity?: string; message?: string; details: unknown } {
   if (!detail || typeof detail !== "object" || !("message" in detail)) return { details: detail };
-  const { level, message, details } = detail as { level?: number; message?: string; details?: unknown };
-  return { level: typeof level === "number" ? LEVEL_NAME[level] : undefined, message, details };
+  const { severity, message, details } = detail as { severity?: string; message?: string; details?: unknown };
+  return { severity: typeof severity === "string" ? severity : undefined, message, details };
 }
 
 export type SessionGrouping = "unit" | "signal";
@@ -508,12 +507,12 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
           <table className="fb-table">
             <tbody>
               {events.map((e, i) => {
-                const { level, message, details } = storedEvent(e.detail);
+                const { severity, message, details } = storedEvent(e.detail);
                 return (
                 <tr key={e.id ?? i}>
                   <td className="fb-muted">+{duration(e.offset_ns / 1e9)}</td>
-                  <td title={e.kind}>
-                    {level && <span className={`fb-badge fb-event-${level}`}>{level}</span>} <span className="fb-tag">{describeEventKind(e.kind)}</span>
+                  <td title={e.code}>
+                    {severity && <span className={`fb-badge fb-event-${severity}`}>{severity}</span>} <span className="fb-tag">{describeEventCode(e.code)}</span>
                   </td>
                   <td>{e.source ? describeSubject(e.source) : ""}</td>
                   <td>

@@ -195,7 +195,7 @@ def test_signal_controller_write_and_events(client):
         {
             "time_s": 1.5,
             "time": "2023-11-14T22:13:21.500Z",
-            "kind": "note",
+            "code": "note",
             "source": "",
             "detail": '{"x": 1}',
         }

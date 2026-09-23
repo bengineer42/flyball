@@ -185,10 +185,10 @@ class Recorder:
             return
         row = StoredEvent(
             event.time_ns - self._start_ns,
-            event.kind,
+            event.code,
             event.subject,
             {
-                "level": int(event.level),
+                "severity": str(event.severity),
                 "scope": event.scope,
                 "message": event.message,
                 "details": event.details,

@@ -62,8 +62,8 @@ and in `POST /api/controllers/{c}/setpoint`'s `at`; the generator's
 equivalent of the program step **wait**.
 
 **event** — something that *happened*: a step failed, a device went
-offline, an activity timed out. A point in time with a level, a scope and a
-subject; streamed on `/ws/events` and written to the session when
+offline, an activity timed out. A point in time with a `code`, a `severity`,
+a scope and a subject; streamed on `/ws/events` and written to the session when
 recording.
 
 **expected** — what a device says it will deliver a demand as; `None` if

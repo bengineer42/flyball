@@ -16,15 +16,15 @@ import pytest
 from conftest import TestClient
 from flyball.control.laws import P
 from flyball.foundation.device import (
+    Code,
     Committable,
     Demand,
-    Kind,
-    Level,
     Node,
     Readable,
     Readout,
     Sample,
     Scope,
+    Severity,
     WriteState,
 )
 from flyball.interfaces.server import create_app, set_rig
@@ -61,8 +61,8 @@ class Good(Committable):
         self.commits += 1
 
 
-def _events(rig, kind: Kind) -> list:
-    return [e for e in rig.recent if e.kind == kind]
+def _events(rig, kind: Code) -> list:
+    return [e for e in rig.recent if e.code == kind]
 
 
 @pytest.fixture
@@ -98,28 +98,28 @@ class TestCommitFailure:
         _deliver(rig, furnace)  # does not raise
         assert good.commits == 1, "the other device still committed"
         assert len(recorder.records) == 1, "the recorder still got the delivery"
-        (event,) = _events(rig, Kind.COMMIT_FAILED)
+        (event,) = _events(rig, Code.COMMIT_FAILED)
         assert event.scope == Scope.DEVICE and event.subject == flaky.name
-        assert event.level is Level.ERROR and "bus gone" in event.message
-        assert not _events(rig, Kind.DELIVERY_FAILED)
+        assert event.severity is Severity.ERROR and "bus gone" in event.message
+        assert not _events(rig, Code.DELIVERY_FAILED)
 
     def test_one_event_per_outage_then_a_recovery(self, rig, clock, furnace, flaky):
         flaky.fail = True
         for _ in range(3):
             clock.advance(1.0)
             _deliver(rig, furnace)
-        assert flaky.commits == 3 and len(_events(rig, Kind.COMMIT_FAILED)) == 1
+        assert flaky.commits == 3 and len(_events(rig, Code.COMMIT_FAILED)) == 1
         (condition,) = [c for name, c in rig.write_conditions() if name == flaky.name]
-        assert condition.kind == Kind.COMMIT_FAILED and condition.level is Level.ERROR
+        assert condition.code == Code.COMMIT_FAILED and condition.severity is Severity.ERROR
         flaky.fail = False
         clock.advance(1.0)
         _deliver(rig, furnace)
-        (recovered,) = _events(rig, Kind.COMMIT_RECOVERED)
-        assert recovered.subject == flaky.name and recovered.level is Level.INFO
+        (recovered,) = _events(rig, Code.COMMIT_RECOVERED)
+        assert recovered.subject == flaky.name and recovered.severity is Severity.INFO
         assert not [c for name, c in rig.write_conditions() if name == flaky.name]
         clock.advance(1.0)
         _deliver(rig, furnace)
-        assert len(_events(rig, Kind.COMMIT_RECOVERED)) == 1
+        assert len(_events(rig, Code.COMMIT_RECOVERED)) == 1
 
     def test_a_failed_demand_is_not_applied_later(self, rig, clock, furnace, flaky):
         out = flaky.signals["out"]
@@ -221,25 +221,25 @@ def test_a_demand_the_driver_did_not_read_is_reported_not_echoed(rig, fresh):
     rig.add_device(picky)
     a, b = picky.signals["a"], picky.signals["b"]
     states = rig.write(picky.root, {b: 5.0})
-    (event,) = _events(rig, Kind.DEMAND_IGNORED)
+    (event,) = _events(rig, Code.DEMAND_IGNORED)
     assert event.scope == Scope.DEVICE and event.subject == picky.name
-    assert event.level is Level.WARNING and event.details["signal"] == b.address
+    assert event.severity is Severity.WARNING and event.details["signal"] == b.address
     assert rig.latest.get(b) is None, "not echoed as a readback"
     assert states[b] == WriteState(value=None, requested=5.0)
     assert picky.staged == {}
     rig.write(picky.root, {b: 6.0})
-    assert len(_events(rig, Kind.DEMAND_IGNORED)) == 1, "one event while it goes unread"
+    assert len(_events(rig, Code.DEMAND_IGNORED)) == 1, "one event while it goes unread"
 
     rig.write(picky.root, {a: 7.0})
     assert picky.seen == [7.0] and rig.latest[a].value == 7.0, "a read demand is echoed"
-    assert len(_events(rig, Kind.DEMAND_IGNORED)) == 1
+    assert len(_events(rig, Code.DEMAND_IGNORED)) == 1
 
 
 def test_a_driver_that_writes_pending_through_raises_nothing(rig, furnace):
     rig.write(furnace.root, {"heater1": 100.0, "heater2": 200.0})
     assert furnace.inputs == {"heater1": 100.0, "heater2": 200.0}
     assert rig.latest[furnace.signals["heater1"]].value == 100.0
-    assert not _events(rig, Kind.DEMAND_IGNORED)
+    assert not _events(rig, Code.DEMAND_IGNORED)
 
 
 # endregion
@@ -276,13 +276,13 @@ def test_a_raise_in_written_does_not_kill_the_writer(rig, fresh, monkeypatch):
         writer = rig._writers[device]
         _until(lambda: writer.failed is not None)
         assert (
-            writer.failed.kind == Kind.WRITE_FAILED and "a bug downstream" in writer.failed.message
+            writer.failed.code == Code.WRITE_FAILED and "a bug downstream" in writer.failed.message
         )
-        assert _events(rig, Kind.WRITE_FAILED)
+        assert _events(rig, Code.WRITE_FAILED)
         assert writer._thread.is_alive()
         rig.write(device.root, {"heater1": 20.0})
         _until(lambda: len(calls) == 2 and writer.failed is None)
-        assert _events(rig, Kind.WRITE_RECOVERED)
+        assert _events(rig, Code.WRITE_RECOVERED)
         assert rig.latest[device.signals["heater1"]].value == 20.0
     finally:
         rig.close()
@@ -337,7 +337,7 @@ def test_a_nan_reading_crosses_as_null_on_the_samples_stream(rig, furnace, serve
 
 
 def test_a_nan_in_an_event_crosses_as_null(rig, served):
-    rig.event(Level.INFO, Scope.RIG, "x", Kind.RESTORED, "odd", {"value": math.nan})
+    rig.event(Severity.INFO, Scope.RIG, "x", Code.RESTORED, "odd", {"value": math.nan})
     with served.websocket_connect("/ws/events") as ws:
         frame = _strict(ws.receive_text())
         assert frame["events"][-1]["details"] == {"value": None}  # type: ignore[index]

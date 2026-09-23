@@ -502,9 +502,9 @@ class SqliteSessionWriter:
         self._open()
         with self._store._transaction() as connection:
             cursor = connection.execute(
-                "INSERT INTO event (session_id, offset_ns, source, kind, detail)"
+                "INSERT INTO event (session_id, offset_ns, source, code, detail)"
                 " VALUES (?, ?, ?, ?, ?)",
-                (self._session.id, event.offset_ns, event.source, event.kind, _dumps(event.detail)),
+                (self._session.id, event.offset_ns, event.source, event.code, _dumps(event.detail)),
             )
             return int(cursor.lastrowid or 0)
 
@@ -984,8 +984,8 @@ class SqliteStore:
             (target_id, delta, *([target_id] if mapped else []), source.id, lo, hi),
         )
         connection.execute(
-            "INSERT INTO event (session_id, offset_ns, source, kind, detail)"
-            " SELECT ?, offset_ns + ?, source, kind, detail FROM event"
+            "INSERT INTO event (session_id, offset_ns, source, code, detail)"
+            " SELECT ?, offset_ns + ?, source, code, detail FROM event"
             " WHERE session_id = ? AND offset_ns >= ? AND offset_ns < ? ORDER BY offset_ns, id",
             (target_id, delta, source.id, lo, hi),
         )
@@ -1214,15 +1214,15 @@ class SqliteStore:
         ]
 
     def events(
-        self, session_id: int, window: Window | None = None, kind: str | None = None
+        self, session_id: int, window: Window | None = None, code: str | None = None
     ) -> list[Event]:
         shift = self._shift(session_id)
         where, params = _window_clause(window, "offset_ns", shift)
-        if kind is not None:
-            where += " AND kind = ?"
-            params.append(kind)  # type: ignore[arg-type]
+        if code is not None:
+            where += " AND code = ?"
+            params.append(code)  # type: ignore[arg-type]
         return [
-            Event(r["offset_ns"] - shift, r["kind"], r["source"], _loads(r["detail"]), r["id"])
+            Event(r["offset_ns"] - shift, r["code"], r["source"], _loads(r["detail"]), r["id"])
             for r in self._query(
                 "SELECT * FROM event WHERE session_id = ?" + where + " ORDER BY offset_ns, id",
                 [session_id, *params],

@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from threading import RLock, Thread, current_thread
 from typing import TYPE_CHECKING, Any
 
-from flyball.foundation.device import Kind, Level, Scope
+from flyball.foundation.device import Code, Scope, Severity
 from flyball.foundation.resource import Operator
 
 from .activities import Prompted
@@ -131,10 +131,10 @@ class Programmer:
             self.cancel()
         program = self.load(work)
         self.rig.event(
-            Level.INFO,
+            Severity.INFO,
             Scope.PROGRAM,
             program.name or "program",
-            Kind.STARTED,
+            Code.STARTED,
             f"{program.name or 'program'}: {len(program)} step{'s' if len(program) != 1 else ''}",
             {"steps": len(program), "commands": [c.tag for c in program]},
         )
@@ -284,11 +284,11 @@ class Programmer:
         if activity.timed_out:
             program = self._program
             self.rig.event(
-                Level.WARNING,
+                Severity.WARNING,
                 Scope.PROGRAM,
                 f"{program.name if program is not None and program.name else 'program'}"
                 f"[{self._step}]",
-                Kind.STEP_TIMED_OUT,
+                Code.STEP_TIMED_OUT,
                 f"{command.tag} gave up after {activity.timeout_s} s: {activity.message}",
                 {"command": command.tag, "timeout_s": activity.timeout_s},
             )
@@ -322,10 +322,10 @@ class Programmer:
         with self.lock:
             program, step = self._program, self._step
         self.rig.event(
-            Level.INFO,
+            Severity.INFO,
             Scope.PROGRAM,
             f"{program.name if program is not None and program.name else 'program'}[{step}]",
-            Kind.STEP,
+            Code.STEP,
             f"step {step + 1}/{len(program) if program is not None else '?'}: {command.tag}",
             {"step": step, "command": command.tag},
         )
@@ -350,10 +350,10 @@ class Programmer:
         with self.lock:
             self._error = failure
         self.rig.event(
-            Level.ERROR,
+            Severity.ERROR,
             Scope.PROGRAM,
             f"{program.name or 'program'}[{step}]",
-            Kind.STEP_FAILED,
+            Code.STEP_FAILED,
             str(failure),
             {"command": program[step].tag, "error": f"{type(error).__name__}: {error}"},
         )
@@ -366,11 +366,11 @@ class Programmer:
             error = self._error
             reason = self._interrupted
             outcome = (
-                Kind.FAILED
+                Code.FAILED
                 if error is not None
-                else (Kind.INTERRUPTED if reason is not None else Kind.CANCELLED)
+                else (Code.INTERRUPTED if reason is not None else Code.CANCELLED)
                 if self._abort
-                else Kind.SUCCEEDED
+                else Code.SUCCEEDED
             )
             self._program = None
             self._activity = None
@@ -383,16 +383,16 @@ class Programmer:
             f"{name} failed: {error}"
             if error is not None
             else f"{name} interrupted: {reason}"
-            if outcome is Kind.INTERRUPTED
+            if outcome is Code.INTERRUPTED
             else f"{name} {outcome}"
         )
         details: dict[str, Any] = {"steps": len(program)}
         if error is not None:
             details["error"] = str(error)
-        if outcome is Kind.INTERRUPTED:
+        if outcome is Code.INTERRUPTED:
             details["reason"] = reason
         self.rig.event(
-            Level.ERROR if error is not None else Level.INFO,
+            Severity.ERROR if error is not None else Severity.INFO,
             Scope.PROGRAM,
             program.name or "program",
             outcome,

@@ -44,8 +44,8 @@ const HealthWidget = memo(function HealthWidget({ config }: WidgetComponentProps
   const wanted = (Array.isArray(config.tiles) && config.tiles.length ? (config.tiles as unknown[]).map(String) : TILES.slice(0, 5)).filter((t): t is TileId => (TILES as readonly string[]).includes(t));
   const polled = h ? Object.keys(h.devices).length : 0;
   const stopped = h ? Object.values(h.devices).filter((d) => !d.running).length : 0;
-  const problems = events.filter((e) => e.level === "ERROR" || e.level === "WARNING").length;
-  const errors = events.filter((e) => e.level === "ERROR").length;
+  const problems = events.filter((e) => e.severity === "error" || e.severity === "warning").length;
+  const errors = events.filter((e) => e.severity === "error").length;
   // Alarm summary (research §6): `/api/health.alarms` folds the signals outside their warn/alarm band with the
   // device conditions at WARNING/ERROR, so this tile, the Overview and the app-bar chip agree.
   const amber = h?.alarms.warn ?? 0;

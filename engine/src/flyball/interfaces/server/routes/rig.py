@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import SerializeAsAny, ValidationError
 
 from flyball.control.errors import TuningNotRegisteredError
-from flyball.foundation.device import Condition, Device
+from flyball.foundation.device import Condition, Device, Severity
 from flyball.interfaces.server.deps import (
     RigDep,
     current_exposure,
@@ -52,8 +52,8 @@ def _alarm_summary(rig: Rig, conditions: list[dict[str, Any]]) -> dict[str, int]
     """Amber and red counts: signals outside their `warn`/`alarm` bands, plus device conditions.
 
     A signal already outside `alarm` is not also counted in `warn`: the
-    chip shows the worse of the two. A device condition at `WARNING` (30)
-    or above counts the same way, by its own level.
+    chip shows the worse of the two. A condition at `warning` or above counts
+    the same way, by its own severity.
     """
     warn = alarm = 0
     with rig.lock:
@@ -64,9 +64,10 @@ def _alarm_summary(rig: Rig, conditions: list[dict[str, Any]]) -> dict[str, int]
         elif _outside(reading.value, signal.spec.warning):
             warn += 1
     for c in conditions:
-        if c["level"] >= 40:
+        rank = Severity(c["severity"]).rank
+        if rank >= Severity.ERROR.rank:
             alarm += 1
-        elif c["level"] >= 30:
+        elif rank >= Severity.WARNING.rank:
             warn += 1
     return {
         "warn": warn,
@@ -108,7 +109,7 @@ async def read_health() -> dict[str, Any]:
         return {"ok": False, "rig": None, "exposure": current_exposure()}
     conditions = _conditions(rig)
     return {
-        "ok": not any(c["level"] >= 40 for c in conditions),
+        "ok": not any(c["severity"] == Severity.ERROR for c in conditions),
         "rig": rig.name,
         "uptime_s": rig.clock.elapsed_s(),
         "devices": {

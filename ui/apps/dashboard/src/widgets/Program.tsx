@@ -32,7 +32,7 @@ const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComp
   const shown = Math.min(Math.max(0, Number(config.events ?? 5)), rowsThatFit(widget.h, rowHeight, true, HEAD_PX, ROW_PX));
   const recent = events.filter((e) => e.scope === "program").slice(-shown).reverse();
   // The programmer says step and command; the program's name is in the step events' subject (`anneal[4]`).
-  const latest = [...events].reverse().find((e) => e.scope === "program" && e.kind === "step");
+  const latest = [...events].reverse().find((e) => e.scope === "program" && e.code === "step");
   const name = latest ? latest.subject.replace(/\[\d+\]$/, "") : null;
   const cancel = () => {
     setBusy(true);
@@ -73,8 +73,8 @@ const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComp
           {recent.map((e, i) => (
             <div key={`${e.time_ns}-${i}`} className="dash-program-event" title={`${humaniseSubject(e.subject)}: ${e.message}`}>
               <span className="dash-program-time fb-muted">{TIME.format(new Date(e.time_ns / 1e6))}</span>
-              <Typography variant="body2" component="span" color={e.level === "ERROR" ? "error" : e.level === "WARNING" ? "warning.main" : "text.secondary"} noWrap>
-                {humanise(e.kind)}
+              <Typography variant="body2" component="span" color={e.severity === "error" ? "error" : e.severity === "warning" ? "warning.main" : "text.secondary"} noWrap>
+                {humanise(e.code)}
               </Typography>
               <Typography variant="body2" component="span" noWrap>
                 {e.message}

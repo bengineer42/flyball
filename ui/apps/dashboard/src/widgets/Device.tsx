@@ -1,7 +1,7 @@
 import { memo, useMemo } from "react";
 import { Form as MuiForm } from "@rjsf/mui";
 import { DevicePanel, Ref, useCommands, useDeviceRun, useDeviceSchema, useRig, type PanelSeverity } from "@flyball/react";
-import { describeDevice, type DeviceOut } from "@flyball/client";
+import { atLeast, describeDevice, type DeviceOut, type Severity } from "@flyball/client";
 import { useBindings, useCanWrite } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
@@ -9,9 +9,8 @@ import { deviceSchema, SELECTS } from "./schema.js";
 import type { WidgetKind, WidgetComponentProps } from "./types.js";
 
 /** The worst device condition, as the frame's severity dot (DESIGN-SPEC §2); `undefined` (no dot) when none is at warn/alarm. */
-function severityOf(conditions: ReadonlyArray<{ level: number }>): PanelSeverity | undefined {
-  const level = Math.max(0, ...conditions.map((c) => c.level));
-  return level >= 40 ? "alarm" : level >= 30 ? "warn" : undefined;
+function severityOf(conditions: ReadonlyArray<{ severity: Severity }>): PanelSeverity | undefined {
+  return conditions.some((c) => atLeast(c.severity, "error")) ? "alarm" : conditions.some((c) => atLeast(c.severity, "warning")) ? "warn" : undefined;
 }
 
 /** The panel with its hooks: the schema fetched once, commands run through `useCommands`, the run and conditions live from the store. */

@@ -209,7 +209,7 @@ def test_a_failing_store_stops_recording_and_raises_an_event(rig, furnace, clock
         time.sleep(0.005)
     assert isinstance(recorder.failed, OSError)
     assert rig.recorder is None, "detached: control goes on unrecorded"
-    assert rig.recent[-1].kind == "recording_failed" and "disk full" in rig.recent[-1].message
+    assert rig.recent[-1].code == "recording_failed" and "disk full" in rig.recent[-1].message
     rig.on_samples([_sample(furnace, clock.now_ns(), 2.0)])  # still delivers
 
 
@@ -376,7 +376,7 @@ def test_migration_maps_a_0006_session_onto_the_device_model(tmp_path):
     )
     (tick,) = store.ticks(1, "heater")
     assert (tick.controller, tick.offset_ns, tick.setpoint) == ("heater", 20, 25.0)
-    assert store.writes(1) == [] and store.events(1)[0].kind == "note"
+    assert store.writes(1) == [] and store.events(1)[0].code == "note"
     assert store.tuning("warm").controller == "heater"
     # The new tables work on the migrated database, and a delete cascades through them.
     store.delete_session(1)

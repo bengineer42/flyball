@@ -16,7 +16,6 @@ from flyball.foundation.device import (
     AddressNotFoundError,
     Committable,
     Demand,
-    Level,
     Node,
     NodeSpec,
     Readable,
@@ -24,6 +23,7 @@ from flyball.foundation.device import (
     Readout,
     Role,
     Sample,
+    Severity,
     Signal,
     SignalRef,
     SignalSpec,
@@ -610,7 +610,7 @@ class TestOneControllerFailing:
             rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 20.0, zone2: 20.0})])
         assert good.expected == pytest.approx(100.0), "10 * (30 - 20), committed each time"
         assert furnace.commits >= 3
-        failed = [e for e in rig.recent if e.kind == "step_failed"]
+        failed = [e for e in rig.recent if e.code == "step_failed"]
         assert len(failed) == 1 and failed[0].subject == bad.name, "one event per outage"
         assert bad.mode.value == "regulating", "its mode is left alone"
         assert rig.latest[zone1].value == 20.0, "the delivery's readings landed"
@@ -618,7 +618,7 @@ class TestOneControllerFailing:
         bad.set_law(P(kp=1.0))
         clock.advance(1.0)
         rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 20.0, zone2: 20.0})])
-        assert rig.recent[-1].kind == "step_recovered" and rig.recent[-1].subject == bad.name
+        assert rig.recent[-1].code == "step_recovered" and rig.recent[-1].subject == bad.name
 
 
 class TestLimitsThatFollowASignal:
@@ -674,16 +674,16 @@ class TestLimitsThatFollowASignal:
         clock.advance(1.0)
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])  # a step
         assert supplied.written == {}, "still held on the next step"
-        held = [e for e in rig.recent if e.kind == "limit_unknown"]
+        held = [e for e in rig.recent if e.code == "limit_unknown"]
         assert len(held) == 1, "one event on entering the hold, not one per step"
-        assert held[0].level is Level.WARNING and held[0].subject == controller.name
+        assert held[0].severity is Severity.WARNING and held[0].subject == controller.name
 
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
         clock.advance(1.0)
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])
         assert supplied.written[humidity].value == 95.0, "applied, clamped to the supply"
         assert supplied.written[humidity].requested is not None
-        assert [e.kind for e in rig.recent if e.kind.startswith("limit_")] == [
+        assert [e.code for e in rig.recent if e.code.startswith("limit_")] == [
             "limit_unknown",
             "limit_known",
         ]
@@ -715,7 +715,7 @@ class TestLimitsThatFollowASignal:
         clock.advance(1.0)
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])
         assert supplied.written[humidity].value == 95.0
-        assert [e.kind for e in rig.recent if e.kind.startswith("limit_")] == [
+        assert [e.code for e in rig.recent if e.code.startswith("limit_")] == [
             "limit_unknown",
             "limit_known",
         ]

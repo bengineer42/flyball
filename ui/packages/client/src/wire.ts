@@ -127,13 +127,23 @@ export interface WriteOut {
 
 // region Devices
 
-export type Level = 10 | 20 | 30 | 40;
+/** How much a condition or an event matters; the same lowercase string on both. Compare with `severityRank`. */
+export type Severity = "debug" | "info" | "warning" | "error";
+
+/** Every severity, least first. */
+export const SEVERITIES: readonly Severity[] = ["debug", "info", "warning", "error"];
+
+/** A severity's order (`logging`'s number: 10, 20, 30, 40), for "this severity and above". */
+export const severityRank = (severity: Severity): number => (SEVERITIES.indexOf(severity) + 1) * 10;
+
+/** Whether `severity` is `floor` or worse. */
+export const atLeast = (severity: Severity, floor: Severity): boolean => severityRank(severity) >= severityRank(floor);
 
 /** Something true of a device now: offline, railed, slow. Lives in state, not a log. */
 export interface Condition {
   /** Stable and machine-readable: `offline`, `slow`, `railed`. */
-  kind: string;
-  level: Level;
+  code: string;
+  severity: Severity;
   message: string;
   since_ns: Nanoseconds;
 }
@@ -585,15 +595,13 @@ export interface ErrorDetail {
   detail: string;
 }
 
-export type EventLevel = "DEBUG" | "INFO" | "WARNING" | "ERROR";
-
 /** One log-like event from the rig: `GET /api/events` and `/ws/events`. `details` is whatever the emitter attached, or null. */
 export interface Event {
   time_ns: Nanoseconds;
-  level: EventLevel;
+  severity: Severity;
   scope: string;
   subject: string;
-  kind: string;
+  code: string;
   message: string;
   details: unknown;
 }
@@ -967,7 +975,7 @@ export interface WriteStateRow extends WriteOut {
 
 export interface SessionEvent {
   offset_ns: Nanoseconds;
-  kind: string;
+  code: string;
   source: string | null;
   detail: unknown;
   id: number | null;

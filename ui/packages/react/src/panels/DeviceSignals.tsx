@@ -236,8 +236,8 @@ export function DeviceSignals({ device, sparkline = true, windowS, controls, eve
         {conditions.length > 0 && (
           <span className="fb-conditions">
             {conditions.map((c) => (
-              <span key={c.kind} className={`fb-condition fb-level-${c.level}`} title={c.message}>
-                {c.kind}
+              <span key={c.code} className={`fb-condition fb-severity-${c.severity}`} title={c.message}>
+                {c.code}
               </span>
             ))}
           </span>

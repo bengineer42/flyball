@@ -23,7 +23,7 @@ disk until then.
 
 ```jsonc
 {
-  "schema_version": 3,
+  "schema_version": 5,
   "name": "furnace",
   "rig": "furnace",
   "description": "Three zones, a sample thermocouple, and the heaters holding them.",
@@ -73,7 +73,9 @@ should be a browser without the `operate` verb (see
 [access](runner/access.md)). Layout editing is unaffected. `order` places
 the dashboard among the others, ascending; dashboards without one follow,
 newest saved first. A version-2 document has neither and reads as
-writable and unordered.
+writable and unordered. An `events` widget in a version-4 document had
+`level` (`"WARNING"`) where it now has `severity` (`"warning"`); it is read
+as that.
 
 A document saved before the device model is `schema_version: 1` (bindings
 to channels, loops and actuators); it is migrated on read, never refused,

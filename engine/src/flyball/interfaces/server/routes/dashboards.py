@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dashboards", tags=["dashboards"])
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 """The document shape this server writes: bindings are addresses and controller names (2); a
 document says whether it is read-only and where its tab sits (3); a program widget's button
 cancels, `cancel` (4)."""
@@ -168,7 +168,8 @@ def migrate(document: dict[str, Any]) -> dict[str, Any]:
     address, so the name is carried as it was; `problems` says if it no
     longer resolves. Version 2 had no `readonly` or `order`: it is writable
     and unordered. Up to version 3 a `program` widget's `interrupt` was what
-    is now its `cancel` button.
+    is now its `cancel` button. Up to version 4 an `events` widget's `level`
+    (`"WARNING"`) was what is now its `severity` (`"warning"`).
     """
     version = document.get("schema_version", 1)
     if not isinstance(version, int) or version >= SCHEMA_VERSION:
@@ -177,6 +178,8 @@ def migrate(document: dict[str, Any]) -> dict[str, Any]:
         document = _bindings_by_address(document)
     if version < 4:
         document = _program_cancel(document)
+    if version < 5:
+        document = _events_severity(document)
     return {"readonly": False, "order": None, **document, "schema_version": SCHEMA_VERSION}
 
 
@@ -216,6 +219,23 @@ def _program_cancel(document: dict[str, Any]) -> dict[str, Any]:
         config = widget.get("config") if isinstance(widget, dict) else None
         if widget.get("kind") == "program" and isinstance(config, dict) and "interrupt" in config:
             config = {("cancel" if k == "interrupt" else k): v for k, v in config.items()}
+            widget = {**widget, "config": config}
+        widgets.append(widget)
+    return {**document, "widgets": widgets}
+
+
+def _events_severity(document: dict[str, Any]) -> dict[str, Any]:
+    """Version 4 → 5: an `events` widget's `level` is its `severity`, a lowercase string."""
+    widgets: list[Any] = []
+    for widget in document.get("widgets") or []:
+        config = widget.get("config") if isinstance(widget, dict) else None
+        if widget.get("kind") == "events" and isinstance(config, dict) and "level" in config:
+            config = {
+                ("severity" if k == "level" else k): (
+                    v.lower() if k == "level" and isinstance(v, str) else v
+                )
+                for k, v in config.items()
+            }
             widget = {**widget, "config": config}
         widgets.append(widget)
     return {**document, "widgets": widgets}

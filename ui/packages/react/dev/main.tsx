@@ -37,7 +37,7 @@ function Harness() {
       {(devices.data ?? []).filter((d) => d.kind === "device").map((device) => (
         <DeviceSignals key={device.name} device={device} windowS={windowS} />
       ))}
-      <EventsPanel events={events.events} nowS={nowS} onSelect={(e) => console.log("select", e.kind)} />
+      <EventsPanel events={events.events} nowS={nowS} onSelect={(e) => console.log("select", e.code)} />
     </>
   );
 }

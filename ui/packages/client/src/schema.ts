@@ -259,11 +259,11 @@ export function verbLabel(verb: string, label: string): string {
 }
 
 /**
- * Every event `kind` the backend emits, worded for a log reader. Enumerated
+ * Every event `code` the backend emits, worded for a log reader. Enumerated
  * from the `rig.event(...)` call sites (`runtime/{writer,polling,rig}.py`,
  * `sequencing/programmer.py`, `server/routes/library.py`) -- not guessed.
  */
-const EVENT_KINDS: Record<string, string> = {
+const EVENT_CODES: Record<string, string> = {
   started: "Started",
   step: "Step",
   step_timed_out: "Step timed out",
@@ -282,9 +282,9 @@ const EVENT_KINDS: Record<string, string> = {
   recording_failed: "Recording failed",
 };
 
-/** An event's `kind` (`step_timed_out`, `run_from_library`) as a phrase for a person. Unknown kinds fall through to `humanise`. */
-export function describeEventKind(kind: string): string {
-  return EVENT_KINDS[kind] ?? humanise(kind);
+/** An event's `code` (`step_timed_out`, `run_from_library`) as a phrase for a person. Unknown codes fall through to `humanise`. */
+export function describeEventCode(code: string): string {
+  return EVENT_CODES[code] ?? humanise(code);
 }
 
 /**

@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
-from flyball.foundation.device import Event, Level
+from flyball.foundation.device import Event, Severity
 from flyball.interfaces.server.deps import RigDep, current_rig
 from flyball.interfaces.server.routes.telemetry import IDLE_POLL_S, _closed, _no_rig, send
 
@@ -24,27 +24,24 @@ EVENT = TypeAdapter(Event)
 
 
 def event_out(event: Event) -> dict[str, Any]:
+    """The wire shape: every field, the severity a lowercase string."""
     out: dict[str, Any] = EVENT.dump_python(event, mode="json")
-    out["level"] = Level(event.level).name
     return out
-
-
-type LevelName = Literal["debug", "info", "warning", "error", "DEBUG", "INFO", "WARNING", "ERROR"]
 
 
 @router.get("/api/events")
 def read_events(
     rig: RigDep,
     limit: Annotated[int, Query(ge=1, le=10_000)] = 100,
-    level: LevelName | None = None,
+    severity: Severity | None = None,
 ) -> list[dict[str, Any]]:
-    """The most recent events, oldest first; `level` keeps that level and above.
+    """The most recent events, oldest first; `severity` keeps that severity and above.
 
-    422 for a `level` that is not one of the four, or a `limit` outside 1 to 10 000.
+    422 for a `severity` that is not one of the four (lowercase), or a `limit` outside 1 to 10 000.
     """
-    floor = Level[level.upper()] if level else Level.DEBUG
+    floor = (severity or Severity.DEBUG).rank
     # A snapshot: another thread appends to the deque while this filters it.
-    recent = [e for e in list(rig.recent) if e.level >= floor]
+    recent = [e for e in list(rig.recent) if Severity(e.severity).rank >= floor]
     return [event_out(e) for e in recent[-limit:]]
 
 

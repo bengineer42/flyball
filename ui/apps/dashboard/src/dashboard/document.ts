@@ -6,7 +6,7 @@
 import type { DashboardDocument, DashboardWidget } from "@flyball/client";
 
 /** Version 2 binds by address (`address`, `addresses`), controller name (`controller`) and device name (`device`); 3 adds `readonly` and `order`. The server migrates older versions on read. */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 export const DEFAULT_GRID = { cols: 24, row_height: 24 } as const;
 /** Pixels between tiles, both ways: the app's own gutter. */
 export const GRID_MARGIN: readonly [number, number] = [12, 12];

@@ -20,7 +20,7 @@ class _RealLinkConfig(Config[object], type="test_real_link"):
 
     Only `type_name`'s prefix matters to `is_simulated`/the hardware gate --
     `flyball.hardware.links` has no config classes of its own any more, the
-    real link kinds (`visa`, `modbus_tcp`, ...) live in extensions/*.
+    real link codes (`visa`, `modbus_tcp`, ...) live in extensions/*.
     """
 
     def build(self) -> object:
@@ -184,7 +184,7 @@ class TestRoutes:
         assert r.status_code == 200, r.text
         assert rig.devices == {} and list(rig.controllers) == [] and rig.links == {}
         assert client.get("/api/rig/changes").json() == {}
-        restored = [e for e in rig.recent if e.kind == "restored"]
+        restored = [e for e in rig.recent if e.code == "restored"]
         assert len(restored) == 1, "a restore is recorded on the rig's event stream"
         assert restored[0].scope == "rig" and restored[0].details == {"version_id": first}
         after = client.get("/api/rig/versions").json()

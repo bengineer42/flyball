@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from flyball.foundation.config import Config
-from flyball.foundation.device import DeviceEntry, Kind, Level, Scope
+from flyball.foundation.device import Code, DeviceEntry, Scope, Severity
 from flyball.foundation.errors import ConflictError
 from flyball.foundation.files import SUFFIXES, dumps_without_none
 from flyball.interfaces.server.deps import (
@@ -283,10 +283,10 @@ def restore_version(rig: RigDep, version_id: int) -> dict[str, Any]:
             rig.on_change = hook
         get_store().set_rig_head(version_id)
     rig.event(
-        Level.INFO,
+        Severity.INFO,
         Scope.RIG,
         "versions",
-        Kind.RESTORED,
+        Code.RESTORED,
         f"restored to version {version_id}",
         {"version_id": version_id},
     )

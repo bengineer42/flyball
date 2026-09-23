@@ -408,7 +408,7 @@
     {
       "kind": "events",
       "label": "Events",
-      "description": "The rig's latest events, newest first, from a level up; optionally one scope only.",
+      "description": "The rig's latest events, newest first, from a severity up; optionally one scope only.",
       "category": "status",
       "default_size": {
         "w": 12,
@@ -423,17 +423,17 @@
       "config": {
         "type": "object",
         "properties": {
-          "level": {
+          "severity": {
             "type": "string",
-            "title": "From level",
-            "default": "INFO",
+            "title": "From severity",
+            "default": "info",
             "enum": [
-              "DEBUG",
-              "INFO",
-              "WARNING",
-              "ERROR"
+              "debug",
+              "info",
+              "warning",
+              "error"
             ],
-            "description": "This level and above."
+            "description": "This severity and above."
           },
           "limit": {
             "type": "integer",
@@ -658,6 +658,10 @@
                 "title": "Overview"
               },
               {
+                "const": "inputs",
+                "title": "Inputs"
+              },
+              {
                 "const": "devices",
                 "title": "Devices"
               },
@@ -686,8 +690,12 @@
                 "title": "Simulation"
               },
               {
+                "const": "options",
+                "title": "Options"
+              },
+              {
                 "const": "rig",
-                "title": "Config"
+                "title": "Rig file"
               },
               {
                 "const": "url",

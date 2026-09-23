@@ -175,7 +175,7 @@ export function ProgramStatus({ programmer, events, name, onCancel }: { programm
                 <TableRow key={`${e.time_ns}-${i}`}>
                   <TableCell sx={{ color: "text.secondary", whiteSpace: "nowrap", width: "1%" }}>{new Date(e.time_ns / 1e6).toLocaleTimeString()}</TableCell>
                   <TableCell sx={{ width: "1%" }}>
-                    <Chip label={e.kind} variant="outlined" color={e.level === "ERROR" ? "error" : e.level === "WARNING" ? "warning" : "default"} />
+                    <Chip label={e.code} variant="outlined" color={e.severity === "error" ? "error" : e.severity === "warning" ? "warning" : "default"} />
                   </TableCell>
                   <TableCell sx={{ color: "text.secondary", whiteSpace: "nowrap", width: "1%", fontFamily: "monospace" }}>{e.subject}</TableCell>
                   <TableCell>{e.message}</TableCell>

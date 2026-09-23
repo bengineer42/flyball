@@ -265,7 +265,7 @@ class Event:
     """Something non-numeric that happened: a fault, a retune, a flag."""
 
     offset_ns: int
-    kind: str
+    code: str
     source: str | None = None
     detail: Any = None
     id: int | None = None

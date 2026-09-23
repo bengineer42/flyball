@@ -25,13 +25,12 @@ from flyball.foundation.device import (
     RESERVED_NAMES,
     Access,
     AddressNotFoundError,
+    Code,
     Committable,
     Condition,
     Device,
     DeviceEntry,
     Event,
-    Kind,
-    Level,
     Limit,
     LimitNotKnownError,
     LimitsInvertedError,
@@ -41,6 +40,7 @@ from flyball.foundation.device import (
     Role,
     Sample,
     Scope,
+    Severity,
     Signal,
     Staged,
     WriteState,
@@ -259,16 +259,16 @@ class Rig:
 
     def event(
         self,
-        level: Level,
+        severity: Severity,
         scope: Scope,
         subject: str,
-        kind: Kind,
+        code: Code,
         message: str,
         details: Any = None,
     ) -> Event:
         """Record that something happened: logged, kept, pushed to watchers, recorded."""
-        event = Event(self.clock.now_ns(), level, scope, subject, kind, message, details)
-        log.log(int(level), "%s %s: %s", scope, subject, message)
+        event = Event(self.clock.now_ns(), severity, scope, subject, code, message, details)
+        log.log(severity.rank, "%s %s: %s", scope, subject, message)
         self.recent.append(event)
         self.events.publish(event)
         if self.recorder is not None:
@@ -358,10 +358,10 @@ class Rig:
         with self.lock:
             recorder, self.recorder = self.recorder, None
         self.event(
-            Level.ERROR,
+            Severity.ERROR,
             Scope.RIG,
             "recorder",
-            Kind.RECORDING_FAILED,
+            Code.RECORDING_FAILED,
             f"recording stopped: {type(error).__name__}: {error}",
         )
         if recorder is not None:
@@ -623,7 +623,7 @@ class Rig:
             self._flush_pushed()
             return states
 
-    def hold_reason(self, controller: Controller) -> Kind | None:
+    def hold_reason(self, controller: Controller) -> Code | None:
         """Why a write by `controller` would be held now, or None if it would go through.
 
         `stale_input`: its measured signal has not been read within `stale_after_s`.
@@ -643,27 +643,27 @@ class Rig:
                 if name not in self._stale_held:
                     self._stale_held.add(name)
                     self.event(
-                        Level.WARNING,
+                        Severity.WARNING,
                         Scope.CONTROLLER,
                         name,
-                        Kind.STALE_INPUT,
+                        Code.STALE_INPUT,
                         f"'{measured.address}' has not been read in over {stale_after_s:g}s: held",
                         {"age_s": age_s},
                     )
-                return Kind.STALE_INPUT
+                return Code.STALE_INPUT
             self._stale_held.discard(name)
         try:
             controller.output_signal.clamp(0.0)
         except (LimitNotKnownError, LimitsInvertedError) as e:
             self._limit_unknown(controller, e)
-            return Kind.LIMIT_UNKNOWN
+            return Code.LIMIT_UNKNOWN
         if name in self._limit_held:
             self._limit_held.discard(name)
             self.event(
-                Level.INFO,
+                Severity.INFO,
                 Scope.CONTROLLER,
                 name,
-                Kind.LIMIT_KNOWN,
+                Code.LIMIT_KNOWN,
                 "every limit on its output is known: writing again",
             )
         return None
@@ -675,10 +675,10 @@ class Rig:
         if controller.name not in self._limit_held:
             self._limit_held.add(controller.name)
             self.event(
-                Level.WARNING,
+                Severity.WARNING,
                 Scope.CONTROLLER,
                 controller.name,
-                Kind.LIMIT_UNKNOWN,
+                Code.LIMIT_UNKNOWN,
                 f"{error}: held",
                 {"signal": error.address, "unknown": error.unknown},
             )
@@ -766,7 +766,11 @@ class Rig:
                 continue
             if self._commit_failures.pop(device, None) is not None:
                 self.event(
-                    Level.INFO, Scope.DEVICE, device.name, Kind.COMMIT_RECOVERED, "commits succeed"
+                    Severity.INFO,
+                    Scope.DEVICE,
+                    device.name,
+                    Code.COMMIT_RECOVERED,
+                    "commits succeed",
                 )
             states.update(self._states(device, time_ns, before))
         return states
@@ -776,15 +780,15 @@ class Rig:
         message = f"{type(error).__name__}: {error}"
         first = device not in self._commit_failures
         self._commit_failures[device] = Condition(
-            Kind.COMMIT_FAILED, Level.ERROR, message, self.clock.now_ns()
+            Code.COMMIT_FAILED, Severity.ERROR, message, self.clock.now_ns()
         )
         if first:  # one event per outage, not one per delivery
             log.warning("%s: commit failed: %s", device.name, message, exc_info=error)
             self.event(
-                Level.ERROR,
+                Severity.ERROR,
                 Scope.DEVICE,
                 device.name,
-                Kind.COMMIT_FAILED,
+                Code.COMMIT_FAILED,
                 message,
                 {"signals": [signal.address for signal in device.staged]},
             )
@@ -872,10 +876,10 @@ class Rig:
             return
         self._ignored.add(signal)
         self.event(
-            Level.WARNING,
+            Severity.WARNING,
             Scope.DEVICE,
             device.name,
-            Kind.DEMAND_IGNORED,
+            Code.DEMAND_IGNORED,
             f"'{signal.address}': {value} was not read by the driver's commit; nothing was set",
             {"signal": signal.address, "demand": value},
         )
@@ -1183,10 +1187,10 @@ class Rig:
                         )
                     holder.manual()
                     self.event(
-                        Level.INFO,
+                        Severity.INFO,
                         Scope.CONTROLLER,
                         holder.name,
-                        Kind.INTERRUPTED,
+                        Code.INTERRUPTED,
                         f"put in manual by {device.name}.{command}",
                     )
                     if self.controller_states.watched:
@@ -1417,17 +1421,17 @@ class Rig:
                 self._failing.add(name)
                 log.exception("controller %s failed its step", name)
                 self.event(
-                    Level.ERROR,
+                    Severity.ERROR,
                     Scope.CONTROLLER,
                     name,
-                    Kind.STEP_FAILED,
+                    Code.STEP_FAILED,
                     f"{type(error).__name__}: {error}",
                     {"measured": reading.signal.address},
                 )
             return
         if name in self._failing:
             self._failing.discard(name)
-            self.event(Level.INFO, Scope.CONTROLLER, name, Kind.STEP_RECOVERED, "stepping again")
+            self.event(Severity.INFO, Scope.CONTROLLER, name, Code.STEP_RECOVERED, "stepping again")
 
     @staticmethod
     def _check_sample(sample: Sample) -> None:

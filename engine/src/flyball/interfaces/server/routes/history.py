@@ -237,9 +237,9 @@ def read_events(
     session_id: int,
     start_ns: int | None = None,
     end_ns: int | None = None,
-    kind: str | None = None,
+    code: str | None = None,
 ) -> list[Event]:
-    return store.events(session_id, _window(start_ns, end_ns), kind)
+    return store.events(session_id, _window(start_ns, end_ns), code)
 
 
 @router.get("/sessions/{session_id}/spans")

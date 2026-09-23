@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from flyball.foundation.device import Access, Committable, Device, Level, Reading, SignalSpec
+from flyball.foundation.device import Access, Committable, Device, Reading, Severity, SignalSpec
 from flyball.foundation.errors import NotFoundError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Watt
@@ -88,17 +88,17 @@ def test_offline_on_an_exception_with_a_condition_and_an_event(rig, clock, furna
     clock.advance(1.0)
     run = rig.polling.run(furnace.name)
     assert run.running is False
-    assert run.conditions[0].kind == "offline" and run.conditions[0].level is Level.ERROR
+    assert run.conditions[0].code == "offline" and run.conditions[0].severity is Severity.ERROR
     assert "modbus timeout" in run.conditions[0].message
     event = rig.recent[-1]
-    assert event.kind == "offline" and event.scope == "device" and event.subject == furnace.name
+    assert event.code == "offline" and event.scope == "device" and event.subject == furnace.name
     clock.advance(5.0)
     assert furnace.reads == 2, "stays stopped until restarted"
 
     furnace.fail = False
     run = rig.polling.restart(furnace.name)
     assert run.conditions == () and run.running is True
-    assert rig.recent[-1].kind == "restarted" and rig.recent[-1].subject == furnace.name
+    assert rig.recent[-1].code == "restarted" and rig.recent[-1].subject == furnace.name
     clock.advance(1.0)
     assert furnace.reads == 3 and rig.polling.run(furnace.name).last_read_ns == clock.now_ns()
     with pytest.raises(NotFoundError, match="Polled device 'nope' not found"):
@@ -117,7 +117,7 @@ def test_a_failure_downstream_of_a_read_is_the_rig_s(rig, clock, furnace, fresh)
     run = rig.polling.run(furnace.name)
     assert run.conditions == () and run.last_read_ns == clock.now_ns(), "the device read fine"
     event = rig.recent[-1]
-    assert event.kind == "commit_failed" and event.scope == "device"
+    assert event.code == "commit_failed" and event.scope == "device"
     assert event.subject == broken.name, "the committing device's, not the polled one's"
     assert "a bug in a driver's commit" in event.message
     assert run.running is True
@@ -133,7 +133,7 @@ def test_a_failure_in_the_delivery_itself_is_delivery_failed(rig, clock, furnace
     run = rig.polling.run(furnace.name)
     assert run.conditions == () and run.running is True
     event = rig.recent[-1]
-    assert event.kind == "delivery_failed" and event.scope == "rig"
+    assert event.code == "delivery_failed" and event.scope == "rig"
     assert "a bug downstream" in event.message
 
 
@@ -150,8 +150,8 @@ def test_a_slow_read_raises_a_warning_condition(rig, furnace):
     rig.polling.stop_all()
     rig.polling._read(slow)
     (condition,) = rig.polling.run(slow.name).conditions
-    assert condition.kind == "slow" and condition.level is Level.WARNING
-    assert rig.recent[-1].kind == "slow"
+    assert condition.code == "slow" and condition.severity is Severity.WARNING
+    assert rig.recent[-1].code == "slow"
 
 
 def test_stop_gives_up_on_a_read_stuck_in_its_driver(monkeypatch, caplog, fresh):
@@ -205,6 +205,6 @@ def test_a_restart_of_a_still_broken_device_ends_offline_again(rig, clock, furna
     rig.polling.restart(furnace.name)  # still broken
     clock.advance(1.0)
     run = rig.polling.run(furnace.name)
-    assert run.running is False and run.conditions and run.conditions[0].kind == "offline"
-    kinds = [e.kind for e in rig.recent if e.subject == furnace.name]
-    assert kinds[-2:] == ["restarted", "offline"], "the offline lands after the restart"
+    assert run.running is False and run.conditions and run.conditions[0].code == "offline"
+    codes = [e.code for e in rig.recent if e.subject == furnace.name]
+    assert codes[-2:] == ["restarted", "offline"], "the offline lands after the restart"

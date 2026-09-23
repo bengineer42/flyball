@@ -91,7 +91,7 @@ class TestSimDaq:
         broken = daq.fail("z2")
         assert broken == ("z2",)
         (condition,) = daq.conditions.value
-        assert condition.kind == "broken" and condition.since_ns == 5_000_000_000
+        assert condition.code == "broken" and condition.since_ns == 5_000_000_000
         assert "z2" in condition.message
         with pytest.raises(HardwareError, match=r"f\.z2: sensor failed \(simulated\)"):
             list(daq.read(6_000_000_000))

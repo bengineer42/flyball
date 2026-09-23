@@ -25,7 +25,6 @@ import type {
   DeviceView,
   ErrorDetail,
   Event,
-  EventLevel,
   Health,
   JsonSchema,
   LawConfig,
@@ -39,6 +38,7 @@ import type {
   ReadOut,
   SetpointSpec,
   RegulateRequest,
+  Severity,
   RigDocument,
   RigSchema,
   RigVersion,
@@ -710,8 +710,8 @@ export class RigClient {
 
   // region Events
 
-  /** The last few hundred events, oldest first; `level` keeps that level and above. */
-  events(query: { limit?: number; level?: EventLevel } = {}): Promise<Event[]> {
+  /** The last few hundred events, oldest first; `severity` keeps that severity and above. */
+  events(query: { limit?: number; severity?: Severity } = {}): Promise<Event[]> {
     return this.get("/api/events", query);
   }
 

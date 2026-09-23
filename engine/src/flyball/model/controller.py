@@ -35,7 +35,7 @@ from flyball.foundation import (
     WriteState,
     require,
 )
-from flyball.foundation.device import Access, Kind, Role
+from flyball.foundation.device import Access, Code, Role
 from flyball.model.errors import (
     ControlLawNotSetError,
     ControllerNotStartedError,
@@ -183,7 +183,7 @@ class Controller:
     lock: RLock
     _base: float | None = None
     """The feedforward's part of the last output, so a deferred delivery can split the rest."""
-    held: Kind | None = None
+    held: Code | None = None
     """Why the last tick was held (`stale_input`, `limit_unknown`); None when it stepped."""
 
     def __init__(
@@ -196,7 +196,7 @@ class Controller:
         feedforward: Feedforward | FeedforwardConfig | None = None,
         min_period_s: float | None = None,
         write: Callable[[float], float | None] | None = None,
-        hold: Callable[[], Kind | None] | None = None,
+        hold: Callable[[], Code | None] | None = None,
     ) -> None:
         if output_signal.role is not Role.DEMAND:
             raise ConflictError(
@@ -227,7 +227,7 @@ class Controller:
         self.feedforward = built
         self.write: Callable[[float], float | None] = self._unwired if write is None else write
         """How an output value reaches the output: the rig's `demand`, returning what committed."""
-        self.hold: Callable[[], Kind | None] = self._never_held if hold is None else hold
+        self.hold: Callable[[], Code | None] = self._never_held if hold is None else hold
         """Why the rig would refuse a write now, or None: asked before the law steps."""
         self.law = None
         if law is not None:
@@ -244,7 +244,7 @@ class Controller:
         return None
 
     @staticmethod
-    def _never_held() -> Kind | None:
+    def _never_held() -> Code | None:
         """Nothing to refuse a write: no rig in front of the output."""
         return None
 

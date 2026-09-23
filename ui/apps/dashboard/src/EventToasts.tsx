@@ -1,9 +1,9 @@
 import { Alert, IconButton, Snackbar } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
-import { describeEventKind, describeSubject, type RigEvent } from "@flyball/client";
+import { describeEventCode, describeSubject, type RigEvent } from "@flyball/client";
 
-/** ERROR toasts stay red; WARNING (the lowest `useUnreadEvents` toasts) reads as a caution, not a failure. */
-const severity = (level: RigEvent["level"]) => (level === "ERROR" ? "error" : "warning");
+/** `error` toasts stay red; `warning` (the lowest `useUnreadEvents` toasts) reads as a caution, not a failure. */
+const tone = (severity: RigEvent["severity"]) => (severity === "error" ? "error" : "warning");
 
 /**
  * One WARNING+ event at a time, wherever the viewer is in the app: mounted once at the
@@ -22,7 +22,7 @@ export function EventToasts({ toasts, onDismiss }: { toasts: RigEvent[]; onDismi
     >
       {current && (
         <Alert
-          severity={severity(current.level)}
+          severity={tone(current.severity)}
           variant="filled"
           sx={{ maxWidth: 420 }}
           action={
@@ -37,7 +37,7 @@ export function EventToasts({ toasts, onDismiss }: { toasts: RigEvent[]; onDismi
             </IconButton>
           }
         >
-          {describeEventKind(current.kind)} — {describeSubject(current.subject)}: {current.message}
+          {describeEventCode(current.code)} — {describeSubject(current.subject)}: {current.message}
         </Alert>
       )}
     </Snackbar>

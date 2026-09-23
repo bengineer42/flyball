@@ -210,8 +210,8 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
   const h = health.data;
   const { controllers } = useControllers();
   const controllerList = useMemo(() => Object.values(controllers).sort((a: ControllerOut, b: ControllerOut) => a.name.localeCompare(b.name)), [controllers]);
-  const problems = events.filter((e) => e.level === "ERROR" || e.level === "WARNING").length;
-  const errors = events.filter((e) => e.level === "ERROR").length;
+  const problems = events.filter((e) => e.severity === "error" || e.severity === "warning").length;
+  const errors = events.filter((e) => e.severity === "error").length;
   const shownDevices = devices.filter((d) => d.kind !== "simulation");
   const polled = h ? Object.keys(h.devices).length : 0;
   const stopped = h ? Object.values(h.devices).filter((d) => !d.running).length : 0;
@@ -243,11 +243,11 @@ export function Overview({ devices, onOpen, ...charts }: OverviewProps) {
       {h && h.conditions.length > 0 && (
         <Stack spacing={0.5} sx={{ mb: 3 }}>
           {h.conditions.map((c) => (
-            <Alert key={`${c.device}-${c.kind}-${c.since_ns}`} severity={c.level >= 40 ? "error" : "warning"}>
+            <Alert key={`${c.device}-${c.code}-${c.since_ns}`} severity={c.severity === "error" ? "error" : "warning"}>
               <Link href={hrefFor({ kind: "device", name: c.device })} color="inherit" underline="hover">
                 <strong>{c.device}</strong>
               </Link>{" "}
-              <strong>{c.kind}</strong> {c.message}
+              <strong>{c.code}</strong> {c.message}
             </Alert>
           ))}
         </Stack>

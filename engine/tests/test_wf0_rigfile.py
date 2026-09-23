@@ -206,7 +206,7 @@ class TestInvertedLimits:
         _read(rig, device, dry=70.0, wet=30.0)
         controller.regulate(50.0, transfer=Transfer.COLD)
         assert device.written == {}, "held, not clamped to either end"
-        assert [e.kind for e in rig.recent if e.kind.startswith("limit_")] == ["limit_unknown"]
+        assert [e.code for e in rig.recent if e.code.startswith("limit_")] == ["limit_unknown"]
 
 
 class TestNamespaceAndDevicePeriods:

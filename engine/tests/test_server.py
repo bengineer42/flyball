@@ -12,12 +12,12 @@ from conftest import TestClient
 from flyball.foundation.device import (
     Committable,
     Demand,
-    Level,
     Namespace,
     Node,
     Readable,
     Readout,
     Sample,
+    Severity,
     Signal,
     command,
 )
@@ -582,7 +582,7 @@ def test_health_alarms_include_device_conditions_at_or_above_warning(client, rig
     body = client.get("/api/health").json()
     assert body["ok"] is False
     assert (
-        body["conditions"][0]["device"] == daq.name and body["conditions"][0]["kind"] == "offline"
+        body["conditions"][0]["device"] == daq.name and body["conditions"][0]["code"] == "offline"
     )
     assert body["alarms"] == {"warn": 0, "alarm": 1, "max_level": 40}
 
@@ -594,18 +594,18 @@ def test_health_without_a_rig_says_so():
 
 
 def test_events_are_kept_and_streamed(client, rig):
-    rig.event(Level.WARNING, "device", "probe", "slow", "took 2 s", {"took_s": 2.0})
-    rig.event(Level.INFO, "rig", "x", "note", "quiet")
+    rig.event(Severity.WARNING, "device", "probe", "slow", "took 2 s", {"took_s": 2.0})
+    rig.event(Severity.INFO, "rig", "x", "note", "quiet")
     events = client.get("/api/events").json()
-    assert [e["level"] for e in events] == ["WARNING", "INFO"]
+    assert [e["severity"] for e in events] == ["warning", "info"]
     assert events[0]["details"] == {"took_s": 2.0} and events[0]["time_ns"] == rig.clock.now_ns()
-    assert [e["kind"] for e in client.get("/api/events?level=warning").json()] == ["slow"]
+    assert [e["code"] for e in client.get("/api/events?severity=warning").json()] == ["slow"]
     assert len(client.get("/api/events?limit=1").json()) == 1
     with client.websocket_connect("/ws/events") as ws:
-        assert [e["kind"] for e in ws.receive_json()["events"]] == ["slow", "note"]
-        rig.event(Level.ERROR, "program", "bake[2]", "step_failed", "no such device")
+        assert [e["code"] for e in ws.receive_json()["events"]] == ["slow", "note"]
+        rig.event(Severity.ERROR, "program", "bake[2]", "step_failed", "no such device")
         (event,) = ws.receive_json()["events"]
-        assert event["level"] == "ERROR" and event["subject"] == "bake[2]"
+        assert event["severity"] == "error" and event["subject"] == "bake[2]"
 
 
 # endregion
@@ -711,7 +711,7 @@ def test_device_runs_ride_the_samples_stream(client, rig, daq):
         daq.broken = True
         rig.polling._read(daq)
         (run,) = ws.receive_json()["runs"]
-        assert run["conditions"][0]["kind"] == "offline"
+        assert run["conditions"][0]["code"] == "offline"
 
 
 def test_activities_stream(client, rig):
@@ -909,10 +909,10 @@ def test_a_step_naming_a_missing_controller_fails_the_run_instead_of_finishing_i
     assert state["error"] is not None and "heaters.heater1" in state["error"]
 
     events = client.get("/api/events").json()
-    kinds = [e["kind"] for e in events]
-    assert kinds[-1] == "failed" and "succeeded" not in kinds
-    (finish_event,) = [e for e in events if e["kind"] == "failed"]
-    assert finish_event["level"] == "ERROR" and "heaters.heater1" in finish_event["message"]
+    codes = [e["code"] for e in events]
+    assert codes[-1] == "failed" and "succeeded" not in codes
+    (finish_event,) = [e for e in events if e["code"] == "failed"]
+    assert finish_event["severity"] == "error" and "heaters.heater1" in finish_event["message"]
 
 
 # endregion
@@ -1014,7 +1014,7 @@ def test_a_command_on_an_offline_device_restarts_it(client, rig, daq):
         assert rig.polling.run(daq.name).running is False
         body = client.get(f"/api/devices/{daq.name}").json()
         assert body["run"] == {"period_s": 0.5, "running": False, "last_read_ns": None}
-        assert body["conditions"][0]["kind"] == "offline"
+        assert body["conditions"][0]["code"] == "offline"
 
         assert client.post(f"/api/devices/{daq.name}/commands/restore").status_code == 200
         assert rig.polling.run(daq.name).running is True

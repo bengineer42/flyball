@@ -207,11 +207,15 @@ READ: tuple[Tool, ...] = (
         "The rig's latest events, newest first: alarms, interrupts, program steps, errors.",
         _object({
             "limit": _int("At most this many.", default=100, minimum=1, maximum=1000),
-            "level": _str("This level and above.", enum=["DEBUG", "INFO", "WARNING", "ERROR"]),
+            "severity": _str(
+                "This severity and above.", enum=["debug", "info", "warning", "error"]
+            ),
         }),
         Tier.READ,
         lambda rig, a: {
-            "events": rig.get("/api/events" + _query(limit=a.get("limit"), level=a.get("level")))
+            "events": rig.get(
+                "/api/events" + _query(limit=a.get("limit"), severity=a.get("severity"))
+            )
         },
         output_schema=_list_of("events", "The rig's latest events, newest first."),
     ),

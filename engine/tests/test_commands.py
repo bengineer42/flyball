@@ -176,7 +176,7 @@ class TestRun:
             rig.run_command(heater, "set_banks", {"a": 1.0, "b": 1.0})
         rig.run_command(heater, "reset"), "no mode, no link: runs regardless"
         rig.run_command(heater, "off")
-        assert not controller.mode.active() and rig.recent[-1].kind == "interrupted"
+        assert not controller.mode.active() and rig.recent[-1].code == "interrupted"
         rig.run_command(heater, "set_banks", {"a": 1.0, "b": 1.0}), "manual now: allowed"
 
     def test_a_demand_puts_the_device_back_in_auto_from_within_commit(

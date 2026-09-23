@@ -2,6 +2,7 @@ import { Badge, Chip, Link, Tooltip, useMediaQuery, useTheme, type ChipProps } f
 import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
 import PauseIcon from "@mui/icons-material/Pause";
 import { useHealth, type PlaybackHook, type StreamStatus, type SocketStream } from "@flyball/react";
+import { atLeast } from "@flyball/client";
 import { sessionName, stepOf, type Programmer, type Recording } from "./model.js";
 import { PAGE_ICONS, WarnIcon, ErrorIcon, OkIcon, type IconComponent } from "./icons.js";
 import { hashFor, hrefFor } from "./router.js";
@@ -155,7 +156,7 @@ export function Status({ recording, programmer, streams, byStream, eventsUnread 
 
   // Alarm summary (research §6): `/api/health.alarms` counts the signals outside their warn/alarm
   // band plus the device conditions at WARNING/ERROR, so the chip reads the same as the Overview tile.
-  const active = (h?.conditions ?? []).filter((c) => c.level >= 30);
+  const active = (h?.conditions ?? []).filter((c) => atLeast(c.severity, "warning"));
   const amber = h?.alarms.warn ?? 0;
   const red = h?.alarms.alarm ?? 0;
   const conditionCount = amber + red;
@@ -182,7 +183,7 @@ export function Status({ recording, programmer, streams, byStream, eventsUnread 
       colour={alarmColour}
       minWidth="7rem"
       lines={[
-        ...active.map((c) => ({ name: `${c.device} ${c.kind}`, href: hrefFor({ kind: "device", name: c.device }), state: c.message })),
+        ...active.map((c) => ({ name: `${c.device} ${c.code}`, href: hrefFor({ kind: "device", name: c.device }), state: c.message })),
         ...(amber > 0 ? [{ name: "signals", state: `${amber} outside their warn band` }] : []),
         ...(red > 0 ? [{ name: "signals", state: `${red} outside their alarm band` }] : []),
       ]}

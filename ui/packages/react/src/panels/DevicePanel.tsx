@@ -61,8 +61,8 @@ const clock = (ns: number) => new Date(ns / 1e6).toLocaleTimeString();
 
 /** The runtime's conditions (`offline`, `slow`) replace the device's own of the same kind; everything else the device reported stands. */
 function mergeConditions(base: readonly Condition[], runtime: readonly Condition[]): Condition[] {
-  const kinds = new Set(runtime.map((c) => c.kind));
-  return [...base.filter((c) => !kinds.has(c.kind)), ...runtime];
+  const codes = new Set(runtime.map((c) => c.code));
+  return [...base.filter((c) => !codes.has(c.code)), ...runtime];
 }
 
 /** The device's `mode` output, if its driver declared one: a top-level signal named `mode`. */
@@ -114,8 +114,8 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
       {conditions.length > 0 && (
         <span className="fb-conditions">
           {conditions.map((c) => (
-            <span key={c.kind} className={`fb-condition fb-level-${c.level}`} title={c.message}>
-              {c.kind}
+            <span key={c.code} className={`fb-condition fb-severity-${c.severity}`} title={c.message}>
+              {c.code}
             </span>
           ))}
         </span>

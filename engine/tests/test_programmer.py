@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from flyball.foundation.device import Committable, Demand, Level, Readout, Sample, command
+from flyball.foundation.device import Committable, Demand, Readout, Sample, Severity, command
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.sequencing import Program, Programmer, Prompt, Step
@@ -68,8 +68,8 @@ def test_a_failing_first_step_raises_and_leaves_the_programmer_idle(rig, note):
     assert seen == [] and programmer.running is False
     # A step failing on the calling thread is still a `failed` program, not a
     # silent `succeeded` one: an ERROR event, and `state` says so until the next start.
-    kinds = [e.kind for e in rig.recent]
-    assert kinds == ["started", "step", "step_failed", "failed"]
+    codes = [e.code for e in rig.recent]
+    assert codes == ["started", "step", "step_failed", "failed"]
     state = programmer.state
     assert state.running is False and state.failed is True
     assert state.error is not None and "no such thing" in state.error
@@ -92,16 +92,16 @@ def test_steps_after_a_prompt_run_on_the_worker_and_a_failure_there_is_an_event(
     assert seen == ["a", "b"] and programmer.running is False
     # The programmer also narrates: started, one `step` per step, the step that
     # raised, and a `failed` finish rather than a `succeeded` one.
-    kinds = [e.kind for e in rig.recent]
-    assert kinds[0] == "started" and kinds[-1] == "failed" and kinds.count("step") == 4
-    (step_event, finish_event) = [e for e in rig.recent if e.level == Level.ERROR]
+    codes = [e.code for e in rig.recent]
+    assert codes[0] == "started" and codes[-1] == "failed" and codes.count("step") == 4
+    (step_event, finish_event) = [e for e in rig.recent if e.severity == Severity.ERROR]
     assert step_event.scope == "program" and step_event.subject == "p[3]"
     assert (
-        step_event.kind == "step_failed"
+        step_event.code == "step_failed"
         and step_event.details["error"] == "RuntimeError: no such thing"
     )
     assert finish_event.scope == "program" and finish_event.subject == "p"
-    assert finish_event.kind == "failed" and "no such thing" in finish_event.message
+    assert finish_event.code == "failed" and "no such thing" in finish_event.message
     state = programmer.state
     assert state.running is False and state.failed is True and "no such thing" in state.error
 
@@ -135,9 +135,9 @@ def test_a_later_step_naming_a_missing_controller_fails_the_program_without_runn
         programmer.start(program)
     assert seen == [] and programmer.running is False
     assert controller.reference is not None  # step 0 did apply
-    kinds = [e.kind for e in rig.recent]
-    assert kinds == ["started", "step", "step", "step_failed", "failed"]
-    (step_event,) = [e for e in rig.recent if e.kind == "step_failed"]
+    codes = [e.code for e in rig.recent]
+    assert codes == ["started", "step", "step", "step_failed", "failed"]
+    (step_event,) = [e for e in rig.recent if e.code == "step_failed"]
     assert step_event.subject == "p2[1]" and "no_such_controller" in step_event.message
     state = programmer.state
     assert state.failed is True and "no_such_controller" in state.error
@@ -152,7 +152,7 @@ def test_cancel_stops_at_the_prompt_and_start_can_replace_a_running_program(rig,
     programmer.start(Note("instead"), cancel=True)
     assert seen == ["instead"] and rig.triggers.states() == {}
     assert programmer.running is False
-    ended = [(e.subject, e.kind) for e in rig.recent if e.kind in ("cancelled", "succeeded")]
+    ended = [(e.subject, e.code) for e in rig.recent if e.code in ("cancelled", "succeeded")]
     assert ended == [("first", "cancelled"), ("program", "succeeded")]
 
 
@@ -160,19 +160,19 @@ def test_a_program_ends_succeeded_cancelled_or_interrupted_with_a_reason(rig, no
     Note, seen = note
     programmer = Programmer(rig)
     programmer.start(Note("done"))
-    assert rig.recent[-1].kind == "succeeded"
+    assert rig.recent[-1].code == "succeeded"
     programmer.start(Program([Prompt("one", name="one")]))
     programmer.cancel()
-    assert rig.recent[-1].kind == "cancelled"
+    assert rig.recent[-1].code == "cancelled"
     programmer.start(Program([Prompt("two", name="two")]))
     programmer.interrupt("the rig was stopped")
     event = rig.recent[-1]
-    assert event.kind == "interrupted" and event.details["reason"] == "the rig was stopped"
+    assert event.code == "interrupted" and event.details["reason"] == "the rig was stopped"
     assert "the rig was stopped" in event.message
     programmer.start(Program([Prompt("three", name="three"), Note("never")]))
     rig.triggers.interrupt("three")  # a person cancels what it waits on
     programmer.join(2)
-    assert rig.recent[-1].kind == "cancelled" and "never" not in seen
+    assert rig.recent[-1].code == "cancelled" and "never" not in seen
 
 
 def test_an_interrupt_while_a_step_applies_cancels_the_activity_it_returns(rig, fresh):
@@ -224,7 +224,7 @@ def test_an_interrupt_while_a_step_applies_cancels_the_activity_it_returns(rig, 
         interrupter.join(5)
         assert not interrupter.is_alive(), "interrupt hung joining a worker waiting on its step"
         assert returned[0].interrupted and programmer.running is False
-        assert [e.kind for e in rig.recent][-1] == "interrupted"
+        assert [e.code for e in rig.recent][-1] == "interrupted"
     finally:  # unwind a hung worker so the failure does not leak a thread
         for activity in returned:
             activity.interrupt()
@@ -239,9 +239,9 @@ def test_a_timed_out_prompt_ends_the_program(rig, note):
     programmer.start(Program([Prompt("brief", timeout=Duration(0.05)), Note("after")]))
     programmer.join(2)
     assert seen == [] and programmer.running is False
-    (event,) = [e for e in rig.recent if e.level == Level.WARNING]
-    assert event.kind == "step_timed_out"
-    assert rig.recent[-1].kind == "failed", "a program that gave up did not succeed"
+    (event,) = [e for e in rig.recent if e.severity == Severity.WARNING]
+    assert event.code == "step_timed_out"
+    assert rig.recent[-1].code == "failed", "a program that gave up did not succeed"
     assert programmer.state.failed and "gave up after" in (programmer.state.error or "")
 
 
@@ -312,8 +312,8 @@ def test_a_timed_wait_can_time_out_like_a_prompt(rig, note):
     programmer.start(Program([Wait(Duration(60), timeout=Duration(0.05)), Note("after")]))
     programmer.join(2)
     assert seen == [] and programmer.running is False
-    (event,) = [e for e in rig.recent if e.level == Level.WARNING]
-    assert event.kind == "step_timed_out"
+    (event,) = [e for e in rig.recent if e.severity == Severity.WARNING]
+    assert event.code == "step_timed_out"
 
 
 def test_regulate_names_a_controller_by_its_target_address(rig, fresh):
