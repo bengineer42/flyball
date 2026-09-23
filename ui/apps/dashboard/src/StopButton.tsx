@@ -28,7 +28,7 @@ export function StopButton() {
     setBusy(true);
     try {
       const report = await rig.stopRig();
-      setResult({ ok: true, message: report.interim ? "Stopped (interim report: the full stop boundary is not wired up yet)" : "Stopped" });
+      setResult({ ok: true, message: report.interim ? "Software stop: controllers to manual; nothing written — outputs left as they were" : "Software stop done" });
     } catch (e) {
       if (e instanceof RigError && e.status === 501) setResult({ ok: false, message: "Stop is not wired up yet on this runner" });
       else setResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
@@ -40,7 +40,7 @@ export function StopButton() {
 
   return (
     <>
-      <Tooltip title="Stop the rig: interrupt the program, put every controller in manual and hold every device">
+      <Tooltip title="Software stop: interrupt the program and put every controller in manual. Nothing is written -- outputs are left as they were.">
         <span>
           <Button
             variant="outlined"
@@ -51,15 +51,15 @@ export function StopButton() {
             disabled={busy}
             data-testid="stop-button"
           >
-            Stop
+            Software stop
           </Button>
         </span>
       </Tooltip>
       <Confirm
         open={confirming}
-        title="Stop the rig?"
-        text="This interrupts any running program, puts every controller in manual and holds every writable device."
-        action="Stop"
+        title="Software stop?"
+        text="This interrupts any running program and puts every controller in manual. It writes nothing: outputs are left as they were."
+        action="Software stop"
         busy={busy}
         onClose={() => setConfirming(false)}
         onConfirm={() => void stop()}

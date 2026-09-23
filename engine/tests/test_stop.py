@@ -108,8 +108,8 @@ def test_interim_report(oven, monkeypatch):
     assert report["reason"] == "lid open"
     # Every writable device, and only those: the thermocouple has nothing to stop.
     assert set(report["devices"]) == {"heater"}
-    assert report["devices"]["heater"]["state"] == "held"
-    assert "held" in report["devices"]["heater"]["detail"]
+    assert report["devices"]["heater"]["state"] == "unchanged"
+    assert "nothing written" in report["devices"]["heater"]["detail"]
     assert "safe" not in json.dumps(report).lower()
     assert report["actor"]["via"] == "http"
     assert isinstance(report["at_ns"], int) and report["at_ns"] > 0
@@ -331,7 +331,7 @@ def test_actor_and_report_are_frozen():
         at_ns=1,
         actor=actor,
         reason="SIGUSR1",
-        devices={"pump": {"state": "held", "detail": ""}},
+        devices={"pump": {"state": "unchanged", "detail": ""}},
         program_interrupted=True,
         controllers_manual=["pump.flow"],
         interim=True,
@@ -447,7 +447,7 @@ def test_sigusr1_stops_without_exit(tmp_path):
         assert report["program_interrupted"] is True
         assert report["controllers_manual"] == ["heater.drive"]
         assert report["devices"] == {"heater": report["devices"]["heater"]}
-        assert report["devices"]["heater"]["state"] == "held"
+        assert report["devices"]["heater"]["state"] == "unchanged"
 
         # A second signal: the same stop again, nothing to interrupt, still alive.
         proc.send_signal(signal.SIGUSR1)
