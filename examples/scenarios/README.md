@@ -4,7 +4,8 @@ Config-only example rigs for a handful of top-ranked application domains.
 Each is a real
 `rig.yaml` (real hardware addresses and drivers) plus a `sim.yaml` overlay
 (same addresses, no hardware) plus a `programs/` directory — the same shape
-as `examples/humidity/`. To go from sim to real, drop the `sim.yaml` file
+as [the humidity rig](https://bengineer42.github.io/humctrl/). To go from
+sim to real, drop the `sim.yaml` file
 from the command line:
 
 ```bash
@@ -23,7 +24,8 @@ flyball-runner rig.yaml              # the real skid/room
 - **Mushroom room's two loops don't couple.** A real grow tent's humidity and
   CO2 interact (more fresh-air exchange lowers both); the `sim.yaml` overlay
   uses two independent generic `sim_plant` links, not a bespoke coupled
-  physics model like `examples/humidity/sim.yaml`'s `sim_humidity_chamber`.
+  physics model like [the humidity rig](https://bengineer42.github.io/humctrl/)'s
+  `sim_humidity_chamber`.
   Good enough to try the program and the two loops in isolation; not a
   faithful simulation of the coupling.
 - **Aging room's temperature signal is unmodelled** in the sim overlay — it

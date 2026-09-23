@@ -1,7 +1,8 @@
 # yaml-language-server: $schema=program.schema.json
 # Three cultivation phases, each a different humidity/CO2 target held for a
-# while -- the same regulate/hold shape as `examples/humidity/programs/
-# demo.yaml`, repeated per phase instead of once. Real cultivation runs are
+# while -- the same regulate/hold shape as the humidity rig's programs/
+# demo.yaml (https://bengineer42.github.io/humctrl/), repeated per phase
+# instead of once. Real cultivation runs are
 # days-to-weeks per phase; `hold` durations below are shortened for a live
 # demo -- scale them up for a real run, or drive `--set clock.speed=...`
 # down as `furnace.yaml`'s programs do the opposite for a fast rehearsal.

@@ -1,6 +1,7 @@
 # The humidity simulation as one runner: `uv run flyball-runner humidity.yaml`
 # from examples/humidity (its venv has the humidity drivers). The rig is
-# examples/humidity's; this file only says how to serve it.
+# the humidity rig's (https://bengineer42.github.io/humctrl/, its own repo,
+# cloned to examples/humidity); this file only says how to serve it.
 extends: [../humidity/rig-multi-sensor.yaml, ../humidity/sim.yaml]
 runner:
   port: 8001

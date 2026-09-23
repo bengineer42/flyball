@@ -2,8 +2,9 @@
 
 One runner file per deployment. Each holds only `extends` (the rig it
 serves) and a `runner:` section (how): port, path prefix, what the API may
-do, where the store goes. The rigs themselves are `examples/humidity` and
-`examples/furnace`, unchanged.
+do, where the store goes. The rigs themselves are `examples/furnace`,
+unchanged, and [the humidity rig](https://bengineer42.github.io/humctrl/)
+-- its own repo, cloned to `examples/humidity` alongside this one.
 
 | file | serves | at |
 | --- | --- | --- |
