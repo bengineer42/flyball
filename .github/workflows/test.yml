@@ -1,0 +1,136 @@
+# Runs the suites listed in engine/../CLAUDE.md's "Verify before claiming" on
+# every push and pull request. `uv sync` is plain (no --locked/--frozen):
+# nine uv.lock files are stale (group M, Ben's), and a plain sync re-resolves
+# instead of failing on them. Never run `uv lock` here.
+#
+# examples/humidity is its own nested repo (gitignored, not a submodule) and
+# is not built from here. The UI job relies on the tracked
+# daemon/internal/webui/dist placeholder rather than building the dashboard
+# into the daemon. No coverage/random-order jobs yet (FD-14): those land
+# after ENG-31 and the recorder lock. No badge (FD-03).
+
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Sync
+        working-directory: engine
+        run: uv sync --all-extras
+      - name: Lint, imports, types, test
+        working-directory: engine
+        run: make lint imports types test
+
+  sim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Sync
+        working-directory: sim
+        run: uv sync
+      - name: Test
+        working-directory: sim
+        run: uv run pytest -q
+
+  furnace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Sync
+        working-directory: examples/furnace
+        run: uv sync
+      - name: Test
+        working-directory: examples/furnace
+        run: uv run pytest -q
+
+  extensions:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        extension: [linux, chips, modbus, visa, qcodes, pymeasure, bluesky]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Sync
+        working-directory: extensions/${{ matrix.extension }}
+        run: uv sync
+      - name: Test
+        working-directory: extensions/${{ matrix.extension }}
+        run: uv run pytest -q
+
+  daemon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.8"
+      # The schema package's staleness tests shell out to `uv run python` in
+      # engine/ to regenerate rig.schema.json/program.schema.json and diff
+      # them against the checked-in copies (staleness_test.go:26,
+      # program_staleness_test.go:26); they skip if uv or the synced env
+      # isn't there.
+      - name: Sync engine
+        working-directory: engine
+        run: uv sync --all-extras
+      - name: Vet
+        working-directory: daemon
+        run: go vet ./...
+      - name: Test
+        working-directory: daemon
+        run: go test -race ./...
+
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install
+        working-directory: ui
+        run: npm ci
+      - name: Typecheck
+        working-directory: ui
+        run: npm run typecheck
+      - name: Build
+        working-directory: ui
+        run: npm run build
+      - name: Test
+        working-directory: ui
+        run: npm test
+
+  book:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Sync
+        working-directory: engine
+        run: uv sync --group docs
+      - name: Build strict
+        working-directory: engine
+        run: uv run --group docs mkdocs build -f ../book/mkdocs.yml --strict
