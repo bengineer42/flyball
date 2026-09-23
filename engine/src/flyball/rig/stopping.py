@@ -41,7 +41,7 @@ class Actor:
 class DeviceStop(TypedDict):
     """What a stop did to one device."""
 
-    state: Literal["stopped", "held", "failed"]
+    state: Literal["stopped", "unchanged", "failed"]
     detail: str
 
 
@@ -86,13 +86,13 @@ class Program(Protocol):
     def interrupt(self) -> None: ...
 
 
-HELD = "interim stop: nothing written; held at the last value"
+UNCHANGED = "interim stop: controllers to manual; nothing written — outputs left as they were"
 
 
 class InterimStopper:
     """The stop until the signals work's lands: interrupt, every controller to manual, hold.
 
-    Writes nothing to any device, so every writable device is reported `held`, never
+    Writes nothing to any device, so every writable device is reported `unchanged`, never
     `stopped` -- and never "safe": what the outputs are left doing is whatever they
     were last told. Not [Rig.stop][flyball.rig.rig.Rig.stop], which is a teardown.
 
@@ -129,7 +129,10 @@ class InterimStopper:
             if errors:
                 devices[name] = {"state": "failed", "detail": "; ".join(errors)}
             else:
-                devices[name] = {"state": "held", "detail": f"{HELD} ({', '.join(writables)})"}
+                devices[name] = {
+                    "state": "unchanged",
+                    "detail": f"{UNCHANGED} ({', '.join(writables)})",
+                }
         report = StopReport(
             at_ns=at_ns,
             actor=actor,
@@ -140,13 +143,14 @@ class InterimStopper:
             interim=True,
         )
         log.warning(
-            "stopped by %s via %s (%s): program %s, %d controller(s) manual, %d device(s) held",
+            "software stop by %s via %s (%s): program %s, %d controller(s) manual, "
+            "%d device(s) unchanged",
             actor.sub,
             actor.via,
             reason or "no reason given",
             "interrupted" if interrupted else "not running",
             len(manual),
-            sum(d["state"] == "held" for d in devices.values()),
+            sum(d["state"] == "unchanged" for d in devices.values()),
         )
         return report
 

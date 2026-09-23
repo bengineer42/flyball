@@ -735,7 +735,7 @@ export interface StopActor {
 
 /** One device's outcome of a stop. */
 export interface DeviceStopOut {
-  state: "stopped" | "held" | "failed";
+  state: "stopped" | "unchanged" | "failed";
   detail: string;
 }
 
