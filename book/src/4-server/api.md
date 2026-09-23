@@ -29,7 +29,9 @@ runner); the session cookie a sign-in set; at a `proxy` front, the identity
 the proxy asserts; otherwise anonymous, who gets what `anonymous` says
 (`none`, or `read`). At the `local` shape, or a bare runner with no token,
 everyone gets every verb. A credential that is presented and wrong is
-refused, never taken as anonymous. A token in the URL (`?token=`) is never
+refused, never taken as anonymous, and a session cookie beside it does not
+save the request; only at a `proxy` front is an `Authorization` that is not
+a named token left to the proxy (a signed preset sends its own). A token in the URL (`?token=`) is never
 read: a bare runner refuses the request, a front ignores it.
 
 | refusal | HTTP | websocket |

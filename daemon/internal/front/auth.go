@@ -93,6 +93,12 @@ func (f *Front) authenticate(r *http.Request, lenient bool) (Caller, error) {
 		if strings.EqualFold(scheme, "Bearer") && store.IsToken(cred) {
 			return f.bearer(r, cred)
 		}
+		// Only the proxy shape has a use for another Authorization (a
+		// signed preset's own Bearer); elsewhere it is terminal, cookie
+		// or not.
+		if f.plan.Shape != ShapeProxy {
+			return Caller{}, &authError{status: 401, detail: "Unrecognised credential"}
+		}
 	}
 	if f.plan.Shape == ShapePassword {
 		if ck, err := r.Cookie(f.cookie); err == nil && ck.Value != "" {

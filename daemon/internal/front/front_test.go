@@ -1095,8 +1095,19 @@ func TestProviderChain(t *testing.T) {
 	if c := readJSON[echo](t, h.do("GET", "/api/echo", "", nil)).Claims; !reflect.DeepEqual(c.Scp, []string{"read"}) {
 		t.Fatalf("anonymous read: %+v", c)
 	}
-	// A store failure is 503, not anonymous.
+	// ... and terminal: a live session cookie beside it does not rescue
+	// the request (the password and local shapes; the proxy shape below
+	// lets it through, as oauth2-proxy sends its own Bearer).
 	cookie := h.login()
+	for _, auth := range []string{"Bearer not-a-token", "Basic YWRtaW46eA=="} {
+		if resp := h.do("GET", "/api/echo", "", withCookie(cookie, http.Header{"Authorization": {auth}})); resp.StatusCode != 401 {
+			t.Errorf("Authorization %q with a live session: %d, want 401", auth, resp.StatusCode)
+		}
+	}
+	if resp := newHarness(t, Config{}).do("GET", "/api/echo", "", http.Header{"Authorization": {"Bearer not-a-token"}}); resp.StatusCode != 401 {
+		t.Errorf("local shape, Authorization Bearer not-a-token: %d, want 401", resp.StatusCode)
+	}
+	// A store failure is 503, not anonymous.
 	secret := h.createToken(cookie, `{"name":"ci","scopes":["read"]}`)
 	if err := os.WriteFile(h.opts.TokensPath, []byte("{broken"), 0o600); err != nil {
 		t.Fatal(err)
@@ -1140,6 +1151,11 @@ func TestProviderChain(t *testing.T) {
 				}
 			}
 		})
+	}
+	// The proxy shape: a non-token Authorization is the proxy's business.
+	px := newProxyHarness(t, stubClient{id: Identity{Issuer: "idp", Subject: "ben"}, outcome: Accept}, map[string][]string{"all": {"ben"}}, "none")
+	if resp := px.do("GET", "/api/echo", "", http.Header{"Authorization": {"Bearer eyJ.id.token"}}); resp.StatusCode != 200 {
+		t.Fatalf("proxy shape with its own Bearer: %d, want 200", resp.StatusCode)
 	}
 	// An unmatched proxy user gets read.
 	p := newProxyHarness(t, stubClient{id: Identity{Subject: "dave"}, outcome: Accept}, map[string][]string{"all": {"ben"}}, "none")
