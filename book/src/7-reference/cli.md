@@ -341,7 +341,8 @@ sends `SIGTERM` and returns; a runner still there after 10 s is `SIGKILL`ed
 and the new one started all the same. `daemon stop` (and `runners stop`)
 sends `SIGTERM`, `SIGKILL`s a runner still there after 10 s, and returns
 once it is gone -- also for a runner in backoff, which does not come back.
-An adopted runner is signalled by its pid.
+The `SIGKILL` goes to the runner's process group, so it reaches the runner
+under `uv` (`uv_project:`) too. An adopted runner is signalled by its pid.
 
 ### Management
 

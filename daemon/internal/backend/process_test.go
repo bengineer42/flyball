@@ -150,6 +150,42 @@ func TestStopKillsARunnerThatIgnoresSIGTERM(t *testing.T) {
 	}
 }
 
+// Stop's SIGKILL reaches the runner's whole process group. Under
+// `uv_project:` flyballd's child is uv, which forwards SIGTERM but cannot
+// forward SIGKILL: a runner stuck in its shutdown must not outlive Stop
+// as an orphan holding the rig's locks.
+func TestStopKillsTheRunnersGroup(t *testing.T) {
+	out := t.TempDir()
+	runner := `trap '' TERM; echo $$ > ` + out + `/runner; while :; do sleep 0.02; done`
+	uv := `sh -c "$0" & c=$!; trap 'kill -TERM $c' TERM; while kill -0 $c 2>/dev/null; do wait $c; done`
+	b := newTestBackend(t, "")
+	b.command = func(string, []string) *exec.Cmd { return exec.Command("sh", "-c", uv, runner) }
+	b.stopTimeout = 200 * time.Millisecond
+	mustStart(t, b, "r")
+	var pid int
+	eventually(t, "the runner under uv", func() bool {
+		b, err := os.ReadFile(out + "/runner")
+		if err != nil {
+			return false
+		}
+		_, err = fmt.Sscan(string(b), &pid)
+		return err == nil
+	})
+	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+	time.Sleep(100 * time.Millisecond) // let the traps be installed
+
+	if err := b.Stop("r"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for processAlive(pid, "") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if processAlive(pid, "") {
+		t.Errorf("the runner (pid %d) under uv survived Stop", pid)
+	}
+}
+
 // Restart kills a runner that ignores SIGTERM after Stop's timeout -- a
 // read stuck in a driver must not make it wait for ever -- and a new
 // process follows.

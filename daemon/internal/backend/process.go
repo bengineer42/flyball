@@ -937,8 +937,15 @@ func (b *ProcessBackend) killIfStill(rp *runnerProc, cmd *exec.Cmd) {
 
 // signal sends sig to rp's live process: the one flyballd spawned, or the
 // adopted pid, if it is still the process that was adopted. b.mu held.
+// SIGKILL to a spawned runner goes to its whole process group: under
+// `uv_project:` the process flyballd spawned is uv, which forwards SIGTERM
+// to the runner but cannot forward SIGKILL. SIGTERM goes to that process
+// alone, so the runner gets it once. An adopted pid is the runner itself.
 func (b *ProcessBackend) signal(rp *runnerProc, sig os.Signal) error {
 	if rp.cmd != nil {
+		if sig == os.Kill {
+			return killGroup(rp.cmd.Process)
+		}
 		return rp.cmd.Process.Signal(sig)
 	}
 	if !rp.adopted || !processAlive(rp.pid, rp.pidStart) {
