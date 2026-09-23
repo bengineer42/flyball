@@ -48,10 +48,17 @@ def _flat(routes: Iterable[BaseRoute], prefix: str = "") -> Iterator[tuple[str, 
             yield prefix, route
 
 
-def _served() -> set[tuple[str, str]]:
-    """(method, path) for every guarded route of an app with MCP mounted."""
+def _app():
+    """A fresh app with MCP mounted, as `_served()` walks by default."""
     app = create_app()
     mount(app, Client("http://127.0.0.1:1"), name="t")
+    return app
+
+
+def _served(app: Any = None) -> set[tuple[str, str]]:
+    """(method, path) for every guarded route of an app with MCP mounted."""
+    if app is None:
+        app = _app()
     served: set[tuple[str, str]] = set()
     for prefix, route in _flat(app.routes):
         if isinstance(route, Mount):
@@ -92,6 +99,15 @@ def test_every_route_has_a_row():
 def test_every_row_is_a_route():
     rows = {(rule.method, rule.path) for rule in TABLE}
     assert rows - _served() == set()
+
+
+def test_every_route_has_a_row_bites():
+    """Proof it bites: a route added with no `TABLE` row makes the walk fail."""
+    app = _app()
+    app.add_api_route("/api/no/such/dummy", lambda: None, methods=["GET"])
+    rows = {(rule.method, rule.path) for rule in TABLE}
+    missing = _served(app) - rows
+    assert missing == {("GET", "/api/no/such/dummy")}
 
 
 def test_placeholder_matches_today():
