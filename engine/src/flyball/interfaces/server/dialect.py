@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from inspect import cleandoc
 from pathlib import Path
 from typing import Any, get_args, get_type_hints
 
@@ -240,7 +241,9 @@ def step_schema(dialect: Dialect) -> dict[str, Any]:
             "properties": {tag: value, **modifiers},
             "required": [tag],
             "additionalProperties": False,
-            **({"description": command.__doc__.strip()} if command.__doc__ else {}),
+            # cleandoc, not strip: 3.13 dedents docstrings at compile time and 3.12 does
+            # not, so the schema must not depend on which interpreter generated it.
+            **({"description": cleandoc(command.__doc__)} if command.__doc__ else {}),
         })
     return {"oneOf": branches, **({"$defs": defs} if defs else {})}
 

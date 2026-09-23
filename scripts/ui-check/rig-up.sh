@@ -9,7 +9,7 @@ S=${FLYBALL_CHECK_DIR:-/tmp/flyball-check}; mkdir -p "$S/logs" "$S/stores" "$S/s
 rig=$(realpath "$1"); api=$2; ui=$3; shift 3
 name=$(basename "$rig" | sed 's/\.[a-z]*$//')
 cd "$ROOT/engine"
-setsid nohup uv run --extra web --extra cli flyball-runner "$rig" --port "$api" --store "$S/stores/$name.sqlite" "$@" > "$S/logs/$name-runner.log" 2>&1 &
+setsid nohup uv run --extra server --extra cli flyball-runner "$rig" --port "$api" --store "$S/stores/$name.sqlite" "$@" > "$S/logs/$name-runner.log" 2>&1 &
 echo $! > "$S/logs/$name.pids"
 cd "$ROOT/ui"
 FLYBALL_URL="http://127.0.0.1:$api" setsid nohup npx vite --config apps/dashboard/vite.config.ts apps/dashboard --port "$ui" --strictPort > "$S/logs/$name-vite.log" 2>&1 &

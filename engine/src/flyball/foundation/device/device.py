@@ -49,7 +49,6 @@ from pydantic import Field
 
 from flyball.model.config import Config
 
-from ..errors import NotReadyError
 from ..router.router import Router
 from .building import _inputs, _last_of, _Leaf, _leaves, _link_params, _setter
 from .commands import RESERVED_NAMES, CommandSpec, _check_command_signature, _schemable, command
@@ -252,22 +251,6 @@ class Device:
     def demands(self) -> dict[str, Signal]:
         """Every demand, by path."""
         return {path: s for path, s in self.signals.items() if s.role is Role.DEMAND}
-
-    def referenced(self, path: str) -> Value | None:
-        """What a `SignalRef` stands for now.
-
-        A signal's newest value by path, or an input's by role (its bound
-        source, else its default); None with nothing to give.
-        """
-        if (signal := self.signals.get(path)) is not None:
-            reading = signal.router.reading(signal)
-            return None if reading is None else reading.value
-        if (input_ := self.INPUTS.get(path)) is not None:
-            try:
-                return input_.on(self).value
-            except NotReadyError:
-                return None
-        return None
 
     def sample(self, time_ns: int, **values: Value) -> Sample:
         """A sample on the root of the values given by descriptor attribute name."""

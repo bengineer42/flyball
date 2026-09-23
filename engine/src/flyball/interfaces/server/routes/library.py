@@ -245,13 +245,13 @@ def run_stored(
         program = program_from_document(parse(row.body, row.format), dialect)
     except (FormatError, StepError, ValidationError, TypeError, ValueError) as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    from flyball.foundation.device import Level
+    from flyball.foundation.device import Kind, Level, Scope
 
     rig.event(
         Level.INFO,
-        "program",
+        Scope.PROGRAM,
         name,
-        "run_from_library",
+        Kind.RUN_FROM_LIBRARY,
         f"running {name} (version {row.id})",
         {"program_id": row.id, "sha256": row.sha256, "format": row.format},
     )

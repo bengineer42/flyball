@@ -27,6 +27,7 @@ from ..time.clock import Rate
 
 if TYPE_CHECKING:
     from ..router.router import Router
+    from .descriptors import BoundInput
     from .device import Device
 
 
@@ -211,8 +212,9 @@ type Bound = float | SignalRef
 class SignalRef:
     """A reference to another signal of the same device, by path, resolved on the instance.
 
-    What a descriptor is on a class (`limits=(0.0, dry_max_flow)`): the
-    bound signal's `limits` resolve it to that signal's current value.
+    What a descriptor is on a class (`limits=(0.0, dry_max_flow)`): when the
+    device binds, each bound signal resolves it once to the signal or input
+    it names, and its `limits` read that object's current value.
     """
 
     __slots__ = ("path",)
@@ -501,6 +503,30 @@ class Node:
         self.spec = replace(self.spec, **changes)
 
 
+type Followed = float | Signal | BoundInput
+"""One end of a bound signal's limits: a number, or the signal or input a `SignalRef` named."""
+
+
+def _value_of(bound: Followed) -> float | None:
+    """A limit's current value: the number, or what it follows now; None if that is not known."""
+    if isinstance(bound, (int, float)):
+        return bound
+    if isinstance(bound, Signal):
+        reading = bound.router.reading(bound)
+        return None if reading is None else _finite(reading.value)
+    try:
+        return _finite(bound.value)
+    except NotReadyError:
+        return None
+
+
+def _name(bound: Followed) -> str:
+    """How a followed limit is named in a refusal: its path, or the input's role."""
+    if isinstance(bound, (int, float)):
+        return str(bound)
+    return str(bound.path) if isinstance(bound, Signal) else bound.input.name
+
+
 def _finite(value: Any) -> float | None:
     """A referenced bound as a number, or None: not known -- no value, or not a finite one."""
     if value is None:
@@ -549,6 +575,10 @@ class Signal:
     at_limit: Limit | None = None
     """What the driver says of the last demand on it: railed low or high, or neither. Set in
     `commit`; the rig puts it on the demand's write state."""
+    _bounds: tuple[Followed, Followed] | None = field(default=None, repr=False)
+    """`spec.limits` with each `SignalRef` resolved to what it follows; see `bind_limits`."""
+    _bounds_for: SignalSpec | None = field(default=None, repr=False)
+    """The spec `_bounds` came from: an override replaces the spec, and they resolve again."""
 
     def __repr__(self) -> str:
         return f"Signal({self.address} [{self.access}])"
@@ -600,18 +630,44 @@ class Signal:
         [clamp][flyball.foundation.device.signal.Signal.clamp], which refuses
         it in the second case rather than pass it unclamped.
         """
-        if (limits := self.spec.limits) is None:
+        if (bounds := self.bind_limits()) is None:
             return None
-        resolved: list[float] = []
-        for bound in limits:
-            if isinstance(bound, SignalRef):
-                value = _finite(self.node.device.referenced(bound.path))
-                if value is None:
-                    return None
-                resolved.append(value)
-            else:
-                resolved.append(bound)
-        return (resolved[0], resolved[1])
+        low, high = _value_of(bounds[0]), _value_of(bounds[1])
+        if low is None or high is None:
+            return None
+        return (low, high)
+
+    def bind_limits(self) -> tuple[Followed, Followed] | None:
+        """The spec's limits with each reference resolved to the signal or input it follows.
+
+        Resolved once, when the device binds, and again only if an override
+        replaces the spec; reading a limit then costs no lookup by name.
+        None if the signal has no limits.
+
+        Raises:
+            ValueError: A reference names neither a signal of this device nor
+                one of its inputs.
+        """
+        if self._bounds_for is not self.spec:
+            limits = self.spec.limits
+            self._bounds = (
+                None if limits is None else (self._follow(limits[0]), self._follow(limits[1]))
+            )
+            self._bounds_for = self.spec
+        return self._bounds
+
+    def _follow(self, bound: Bound) -> Followed:
+        if not isinstance(bound, SignalRef):
+            return bound
+        device = self.node.device
+        if (signal := device.signals.get(bound.path)) is not None:
+            return signal
+        if (input_ := device.INPUTS.get(bound.path)) is not None:
+            return input_.on(device)
+        raise ValueError(
+            f"'{self.address}': a limit follows {bound.path!r}, which is neither a signal"
+            f" nor an input of {device.name!r}"
+        )
 
     def clamp(self, value: float) -> float:
         """`value` held inside the effective limits; unchanged for a signal without limits.
@@ -628,14 +684,9 @@ class Signal:
         """
         if (limits := self.limits) is not None:
             return min(max(value, limits[0]), limits[1])
-        if (declared := self.spec.limits) is None:
+        if (bounds := self.bind_limits()) is None:
             return value
-        device = self.node.device
-        unknown = [
-            bound.path
-            for bound in declared
-            if isinstance(bound, SignalRef) and _finite(device.referenced(bound.path)) is None
-        ]
+        unknown = [_name(bound) for bound in bounds if _value_of(bound) is None]
         raise LimitNotKnownError(self.address, unknown)
 
     @property

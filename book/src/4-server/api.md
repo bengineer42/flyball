@@ -425,7 +425,20 @@ Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answe
 | `GET` | `/api/events?limit=&level=` | the last few hundred `Event`s, oldest first; `level` keeps that level and above |
 
 An `Event` is `{time_ns, level, scope, subject, kind, message, details}`;
-`level` is `DEBUG`, `INFO`, `WARNING` or `ERROR`.
+`level` is `DEBUG`, `INFO`, `WARNING` or `ERROR`. `scope` is `device`,
+`controller`, `program` or `rig`, and `subject` names which one. `kind` is
+one of a fixed set:
+
+| scope | kinds |
+| --- | --- |
+| `device` | `offline`, `restarted`, `slow`, `write_failed`, `write_recovered` |
+| `controller` | `step_failed`, `step_recovered`, `stale_input`, `limit_unknown`, `limit_known`, `interrupted` |
+| `program` | `started`, `step`, `step_timed_out`, `step_failed`, `finished`, `failed`, `interrupted`, `run_from_library` |
+| `rig` | `delivery_failed`, `recording_failed`, `restored` |
+
+A [`Condition`](wire.md#devices) the runtime raises uses the same kinds
+(`offline`, `slow`, `write_failed`); a driver's own conditions may use any
+string.
 
 ## Websockets
 

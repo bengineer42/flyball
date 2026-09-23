@@ -1,11 +1,13 @@
 # Flyball
 
-Flyball runs a lab rig: it reads the sensors, drives the actuators, holds a
-quantity at a setpoint, walks it through a programme, records everything,
-and shows the whole rig in a browser -- from one file that says what the
-rig is made of. It knows nothing about any particular sensor, actuator or
-board; those are written against a small device model, and everything above
-them comes for free.
+Flyball controls anything with sensors and actuators: it links any input to
+any output through a controller, holds or moves a setpoint, walks the whole
+system through a programme, records everything, and shows it all in a
+browser -- from one file that says what the rig is made of, or from nothing,
+built up in the browser. A lab test rig, an oven, a grow tent, a dosing skid.
+It knows nothing about any particular sensor, actuator or board; those are
+written against a small device model, and everything above them comes for
+free.
 
 ## Getting started
 

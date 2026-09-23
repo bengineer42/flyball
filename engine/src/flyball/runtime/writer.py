@@ -16,7 +16,7 @@ import logging
 from threading import Event, Lock, Thread
 from typing import TYPE_CHECKING
 
-from flyball.foundation.device import Committable, Condition, Level, Signal
+from flyball.foundation.device import Committable, Condition, Kind, Level, Scope, Signal
 
 if TYPE_CHECKING:
     from flyball.rig import Rig
@@ -75,17 +75,21 @@ class Writer:
             if self.failed is not None:
                 self.failed = None
                 self.rig.event(
-                    Level.INFO, "device", self.device.name, "write_recovered", "writes succeed"
+                    Level.INFO,
+                    Scope.DEVICE,
+                    self.device.name,
+                    Kind.WRITE_RECOVERED,
+                    "writes succeed",
                 )
             self.rig.written(self.device, time_ns, before)
 
     def _failure(self, error: Exception) -> None:
         message = f"{type(error).__name__}: {error}"
         first = self.failed is None
-        self.failed = Condition("write_failed", Level.ERROR, message, self.rig.clock.now_ns())
+        self.failed = Condition(Kind.WRITE_FAILED, Level.ERROR, message, self.rig.clock.now_ns())
         if first:  # one event per outage, not one per tick
             log.warning("%s: write failed: %s", self.device.name, message)
-            self.rig.event(Level.ERROR, "device", self.device.name, "write_failed", message)
+            self.rig.event(Level.ERROR, Scope.DEVICE, self.device.name, Kind.WRITE_FAILED, message)
 
     def stop(self, join: bool = True) -> None:
         """Stop the thread after the write in progress, if any.

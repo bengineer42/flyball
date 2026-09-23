@@ -30,6 +30,7 @@ from flyball.foundation.device import (
     Device,
     DeviceEntry,
     Event,
+    Kind,
     Level,
     Limit,
     LimitNotKnownError,
@@ -38,6 +39,7 @@ from flyball.foundation.device import (
     Reading,
     Role,
     Sample,
+    Scope,
     Signal,
     WriteState,
 )
@@ -216,7 +218,11 @@ class Rig:
 
         Raises:
             ConflictError: The name is reserved, or already something else's.
+            ValueError: A signal's limit follows something that is neither a
+                signal nor an input of the device.
         """
+        for signal in device.signals.values():
+            signal.bind_limits()  # a limit naming nothing fails here, not at the first demand
         self.claim(device.name, "device", device)
         self.devices[device.name] = device
         own, device.router = device.router, self.router
@@ -232,9 +238,9 @@ class Rig:
     def event(
         self,
         level: Level,
-        scope: str,
+        scope: Scope,
         subject: str,
-        kind: str,
+        kind: Kind,
         message: str,
         details: Any = None,
     ) -> Event:
@@ -317,9 +323,9 @@ class Rig:
             recorder, self.recorder = self.recorder, None
         self.event(
             Level.ERROR,
-            "rig",
+            Scope.RIG,
             "recorder",
-            "recording_failed",
+            Kind.RECORDING_FAILED,
             f"recording stopped: {type(error).__name__}: {error}",
         )
         if recorder is not None:
@@ -516,9 +522,9 @@ class Rig:
             if age_s is None or age_s > stale_after:
                 self.event(
                     Level.WARNING,
-                    "controller",
+                    Scope.CONTROLLER,
                     by.name,
-                    "stale_input",
+                    Kind.STALE_INPUT,
                     f"'{source.address}' has not been read in over {stale_after:g}s: held",
                     {"age_s": age_s},
                 )
@@ -564,9 +570,9 @@ class Rig:
                     self._limit_held.add(by.name)
                     self.event(
                         Level.WARNING,
-                        "controller",
+                        Scope.CONTROLLER,
                         by.name,
-                        "limit_unknown",
+                        Kind.LIMIT_UNKNOWN,
                         f"{e}: held",
                         {"signal": signal.address, "unknown": e.unknown},
                     )
@@ -580,9 +586,9 @@ class Rig:
             self._limit_held.discard(by.name)
             self.event(
                 Level.INFO,
-                "controller",
+                Scope.CONTROLLER,
                 by.name,
-                "limit_known",
+                Kind.LIMIT_KNOWN,
                 "every limit on its target is known: writing again",
             )
         with self.lock:
@@ -988,9 +994,9 @@ class Rig:
                     holder.manual()
                     self.event(
                         Level.INFO,
-                        "controller",
+                        Scope.CONTROLLER,
                         holder.name,
-                        "interrupted",
+                        Kind.INTERRUPTED,
                         f"put in manual by {device.name}.{tag}",
                     )
                     if self.controller_states.watched:
@@ -1209,16 +1215,16 @@ class Rig:
                 log.exception("controller %s failed its step", name)
                 self.event(
                     Level.ERROR,
-                    "controller",
+                    Scope.CONTROLLER,
                     name,
-                    "step_failed",
+                    Kind.STEP_FAILED,
                     f"{type(error).__name__}: {error}",
                     {"source": reading.signal.address},
                 )
             return
         if name in self._failing:
             self._failing.discard(name)
-            self.event(Level.INFO, "controller", name, "step_recovered", "stepping again")
+            self.event(Level.INFO, Scope.CONTROLLER, name, Kind.STEP_RECOVERED, "stepping again")
 
     @staticmethod
     def _check_sample(sample: Sample) -> None:

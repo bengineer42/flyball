@@ -25,6 +25,7 @@ from flyball.foundation.device import (
     Role,
     Sample,
     Signal,
+    SignalRef,
     SignalSpec,
     WriteState,
     command,
@@ -718,6 +719,26 @@ class TestLimitsThatFollowASignal:
             "limit_unknown",
             "limit_known",
         ]
+
+    def test_a_limit_resolves_once_to_the_signal_it_follows(self, supplied):
+        humidity, supply = supplied.signals["humidity"], supplied.signals["supply"]
+        bounds = humidity.bind_limits()
+        assert bounds == (0.0, supply) and bounds[1] is supply, "the object, not its path"
+        assert humidity.bind_limits() is bounds, "not resolved again on the next read"
+
+    def test_an_override_of_the_limits_resolves_them_again(self, supplied):
+        humidity = supplied.signals["humidity"]
+        humidity.override(limits=(0.0, 80.0))
+        assert humidity.bind_limits() == (0.0, 80.0)
+        assert humidity.limits == (0.0, 80.0), "a number now, known without a supply reading"
+
+    def test_a_limit_that_follows_nothing_fails_when_the_device_is_added(self, rig, fresh):
+        device = Supplied(fresh("typo"))
+        humidity = device.signals["humidity"]
+        humidity.override(limits=(0.0, SignalRef("suply")))
+        with pytest.raises(ValueError, match=r"follows 'suply', which is neither a signal nor"):
+            rig.add_device(device)
+        assert device.name not in rig.devices, "refused before the name is claimed"
 
 
 class TestControllers:

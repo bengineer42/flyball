@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
 
 from flyball import runner
+from flyball.runner.entrypoint import _needed_extras
 from flyball.runtime.config import RunnerConfig, load_rig_config
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
@@ -58,6 +60,44 @@ def test_a_bad_file_is_a_message_not_a_traceback(tmp_path, capsys):
     bad.write_text("name: x\nlinks:\n  p: { tag: nope }\n")
     assert runner.main([str(bad)]) == 2
     assert "nope" in capsys.readouterr().err
+
+
+def test_a_missing_server_extra_is_one_line_not_a_traceback(monkeypatch, capsys, tmp_path):
+    monkeypatch.setitem(sys.modules, "fastapi", None)
+    with pytest.raises(SystemExit) as excinfo:
+        runner.main([str(EXAMPLES / "oven.yaml"), "--store", str(tmp_path / "s.sqlite")])
+    assert excinfo.value.code == 2
+    assert capsys.readouterr().err == (
+        "flyball-runner: needs the server extra -- pip install 'flyball[server]'"
+        " (missing: fastapi)\n"
+    )
+
+
+class _Args:
+    """A stand-in for the parsed `argparse.Namespace`, just the fields `_needed_extras` reads."""
+
+    def __init__(self, rig: list[str], mcp: bool | None = None) -> None:
+        self.rig = [Path(p) for p in rig]
+        self.mcp = mcp
+
+
+def test_needed_extras_always_wants_fastapi_and_uvicorn():
+    needed = _needed_extras(_Args(rig=[]))
+    assert "fastapi" in needed and "uvicorn" in needed
+
+
+def test_needed_extras_wants_mcp_and_httpx_unless_no_mcp():
+    assert "mcp" in _needed_extras(_Args(rig=[], mcp=None))
+    assert "httpx" in _needed_extras(_Args(rig=[], mcp=None))
+    assert "mcp" not in _needed_extras(_Args(rig=[], mcp=False))
+    assert "httpx" not in _needed_extras(_Args(rig=[], mcp=False))
+
+
+def test_needed_extras_wants_yaml_only_for_a_yaml_rig_file():
+    assert "yaml" in _needed_extras(_Args(rig=["rig.yaml"]))
+    assert "yaml" in _needed_extras(_Args(rig=["rig.yml"]))
+    assert "yaml" not in _needed_extras(_Args(rig=["rig.toml"]))
+    assert "yaml" not in _needed_extras(_Args(rig=[]))
 
 
 def test_serve_attaches_rig_and_programmer_and_detaches_after(monkeypatch):

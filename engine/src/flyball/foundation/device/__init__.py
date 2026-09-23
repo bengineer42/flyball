@@ -33,7 +33,7 @@ from .signal import (
 from .signal import (
     Demand as WriteDemand,
 )
-from .state import Condition, Event, Level
+from .state import Condition, Event, Kind, Level, Scope
 
 __all__ = [
     "RESERVED_NAMES",
@@ -52,6 +52,7 @@ __all__ = [
     "DriverConfig",
     "Event",
     "Input",
+    "Kind",
     "Level",
     "Limit",
     "LimitNotKnownError",
@@ -64,6 +65,7 @@ __all__ = [
     "Reading",
     "Role",
     "Sample",
+    "Scope",
     "Section",
     "Setting",
     "Signal",
