@@ -1,10 +1,16 @@
 package front
 
 import (
+	"errors"
+	"io"
 	"mime"
+	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // The held-connection caps per rig (D-047): websockets and GET event
@@ -15,7 +21,11 @@ import (
 // which refuses a descriptor above 1024). 512 in all leaves the rest to
 // the devices, the store and the stop; callers with no credential share
 // 128 of them, so a flood of anonymous viewers cannot shut out a signed-in
-// operator. A POST is never counted: the stop always gets through.
+// operator. A caller with no credential and no operate (anonymous: read)
+// is counted on every request, whatever the method: a POST to a read route
+// (MCP's /mcp/read) holds a connection for as long as its body takes to
+// arrive. Anyone else's POST is never counted: the stop, which needs
+// operate, always gets through.
 const (
 	maxHeldAnonymous = 128
 	maxHeldTotal     = 512
@@ -84,6 +94,13 @@ func holds(r *http.Request) bool {
 	return false
 }
 
+// counted: a request that takes a place under the caps -- one that holds
+// a connection, or any request from a caller with no credential that
+// cannot operate (verbs are its verbs on the rig).
+func counted(r *http.Request, c Caller, verbs []string) bool {
+	return holds(r) || (noCredential(c) && !slices.Contains(verbs, "operate"))
+}
+
 // noCredential: the anonymous visitor, or the local shape's console (no
 // credential either, whoever reaches it).
 func noCredential(c Caller) bool {
@@ -112,4 +129,59 @@ func refuseNoVerb(w http.ResponseWriter, r *http.Request, c Caller) {
 	default:
 		writeJSON(w, http.StatusForbidden, map[string]any{"detail": msg, "needed": needed})
 	}
+}
+
+// bodyDeadline gives r's body, when it has one and r is not an upgrade,
+// BodyTimeout to arrive: a body that stalls holds a runner connection (the
+// proxy streams it there) for as long as it takes. Reading it to the end
+// lifts the deadline, so a long answer (an MCP event stream to a POST) is
+// not cut. Call done when the handler returns: the connection is then the
+// server's again, and the deadline is no longer this request's to change.
+func bodyDeadline(w http.ResponseWriter, r *http.Request) (done func()) {
+	if r.Body == nil || r.Body == http.NoBody || isUpgrade(r) {
+		return func() {}
+	}
+	rc := http.NewResponseController(w)
+	if rc.SetReadDeadline(time.Now().Add(BodyTimeout)) != nil {
+		return func() {}
+	}
+	b := &deadlineBody{ReadCloser: r.Body, rc: rc}
+	r.Body = b
+	return func() {
+		b.mu.Lock()
+		b.done = true
+		b.mu.Unlock()
+	}
+}
+
+// deadlineBody is a request body under bodyDeadline.
+type deadlineBody struct {
+	io.ReadCloser
+	rc       *http.ResponseController
+	timedOut atomic.Bool
+
+	mu   sync.Mutex
+	done bool // the handler has returned
+}
+
+func (b *deadlineBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	var ne net.Error
+	switch {
+	case err == io.EOF:
+		b.mu.Lock()
+		if !b.done {
+			b.rc.SetReadDeadline(time.Time{})
+		}
+		b.mu.Unlock()
+	case errors.As(err, &ne) && ne.Timeout():
+		b.timedOut.Store(true)
+	}
+	return n, err
+}
+
+// bodyTimedOut: r's body did not arrive within BodyTimeout.
+func bodyTimedOut(r *http.Request) bool {
+	b, ok := r.Body.(*deadlineBody)
+	return ok && b.timedOut.Load()
 }

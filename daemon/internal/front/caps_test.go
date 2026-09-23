@@ -1,6 +1,9 @@
 package front
 
 import (
+	"bufio"
+	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -84,8 +87,7 @@ func refusedTryLater(t *testing.T, h *harness, name string, hdr http.Header) {
 
 // D-047 item 1: at most 128 held connections per rig from callers with no
 // credential. The 129th anonymous socket is closed 1013 and an anonymous
-// event stream is 429; a signed-in caller still connects, and a plain GET
-// is not held and not counted.
+// event stream is 429; a signed-in caller still connects.
 func TestAnonymousHeldCap(t *testing.T) {
 	h := newHarness(t, Config{Auth: "password", Password: testScrypt, Anonymous: "read"})
 	cookie := h.login()
@@ -103,8 +105,13 @@ func TestAnonymousHeldCap(t *testing.T) {
 	if resp.StatusCode != 429 || resp.Header.Get("Retry-After") == "" {
 		t.Fatalf("anonymous event stream over the cap: %d, Retry-After %q; want 429 with one", resp.StatusCode, resp.Header.Get("Retry-After"))
 	}
-	if resp := h.do("GET", "/api/guarded", "", nil); resp.StatusCode != 200 {
-		t.Fatalf("anonymous plain GET at the cap: %d, want 200", resp.StatusCode)
+	// Every request from a caller with no credential and no operate is
+	// counted (wave 3 F1); a signed-in caller's plain GET is not.
+	if resp := h.do("GET", "/api/guarded", "", nil); resp.StatusCode != 429 {
+		t.Fatalf("anonymous plain GET at the cap: %d, want 429", resp.StatusCode)
+	}
+	if resp := h.do("GET", "/api/guarded", "", withCookie(cookie, nil)); resp.StatusCode != 200 {
+		t.Fatalf("signed-in plain GET at the anonymous cap: %d, want 200", resp.StatusCode)
 	}
 
 	// A socket that closes gives its place back.
@@ -150,5 +157,144 @@ func TestStopAtTheHeldCap(t *testing.T) {
 	}
 	if h.runner.hits.Load() != before+1 {
 		t.Fatal("the stop did not reach the runner")
+	}
+}
+
+// slowPost opens a POST to path on the front announcing a large body and
+// sends only its first byte, as a caller trickling it would.
+func slowPost(t *testing.T, h *harness, path string, hdr http.Header) net.Conn {
+	t.Helper()
+	addr := strings.TrimPrefix(h.srv.URL, "http://")
+	c, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	var b strings.Builder
+	fmt.Fprintf(&b, "POST %s HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\nContent-Length: 1000000\r\n", path, addr)
+	for k, vs := range hdr {
+		for _, v := range vs {
+			fmt.Fprintf(&b, "%s: %s\r\n", k, v)
+		}
+	}
+	b.WriteString("\r\n{")
+	if _, err := c.Write([]byte(b.String())); err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// waitFor polls n until it reaches want or d passes, and returns its last
+// value.
+func waitFor(n func() int64, want int64, d time.Duration) int64 {
+	deadline := time.Now().Add(d)
+	for n() < want && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	return n()
+}
+
+// Wave 3 F1: a caller with no credential and no operate (anonymous: read)
+// is counted in the anonymous pool on every request, whatever the method:
+// 600 slow-body POSTs to a read route hold at most 128 runner connections,
+// the rest are 429. A signed-in caller's POSTs are never counted: its own
+// slow POST and the stop still reach the runner.
+func TestAnonymousSlowBodiesCapped(t *testing.T) {
+	h := newHarness(t, Config{Auth: "password", Password: testScrypt, Anonymous: "read"})
+	cookie := h.login()
+	for range 600 {
+		slowPost(t, h, "/mcp/body", h.origin())
+	}
+	waitFor(h.runner.bodies.Load, maxHeldAnonymous, 5*time.Second)
+	time.Sleep(500 * time.Millisecond) // for any over the cap to arrive
+	got := h.runner.bodies.Load()
+	t.Logf("anonymous slow-body POSTs held at the runner: %d (cap %d)", got, maxHeldAnonymous)
+	if got != maxHeldAnonymous {
+		t.Fatalf("600 anonymous slow POSTs hold %d runner connections; want the anonymous cap, %d", got, maxHeldAnonymous)
+	}
+	resp := h.do("POST", "/mcp/body", "{}", h.origin())
+	if resp.StatusCode != 429 || resp.Header.Get("Retry-After") == "" {
+		t.Fatalf("anonymous POST at the cap: %d, Retry-After %q; want 429 with one", resp.StatusCode, resp.Header.Get("Retry-After"))
+	}
+
+	slowPost(t, h, "/mcp/body", withCookie(cookie, h.origin()))
+	if got := waitFor(h.runner.bodies.Load, maxHeldAnonymous+1, 3*time.Second); got != maxHeldAnonymous+1 {
+		t.Fatalf("a signed-in slow POST at the anonymous cap: %d held, want %d (it is never counted)", got, maxHeldAnonymous+1)
+	}
+	resp = h.do("POST", "/api/rig/stop", "{}", withCookie(cookie, h.origin()))
+	if b := body(resp); resp.StatusCode != 200 || !strings.Contains(b, "stopping") {
+		t.Fatalf("stop during the flood: %d %s, want the runner's 200", resp.StatusCode, b)
+	}
+}
+
+// Wave 3 F1: a request body that stalls is cut off BodyTimeout after the
+// request arrived (408), and its runner connection is let go, whoever
+// sends it. A body that arrives in time lifts the deadline, so a slow
+// answer is not cut; a websocket and an event stream never get one.
+func TestStalledBodyCut(t *testing.T) {
+	old := BodyTimeout
+	BodyTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { BodyTimeout = old })
+	h := newHarness(t, Config{Auth: "password", Password: testScrypt, Anonymous: "read"})
+	cookie := h.login()
+
+	c := slowPost(t, h, "/mcp/body", withCookie(cookie, h.origin()))
+	if got := waitFor(h.runner.bodies.Load, 1, 3*time.Second); got != 1 {
+		t.Fatalf("the slow POST did not reach the runner: %d", got)
+	}
+	start := time.Now()
+	c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	resp, err := http.ReadResponse(bufio.NewReader(c), &http.Request{Method: "POST"})
+	if err != nil {
+		t.Fatalf("a stalled body got no answer: %v", err)
+	}
+	if resp.StatusCode != http.StatusRequestTimeout {
+		t.Fatalf("a stalled body: %d %s, want 408", resp.StatusCode, body(resp))
+	}
+	t.Logf("stalled body answered %d after %v", resp.StatusCode, time.Since(start).Round(time.Millisecond))
+	if got := waitFor(func() int64 { return -h.runner.bodies.Load() }, 0, 3*time.Second); got != 0 {
+		t.Fatalf("the runner still reads %d stalled bodies", -got)
+	}
+
+	// A body that arrived: the deadline is lifted for the answer (1.5 s).
+	resp = h.do("POST", "/api/slow", "{}", withCookie(cookie, h.origin()))
+	if b := body(resp); resp.StatusCode != 200 || b != "done" {
+		t.Fatalf("a slow answer to a whole body: %d %q, want 200 done", resp.StatusCode, b)
+	}
+
+	// A socket outlives the deadline.
+	ws := holdWS(t, h, withCookie(cookie, h.origin()))
+	time.Sleep(3 * BodyTimeout)
+	ws2, resp := dialWS(t, h.srv.URL, "/ws/echo", withCookie(cookie, h.origin()))
+	if ws2 == nil {
+		t.Fatalf("socket: HTTP %d", resp.StatusCode)
+	}
+	ws2.next(2 * time.Second) // hello
+	time.Sleep(3 * BodyTimeout)
+	if err := writeClientFrame(ws2.conn, 0x1, []byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	if op, p, err := ws2.next(2 * time.Second); err != nil || op != 1 || string(p) != "ping" {
+		t.Fatalf("a socket past the body deadline: op %d %q %v, want the echo", op, p, err)
+	}
+	if err := writeClientFrame(ws.conn, 0x9, nil); err != nil {
+		t.Fatalf("the held socket was cut: %v", err)
+	}
+
+	// An event stream outlives it too.
+	req, _ := http.NewRequest("GET", h.srv.URL+"/api/stream", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	req.AddCookie(cookie)
+	sresp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sresp.Body.Close()
+	br := bufio.NewReader(sresp.Body)
+	until := time.Now().Add(4 * BodyTimeout)
+	for time.Now().Before(until) {
+		if _, err := br.ReadString('\n'); err != nil {
+			t.Fatalf("the event stream ended past the body deadline: %v", err)
+		}
 	}
 }

@@ -151,10 +151,22 @@ included -- and open no device. So the front holds at most 512 of them per
 rig, 128 of those for callers with no credential (anonymous viewers, or the
 `local` shape's console), so that anonymous viewers cannot shut a signed-in
 operator out. Over the cap a socket is closed with 1013 (try again later;
-the dashboard retries) and a stream is `429` with `Retry-After`. A `POST` is
-never counted, so the stop always gets through. Raising the runner's limit
-instead would move the failure onto serial links: pyserial's `select()`
-refuses a descriptor above 1024.
+the dashboard retries) and a stream is `429` with `Retry-After`. Raising the
+runner's limit instead would move the failure onto serial links:
+pyserial's `select()` refuses a descriptor above 1024.
+
+A `POST` holds a connection too, for as long as its body takes to arrive
+(the front streams it to the runner), and a read route takes one: MCP's
+`POST /mcp/read`. So a caller with no credential that cannot `operate`
+(`anonymous: read`) is counted on every request, whatever the method, in
+its pool of 128; the stop needs `operate`, so no counted caller can send
+one. Anyone else's `POST` is never counted, so the stop always gets
+through. Every request body, anyone's, must also arrive within
+`BodyTimeout` (two minutes; the runner takes documents of a few kB) of
+the request, or it is answered `408` and the connection closed; reading
+the body to its end lifts that deadline, so a long answer is not cut, and
+a websocket or a request with no body never gets one. Headers must arrive
+within 10 s (`ReadHeaderTimeout`).
 
 ## The verb table
 

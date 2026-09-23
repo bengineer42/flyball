@@ -208,11 +208,12 @@ func (f *Front) serveProxy(w http.ResponseWriter, r *http.Request, rig Rig) {
 	// Every route behind /api, /ws and /mcp needs a verb (the runner's only
 	// open ones are /api/auth*, answered by the front itself): a caller
 	// holding none is refused here, without a connection to the runner.
-	if len(f.Verbs(c, rig.Name)) == 0 {
+	verbs := f.Verbs(c, rig.Name)
+	if len(verbs) == 0 {
 		refuseNoVerb(w, r, c)
 		return
 	}
-	if holds(r) {
+	if counted(r, c, verbs) {
 		release, ok := f.held.acquire(rig.Name, noCredential(c))
 		if !ok {
 			if isUpgrade(r) {
@@ -284,6 +285,9 @@ func (f *Front) serveProxy(w http.ResponseWriter, r *http.Request, rig Rig) {
 			switch {
 			case errors.Is(err, errOutOfStep):
 				detail(w, http.StatusBadGateway, "The front and the rig's runner are out of step")
+			case bodyTimedOut(r): // pr is the outgoing request
+				w.Header().Set("Connection", "close")
+				detail(w, http.StatusRequestTimeout, "The request's body did not arrive in time")
 			case pr.Context().Err() != nil: // revoked, or the client went away
 			case endpoint.NotListening(err):
 				f.unverify(t)

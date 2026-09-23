@@ -42,7 +42,8 @@ type fakeRunner struct {
 	tooOld bool   // answers an unsigned probe with 200: a runner that ignores the principal
 	root   string // its root_path (flyballd: /<name>)
 
-	hits atomic.Int64 // every request that reached it, the readiness handshake included
+	hits   atomic.Int64 // every request that reached it, the readiness handshake included
+	bodies atomic.Int64 // /mcp/body requests reading their body now
 
 	mu       sync.Mutex
 	seen     []seenRequest
@@ -141,6 +142,13 @@ func (fr *fakeRunner) serve(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "/api/auth/front":
 		json.NewEncoder(w).Encode(endpoint.FrontInfo{Protocol: 1, Aud: fr.aud, Pid: os.Getpid(), Flyball: "test"})
+	case path == "/mcp/body":
+		// As FastAPI does for a JSON body (POST /mcp/read): read it all
+		// before answering.
+		fr.bodies.Add(1)
+		io.Copy(io.Discard, r.Body)
+		fr.bodies.Add(-1)
+		w.Write([]byte("{}"))
 	case strings.HasPrefix(path, "/api/echo") || strings.HasPrefix(path, "/mcp/"):
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(echo{Claims: claims, Headers: r.Header, Host: r.Host, URI: r.RequestURI})

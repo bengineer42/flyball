@@ -41,7 +41,8 @@ read: a bare runner refuses the request, a front ignores it.
 | a path no row of the verb table covers (an unknown `/api/…`) | `403` `{detail, needed: null}`, never `404`; a known path with the wrong method is `405` | `403` |
 | the front and the runner out of step (the runner refused the front's principal) | `502` | closed with `1014` |
 | the runner still starting | `503`, `Retry-After: 1` | `503` |
-| a front already holding 512 sockets and event streams on the rig, or 128 from callers with no credential | an event stream (`GET` with `Accept: text/event-stream`): `429`, `Retry-After`; any other request is not counted | closed with `1013` (try again later); the UI retries |
+| a front already holding 512 sockets and event streams on the rig, or 128 open requests of any kind from callers with no credential | an event stream (`GET` with `Accept: text/event-stream`), or any request from a caller with no credential that cannot `operate`: `429`, `Retry-After`; any other request from a caller with a credential (the stop among them) is not counted | closed with `1013` (try again later); the UI retries |
+| a request body that has not arrived two minutes after the request | `408`, and the connection is closed | -- |
 | a front whose store or identity provider cannot answer | `503` | `503` |
 
 Before any of that, a front refuses a path with a `.` or `..` segment, a
