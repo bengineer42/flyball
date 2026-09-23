@@ -33,7 +33,7 @@ reading a `Lag`), a `Heater` (`[W]`, driving it) and the default controller
 between them, then runs it with nothing polling:
 
 ```python
---8<-- "oven.py:71:80"
+--8<-- "oven.py:main"
 ```
 
 With a stepped clock, `rig.read(node, fresh=True)` reads once and delivers
@@ -49,7 +49,8 @@ records demands on itself (`controller.demand`) instead of committing
 anything, which is enough to drive a bare plant by hand:
 
 ```python
-from flyball.control import PI, Controller
+from flyball.control import PI
+from flyball.model.controller import Controller
 from flyball.foundation import Access, Quantity, Reading, Role, SignalSpec
 from flyball.foundation.device.device import Device
 from flyball.foundation.quantities.si import Celsius
@@ -153,6 +154,11 @@ leaving that job to the controller's feedforward — so `heater.drive`'s law
 can be tuned in plain °C-per-°C and the default `setpoint` feedforward hands
 the target the setpoint untouched.
 
+Several `sim_daq`s may read one bare `sim_plant`: it is stepped once per
+instant, by whichever reads first, so its time never runs faster than the
+clock. A `fopdt` plant's delayed input takes effect at the instant it
+arrives, so its trajectory does not depend on how often it is read.
+
 ```
 flyball-runner oven.yaml
 flyball sim                          # clock 1x; chamber fopdt tau_s=60 ...
@@ -168,6 +174,8 @@ plant's would be — so you can watch the controller cope with a plant that
 just got faster. `model` cannot change without a restart. `save` rewrites
 the rig file with the new parameters and clock speed, in the format its
 suffix names, so the next `flyball-runner` starts from what you settled on.
+`save` replaces the file atomically (a unique temp file, fsynced, then
+renamed).
 Unsaved changes are listed by `flyball sim` (`flyball sim show`, its full
 name; bare `flyball sim` is the same command).
 
@@ -265,8 +273,8 @@ SSR bank would declare under the same device names -- when such drivers
 exist, this file splits into a real `furnace.yaml` (`driver: eurotherm_daq`,
 `driver: ssr_bank`, ...) plus a `sim.yaml` overlay that swaps only the
 `links:` and the two devices' `driver`/`config`, and every dashboard and
-recorded session carries over unchanged (`temp-docs/DEVICE-MODEL-PLAN.md`
-§1.6).
+recorded session carries over unchanged (see [Overlays: real vs
+simulated](../3-extending/model.md#overlays-real-vs-simulated)).
 
 `examples/humidity` already has both halves:
 

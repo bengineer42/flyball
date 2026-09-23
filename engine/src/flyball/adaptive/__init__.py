@@ -1,5 +1,8 @@
 """Identifying a plant while it runs, and retuning from what is found.
 
+Experimental: not wired into any controller or rig. Nothing in `flyball`
+outside this package and its own tests (`tests/test_adaptive.py`) imports it.
+
 [Identifier][flyball.adaptive.Identifier] tracks a discrete model of a loop
 from its samples; [SelfTuner][flyball.adaptive.SelfTuner] watches it drift and
 says when a retune is warranted. Neither writes to a loop: the caller hands
