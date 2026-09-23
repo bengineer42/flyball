@@ -408,3 +408,49 @@ func TestRunnersReportTheEndpoint(t *testing.T) {
 		t.Fatalf("endpoint %v", out[0]["endpoint"])
 	}
 }
+
+// GET /api/rigs is the rigs a caller holds any verb on -- no management
+// scope needed -- so `flyball stop --all` can find every rig it may stop.
+func TestRigsListsTheRigsTheCallerCanSee(t *testing.T) {
+	names := func(body string) string {
+		var rigs []struct {
+			Name     string `json:"name"`
+			RootPath string `json:"root_path"`
+			Status   string `json:"status"`
+		}
+		if err := json.Unmarshal([]byte(body), &rigs); err != nil {
+			t.Fatalf("%v: %s", err, body)
+		}
+		var out []string
+		for _, r := range rigs {
+			out = append(out, r.Name+"@"+r.RootPath+"="+r.Status)
+		}
+		return strings.Join(out, ",")
+	}
+	d := newDaemon(t, front.ShapePassword)
+	d.start("oven", "/oven")
+	d.start("kiln", "/kiln")
+	d.be.status["oven"] = backend.StatusBusy
+	for name, c := range map[string]struct {
+		c    cred
+		want string
+	}{
+		"operate on kiln only": {cred{bearer: d.token("k", "operate:kiln")}, "kiln@/kiln=running"},
+		"read everywhere":      {cred{bearer: d.token("r", "read")}, "kiln@/kiln=running,oven@/oven=busy"},
+		"manage only":          {cred{bearer: d.token("m", "manage")}, ""},
+		"anonymous (none)":     {cred{}, ""},
+	} {
+		code, body := d.do("GET", "/api/rigs", c.c, "")
+		if code != 200 || names(body) != c.want {
+			t.Errorf("%s: %d %s, want 200 %q", name, code, body, c.want)
+		}
+	}
+	if code, _ := d.do("GET", "/api/rigs", cred{bearer: "fbt1_" + strings.Repeat("A", 43)}, ""); code != 401 {
+		t.Errorf("a bad bearer: %d, want 401", code)
+	}
+	local := newDaemon(t, front.ShapeLocal)
+	local.start("oven", "/oven")
+	if code, body := local.do("GET", "/api/rigs", cred{}, ""); code != 200 || names(body) != "oven@/oven=running" {
+		t.Errorf("the local shape's console: %d %s", code, body)
+	}
+}

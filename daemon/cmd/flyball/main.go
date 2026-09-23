@@ -214,6 +214,8 @@ runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
   logout                              drop the saved token (locally only; see token revoke)
   stop [NAME] [--pid N] [--front-dir DIR] [--reason TEXT]
                                       POST /api/rig/stop; SIGUSR1 if the front can't be reached
+  stop --all [--reason TEXT]          the rig stop on every rig flyballd lists (needs operate on each);
+                                      runners stay up; non-zero if any stop was refused or failed
   read ADDRESS [--fresh]              GET /api/read/{address}
   demand ADDRESS VALUE                PUT /api/signals/{address}
   status [--json]                     one screen: devices, controllers, waits
