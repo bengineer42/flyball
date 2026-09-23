@@ -129,6 +129,13 @@ func startDaemon(t *testing.T, extra, rig string) *testDaemon {
 // dir/rt, so the runners' front-dirs are dir/rt/flyball/<id>/<name>.
 func daemonFixture(t *testing.T, extra, rig string) (dir, cfg string) {
 	t.Helper()
+	return daemonFixtureRigs(t, extra, map[string]string{"oven": rig})
+}
+
+// daemonFixtureRigs is daemonFixture with one manifest per rig: name ->
+// the rig file's content.
+func daemonFixtureRigs(t *testing.T, extra string, rigs map[string]string) (dir, cfg string) {
+	t.Helper()
 	dir, err := os.MkdirTemp("", "fd")
 	if err != nil {
 		t.Fatal(err)
@@ -140,9 +147,11 @@ func daemonFixture(t *testing.T, extra, rig string) (dir, cfg string) {
 	for _, sub := range []string{"manifests", "rig"} {
 		os.Mkdir(filepath.Join(dir, sub), 0o700)
 	}
-	rigPath := filepath.Join(dir, "rig", "oven.yaml")
-	os.WriteFile(rigPath, []byte(rig), 0o600)
-	os.WriteFile(filepath.Join(dir, "manifests", "oven.yaml"), []byte("name: oven\nserver_config: "+rigPath+"\n"), 0o600)
+	for name, rig := range rigs {
+		rigPath := filepath.Join(dir, "rig", name+".yaml")
+		os.WriteFile(rigPath, []byte(rig), 0o600)
+		os.WriteFile(filepath.Join(dir, "manifests", name+".yaml"), []byte("name: "+name+"\nserver_config: "+rigPath+"\n"), 0o600)
+	}
 	cfg = filepath.Join(dir, "flyballd.yaml")
 	if !strings.Contains(extra, "listen:") {
 		extra = "listen: 127.0.0.1:0\n" + extra

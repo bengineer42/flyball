@@ -98,8 +98,8 @@ func manageRequest(method, url, token string) ([]byte, error) {
 	body, _ := io.ReadAll(resp.Body)
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-		return nil, fmt.Errorf("%s: %s: needs a token with the %s scope (--token T or FLYBALLD_TOKEN; `flyball token create --scope %s`)",
-			resp.Status, strings.TrimSpace(string(body)), grants.Management(), grants.Management())
+		return nil, fmt.Errorf("%s: %s (a token with the %s scope goes in --token T or FLYBALLD_TOKEN)",
+			resp.Status, strings.TrimSpace(string(body)), grants.Management())
 	case resp.StatusCode >= 300:
 		return nil, fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}

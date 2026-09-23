@@ -6,12 +6,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -385,4 +387,99 @@ func TestRealRunnerIsAdopted(t *testing.T) {
 	}
 	body := d2.until("/oven/api/runner", "", 10*time.Second, nil)
 	t.Logf("adopted pid %d; /oven/api/runner through the new front: %.120s", r.Pid, body)
+}
+
+// buildCLI builds the flyball CLI (../flyball) into a temp dir.
+func buildCLI(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "flyball")
+	out, err := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-o", bin, "../flyball").CombinedOutput()
+	if err != nil {
+		t.Fatalf("building the flyball CLI: %v\n%s", err, out)
+	}
+	return bin
+}
+
+// cli runs the flyball CLI against flyballd at addr; its exit code and
+// output.
+func cli(t *testing.T, bin, addr string, args ...string) (int, string) {
+	t.Helper()
+	cmd := exec.Command(bin, args...)
+	cmd.Env = append(os.Environ(), "FLYBALLD_URL=http://"+addr, "FLYBALLD_TOKEN=", "FLYBALL_TOKEN=", "XDG_CONFIG_HOME="+t.TempDir())
+	out, err := cmd.CombinedOutput()
+	code := 0
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		code = ee.ExitCode()
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return code, string(out)
+}
+
+// D-037's two stop-alls, end to end with the real flyball-runner and the
+// real CLI against a real flyballd: `flyball stop --all` stops every rig
+// (operate) and reports each, leaving the runners up; `flyball runners
+// stop --all` needs manage, and then ends every runner process.
+func TestStopAllsAgainstRealRunners(t *testing.T) {
+	bin, _ := filepath.Abs("../../../engine/.venv/bin")
+	if _, err := os.Stat(filepath.Join(bin, "flyball-runner")); err != nil {
+		t.Skipf("no flyball-runner in %s (cd engine && UV_FROZEN=1 uv sync --all-extras)", bin)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	rigs := map[string]string{}
+	for _, name := range []string{"oven", "chiller"} {
+		b, err := os.ReadFile("../../../examples/simulated/" + name + ".yaml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rigs[name] = string(b)
+	}
+	flyball := buildCLI(t)
+	dir, cfg := daemonFixtureRigs(t, "", rigs)
+	t.Cleanup(func() { killRunners(t, dir) })
+	d := spawnDaemon(t, dir, cfg)
+	manage, operate := d.token("manage"), d.token("operate")
+	var rows []runnerRow
+	d.until("/api/runners", manage, 60*time.Second, func(b []byte) bool {
+		rows = nil
+		json.Unmarshal(b, &rows)
+		return len(rows) == 2 && rows[0].Status == "running" && rows[1].Status == "running" && rows[0].Pid != 0 && rows[1].Pid != 0
+	})
+	for _, name := range []string{"oven", "chiller"} {
+		d.until("/"+name+"/api/runner", "", 30*time.Second, nil)
+	}
+
+	code, out := cli(t, flyball, d.addr, "--token", operate, "stop", "--all", "--reason", "D-037 test")
+	t.Logf("flyball stop --all: exit %d\n%s", code, out)
+	if code != 0 || !strings.Contains(out, "oven:") || !strings.Contains(out, "chiller:") || strings.Count(out, "\nstopped: D-037 test") != 2 {
+		t.Fatalf("flyball stop --all: exit %d, want 0 and both rigs' reports", code)
+	}
+	for _, r := range rows {
+		if !alive(r.Pid) {
+			t.Errorf("runner %s (pid %d) gone after the rig stop; it should stay up", r.Name, r.Pid)
+		}
+	}
+
+	code, out = cli(t, flyball, d.addr, "--token", operate, "runners", "stop", "--all")
+	t.Logf("flyball runners stop --all (operate): exit %d\n%s", code, out)
+	if code == 0 || !strings.Contains(out, "manage") {
+		t.Fatalf("runners stop --all with an operate token: exit %d, want a refusal naming manage", code)
+	}
+	for _, r := range rows {
+		if !alive(r.Pid) {
+			t.Fatalf("runner %s (pid %d) gone after a refused runners stop", r.Name, r.Pid)
+		}
+	}
+
+	code, out = cli(t, flyball, d.addr, "--token", manage, "runners", "stop", "--all")
+	t.Logf("flyball runners stop --all (manage): exit %d\n%s", code, out)
+	if code != 0 {
+		t.Fatalf("runners stop --all with manage: exit %d", code)
+	}
+	for _, r := range rows {
+		if alive(r.Pid) {
+			t.Errorf("runner %s (pid %d) still there after runners stop --all", r.Name, r.Pid)
+		}
+	}
 }
