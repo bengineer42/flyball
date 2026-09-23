@@ -32,6 +32,11 @@ for the same rig -- the same store, which by default means the same rig
 file -- exits 3 at once, naming the process that holds it, and leaves the
 live one's session and hardware alone.
 
+Every log line -- the runner's own, uvicorn's and its access log -- starts
+with the local time and its offset (`2026-09-23T10:35:20+0100 INFO
+flyball.runner: …`), so a log `flyballd` or systemd keeps can be matched
+against readings and events. `--log-level` sets how much.
+
 The rest of this section: [access and safety](access.md) -- the door, a
 sub-path behind a proxy, stopping and restarting from the API -- and
 [building a rig while it runs](building.md) -- the composition API,

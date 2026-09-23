@@ -17,6 +17,8 @@ from flyball.rig import Rig
 from flyball.runtime.config import Exposure, RigConfig, RunnerConfig, settle_exposure
 from flyball.runtime.retention import Retention
 
+from . import logs
+
 if TYPE_CHECKING:
     # A structural type, not an import: `flyball-sim` is an optional package
     # (see `flyball.interfaces.server.deps.Simulation`), so `runner`/`server` never
@@ -171,6 +173,7 @@ def serve(
     server = uvicorn.Server(
         uvicorn.Config(app, host=settings.host, port=settings.port, log_level=settings.log_level)
     )
+    logs.stamp_uvicorn()  # its handlers exist once the Config is made
 
     def stop() -> None:
         server.should_exit = True

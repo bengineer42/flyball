@@ -21,7 +21,7 @@ from flyball.runtime.config import RigConfig, RunnerConfig, resolve_documents
 from flyball.runtime.drivers import load_drivers
 from flyball.runtime.overlay import resolve_layers
 
-from . import locking
+from . import locking, logs
 from .cli import parser, settle
 from .serving import serve
 from .starting import BuildFailed, resumed, start_with_store
@@ -42,7 +42,7 @@ def _refuse(args: Any, e: Exception) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    logging.basicConfig(level=(args.log_level or "info").upper())
+    logs.configure(args.log_level or "info")
     first = args.rig[0] if args.rig else Path("rig")
     try:
         catalog = Catalogs()

@@ -188,3 +188,19 @@ def test_a_rig_that_fails_to_build_exits_once_with_a_message(tmp_path):
     assert "Traceback" not in err
     lines = [line for line in err.splitlines() if line.startswith("flyball-runner:")]
     assert len(lines) == 1 and "rig.yaml" in lines[0] and "/dev/i2c-9" in lines[0], err
+
+
+def test_every_log_line_has_a_timestamp(tmp_path):
+    # Under flyballd stdout and stderr are a log file: an untimed line matches nothing.
+    import re
+
+    argv = ["--port", str(PORT), "--store", str(tmp_path / "s.sqlite")]
+    with runner(tmp_path, *argv) as proc:
+        _wait_up(proc, PORT)  # its requests are access-log lines
+        proc.send_signal(signal.SIGINT)
+        out, err = proc.communicate(timeout=15)
+    lines = [line for line in (out + err).splitlines() if line.strip()]
+    stamp = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d{4} ")
+    assert any("GET /api/auth" in line for line in lines), "no access log to check"
+    assert any("flyball.runner" in line for line in lines), "no runner log to check"
+    assert [line for line in lines if not stamp.match(line)] == []
