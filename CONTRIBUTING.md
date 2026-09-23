@@ -10,22 +10,38 @@ licence.
 
 ## Sign your commits (DCO)
 
-Every commit must carry a `Signed-off-by` line:
+Every commit in a pull request must carry a `Signed-off-by` line:
 
 ```
 Signed-off-by: Your Name <your.email@example.com>
 ```
 
-`git commit -s` adds it for you. Configure `user.name` and `user.email` first and it is
-automatic thereafter.
+`git commit -s` adds it for you once `user.name` and `user.email` are set. To stop having to
+remember it, opt in to the repository hook once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+That replaces your hooks directory wholesale, so move any hooks of your own into `.githooks`
+first.
 
 That line is your agreement to the [Developer Certificate of Origin](https://developercertificate.org/)
 version 1.1 — in short, that you wrote the contribution or otherwise have the right to submit
 it under the project's licence, and that you understand it will be public and kept
 indefinitely. There is nothing to sign and no account to create.
 
-If you forget, `git commit --amend -s` fixes the last commit, and
-`git rebase --signoff <base>` fixes a branch.
+The name and address need to be **stable and reachable**, so that a question about a
+contribution years from now reaches someone. They do not need to be a legal name: the DCO
+itself asks for neither, and a handle you actually use is fine.
+
+If you forget, `git commit --amend -s` fixes the last commit and
+`git rebase --signoff <base>` fixes a branch. A pull request is checked automatically by
+[`.github/workflows/dco.yml`](.github/workflows/dco.yml).
+
+**Fixing a typo from the browser?** GitHub's web editor cannot add a sign-off. Open an issue
+with the fix in it instead and we will carry it in — a one-line documentation correction
+should not need a local clone.
 
 ## Before you open a pull request
 
