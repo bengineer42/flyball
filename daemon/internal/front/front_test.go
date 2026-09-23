@@ -918,6 +918,13 @@ func TestFallbackRefusesRequestedListen(t *testing.T) {
 			if strings.Contains(b, "hunter2") {
 				t.Fatalf("the refusal leaks the password: %q", b)
 			}
+			// `flyball stop` prints this body: it says how to stop the
+			// rig, before anything else.
+			if !strings.HasPrefix(b, "flyball: to stop this rig") || !strings.Contains(b, "Ctrl-C") ||
+				!strings.Contains(b, "flyball stop --front-dir") || !strings.Contains(b, "flyball stop --pid") ||
+				!strings.Contains(b, "systemctl stop") {
+				t.Fatalf("the refusal %q does not lead with how to stop the rig", b)
+			}
 			if n := len(fr.requests()); n != 0 {
 				t.Fatalf("the runner received %d requests through the refused address", n)
 			}

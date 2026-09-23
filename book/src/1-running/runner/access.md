@@ -110,6 +110,12 @@ flyball: front: the password is not a $scrypt$ line (…); plaintext passwords a
 flyball: serving rig furnace on http://127.0.0.1:40321/ (local)
 ```
 
+A plain `flyball stop` goes to that address too, and gets the `503`, so
+the `503` starts with the stops that work: Ctrl-C in the `flyball run`
+terminal, `flyball stop --front-dir DIR` or `flyball stop --pid N` on the
+rig's host, or `systemctl stop` for `flyballd`. `flyball run`'s start notice
+then names `flyball stop --front-dir` with its own front-dir.
+
 A `listen` that does not parse serves the `local` shape on
 `127.0.0.1:8000`, with nothing to refuse.
 

@@ -112,8 +112,6 @@ func run(args []string, sigs <-chan os.Signal) error {
 			fmt.Fprintln(out, "flyball:", line)
 		}
 	}
-	fmt.Fprintf(out, "flyball: closing this terminal does not stop the rig -- Ctrl-C or `flyball stop` does; the log is %s; for a rig that survives reboots use flyballd\n", rl.path)
-
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	defer signal.Stop(hup)
@@ -133,6 +131,12 @@ func run(args []string, sigs <-chan os.Signal) error {
 	if root == "" || filepath.Dir(dir) != filepath.Clean(root) {
 		defer os.RemoveAll(dir) // a temp dir: ours alone
 	}
+	stop := "`flyball stop`"
+	if plan.Refused != "" {
+		// A bare `flyball stop` goes to the refused address and gets its 503.
+		stop = "`flyball stop --front-dir " + dir + "`"
+	}
+	fmt.Fprintf(out, "flyball: closing this terminal does not stop the rig -- Ctrl-C or %s does; the log is %s; for a rig that survives reboots use flyballd\n", stop, rl.path)
 
 	s := &supervisor{
 		dir: dir, aud: "run-" + randomHex(4), rig: rig,
