@@ -720,6 +720,8 @@ export interface AuthInfo {
   };
   /** Where the runner (or `flyball run`'s front) serves against where it was asked to; null or absent when not known. */
   exposure?: Exposure | null;
+  /** The rig this request's path routes to (B1's Rig.Name); absent at a flyballd root, where no single rig applies. */
+  rig?: string;
 }
 
 /** Who asked for the stop (`StopReport.actor`), and how they reached it. */
