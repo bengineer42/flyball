@@ -126,6 +126,26 @@ class BlenderConfig(DriverConfig[Blender]):
 
 
 @pytest.fixture
+def closing_link_tag(fresh, _catalog):
+    """A link config whose built object records whether it was closed."""
+    from flyball.model.config import Config
+
+    tag = fresh("closing_link")
+    closed: list[bool] = []
+
+    class Built:
+        def close(self) -> None:
+            closed.append(True)
+
+    class ClosingLinkConfig(Config[Built], tag=tag):
+        def build(self) -> Built:
+            return Built()
+
+    _catalog.register_link(ClosingLinkConfig)
+    return tag, closed
+
+
+@pytest.fixture
 def daq_tag(fresh, _catalog) -> str:
     tag = fresh("eurotherm_daq")
 
@@ -254,13 +274,13 @@ class TestParsing:
 
 
 class TestChecks:
-    def test_the_legacy_sections_are_refused_naming_the_plan(self, daq_tag):
+    def test_the_legacy_sections_are_refused_naming_the_reference(self, daq_tag):
         for section in ("readers", "actuators", "loops"):
             document = {"devices": {"x": {"driver": daq_tag, "zones": 1}}, section: []}
             with pytest.raises(
                 ValueError,
                 match="readers/actuators/loops are no longer rig-file sections; devices and"
-                r" controllers replace them, see temp-docs/DEVICE-MODEL-PLAN.md §6",
+                r" controllers replace them, see book/src/7-reference/rig-file\.md",
             ):
                 RigConfig.model_validate(document)
 
@@ -410,6 +430,17 @@ class TestBuild:
         }
         with pytest.raises(NotFoundError, match="nope"):
             RigConfig.model_validate(document).build(start=False)
+
+    def test_a_built_link_is_closed_when_build_fails_later(self, daq_tag, closing_link_tag):
+        link_tag, closed = closing_link_tag
+        document = {
+            "links": {"l1": {"tag": link_tag}},
+            "devices": {"f": {"driver": daq_tag, "zones": 1}},
+            "controllers": {"f.nope": {"signal": "f.zone1"}},
+        }
+        with pytest.raises(NotFoundError, match="nope"):
+            RigConfig.model_validate(document).build(start=False)
+        assert closed == [True]
 
     def test_furnace_zone1_resolves_to_a_signal(self, daq_tag, heaters_tag):
         document = {

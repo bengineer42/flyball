@@ -2,7 +2,7 @@
 
 A tree of tagged configs. Links are declared once and named by the devices
 that use them; a device entry is flyball's envelope around the driver's own
-config (plan §1.5), keyed by name; a controller is keyed by the address of
+config, keyed by name; a controller is keyed by the address of
 the signal it drives and names its source. Formats are
 [flyball.foundation.files][]'s business; which driver and link kinds exist is
 [flyball.model.catalog.Catalogs][]'s, read here via
@@ -22,7 +22,7 @@ its pins. `board = "rpi5"` is looked up on the board path; the file's own
 the link and line the profile says.
 
 The `readers`, `actuators` and `loops` sections of the legacy model no
-longer parse; `temp-docs/DEVICE-MODEL-PLAN.md` §6 says so.
+longer parse; devices and controllers replace them (`book/src/7-reference/rig-file.md`).
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Iterator, Sequence
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Literal
 
@@ -85,7 +86,7 @@ Role = Literal["link", "driver"]
 LEGACY_SECTIONS = ("readers", "actuators", "loops")
 LEGACY_MESSAGE = (
     "readers/actuators/loops are no longer rig-file sections; devices and controllers"
-    " replace them, see temp-docs/DEVICE-MODEL-PLAN.md §6"
+    " replace them, see book/src/7-reference/rig-file.md"
 )
 
 
@@ -538,7 +539,6 @@ class RigConfig(BaseModel):
                 [get_catalog][flyball.model.catalog.get_catalog].
         """
         catalogs = catalogs or get_catalog()
-        links = {name: config.build() for name, config in self.links.items()}
         if clock is None and self.simulated:
             from flyball_sim.clock import ScaledClock, SteppedClock
 
@@ -546,7 +546,6 @@ class RigConfig(BaseModel):
             clock = SteppedClock() if entry.stepped else ScaledClock(entry.speed)
 
         rig = Rig(self.name)
-        rig.links = links
         rig.link_entries = dict(self.links)
         rig.files = list(self.files)
         rig.header = {
@@ -557,11 +556,16 @@ class RigConfig(BaseModel):
         if clock is not None:
             rig.clock = clock
         # Build everything before anything runs: a failure part-way leaves no
-        # thread polling and no name claimed for a retry to trip on.
+        # thread polling and no name claimed for a retry to trip on, and no
+        # link (a serial port, a socket) held open behind it.
         built_devices: list[Device] = []
+        built_links: dict[str, Any] = {}
         try:
+            for name, config in self.links.items():
+                built_links[name] = config.build()
+            rig.links = built_links
             for name, entry in self.devices.items():
-                device = entry.build(name, links, catalogs)
+                device = entry.build(name, built_links, catalogs)
                 rig.add_device(device)
                 rig.entries[name] = entry
                 built_devices.append(device)
@@ -589,6 +593,11 @@ class RigConfig(BaseModel):
         except Exception:
             for device in built_devices:
                 rig.release(device.name)
+            for link in built_links.values():
+                close = getattr(link, "close", None)
+                if close is not None:
+                    with suppress(Exception):
+                        close()
             raise
         if start:
             for device in built_devices:
@@ -636,7 +645,7 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
     `config` (`DeviceEntry`'s own before-validator normalises this, not a
     pydantic discriminated union), so pydantic alone cannot describe the two
     shapes as one type. `oneOf` per registered driver, each with a flat and a
-    layered variant (plan §1.5); before any driver registers, `devices` is
+    layered variant; before any driver registers, `devices` is
     just a plain `DeviceEntry` map.
     """
     base = DeviceEntry.model_json_schema(ref_template="#/$defs/{model}")
