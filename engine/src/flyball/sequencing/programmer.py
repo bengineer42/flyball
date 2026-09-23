@@ -210,8 +210,12 @@ class Programmer:
             step = self._step
         try:
             while True:
-                if activity is not None and not self._wait_out(activity, program[step]):
-                    break
+                if activity is not None:
+                    with self.lock:
+                        if self._abort:
+                            break
+                    if not self._wait_out(activity, program[step]):
+                        break
                 step += 1
                 with self.lock:
                     if self._abort or self._program is not program or step >= len(program):
@@ -289,6 +293,10 @@ class Programmer:
             activity = command.run(self.rig, self.operator)
         with self.lock:
             self._activity = activity
+            if self._abort and activity is not None:
+                # `interrupt` landed while the step applied, so it cancelled the
+                # previous activity rather than this one.
+                activity.interrupt()
         return activity
 
     def _failed(self, program: Program, step: int, error: Exception) -> None:
