@@ -58,8 +58,12 @@ func TestAuditRetriesOpen(t *testing.T) {
 	if code := login(); code != 503 {
 		t.Fatalf("sign-in with no audit log: %d, want 503", code)
 	}
-	if w := warning(); !strings.Contains(w, "no audit log") || !strings.Contains(w, "is a directory") {
-		t.Fatalf("exposure warning %q does not say the audit cannot be opened, and why", w)
+	// Anyone who reaches the front reads the warning: it says the audit
+	// cannot be opened and where the reason is, never the error, which
+	// names a path (wave 3 F7). The log has it (frontwire.OpenAudit).
+	if w := warning(); !strings.Contains(w, "no audit log") || !strings.Contains(w, "the front's log") ||
+		strings.Contains(w, "is a directory") || strings.Contains(w, path) {
+		t.Fatalf("exposure warning %q: want the audit named as unopenable, with no path or error", w)
 	}
 
 	if err := os.Remove(path); err != nil { // the operator fixes it

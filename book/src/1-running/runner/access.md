@@ -450,8 +450,9 @@ as `local:signal`; the signal's sender is not recorded.
   (`token.revoke` also with its `outcome`). A sign-in or a new token whose
   record cannot be written does not happen (`503`); a revoke still happens,
   and its `503` says so. If the file cannot be opened at all, the front
-  still serves the rig and says so at start and in the dashboard's banner,
-  refuses every sign-in and new token, and tries the file again (at most
+  still serves the rig and says so at start (with the reason) and in the
+  dashboard's banner (without it: anyone who reaches the front reads the
+  banner, and the reason names a path), refuses every sign-in and new token, and tries the file again (at most
   every 5 seconds) until it opens -- fixing it needs no restart. `flyball token create` and `flyball token revoke`, which work
   on the files directly, append their `token.create` and `token.revoke` to
   the same file, by `local:cli`, under the same rule: no record, no new

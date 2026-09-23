@@ -518,8 +518,10 @@ func (f *Front) exposure() *Exposure {
 		if b != "" {
 			b += "\n"
 		}
-		b += fmt.Sprintf("front: no audit log (%v) -- sign-ins and token changes are refused until it can be opened; it is tried again every %v",
-			auditErr, AuditRetry)
+		// Generic: anyone who reaches the front reads this, and the error
+		// names a path. The front's log has it (frontwire.OpenAudit).
+		b += fmt.Sprintf("front: no audit log -- it cannot be opened, and the front's log says why; sign-ins and token changes"+
+			" are refused until it can be opened; it is tried again every %v", AuditRetry)
 	}
 	if b != "" {
 		e.Warning = &b
