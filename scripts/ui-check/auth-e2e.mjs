@@ -116,6 +116,28 @@ async function waitOk(url, status = 0) {
   throw new Error(`${url}: not ready (${last})`);
 }
 
+/**
+ * Wait for the runner behind a front with `anonymous: none`: the front answers a caller with no verb
+ * itself (D-047), so an anonymous 401 no longer means the runner is up. Sign in over the API, wait for
+ * a 2xx with the session, then sign out again so the page starts anonymous.
+ */
+async function waitSignedIn(base) {
+  const hdr = { 'Content-Type': 'application/json', Origin: base };
+  const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: hdr, body: JSON.stringify({ password: PASSWORD }) });
+  if (!r.ok) throw new Error(`${base}: sign-in for the readiness wait: ${r.status}`);
+  const cookie = (r.headers.get('set-cookie') || '').split(';')[0];
+  const end = Date.now() + 90000;
+  let last = '';
+  while (Date.now() < end) {
+    const s = await fetch(`${base}/api/runner`, { headers: { Cookie: cookie } });
+    if (s.ok) break;
+    last = String(s.status);
+    await sleep(250);
+  }
+  if (Date.now() >= end) throw new Error(`${base}/api/runner: not ready (${last})`);
+  await fetch(`${base}/api/auth/logout`, { method: 'POST', headers: { ...hdr, Cookie: cookie } });
+}
+
 /** `flyball run` with runner.front `front` (YAML lines); returns its base URL, the runner ready. */
 async function flyballRun(name, front) {
   const file = rig(name, front ? `runner:\n  front:\n${front.split('\n').map((l) => `    ${l}`).join('\n')}\n` : '');
@@ -254,7 +276,7 @@ try {
 
   if (want('none')) {
     const base = await flyballRun('none', `auth: password\npassword: '${scrypt}'`);
-    await waitOk(`${base}/api/runner`, 401); // anonymous: none -- 401 once the runner answers, 503 before
+    await waitSignedIn(base); // anonymous: none -- the front answers an anonymous 401 itself, even before the runner
     const s = await newPage();
     const { page, ctx } = s;
     await step('none: the login page replaces the app', async () => {
