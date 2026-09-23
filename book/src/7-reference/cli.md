@@ -256,6 +256,13 @@ front's config:
 not created, and a revoke that cannot be recorded still happens and exits
 non-zero ([what is recorded](../1-running/runner/access.md#what-is-recorded)).
 
+Run as root (`sudo flyball token …`) against a front whose state directory
+belongs to another user -- or, if it does not exist yet, whose nearest
+existing parent does, or whose `tokens.json` or `audit.jsonl` does -- a
+token command refuses and names `sudo -u <owner>`: a file it made there
+would be root's, and that front could no longer read its tokens or write
+its audit, and would refuse sign-ins.
+
 | flag | default | |
 | --- | --- | --- |
 | `--name N` | required | 1 to 64 characters, no control characters |

@@ -15,8 +15,11 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -77,6 +80,9 @@ func runTokenCreate(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := refuseAnotherUsersState(path); err != nil {
+		return err
+	}
 	lifetimes, warnings, err := lifetimesFor(configs, sets, daemon)
 	if err != nil {
 		return err
@@ -129,6 +135,9 @@ func runTokenList(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := refuseAnotherUsersState(path); err != nil {
+		return err
+	}
 	tokens, err := store.OpenTokens(path, store.TokensOptions{})
 	if err != nil {
 		return err
@@ -162,6 +171,9 @@ func runTokenRevoke(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := refuseAnotherUsersState(path); err != nil {
+		return err
+	}
 	tokens, err := store.OpenTokens(path, store.TokensOptions{})
 	if err != nil {
 		return err
@@ -190,6 +202,56 @@ func runTokenRevoke(args []string) error {
 		return fmt.Errorf("token %s is revoked, but %w", id, auditErr)
 	}
 	fmt.Println("revoked", id)
+	return nil
+}
+
+// tokenEuid is swapped by a test to play root.
+var tokenEuid = os.Geteuid
+
+// refuseAnotherUsersState refuses a token command run as root (`sudo
+// flyball token ...`) against a front whose state directory -- or, when
+// that does not exist yet, its nearest existing ancestor -- belongs to
+// another user, or holds a tokens file or audit that does. Every file the
+// command would create there (the directory, tokens.json, rewritten each
+// time through a temp file and a rename, its .lock, audit.jsonl) would be
+// root's, 0600: that front could then no longer read its tokens or write
+// its audit, and it refuses sign-ins without one. Refusing is the choice
+// over creating as root and chowning afterwards, which would have to
+// follow the tokens store's own temp-and-rename writes.
+func refuseAnotherUsersState(tokensPath string) error {
+	if tokenEuid() != 0 {
+		return nil
+	}
+	dir := filepath.Dir(tokensPath)
+	check := []string{filepath.Join(dir, filepath.Base(tokensPath)), filepath.Join(dir, frontwire.AuditFile)}
+	for p := dir; ; p = filepath.Dir(p) {
+		if _, err := os.Lstat(p); err == nil {
+			check = append(check, p)
+			break
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		if filepath.Dir(p) == p {
+			break
+		}
+	}
+	for _, p := range check {
+		fi, err := os.Lstat(p)
+		if err != nil {
+			continue
+		}
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		if !ok || st.Uid == 0 {
+			continue
+		}
+		owner := strconv.FormatUint(uint64(st.Uid), 10)
+		if u, err := user.LookupId(owner); err == nil {
+			owner = u.Username
+		}
+		return fmt.Errorf("this runs as root, but %s belongs to %s: a file made here now would be root's,"+
+			" and that front could no longer read its tokens or write its audit (it then refuses sign-ins);"+
+			" run it as the front's user: `sudo -u %s flyball token ...`", p, owner, owner)
+	}
 	return nil
 }
 
