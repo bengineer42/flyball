@@ -459,10 +459,10 @@ class SimDaq(Readable):
 class SimDaqConfig(DriverConfig[SimDaq], tag="sim_daq"):
     """Read chosen outputs of a simulated plant as this device's `[RP]` signals."""
 
-    link: PlantLink = Field(
+    link: PlantLink = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
         description="The plant link read: `sim_plant`, or another package's own `MultiPlant`"
         " link, such as `examples/furnace`'s `sim_furnace`."
-    )  # pyright: ignore[reportIncompatibleVariableOverride]
+    )
     ports: dict[str, str | DaqPort] = Field(
         description="Signal path -> the plant's output port; spelled out with `quantity` and"
         " `unit` when the plant does not say what a port measures (a bare `sim_plant`)."
@@ -642,10 +642,10 @@ class SimDrive(Committable):
 class SimDriveConfig(DriverConfig[SimDrive], tag="sim_drive"):
     """Drive chosen inputs of a simulated plant from this device's `[W]` signals."""
 
-    link: PlantLink = Field(
+    link: PlantLink = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
         description="The plant link driven: `sim_plant`, or another package's own `MultiPlant`"
         " link, such as `examples/furnace`'s `sim_furnace`."
-    )  # pyright: ignore[reportIncompatibleVariableOverride]
+    )
     ports: dict[str, str | DrivePort] = Field(
         description="Signal path -> the plant's input port, or spelled out with the `quantity`,"
         " `unit` and `limits` the signal is set in (mapped linearly onto the port's 0..1 drive),"
