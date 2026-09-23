@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
+from flyball.foundation import Clock
 from flyball.record.store import Store
 from flyball.rig import Rig
-from flyball.runtime.config import RigConfig
+from flyball.runtime.config import ClockEntry, RigConfig
 
 log = logging.getLogger("flyball.runner")
 
@@ -34,27 +36,32 @@ def start_with_store(
     """`start`, also returning the store so the server can read history from it.
 
     The store is opened whether or not a session is: past sessions are
-    readable and recording can be started from the API either way.
+    readable and recording can be started from the API either way. Opened
+    before the rig is built, so a scaled clock (N19) can be seeded from
+    the last session it holds -- otherwise a rig run faster than real
+    time would restart behind where it left off.
 
     Raises:
         BuildFailed: The rig could not be built; nothing is left running.
     """
+    from flyball.record.sqlite import SqliteStore
+
+    store = SqliteStore(store_path)
+    _clean_sessions(store)
     try:
-        rig = config.build()
+        rig = config.build(clock=_seed_clock(config, store))
     except Exception as e:
+        store.close()
         raise BuildFailed(str(e) or type(e).__name__) from e
     try:
-        store = _open(config, rig, record, store_path)
+        _open(config, rig, store, record, store_path)
     except BaseException:
         rig.close()  # nothing left polling a rig that will not be served
         raise
     return rig, store
 
 
-def _open(config: RigConfig, rig: Rig, record: bool | None, store_path: str | Path) -> Store:
-    from flyball.record.sqlite import SqliteStore
-
-    store = SqliteStore(store_path)
+def _clean_sessions(store: Store) -> None:
     # A delete cut off part-way (it goes in batches) is finished before anything reads.
     for half in store.deleting_sessions():
         store.delete_session(half.id)
@@ -65,13 +72,40 @@ def _open(config: RigConfig, rig: Rig, record: bool | None, store_path: str | Pa
         if orphan.open:
             store.end_session(orphan.id)
             log.warning("closed session %d, left open by an earlier run", orphan.id)
+
+
+def _seed_clock(config: RigConfig, store: Store) -> Clock | None:
+    """A scaled clock seeded so this run cannot start behind the last session's end (N19).
+
+    `ScaledClock` anchors to wall time; a rig run faster than real time can
+    end a session ahead of wall-clock now, so a plain restart would
+    otherwise run its time backwards. None (letting `RigConfig.build`
+    choose) for anything else: a rig that is not simulated already runs on
+    wall time and cannot go backwards, and `SteppedClock` only moves when
+    stepped, so it cannot run ahead of wall time on its own and needs no
+    seed.
+    """
+    if not config.simulated:
+        return None
+    entry = config.clock or ClockEntry()
+    if entry.stepped:
+        return None
+    from flyball_sim.clock import ScaledClock
+
+    last = store.sessions(limit=1)
+    last_end_ns = last[0].end_ns if last and last[0].end_ns is not None else 0
+    return ScaledClock(entry.speed, nanoseconds=max(time.time_ns(), last_end_ns))
+
+
+def _open(
+    config: RigConfig, rig: Rig, store: Store, record: bool | None, store_path: str | Path
+) -> None:
     keep_versions(
         rig, store, "resumed" if config.resumed else "loaded" if rig.files else "started bare"
     )
     if record if record is not None else config.recording:
         rig.start_recording(store, config=config.model_dump(mode="json"))
         log.info("recording to %s", store_path)
-    return store
 
 
 START_REASONS = ("loaded", "started bare", "resumed")

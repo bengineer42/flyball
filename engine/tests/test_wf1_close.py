@@ -1,10 +1,19 @@
-"""`Rig.close()`: idempotent teardown (renamed from `stop`) that also closes links (ENG-15)."""
+"""`Rig.close()`: idempotent teardown that also closes links (ENG-15).
+
+Also the scaled clock that must not restart behind its last session (N19).
+"""
 
 from __future__ import annotations
 
 import logging
+import time
+from pathlib import Path
 
 from flyball.rig import Rig
+from flyball.runner.starting import start_with_store
+from flyball.runtime.config import load_rig_config
+
+EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
 
 
 class FakeWriter:
@@ -80,3 +89,53 @@ class TestClose:
         rig.close()
 
         assert furnace.name in rig.devices, "close tears down links, not devices"
+
+
+class TestScaledClockSeed:
+    """N19: a scaled clock must not restart behind the last session it recorded."""
+
+    def test_the_second_build_starts_at_or_after_the_first_s_recorded_end(self, tmp_path) -> None:
+        config = load_rig_config(EXAMPLES / "oven.yaml")
+        path = tmp_path / "s.sqlite"
+
+        rig1, store1 = start_with_store(config, store_path=path)
+        try:
+            # A session that ended far ahead of real time, as a fast scaled clock would
+            # leave one behind it.
+            far_ahead_ns = time.time_ns() + 3600 * 1_000_000_000
+            writer = store1.open_session(rig1.clock.now_ns())
+            store1.end_session(writer.session.id, far_ahead_ns)
+        finally:
+            rig1.close()
+            store1.close()
+
+        rig2, store2 = start_with_store(config, store_path=path)
+        try:
+            assert rig2.clock.now_ns() >= far_ahead_ns
+        finally:
+            rig2.close()
+            store2.close()
+
+    def test_a_stepped_clock_is_left_at_wall_time_not_reseeded(self, tmp_path) -> None:
+        from flyball.runtime.config import ClockEntry
+
+        config = load_rig_config(EXAMPLES / "oven.yaml").model_copy(
+            update={"clock": ClockEntry(stepped=True)}
+        )
+        path = tmp_path / "s.sqlite"
+
+        rig1, store1 = start_with_store(config, store_path=path)
+        try:
+            far_ahead_ns = time.time_ns() + 3600 * 1_000_000_000
+            writer = store1.open_session(rig1.clock.now_ns())
+            store1.end_session(writer.session.id, far_ahead_ns)
+        finally:
+            rig1.close()
+            store1.close()
+
+        rig2, store2 = start_with_store(config, store_path=path)
+        try:
+            assert rig2.clock.now_ns() < far_ahead_ns, "a stepped clock is not reseeded"
+        finally:
+            rig2.close()
+            store2.close()

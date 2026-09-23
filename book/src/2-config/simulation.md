@@ -100,7 +100,10 @@ laptop.
 
 A rig file whose links are all `sim_*`/`fake_*` is a simulation, and the
 runner treats it as one: the rig gets a clock whose speed can change, and
-`/api/sim` (and `flyball sim`) exposes the knobs.
+`/api/sim` (and `flyball sim`) exposes the knobs. A `ScaledClock` starts at
+`max(real now, the store's last session end)`, so a restart after running
+faster than real time cannot land behind where the last run left off; a
+stepped clock, only moving when told, needs no such seed.
 
 ```yaml
 # examples/simulated/oven.yaml
