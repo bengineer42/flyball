@@ -6,6 +6,8 @@ read, a writer that outlives a bad report, and non-finite numbers on the wire.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
 from flyball.control.laws import P
@@ -14,11 +16,14 @@ from flyball.foundation.device import (
     Demand,
     Kind,
     Level,
+    Node,
+    Output,
+    Readable,
     Sample,
     Scope,
 )
 from test_rig import FakeRecorder, FakeStore, recorder_module  # noqa: F401  a fixture
-from test_rig_devices import POWER, Furnace
+from test_rig_devices import POWER, TEMP, Furnace
 
 
 class Flaky(Committable):
@@ -131,6 +136,57 @@ class TestCommitFailure:
         clock.advance(1.0)
         _deliver(rig, furnace)
         assert controller.expected is None, "a failed commit set nothing"
+
+
+# endregion
+
+# region 2. A controller sourced from its own target's device
+
+
+class Looped(Readable, Committable):
+    """A zone and a heater on one device; every commit reads the zone back and pushes it."""
+
+    zone = Output("zone", "Zone", TEMP)
+    heater = Demand("heater", "Heater", POWER, limits=(0.0, 1000.0))
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.commits = 0
+
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        yield self.sample(time_ns, zone=20.0)
+
+    def commit(self, time_ns: int) -> None:
+        self.commits += 1
+        super().commit(time_ns)
+        if self.commits < 200:  # the test's own backstop: a real loop never stops
+            self.push(time_ns, zone=20.0 + self.commits)
+
+
+def test_a_controller_whose_commit_pushes_its_own_source_steps_once(rig, fresh):
+    looped = Looped(fresh("looped"))
+    rig.add_device(looped)
+    controller = rig.attach_controller(
+        looped.signals["heater"], looped.signals["zone"], law=P(kp=1.0)
+    )
+    controller.regulate(50.0)
+    looped.commits = 0
+    rig.on_samples(list(looped.read(rig.clock.now_ns())))
+    assert looped.commits == 1, "its readback does not step it again in the same delivery"
+    assert rig.latest[looped.signals["zone"]].value == 21.0, "the readback still landed"
+    rig.on_samples(list(looped.read(rig.clock.now_ns())))
+    assert looped.commits == 2, "the next delivery steps it again"
+
+
+def test_a_controller_on_its_own_target_s_device_is_attached(rig, furnace):
+    """The ordinary case -- one instrument's PV and output -- is allowed and does not loop."""
+    controller = rig.attach_controller(
+        furnace.signals["heater1"], furnace.signals["zone1"], law=P(kp=1.0)
+    )
+    controller.regulate(30.0)
+    furnace.commits = 0
+    _deliver(rig, furnace)
+    assert furnace.commits == 1
 
 
 # endregion

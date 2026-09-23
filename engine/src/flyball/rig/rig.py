@@ -119,6 +119,10 @@ class Rig:
     again, none per failing step between. The others in the delivery carry on regardless."""
     _touched: dict[Device, None] | None
     """The devices the delivery in progress applied to or observed on; None outside one."""
+    _stepped: set[Controller] | None
+    """The controllers stepped since the outermost delivery began, through every delivery of
+    what its commits pushed; None outside one. A controller steps at most once in that chain:
+    a commit that pushes back its own source would otherwise step it again, for ever."""
     _commit_failures: dict[Device, Condition]
     """Devices whose last `commit` on the delivery path raised, with what it raised: one
     event on the first failure, one when a commit succeeds again, none per failing commit
@@ -169,6 +173,7 @@ class Rig:
         self._limit_held = set()
         self._failing = set()
         self._touched = None
+        self._stepped = None
         self._commit_failures = {}
         self.entries = {}
         self.link_entries = {}
@@ -772,10 +777,23 @@ class Rig:
         return states
 
     def _flush_pushed(self) -> None:
-        """Deliver what commits pushed, each batch as one more delivery, until nothing is left."""
-        while self._pushed:
-            pushed, self._pushed = self._pushed, []
-            self._deliver_samples(pushed, noted=True)
+        """Deliver what commits pushed, each batch as one more delivery, until nothing is left.
+
+        One chain: a controller already stepped in it is not stepped again
+        on a reading its own commit pushed (its target's device reading its
+        source back). The reading still lands; the controller steps on the
+        next delivery that starts a chain.
+        """
+        outer = self._stepped
+        if outer is None:
+            self._stepped = set()
+        try:
+            while self._pushed:
+                pushed, self._pushed = self._pushed, []
+                self._deliver_samples(pushed, noted=True)
+        finally:
+            if outer is None:
+                self._stepped = None
 
     def written(self, device: Committable, time_ns: int, before: Mapping[Signal, int]) -> None:
         """A blocking device's writer finished a commit: publish, deliver and record its states.
@@ -1193,8 +1211,12 @@ class Rig:
                     self.router.note(sample)
                 self._pushed.extend(samples)
                 return
-            self._deliver_samples(samples)
-            self._flush_pushed()
+            self._stepped = set()
+            try:
+                self._deliver_samples(samples)
+                self._flush_pushed()
+            finally:
+                self._stepped = None
 
     def _deliver_samples(self, samples: Sequence[Sample], *, noted: bool = False) -> None:
         """One delivery, under the lock: note, observers, controllers, commits, recorder."""
@@ -1234,7 +1256,9 @@ class Rig:
                         for device in self._node_observers.get(node, ()):
                             messages[device, node] = None
                         node = node.parent
-                    if (controller := self.controllers.find(signal)) is not None:
+                    if (controller := self.controllers.find(signal)) is not None and (
+                        self._stepped is None or controller not in self._stepped
+                    ):
                         ticks.append((controller, reading))
                 for device, node in messages:
                     # A subscriber hears what publishes, as a signal-level
@@ -1245,6 +1269,8 @@ class Rig:
                     ) is not None:
                         touched[device] = None
             for controller, reading in ticks:
+                if self._stepped is not None:
+                    self._stepped.add(controller)
                 self._step(controller, reading)
             time_ns = max(s.time_ns for s in samples)
             failed: dict[Signal, WriteState] = {}
