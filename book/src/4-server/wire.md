@@ -4,6 +4,11 @@ How flyball's values cross the wire. Everything is JSON; times are integers;
 everything else is named by **address** — see
 [HTTP and websocket API](api.md).
 
+JSON has no NaN or infinity. A non-finite number -- a reading off its
+range, a law's state gone wrong -- is `null` on every websocket frame and
+in a controller (`ControllerOut`) over HTTP, never a bare `NaN` that
+`JSON.parse` refuses.
+
 ## Time
 
 | type | JSON | also accepted on input |

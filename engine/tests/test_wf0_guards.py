@@ -6,11 +6,14 @@ read, a writer that outlives a bad report, and non-finite numbers on the wire.
 
 from __future__ import annotations
 
+import json
+import math
 import time
 from collections.abc import Iterator
 
 import pytest
 
+from conftest import TestClient
 from flyball.control.laws import P
 from flyball.foundation.device import (
     Committable,
@@ -24,6 +27,7 @@ from flyball.foundation.device import (
     Scope,
     WriteState,
 )
+from flyball.interfaces.server import create_app, set_rig
 from test_rig import FakeRecorder, FakeStore, recorder_module  # noqa: F401  a fixture
 from test_rig_devices import POWER, TEMP, Furnace
 
@@ -281,6 +285,61 @@ def test_a_raise_in_written_does_not_kill_the_writer(rig, fresh, monkeypatch):
         assert rig.latest[device.signals["heater1"]].value == 20.0
     finally:
         rig.stop()
+
+
+# endregion
+
+# region 5. Non-finite floats on the wire
+
+
+def _strict(text: str) -> object:
+    """`JSON.parse`: a bare NaN or Infinity is a syntax error."""
+
+    def refuse(constant: str) -> object:
+        raise ValueError(f"{constant} is not JSON")
+
+    return json.loads(text, parse_constant=refuse)
+
+
+@pytest.fixture
+def served(rig) -> Iterator[TestClient]:
+    set_rig(rig)
+    with TestClient(create_app()) as client:
+        yield client
+    set_rig(None)
+
+
+def test_a_nan_controller_state_crosses_as_null(rig, furnace, served):
+    controller = rig.attach_controller(
+        furnace.signals["heater1"], furnace.signals["zone1"], law=P(kp=1.0)
+    )
+    controller.correction = math.nan
+    controller.expected = math.inf
+    with served.websocket_connect("/ws/controllers") as ws:
+        frame = _strict(ws.receive_text())
+        (out,) = frame["controllers"]  # type: ignore[index]
+        assert out["correction"] is None and out["expected"] is None
+    response = served.get(f"/api/controllers/{controller.name}")
+    assert response.status_code == 200
+    body = _strict(response.text)
+    assert body["correction"] is None and body["expected"] is None  # type: ignore[index]
+    listed = served.get("/api/controllers")
+    assert listed.status_code == 200 and _strict(listed.text)[0]["correction"] is None  # type: ignore[index]
+
+
+def test_a_nan_reading_crosses_as_null_on_the_samples_stream(rig, furnace, served):
+    _deliver(rig, furnace, math.nan)
+    with served.websocket_connect("/ws/samples") as ws:
+        frame = _strict(ws.receive_text())
+        entry = next(s for s in frame["samples"] if s["node"] == furnace.name)  # type: ignore[index]
+        assert entry["values"]["zone1"] is None
+
+
+def test_a_nan_in_an_event_crosses_as_null(rig, served):
+    rig.event(Level.INFO, Scope.RIG, "x", Kind.RESTORED, "odd", {"value": math.nan})
+    with served.websocket_connect("/ws/events") as ws:
+        frame = _strict(ws.receive_text())
+        assert frame["events"][-1]["details"] == {"value": None}  # type: ignore[index]
 
 
 # endregion

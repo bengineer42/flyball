@@ -16,7 +16,7 @@ from pydantic import TypeAdapter
 
 from flyball.foundation.device import Event, Level
 from flyball.interfaces.server.deps import RigDep, current_rig
-from flyball.interfaces.server.routes.telemetry import IDLE_POLL_S, _closed, _no_rig
+from flyball.interfaces.server.routes.telemetry import IDLE_POLL_S, _closed, _no_rig, send
 
 router = APIRouter(tags=["events"])
 
@@ -61,7 +61,7 @@ async def events(websocket: WebSocket) -> None:
             closed = asyncio.ensure_future(_closed(websocket))
             with rig.events.subscribe(maxsize=200) as queue:
                 primed = [event_out(e) for e in list(rig.recent)]  # a snapshot, as above
-                await websocket.send_json({"events": primed})
+                await send(websocket, {"events": primed})
                 getter: asyncio.Future[Any] = asyncio.ensure_future(queue.get())
                 try:
                     while current_rig() is rig:
@@ -73,7 +73,7 @@ async def events(websocket: WebSocket) -> None:
                         if closed in done:
                             raise WebSocketDisconnect
                         if getter in done:
-                            await websocket.send_json({"events": [event_out(getter.result())]})
+                            await send(websocket, {"events": [event_out(getter.result())]})
                             getter = asyncio.ensure_future(queue.get())
                 finally:
                     getter.cancel()

@@ -11,10 +11,18 @@ controller's (its target's). The rig resolves them once at the boundary.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, SerializeAsAny, TypeAdapter
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    SerializeAsAny,
+    SerializerFunctionWrapHandler,
+    TypeAdapter,
+    model_serializer,
+)
 
 from flyball.control import IMC, PI, PID, OnOff, OpenLoop, P, Scheduled, SlidingMode, SmithPredictor
 from flyball.foundation.config import discriminated_union
@@ -416,6 +424,22 @@ class GeneratorOut(BaseModel):
         return cls.model_validate(generator.wire())
 
 
+def finite(value: Any) -> Any:
+    """`value` with every NaN and infinity made None, through dicts, lists and tuples.
+
+    JSON has no NaN: Python's encoder writes a bare `NaN` that `JSON.parse`
+    refuses, and Starlette's HTTP encoder refuses it outright (a 500). A law
+    gone wrong, a reading off its range: they cross as `null`.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: finite(v) for k, v in value.items()}  # pyright: ignore[reportUnknownVariableType]
+    if isinstance(value, list | tuple):
+        return [finite(v) for v in value]  # pyright: ignore[reportUnknownVariableType]
+    return value
+
+
 class ControllerOut(BaseModel):
     """A controller as a client sees it. Separate from `ControllerView` so the wire stays stable.
 
@@ -445,6 +469,15 @@ class ControllerOut(BaseModel):
     expected: float | None
     delivered_correction: float | None
     reading: ReadingOut | None
+
+    @model_serializer(mode="wrap")
+    def _finite(self, handler: SerializerFunctionWrapHandler):
+        """Every non-finite float -- the law's state and the reading's too -- as None.
+
+        No return annotation: with one, pydantic would publish it as the
+        response schema in place of the model's.
+        """
+        return finite(handler(self))
 
     @classmethod
     def of(

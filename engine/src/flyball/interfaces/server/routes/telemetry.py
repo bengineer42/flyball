@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -23,7 +24,7 @@ from pydantic import TypeAdapter
 from flyball.foundation.device import Node, Sample, Signal
 from flyball.foundation.router import Latest
 from flyball.interfaces.server.deps import current_rig
-from flyball.interfaces.server.schemas import ControllerOut, SampleOut
+from flyball.interfaces.server.schemas import ControllerOut, SampleOut, finite
 from flyball.rig import DeviceRun, Rig, TriggerState
 
 router = APIRouter(tags=["telemetry"])
@@ -37,8 +38,14 @@ RUN = TypeAdapter(DeviceRun)
 WAIT = TypeAdapter(TriggerState)
 
 
+async def send(websocket: WebSocket, frame: dict[str, Any]) -> None:
+    """One frame, as `send_json` would, but with NaN and infinities as null: JSON has neither."""
+    text = json.dumps(finite(frame), separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    await websocket.send_text(text)
+
+
 async def _no_rig(websocket: WebSocket) -> None:
-    await websocket.send_json({"error": "no rig attached"})
+    await send(websocket, {"error": "no rig attached"})
     await asyncio.sleep(IDLE_POLL_S)
 
 
@@ -69,9 +76,7 @@ async def _flush[V](
             while current_rig() is rig:
                 version, changed = latest.changed_since(version)
                 if changed:
-                    await websocket.send_json({
-                        key: [encode(rig, k, v) for k, v in changed.items()]
-                    })
+                    await send(websocket, {key: [encode(rig, k, v) for k, v in changed.items()]})
                 done, _ = await asyncio.wait({closed}, timeout=FLUSH_S)
                 if closed in done:
                     raise WebSocketDisconnect
@@ -164,7 +169,7 @@ async def _flush_samples(websocket: WebSocket, rig: Rig) -> None:
                 if run_changed:
                     frame["runs"] = [_run_out(rig, k, v) for k, v in run_changed.items()]
                 if frame:
-                    await websocket.send_json(frame)
+                    await send(websocket, frame)
                 done, _ = await asyncio.wait({closed}, timeout=FLUSH_S)
                 if closed in done:
                     raise WebSocketDisconnect
