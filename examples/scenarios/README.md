@@ -14,9 +14,9 @@ flyball-runner rig.yaml              # the real skid/room
 
 | directory | domain | signals | new drivers needed | example available |
 | --- | --- | --- | --- | --- |
-| `mushroom-room/` | mushroom/fungiculture grow room | humidity + CO2, two independent loops | none (`sht4x_set`, `scd30`, both already in `flyball_linux`) | yes, `rig.yaml`/`sim.yaml`/`programs/cultivation.yaml` |
+| `mushroom-room/` | mushroom/fungiculture grow room | humidity + CO2, two independent loops | none (`sht4x_set`, `scd30`, both already in `flyball_chips`) | yes, `rig.yaml`/`sim.yaml`/`programs/cultivation.yaml` |
 | `aging-room/` | cheese/charcuterie/wine curing room | humidity only, temperature monitored | none (`sht4x_set`) | yes, `rig.yaml`/`sim.yaml`/`programs/wheel.yaml` |
-| `dosing-skid/` | small-scale non-safety-critical dosing | pH/EC/ORP/DO probes + a capped dosing pump, no continuous control loop | none (`ezo_ph`/`ezo_ec`/`ezo_orp`/`ezo_do`/`dosing_pump`, all in `flyball_linux`) | yes, `rig.yaml`/`sim.yaml` (no program yet — see below) |
+| `dosing-skid/` | small-scale non-safety-critical dosing | pH/EC/ORP/DO probes + a capped dosing pump, no continuous control loop | none (`ezo_ph`/`ezo_ec`/`ezo_orp`/`ezo_do` in `flyball_chips`, `dosing_pump` in `flyball_linux`) | yes, `rig.yaml`/`sim.yaml` (no program yet — see below) |
 
 ## What's simplified here
 
@@ -35,7 +35,7 @@ flyball-runner rig.yaml              # the real skid/room
   `regulate`/`ramp` program the way the other two scenarios do. A real
   demo program would need threshold logic (`wait` on a reading, then a
   `command: { device: doser, device_command: dispense, args: { volume_ml: … } }`)
-  — not written here; flag it if you want one.
+  — not written here.
 - **`dosing-skid/sim.yaml`'s probe readings are constant**, not scripted
   drift — `fake_uart`'s `replies` is a fixed script, and a single reply
   repeats forever, unlike `sim_plant`'s continuous model.
