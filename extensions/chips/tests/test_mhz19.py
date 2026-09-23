@@ -51,3 +51,9 @@ class TestMhZ19:
         assert sample.node is sensor.root and sample.time_ns == 9
         assert sample.by_name() == {"co2": 812}
         assert link.written == [mhz19.request()]
+
+    def test_a_frame_that_arrives_in_two_pieces_is_read_whole(self):
+        frame = mhz19.encode(640)
+        link = FakeUart(replies=[frame[:4], frame[4:], mhz19.encode(0)])
+        (sample,) = mhz19.MhZ19("air", link).read(0)
+        assert sample.by_name() == {"co2": 640}

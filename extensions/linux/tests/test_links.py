@@ -23,9 +23,11 @@ def test_fake_i2c_registers_and_raw_replies():
         bus.read_register(0x50, 0, 1)
 
 
-def test_fake_spi_pads_and_scripts():
+def test_fake_spi_scripts_exact_lengths():
     spi = FakeSpi([[0, 1, 2]])
     assert spi.transfer([1, 0x80, 0]) == b"\x00\x01\x02"
+    with pytest.raises(OSError):
+        spi.transfer([1, 0x80, 0, 0])
     echo = FakeSpi(lambda sent: [b ^ 0xFF for b in sent])
     assert echo.transfer([0x0F]) == b"\xf0"
     assert FakeSpi().transfer([9, 9]) == b"\x00\x00"

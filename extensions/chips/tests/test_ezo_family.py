@@ -42,7 +42,7 @@ class TestEzoEcProbe:
         assert uart.written == [b"R\r"]
 
     def test_read_skips_a_leading_ok_response_code(self):
-        uart = FakeUart([b"*OK\r", b"1413.000,706.500,0.700,1.000\r"])
+        uart = FakeUart([b"*OK\r1413.000,706.500,0.700,1.000\r"])  # one stream, as on the wire
         probe = ezo_ec.EzoEcProbe(uart, sleep=False)
         assert probe.read() == pytest.approx((1413.000, 706.500, 0.700, 1.000))
 
@@ -109,7 +109,7 @@ class TestEzoOrpProbe:
         assert uart.written == [b"R\r"]
 
     def test_read_skips_a_leading_ok_response_code(self):
-        uart = FakeUart([b"*OK\r", b"-102.3\r"])
+        uart = FakeUart([b"*OK\r-102.3\r"])  # one stream, as on the wire
         probe = ezo_orp.EzoOrpProbe(uart, sleep=False)
         assert probe.read() == pytest.approx(-102.3)
 
@@ -169,7 +169,7 @@ class TestEzoDoProbe:
         assert uart.written == [b"R\r"]
 
     def test_read_skips_a_leading_ok_response_code(self):
-        uart = FakeUart([b"*OK\r", b"9.09\r"])
+        uart = FakeUart([b"*OK\r9.09\r"])  # one stream, as on the wire
         probe = ezo_do.EzoDoProbe(uart, sleep=False)
         assert probe.read() == pytest.approx(9.09)
 
