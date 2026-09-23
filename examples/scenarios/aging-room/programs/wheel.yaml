@@ -9,16 +9,16 @@
 #     flyball program check --local programs/wheel.yaml
 name: wheel-demo
 steps:
-  - regulate: { loop: humidifier.drive, setpoint: 95 }
+  - regulate: { controllers: humidifier.drive, setpoint: 95 }
   - wait: { duration: { minutes: 2 }, message: "bloom: high humidity while the rind forms" }
 
-  - ramp: { loop: humidifier.drive, to: 85, per_minute: 5 }
+  - ramp: { controllers: humidifier.drive, to: 85, per_minute: 5 }
   - wait: { duration: { minutes: 2 }, message: "early age" }
 
-  - ramp: { loop: humidifier.drive, to: 75, per_minute: 5 }
+  - ramp: { controllers: humidifier.drive, to: 75, per_minute: 5 }
   - wait: { duration: { minutes: 2 }, message: "mid age" }
 
-  - ramp: { loop: humidifier.drive, to: 65, per_minute: 5 }
+  - ramp: { controllers: humidifier.drive, to: 65, per_minute: 5 }
   - wait: { duration: { minutes: 3 }, message: "late age, drier rind" }
 
   - manual: humidifier.drive

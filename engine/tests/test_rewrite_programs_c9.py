@@ -69,7 +69,7 @@ def store_path(tmp_path: Path) -> Path:
 def test_old_programs_get_a_new_version_and_keep_the_old(script, store_path):
     out = io.StringIO()
     assert script.run(store_path, out=out) == 3
-    dialect = Dialect(commands=dict(ensure_discovered().commands.items()))
+    dialect = Dialect(steps=dict(ensure_discovered().steps.items()))
     store = SqliteStore(store_path)
     try:
         for name in ("soak", "toml", "json"):
@@ -94,7 +94,7 @@ def test_old_programs_get_a_new_version_and_keep_the_old(script, store_path):
         toml = program_from_document(parse(store.program("toml").body, "toml"), dialect)
         assert [type(c) for c in toml] == [Prompt, Wait]
         assert json.loads(store.program("json").body)["steps"] == [
-            {"settle": {"loop": "x", "count": 2}},
+            {"settle": {"controllers": "x", "count": 2}},
             {"wait": 60},
         ]
 

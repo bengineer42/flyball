@@ -152,15 +152,15 @@ export function argsOf(value: unknown, command: CommandInfo | undefined): Record
 /**
  * A step's arguments as the form holds them: the shorthand expanded, the
  * composite time field and its flat keys left out (they are one control of
- * their own, see `timeEntries`), and `loop` (the controllers named) always a list.
+ * their own, see `timeEntries`), and `controllers` (the controllers named) always a list.
  */
 export function toForm(value: unknown, command: CommandInfo | undefined): Record<string, unknown> {
   const args = argsOf(value, command);
   for (const k of command?.time?.keys ?? []) delete args[k];
-  if ("loop" in args) {
-    const loop = args.loop;
-    if (typeof loop === "string") args.loop = [loop];
-    else if (loop === null || loop === undefined) delete args.loop;
+  if ("controllers" in args) {
+    const controllers = args.controllers;
+    if (typeof controllers === "string") args.controllers = [controllers];
+    else if (controllers === null || controllers === undefined) delete args.controllers;
   }
   return args;
 }
@@ -227,14 +227,14 @@ export function enforceWaitTimeSpelling(tag: string | undefined, args: Record<st
 
 /**
  * The form's data back to the tree's spelling: empty fields left out, an empty
- * loop list meaning the default loop, and a switch at its default left out too
+ * controllers list meaning the default controller, and a switch at its default left out too
  * (the switch shows the default, so the form fills it in; the file need not say it).
  */
 export function fromForm(data: Record<string, unknown>, command?: CommandInfo): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) {
     if (v === undefined) continue;
-    if (k === "loop" && Array.isArray(v) && v.length === 0) continue;
+    if (k === "controllers" && Array.isArray(v) && v.length === 0) continue;
     if (typeof v === "string" && v === "") continue;
     if (typeof v === "boolean" && command?.args.properties?.[k]?.default === v) continue;
     out[k] = v;
@@ -391,7 +391,7 @@ function valueField(path: string, signal: SignalSchema): JsonSchema {
 }
 
 /**
- * The argument schema shaped for the form: `loop` as a pick from the rig's
+ * The argument schema shaped for the form: `controllers` as a pick from the rig's
  * controllers, a `command` step's `device` and `device_command` as picks
  * from the rig's devices and its `args` as that command's own arguments
  * (from `current`, what the step says now, with a linked (`x-signal`)
@@ -451,7 +451,7 @@ export function formShape(command: CommandInfo, root: JsonSchema, controllers: s
         if (Object.keys(fields).length > 0) field = { type: "object", title: field.title ?? "Values", properties: fields };
       }
     }
-    if (name === "loop") {
+    if (name === "controllers") {
       field = {
         type: "array",
         title: "Controllers",

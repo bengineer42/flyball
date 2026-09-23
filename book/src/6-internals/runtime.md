@@ -193,7 +193,7 @@ wire these are "activities" (`/api/activities`, `/ws/activities`).
 ## The programmer
 
 Applies commands in order and waits where a step says to wait. A `Program`
-is data. A `Command` is a frozen dataclass that self-registers by tag and
+is data. A `Step` is a frozen dataclass that self-registers by tag and
 derives its wire model from its constructor. An `Activity` is the ongoing
 part of a command: the rig drives it, the programmer owns its lifetime, and
 attach/detach bracket the wait so teardown is one `finally` reached by

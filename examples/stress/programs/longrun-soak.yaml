@@ -4,7 +4,7 @@
 name: longrun-soak
 description: Regulate both controllers and wait for ten hours of rig time (~1 minute of wall time).
 steps:
-  - regulate: { loop: heater.drive, setpoint: 60 }
-  - regulate: { loop: pump.drive, setpoint: 150 }
+  - regulate: { controllers: heater.drive, setpoint: 60 }
+  - regulate: { controllers: pump.drive, setpoint: 150 }
   - wait: { duration: { hours: 10 }, message: "ten hours of rig time, about a minute of wall time at 600x" }
   - manual: [heater.drive, pump.drive]

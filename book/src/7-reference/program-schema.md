@@ -33,31 +33,30 @@ declares. Any other key is an error.
 | a law (`tuning`) | the name of a registered tuning, or `{type: PI, kp: …, ki: …, tt: …}` |
 | `Transfer` | `track`, `carry`, `cold`, `none` |
 
-## The library's commands
+## The library's steps
 
-Every rig has these; `loop` (kept as the field name — a controller is what
-today's `Loop` is called, but the argument is unchanged) is one address, a
-list of addresses, or omitted for the rig's default controller. Source:
+Every rig has these; `controllers` is one address, a list of addresses, or
+omitted for the rig's default controller. Source:
 `flyball.sequencing.{loops,devices,activities}`.
 
 | tag | field | type | default |
 | --- | --- | --- | --- |
 | `regulate` | `setpoint` (primary) | number | — |
-| | `loop` | address, list, or omitted | rig default |
+| | `controllers` | address, list, or omitted | rig default |
 | | `tuning` | law name | keep the current |
 | `ramp` | `to` (primary) | number | — |
 | | `pace` | `Duration \| Rate`, foldable | — |
-| | `loop` | address, list, or omitted | rig default |
+| | `controllers` | address, list, or omitted | rig default |
 | | `wait` | bool | `true` |
 | `wait` | `duration` (primary), foldable without `message` | `Duration` | — |
 | | `message` | string | none |
 | | `timeout` | `Duration` | none |
-| `settle` | `loop` (primary) | address, list, or omitted | rig default |
+| `settle` | `controllers` (primary) | address, list, or omitted | rig default |
 | | `within` | number | `1.0` |
 | | `count` | integer ≥ 1 | `3` |
 | | `timeout` | `Duration` | none |
 | | `message` | string | none |
-| `manual` | `loop` (primary) | address, list, or omitted | rig default |
+| `manual` | `controllers` (primary) | address, list, or omitted | rig default |
 | `set` | `device` | name | — |
 | | `values` | `{name: value}` | — |
 | `command` | `device_command` | string | — |

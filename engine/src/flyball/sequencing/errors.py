@@ -5,14 +5,14 @@ from typing import TYPE_CHECKING
 from flyball.foundation.errors import ConflictError
 
 if TYPE_CHECKING:
-    from .command import Activity, Command
     from .program import Program
+    from .step import Activity, Step
 
 
 class ProgramAlreadyRunningError(ConflictError):
     """A program is still running."""
 
-    def __init__(self, current: Program | Command, new: Program | Command) -> None:
+    def __init__(self, current: Program | Step, new: Program | Step) -> None:
         self.current = current
         self.new = new
         super().__init__(
@@ -21,18 +21,17 @@ class ProgramAlreadyRunningError(ConflictError):
         )
 
 
-class CommandAlreadyRunningError(ConflictError):
-    def __init__(self, current: Activity, new: Command) -> None:
+class StepAlreadyRunningError(ConflictError):
+    def __init__(self, current: Activity, new: Step) -> None:
         super().__init__(
-            f"Command is already running ({current}). Interrupt it before starting a new one "
-            f"({new})."
+            f"Step is already running ({current}). Interrupt it before starting a new one ({new})."
         )
 
 
-class CommandRuntimeError(Exception):
+class StepRuntimeError(Exception):
     """A program failed while running."""
 
-    def __init__(self, command: Command, step: int, error: Exception) -> None:
+    def __init__(self, command: Step, step: int, error: Exception) -> None:
         self.command = command
         self.step = step
         self.error = error

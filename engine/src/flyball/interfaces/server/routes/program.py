@@ -47,7 +47,7 @@ async def read_program_schema(dialect: DialectDep) -> dict[str, Any]:
 @router.get("/commands")
 async def read_command_schema(dialect: DialectDep) -> dict[str, Any]:
     """The internally tagged request union as JSON schema, for building a form."""
-    return commands_schema(dialect.commands)
+    return commands_schema(dialect.steps)
 
 
 @router.post("/check")
@@ -105,11 +105,11 @@ def run_command(
     # only once commands have registered, which is after this module loads.
     try:
         rest = {key: value for key, value in body.items() if key != "command"}
-        check_renamed(body.get("command"), rest, "command", dialect.commands)
+        check_renamed(body.get("command"), rest, "command", dialect.steps)
     except StepError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     try:
-        request = TypeAdapter(command_request(dialect.commands)).validate_python(body)
+        request = TypeAdapter(command_request(dialect.steps)).validate_python(body)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     programmer.start(request.parse(), interrupt=interrupt)

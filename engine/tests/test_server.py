@@ -828,13 +828,13 @@ def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig,
     from dataclasses import dataclass
 
     from flyball.model.catalog import get_catalog
-    from flyball.sequencing import Command
+    from flyball.sequencing import Step
 
     seen = []
     tag = fresh("note")
 
     @dataclass(frozen=True)
-    class Note(Command, tag=tag, primary="text"):
+    class Note(Step, tag=tag, primary="text"):
         """Append to a list."""
 
         text: str
@@ -843,7 +843,7 @@ def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig,
             seen.append(self.text)
             return None
 
-    get_catalog().register_command(Note)
+    get_catalog().register_step(Note)
 
     state = client.post("/api/programs/run", json={"steps": [{tag: "a"}, {tag: "b"}]}).json()
     assert state["running"] is False and seen == ["a", "b"]
@@ -861,6 +861,10 @@ def test_program_with_an_unknown_step_is_refused_before_anything_runs(client, pr
         ({"hold": {"minutes": 5}}, "the timed step is now `wait:`, not `hold:`"),
         ({"arrive": {"within": 1}}, "`arrive:` is now `settle:`"),
         ({"settle": {"within": 1, "readings": 5}}, "`settle`'s `readings:` is now `count:`"),
+        (
+            {"regulate": {"loop": "h.u", "setpoint": 20}},
+            "`regulate`'s `loop:` is now `controllers:`",
+        ),
         ({"wait": "Load the sample"}, "operator prompts are now `prompt:`"),
         ({"wait": {"message": "Load the sample"}}, "operator prompts are now `prompt:`"),
         ({"wait": {"name": "go", "timeout": {"minutes": 5}}}, "operator prompts are now `prompt:`"),
@@ -896,7 +900,7 @@ def test_a_step_naming_a_missing_controller_fails_the_run_instead_of_finishing_i
     client, programmer
 ):
     """The bug this guards: the route returned the 404 but the run still narrated `finished`."""
-    body = {"steps": [{"regulate": {"loop": "heaters.heater1", "setpoint": 20}}]}
+    body = {"steps": [{"regulate": {"controllers": "heaters.heater1", "setpoint": 20}}]}
     r = client.post("/api/programs/run", json=body)
     assert r.status_code == 404 and r.json() == {"detail": "Controller 'heaters.heater1' not found"}
 

@@ -49,14 +49,14 @@ class Activity(Trigger):
         return self.fire()
 
 
-class Command:
+class Step:
     """Base for everything a program can run.
 
     `primary` names the field a bare scalar means in a program file, so
     `- flag: "loaded"` stands for `- flag: {flag: "loaded"}`; None means no
     shorthand. Subclassing sets `tag`/`primary`; registering it so a program
     file can use it is a separate, explicit step -- see
-    [Catalogs.register_command][flyball.model.catalog.Catalogs.register_command].
+    [Catalogs.register_step][flyball.model.catalog.Catalogs.register_step].
     """
 
     tag: ClassVar[str] = ""

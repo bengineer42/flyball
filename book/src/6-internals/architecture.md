@@ -61,7 +61,7 @@ writing a device driver rather than editing the rig.
 | `flyball.record` | `hardware\|adaptive\|autotune\|record` | `Store`, `SessionWriter`, `SqliteStore`, row types; `documents` for the Bluesky event model |
 | `flyball.rig` | runtime (unlisted -- a real cycle, see Layering) | `Rig`, `Controllers`, `Polling`, `Triggers` -- the runtime container: devices, links, controllers, triggers, polling |
 | `flyball.runtime` | runtime | `Recorder`, `Writer`, retention, stats, `drivers`; `runtime.config`: `RigConfig`, `load_rig`, `rig_schema` — a rig as a file, with overlays |
-| `flyball.sequencing` | `sequencing` | `Command`, `Activity`, `Program`, `Programmer` |
+| `flyball.sequencing` | `sequencing` | `Step`, `Activity`, `Program`, `Programmer` |
 | `flyball.interfaces.server` | `mcp\|server` | the FastAPI app, routes, wire models, the program dialect |
 | `flyball.interfaces.mcp` | `mcp\|server` | the MCP server (stdio and mounted), tools, guides; built entirely on `flyball.interfaces.client` |
 | `flyball.interfaces.client`, `flyball.runner`, `flyball.scaffold` | `runner` (client and scaffold stand outside the contract, see below) | pure HTTP; import nothing from the rig. The `flyball` CLI itself is a separate Go binary (`daemon/cmd/flyball`), not part of this package |
@@ -75,7 +75,7 @@ subclassing, with a pydantic model derived from the class itself.
 | --- | --- | --- |
 | control laws | `class X(ControlLaw, type=…)` | `__init__` → config; `_state_fields` → state |
 | trajectories | `class X(SetPointGenerator, type=…)` | the same |
-| commands | `class X(Command, tag=…)` | the dataclass constructor → request |
+| program steps | `class X(Step, tag=…)` | the dataclass constructor → request |
 | configs | `class X(Config, type=…)` | the model itself; `union` discriminates on `type` |
 
 Devices do the same without a registry: descriptors in the class body (or

@@ -23,7 +23,7 @@ device, which reads it itself (`self.<input>.value`) in `commit` — there
 is no callback.
 
 **command** — a non-value action on a device: a method marked `@command`.
-Also, a program step: a frozen dataclass with `run`, registered by tag.
+A program's steps are `Step`s, not commands.
 
 **condition** — something true of a device *now*: offline, railed,
 overdriven. In its state while it holds.

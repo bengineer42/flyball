@@ -5,9 +5,9 @@
 name: zoo-tour
 description: Step each of the four controlled channels through a small setpoint change.
 steps:
-  - regulate: { loop: celsius_heater.drive, setpoint: 35 }
-  - regulate: { loop: voltage_source.drive, setpoint: 18 }
-  - regulate: { loop: length_motor.drive, setpoint: 3 }
-  - regulate: { loop: flow_pump.drive, setpoint: 20 }
+  - regulate: { controllers: celsius_heater.drive, setpoint: 35 }
+  - regulate: { controllers: voltage_source.drive, setpoint: 18 }
+  - regulate: { controllers: length_motor.drive, setpoint: 3 }
+  - regulate: { controllers: flow_pump.drive, setpoint: 20 }
   - wait: { duration: { minutes: 2 }, message: "all four controllers regulating" }
   - manual: [celsius_heater.drive, voltage_source.drive, length_motor.drive, flow_pump.drive]

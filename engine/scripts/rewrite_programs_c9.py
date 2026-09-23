@@ -17,11 +17,12 @@ What changes, in a program written with the old names:
 - `arrive:` becomes `settle:`, and its `readings:` becomes `count:`;
 - a flat time key on a `prompt` or `settle` (`arrive: {minutes: 10}`), which
   used to fold into its `timeout`, is written inside it:
-  `settle: {timeout: {minutes: 10}}`.
+  `settle: {timeout: {minutes: 10}}`;
+- a controller step's `loop:` becomes `controllers:`.
 
-A program counts as old if it has a `hold:` or `arrive:` step, or a `wait:`
+A program counts as old if it has a `hold:` or `arrive:` step, a `wait:`
 that the new loader refuses as an operator prompt (a bare message, a `name`,
-or a `message` with no `duration`). In an old program every `wait:` is the
+or a `message` with no `duration`), or a `loop:`. In an old program every `wait:` is the
 operator step. A program that already loads under the new names is left
 alone, so running the script twice saves nothing the second time.
 
@@ -104,6 +105,9 @@ def rewrite_step(step: Any) -> Any:
             out["settle"] = body
         else:
             out[key] = body
+    for key, body in out.items():
+        if isinstance(body, Mapping) and "loop" in body and "controllers" not in body:
+            out[key] = {("controllers" if k == "loop" else k): v for k, v in body.items()}
     return out
 
 
@@ -118,8 +122,8 @@ def rewrite_document(document: Any, commands: Mapping[str, Any]) -> Any | None:
 
 def run(path: Path, dry_run: bool = False, out: Any = sys.stdout) -> int:
     """Rewrite every affected program in the store at `path`; the number of versions saved."""
-    commands = dict(ensure_discovered().commands.items())
-    dialect = Dialect(commands=commands)
+    commands = dict(ensure_discovered().steps.items())
+    dialect = Dialect(steps=commands)
     store = SqliteStore(path)
     saved = 0
     try:

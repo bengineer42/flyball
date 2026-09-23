@@ -15,11 +15,11 @@ from .loops import Manual, Ramp, Regulate, Settle, Wait
 
 
 def register(catalog: Catalogs) -> None:
-    catalog.register_command(Prompt)
-    catalog.register_command(Set)
-    catalog.register_command(RunCommand)
-    catalog.register_command(Regulate)
-    catalog.register_command(Ramp)
-    catalog.register_command(Wait)
-    catalog.register_command(Settle)
-    catalog.register_command(Manual)
+    catalog.register_step(Prompt)
+    catalog.register_step(Set)
+    catalog.register_step(RunCommand)
+    catalog.register_step(Regulate)
+    catalog.register_step(Ramp)
+    catalog.register_step(Wait)
+    catalog.register_step(Settle)
+    catalog.register_step(Manual)

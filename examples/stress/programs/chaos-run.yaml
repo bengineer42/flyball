@@ -12,7 +12,7 @@ name: chaos-run
 description: A ramp too fast to follow, mid-run disturbances, a wait that gives up.
 steps:
   - regulate:
-      loop:
+      controllers:
         [
           heaters.heater1,
           heaters.heater2,
@@ -23,7 +23,7 @@ steps:
         ]
       setpoint: 20
   - ramp:
-      loop:
+      controllers:
         [
           heaters.heater1,
           heaters.heater2,
@@ -48,7 +48,7 @@ steps:
       timeout: 5   # a bare number is seconds
       message: "saturated; zone2 should be ringing, zone5 clamped at 40 %"
   - ramp:
-      loop:
+      controllers:
         [
           heaters.heater1,
           heaters.heater2,

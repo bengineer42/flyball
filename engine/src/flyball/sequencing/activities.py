@@ -9,7 +9,7 @@ from flyball.foundation.time import Clock, Duration
 from flyball.model.controller import Controller
 from flyball.rig import Rig
 
-from .command import Activity, Command
+from .step import Activity, Step
 
 
 class Prompted(Activity):
@@ -19,7 +19,7 @@ class Prompted(Activity):
 
 
 @dataclass(frozen=True)
-class Prompt(Command, tag="prompt", primary="message"):
+class Prompt(Step, tag="prompt", primary="message"):
     """Pause the program until a person (or an external trigger) fires the named prompt.
 
     `name` is what it is fired by (`POST /api/activities/{name}/fire`), default

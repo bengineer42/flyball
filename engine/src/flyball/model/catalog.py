@@ -127,10 +127,10 @@ class Catalogs:
     laws: Catalog[ControlLaw] = field(default_factory=lambda: Catalog("law"))
     feedforwards: Catalog[Feedforward] = field(default_factory=lambda: Catalog("feedforward"))
     generators: Catalog[SetPointGenerator] = field(default_factory=lambda: Catalog("generator"))
-    # `Any`, not `type[Command]`: `Command` lives in `flyball.sequencing`, above
+    # `Any`, not `type[Step]`: `Step` lives in `flyball.sequencing`, above
     # `model` in the Layers contract -- even a `TYPE_CHECKING`-only import back
     # down would be a real edge (import-linter reads the AST, guard or not).
-    commands: Catalog[Any] = field(default_factory=lambda: Catalog("command"))
+    steps: Catalog[Any] = field(default_factory=lambda: Catalog("step"))
 
     def register_device(self, cls: type[DriverConfig[Any]], *, name: str | None = None) -> None:
         self.devices.register(cls, name=name)
@@ -147,9 +147,9 @@ class Catalogs:
     def register_generator(self, cls: type[SetPointGenerator], *, name: str | None = None) -> None:
         self.generators.register(cls, name=name)
 
-    def register_command(self, cls: type[Any], *, name: str | None = None) -> None:
-        """`cls` is a `sequencing.command.Command` subclass -- untyped here, see `commands`."""
-        self.commands.register(cls, name=name)
+    def register_step(self, cls: type[Any], *, name: str | None = None) -> None:
+        """`cls` is a `sequencing.step.Step` subclass -- untyped here, see `steps`."""
+        self.steps.register(cls, name=name)
 
     def discover(self, group: str = "flyball.configs") -> list[str]:
         """Call every installed package's `register(self)`, by its `flyball.configs` entry point.

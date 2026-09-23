@@ -4,10 +4,10 @@ A **program** is an ordered list of commands run against a rig. A single
 command is a program of one step, so there is one execution path and one
 answer to "what is running".
 
-## Commands
+## Steps
 
-A command is a frozen dataclass with a `run(rig)` method, `tag`-named on the
-class and registered explicitly with `catalog.register_command` (see
+A step is a `Step`: a frozen dataclass with a `run(rig)` method, `tag`-named on the
+class and registered explicitly with `catalog.register_step` (see
 [Packaging](../../3-extending/packaging.md)) so a program file can use it; its
 wire model — the request a client sends, the step a program file holds — is
 derived from its constructor. The vocabulary shipped with the library:
@@ -64,8 +64,8 @@ command's tag as the key and its arguments as the value:
 ```yaml
 name: bake
 steps:
-  - regulate: {loop: heaters.heater1, setpoint: 100}
-  - ramp: {loop: heaters.heater1, to: 150, per_minute: 2}
+  - regulate: {controllers: heaters.heater1, setpoint: 100}
+  - ramp: {controllers: heaters.heater1, to: 150, per_minute: 2}
   - prompt: "Open the door and load the sample"
 ```
 

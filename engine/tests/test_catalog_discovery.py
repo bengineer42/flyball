@@ -22,7 +22,7 @@ def _registered(catalogs: Catalogs) -> int:
         + len(catalogs.laws)
         + len(catalogs.feedforwards)
         + len(catalogs.generators)
-        + len(catalogs.commands)
+        + len(catalogs.steps)
     )
 
 
@@ -70,7 +70,7 @@ def test_discover_populates_the_kinds_engine_itself_ships() -> None:
     assert set(catalogs.generators.names()) >= {"dwell", "linear_ramp_setpoint", "profile"}, (
         "engine's own built-in generators (control/configs.py) did not all load"
     )
-    assert set(catalogs.commands.names()) >= {
+    assert set(catalogs.steps.names()) >= {
         "prompt",
         "set",
         "command",

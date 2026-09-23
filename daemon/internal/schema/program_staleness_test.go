@@ -31,8 +31,8 @@ func TestEmbeddedProgramSchemaIsCurrent(t *testing.T) {
 import json
 from flyball.interfaces.server.dialect import Dialect, program_schema
 from flyball.model.catalog import ensure_discovered
-commands = dict(ensure_discovered().commands.items())
-print(json.dumps(program_schema(Dialect(commands=commands)), indent=2))
+commands = dict(ensure_discovered().steps.items())
+print(json.dumps(program_schema(Dialect(steps=commands)), indent=2))
 `)
 	cmd.Dir = engineDir
 	var stdout, stderr bytes.Buffer

@@ -27,7 +27,7 @@ from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.deps import set_rig_config, set_store
 from flyball.model.catalog import get_catalog
 from flyball.record.sqlite import SqliteStore
-from flyball.sequencing.command import Command
+from flyball.sequencing.step import Step
 from test_server import Daq, Drive
 
 
@@ -67,12 +67,12 @@ def setpoint(fresh) -> str:
     tag = fresh("setpoint")
 
     @dataclass(frozen=True)
-    class Setpoint(Command, tag=tag, primary="at"):
+    class Setpoint(Step, tag=tag, primary="at"):
         at: float
 
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
-    get_catalog().register_command(Setpoint)
+    get_catalog().register_step(Setpoint)
     return tag
 
 

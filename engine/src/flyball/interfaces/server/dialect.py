@@ -31,8 +31,8 @@ from pydantic import TypeAdapter
 from flyball.foundation.files import load_document, yaml_loader
 from flyball.foundation.time import DURATION_KEYS, RATE_KEYS, Duration, Rate
 from flyball.interfaces.server.commands import command_request, request_for
-from flyball.sequencing.command import Command
 from flyball.sequencing.program import Program
+from flyball.sequencing.step import Step
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +54,7 @@ class Dialect:
     """What a step may contain beyond its command."""
 
     modifiers: tuple[Modifier, ...] = ()
-    commands: Mapping[str, type[Command]] = field(default_factory=dict)
+    steps: Mapping[str, type[Step]] = field(default_factory=dict)
 
     @property
     def modifier_keys(self) -> dict[str, Modifier]:
@@ -81,10 +81,10 @@ TIMEOUT = "timeout"
 """The field a step gives up after. Always written nested (`timeout: {minutes: 10}`), never
 folded flat: a flat `minutes:` beside it means the step's own time field, if it has one."""
 
-_TIME_FIELDS: dict[type[Command], list[tuple[str, dict[str, Any]]]] = {}
+_TIME_FIELDS: dict[type[Step], list[tuple[str, dict[str, Any]]]] = {}
 
 
-def _time_fields(command: type[Command]) -> list[tuple[str, dict[str, Any]]]:
+def _time_fields(command: type[Step]) -> list[tuple[str, dict[str, Any]]]:
     """Every duration or rate field of `command` but `timeout`, with its flat keys."""
     if command not in _TIME_FIELDS:
         _TIME_FIELDS[command] = [
@@ -95,12 +95,12 @@ def _time_fields(command: type[Command]) -> list[tuple[str, dict[str, Any]]]:
     return _TIME_FIELDS[command]
 
 
-def _has_timeout(command: type[Command]) -> bool:
+def _has_timeout(command: type[Step]) -> bool:
     hints = get_type_hints(command)
     return TIMEOUT in hints and _time_keys(hints[TIMEOUT]) is not None
 
 
-def foldable(command: type[Command]) -> tuple[str, dict[str, Any]] | None:
+def foldable(command: type[Step]) -> tuple[str, dict[str, Any]] | None:
     """The one field of `command` that may be written flat, with its keys.
 
     `ramp: {to: 60, per_minute: 2}` stands for `ramp: {to: 60, pace: {per_minute: 2}}`.
@@ -111,7 +111,7 @@ def foldable(command: type[Command]) -> tuple[str, dict[str, Any]] | None:
     return fields[0] if len(fields) == 1 else None
 
 
-def _unfold(command: type[Command], arguments: dict[str, Any], where: str) -> dict[str, Any]:
+def _unfold(command: type[Step], arguments: dict[str, Any], where: str) -> dict[str, Any]:
     """Gather flat time keys into the field they stand for.
 
     Raises:
@@ -171,11 +171,12 @@ def _is_number(value: Any) -> bool:
     return True
 
 
-def check_renamed(tag: Any, body: Any, where: str, commands: Mapping[str, type[Command]]) -> None:
+def check_renamed(tag: Any, body: Any, where: str, commands: Mapping[str, type[Step]]) -> None:
     """Refuse a step written with a name from before the step renames, saying what it is now.
 
     `hold` became `wait` and `arrive` became `settle` (whose `readings` became
-    `count`); the operator `wait` became `prompt`. A `wait` that looks like
+    `count`); the operator `wait` became `prompt`; a controller step's `loop`
+    became `controllers`. A `wait` that looks like
     an operator prompt -- a bare message, a `name`, or a `message` with flat
     time keys that would otherwise silently parse as a timer -- is refused
     rather than run as one. Applies to a file step's key and body, or to an
@@ -190,6 +191,12 @@ def check_renamed(tag: Any, body: Any, where: str, commands: Mapping[str, type[C
         raise StepError(f"{where}: {_RENAMED_STEPS[tag]}")
     if tag == "settle" and isinstance(body, Mapping) and "readings" in body:
         raise StepError(f"{where}: `settle`'s `readings:` is now `count:`")
+    if (
+        isinstance(body, Mapping)
+        and "loop" in body
+        and "controllers" in getattr(commands.get(tag), "__dataclass_fields__", {})
+    ):
+        raise StepError(f"{where}: `{tag}`'s `loop:` is now `controllers:`")
     if tag != "wait":
         return
     if isinstance(body, str) and not _is_number(body):
@@ -217,17 +224,15 @@ def normalise_step(raw: Any, dialect: Dialect, index: int | None = None) -> dict
     modifiers = dialect.modifier_keys
     for key in raw:
         if key not in modifiers:
-            check_renamed(key, raw[key], where, dialect.commands)
-    tags = [key for key in raw if key in dialect.commands]
-    unknown = [key for key in raw if key not in dialect.commands and key not in modifiers]
+            check_renamed(key, raw[key], where, dialect.steps)
+    tags = [key for key in raw if key in dialect.steps]
+    unknown = [key for key in raw if key not in dialect.steps and key not in modifiers]
     if unknown:
-        raise StepError(
-            f"{where}: unknown key(s) {unknown}; commands are {sorted(dialect.commands)}"
-        )
+        raise StepError(f"{where}: unknown key(s) {unknown}; commands are {sorted(dialect.steps)}")
     if len(tags) != 1:
         raise StepError(f"{where}: a step names exactly one command, found {tags or 'none'}")
     tag = tags[0]
-    command = dialect.commands[tag]
+    command = dialect.steps[tag]
     body = raw[tag]
     if isinstance(body, Mapping):
         arguments = dict(body)
@@ -263,7 +268,7 @@ def program_from_file(path: str | Path, dialect: Dialect) -> Program:
 def program_from_document(document: Any, dialect: Dialect) -> Program:
     """A loaded program document -> a [Program][flyball.sequencing.program.Program] of commands."""
     normalised = normalise_program(document, dialect)
-    adapter = TypeAdapter(command_request(dialect.commands))
+    adapter = TypeAdapter(command_request(dialect.steps))
     commands = [adapter.validate_python(step["command"]).parse() for step in normalised["steps"]]
     return Program(commands, name=normalised.get("name"), description=normalised.get("description"))
 
@@ -290,7 +295,7 @@ def step_schema(dialect: Dialect) -> dict[str, Any]:
     }
     defs: dict[str, Any] = {}
     branches: list[dict[str, Any]] = []
-    for tag, command in dialect.commands.items():
+    for tag, command in dialect.steps.items():
         request = TypeAdapter(request_for(command)).json_schema(ref_template="#/$defs/{model}")
         defs.update(request.pop("$defs", {}))
         request["properties"].pop("command", None)

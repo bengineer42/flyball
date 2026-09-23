@@ -11,16 +11,16 @@
 #     flyball program check --local programs/cultivation.yaml
 name: cultivation-demo
 steps:
-  - regulate: { loop: fogger.drive, setpoint: 65 }
-  - regulate: { loop: fan.drive, setpoint: 5000 }
+  - regulate: { controllers: fogger.drive, setpoint: 65 }
+  - regulate: { controllers: fan.drive, setpoint: 5000 }
   - wait: { duration: { minutes: 2 }, message: "colonisation: low humidity, CO2 not yet a concern" }
 
-  - ramp: { loop: fogger.drive, to: 90, per_minute: 10 }
-  - ramp: { loop: fan.drive, to: 800, per_minute: 2000 }
+  - ramp: { controllers: fogger.drive, to: 90, per_minute: 10 }
+  - ramp: { controllers: fan.drive, to: 800, per_minute: 2000 }
   - wait: { duration: { minutes: 2 }, message: "pinning: high humidity, fresh-air exchange triggers pinning" }
 
-  - ramp: { loop: fogger.drive, to: 85, per_minute: 10 }
-  - ramp: { loop: fan.drive, to: 600, per_minute: 2000 }
+  - ramp: { controllers: fogger.drive, to: 85, per_minute: 10 }
+  - ramp: { controllers: fan.drive, to: 600, per_minute: 2000 }
   - wait: { duration: { minutes: 3 }, message: "fruiting" }
 
   - manual: [fogger.drive, fan.drive]

@@ -5,6 +5,6 @@
 name: torrent-soak
 description: Hold channel 1's controller at a setpoint while every channel free-runs.
 steps:
-  - regulate: { loop: drive1.drive, setpoint: 2 }
+  - regulate: { controllers: drive1.drive, setpoint: 2 }
   - wait: { duration: { minutes: 2 }, message: "under load" }
   - manual: [drive1.drive]

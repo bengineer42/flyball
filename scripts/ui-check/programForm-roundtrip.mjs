@@ -65,8 +65,8 @@ const fail = (where, what) => {
 };
 
 const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).map((k) => [k, canon(v[k])])) : v);
-/** `loop: "x"` and `loop: ["x"]` say the same; the form holds the list. */
-const loopAsList = (args) => (typeof args.loop === "string" ? { ...args, loop: [args.loop] } : args);
+/** `controllers: "x"` and `controllers: ["x"]` say the same; the form holds the list. */
+const controllersAsList = (args) => (typeof args.controllers === "string" ? { ...args, controllers: [args.controllers] } : args);
 const same = (a, b) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 const options = (field) => field.enum ?? (field.oneOf ? field.oneOf.map((o) => o.const) : null);
 
@@ -101,7 +101,7 @@ for (const file of findPrograms()) {
     const form = toForm(value, command);
     const time = Object.fromEntries(Object.entries(current).filter(([k]) => timeKeys.includes(k)));
     const rebuilt = inOrder({ ...fromForm(form, command), ...time }, current);
-    if (!same(rebuilt, loopAsList(current))) fail(where, `untouched form rewrites the step: ${JSON.stringify(current)} -> ${JSON.stringify(rebuilt)}`);
+    if (!same(rebuilt, controllersAsList(current))) fail(where, `untouched form rewrites the step: ${JSON.stringify(current)} -> ${JSON.stringify(rebuilt)}`);
 
     // 2. every saved value is on the form, whatever the rig has
     for (const [model, devices] of Object.entries(models)) {

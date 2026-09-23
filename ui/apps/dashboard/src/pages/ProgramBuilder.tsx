@@ -47,7 +47,7 @@ export interface ProgramBuilderProps {
   onChange(tree: ProgramTree): void;
   /** `GET /api/programs/schema`; without it there is no palette and the steps show as raw JSON. */
   programSchema: JsonSchema | undefined;
-  /** The rig's controller names (the address each drives), for the `loop` pick; undefined while unknown. */
+  /** The rig's controller names (the address each drives), for the `controllers` pick; undefined while unknown. */
   controllers: string[] | undefined;
   /** The rig's devices with their commands and writable signals, for a `command` or `set` step's picks; undefined while unknown. */
   devices?: DevicePicks;

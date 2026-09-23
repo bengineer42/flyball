@@ -48,7 +48,7 @@ drivers, rig files, programs, dashboards, a book). What to put in one:
 what the class produces. A link is `catalog.register_link(...)` instead of
 `register_device`; a law, a feedforward or a setpoint generator has its own
 `register_law`/`register_feedforward`/`register_generator`; a program step
-(a `Command` subclass) has `register_command`.
+(a `Step` subclass) has `register_step`.
 
 ## Inside the application
 

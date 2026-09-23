@@ -147,7 +147,7 @@ def get_dialect() -> Dialect:
     """
     if _dialect is not None:
         return _dialect
-    return Dialect(commands=dict(get_catalog().commands.items()))
+    return Dialect(steps=dict(get_catalog().steps.items()))
 
 
 def set_simulation(simulation: Simulation | None) -> None:

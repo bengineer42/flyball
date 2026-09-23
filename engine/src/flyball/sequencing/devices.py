@@ -13,11 +13,11 @@ from flyball.foundation import AddressNotFoundError, NotFoundError, Operator
 from flyball.foundation.device import Access, Signal
 from flyball.rig import Rig
 
-from .command import Activity, Command
+from .step import Activity, Step
 
 
 @dataclass(frozen=True)
-class Set(Command, tag="set"):
+class Set(Step, tag="set"):
     """Put `values` on `device`'s writable signals, as one demand -- `rig.write` in a step."""
 
     device: str
@@ -52,7 +52,7 @@ class Set(Command, tag="set"):
 
 
 @dataclass(frozen=True)
-class RunCommand(Command, tag="command"):
+class RunCommand(Step, tag="command"):
     """Call one of `device`'s own commands, exactly as `POST /api/devices/{name}/{tag}` would.
 
     `device_command`, not `command`: every step's wire form reserves `command`

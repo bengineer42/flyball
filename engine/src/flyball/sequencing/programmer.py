@@ -28,12 +28,12 @@ from flyball.foundation.device import Kind, Level, Scope
 from flyball.foundation.resource import Operator
 
 from .activities import Prompted
-from .errors import CommandRuntimeError, ProgramAlreadyRunningError
+from .errors import ProgramAlreadyRunningError, StepRuntimeError
 from .program import Program
 
 if TYPE_CHECKING:
     from flyball.rig import Rig
-    from flyball.sequencing.command import Activity, Command
+    from flyball.sequencing.step import Activity, Step
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,7 +109,7 @@ class Programmer:
 
     # region Running
 
-    def start(self, work: Command | Program, interrupt: bool = False) -> None:
+    def start(self, work: Step | Program, interrupt: bool = False) -> None:
         """Begin `work` without waiting for it to finish.
 
         The first step is applied on the calling thread, so an unapplicable
@@ -151,7 +151,7 @@ class Programmer:
             self._thread = thread
         thread.start()
 
-    def load(self, work: Program | Command) -> Program:
+    def load(self, work: Program | Step) -> Program:
         with self.lock:
             if self._program is not None:
                 raise ProgramAlreadyRunningError(self._program, work)
@@ -162,7 +162,7 @@ class Programmer:
             self._error = None
             return self._program
 
-    def run(self, work: Command | Program, interrupt: bool = False) -> None:
+    def run(self, work: Step | Program, interrupt: bool = False) -> None:
         """Apply `work` and block until it finishes or is interrupted.
 
         For use off the request path; routes want
@@ -233,7 +233,7 @@ class Programmer:
         finally:
             self._finish(program)
 
-    def _wait_out(self, activity: Activity, command: Command) -> bool:
+    def _wait_out(self, activity: Activity, command: Step) -> bool:
         """Run `activity` to its end, registered by name so it can be answered.
 
         Returns:
@@ -275,7 +275,7 @@ class Programmer:
             )
         return activity.fired
 
-    def _apply(self, command: Command) -> Activity | None:
+    def _apply(self, command: Step) -> Activity | None:
         """Apply one step under the rig's lock.
 
         Returns:
@@ -309,7 +309,7 @@ class Programmer:
         `failed` rather than `finished`, and `state` keeps reporting it until the
         next `load` clears it.
         """
-        failure = CommandRuntimeError(program[step], step, error)
+        failure = StepRuntimeError(program[step], step, error)
         with self.lock:
             self._error = failure
         self.rig.event(

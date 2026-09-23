@@ -12,8 +12,8 @@ A program file is YAML (or JSON, or TOML): a name and a list of steps.
 ```yaml
 name: bake
 steps:
-  - regulate: {loop: heaters.heater1, setpoint: 100}
-  - ramp: {loop: heaters.heater1, to: 150, per_minute: 2}
+  - regulate: {controllers: heaters.heater1, setpoint: 100}
+  - ramp: {controllers: heaters.heater1, to: 150, per_minute: 2}
   - prompt: "Open the door and load the sample"
 ```
 
@@ -47,8 +47,8 @@ When a command has **exactly one** duration-or-rate field left once
 arguments:
 
 ```yaml
-- ramp: {loop: heaters.heater1, to: 60, per_minute: 2}    # pace: {per_minute: 2}
-- ramp: {loop: heaters.heater1, to: 60, minutes: 10}      # pace: {minutes: 10}
+- ramp: {controllers: heaters.heater1, to: 60, per_minute: 2}    # pace: {per_minute: 2}
+- ramp: {controllers: heaters.heater1, to: 60, minutes: 10}      # pace: {minutes: 10}
 - wait: {minutes: 10}                                     # duration: {minutes: 10}
 - wait: {minutes: 20, timeout: {minutes: 30}}             # duration: {minutes: 20}, timeout: {minutes: 30}
 ```
@@ -77,7 +77,7 @@ test, a duration, a flow — in its **dialect**. They are validated as part of
 the step and handed to the programmer with the command:
 
 ```yaml
-- regulate: {loop: heaters.heater1, setpoint: 100}
+- regulate: {controllers: heaters.heater1, setpoint: 100}
   note: "start of the soak"
 ```
 
@@ -101,7 +101,7 @@ from flyball.model.catalog import get_catalog
 from flyball.sequencing import Programmer
 from flyball.interfaces.server.dialect import Dialect, program_from_file
 
-program = program_from_file("bake.yaml", Dialect(commands=dict(get_catalog().commands.items())))
+program = program_from_file("bake.yaml", Dialect(steps=dict(get_catalog().steps.items())))
 Programmer(rig).run(program)          # blocks until done or interrupted
 ```
 
@@ -131,20 +131,19 @@ same as it always has for a step that cannot even be applied.
 
 | tag | arguments | does |
 | --- | --- | --- |
-| `regulate` | `setpoint` (primary), `loop?`, `tuning?` | aim a controller at `setpoint` and let its law drive; returns at once |
-| `ramp` | `to` (primary), `pace` as `per_minute: 5` or `minutes: 20` flat, `loop?`, `wait=True` | walk the setpoint to `to`; waits for arrival unless `wait: false` |
+| `regulate` | `setpoint` (primary), `controllers?`, `tuning?` | aim a controller at `setpoint` and let its law drive; returns at once |
+| `ramp` | `to` (primary), `pace` as `per_minute: 5` or `minutes: 20` flat, `controllers?`, `wait=True` | walk the setpoint to `to`; waits for arrival unless `wait: false` |
 | `wait` | `duration` (primary, `minutes: 10` flat *without* `message`), `message?`, `timeout?` | keep everything as it is; controllers go on regulating |
-| `settle` | `loop?` (primary), `within=1.0`, `count=3`, `timeout?`, `message?` | wait until the named controllers settle within `within` of their setpoints for `count` consecutive readings |
-| `manual` | `loop?` (primary) | stop a controller regulating; its target keeps its last demand |
+| `settle` | `controllers?` (primary), `within=1.0`, `count=3`, `timeout?`, `message?` | wait until the named controllers settle within `within` of their setpoints for `count` consecutive readings |
+| `manual` | `controllers?` (primary) | stop a controller regulating; its target keeps its last demand |
 | `set` | `device`, `values: {name: value}` | put `values` on `device`'s writable signals, as one demand |
 | `command` | `device_command`, `device`, `args?` | call one of `device`'s own commands, exactly as `POST /api/devices/{name}/commands/{command}` would |
 | `prompt` | `message` (primary), `name?`, `timeout?` | pause until `POST /api/activities/{name}/fire`; a timeout ends the program |
 
-`loop` is a controller's name -- the address of the signal it drives -- a
-list of names, or absent for the rig's default. It stayed `loop` as a field
-name through the device-model rewrite even though the concept is now called
-a controller (`flyball.control.Controller`): a writable signal has at most
-one controller, so naming it by the target's address is unambiguous. A ramp
+`controllers` names a controller -- the address of the signal it drives -- a
+list of names, or is absent for the rig's default: a single name needs no
+list. A demand has at most one controller, so naming it by its output's
+address is unambiguous. A ramp
 over several controllers returns when the longest arrives, unless
 `wait: false` starts every ramp and moves on at once -- `settle` can wait for
 them later. Durations and rates count in the rig's clock: on a simulation at
@@ -179,12 +178,12 @@ all three of the furnace's zones, quoted as the file actually is:
 ```yaml
 name: firing
 steps:
-  - regulate: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], setpoint: 20 }
-  - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 600, per_minute: 10 }
+  - regulate: { controllers: [heaters.heater1, heaters.heater2, heaters.heater3], setpoint: 20 }
+  - ramp: { controllers: [heaters.heater1, heaters.heater2, heaters.heater3], to: 600, per_minute: 10 }
   - wait: { duration: { minutes: 20 }, message: "soak at 600" }
-  - ramp: { loop: heaters.heater2, to: 900, per_minute: 5 }       # the middle only: the neighbours fight it
+  - ramp: { controllers: heaters.heater2, to: 900, per_minute: 5 }       # the middle only: the neighbours fight it
   - wait: { duration: { minutes: 15 }, message: "soak at 900" }
-  - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 100, per_minute: 20 }
+  - ramp: { controllers: [heaters.heater1, heaters.heater2, heaters.heater3], to: 100, per_minute: 20 }
   - manual: [heaters.heater1, heaters.heater2, heaters.heater3]
   - prompt: { message: "unload the sample, then press go", timeout: { minutes: 10 } }
 ```

@@ -9,7 +9,7 @@ import pytest
 from flyball.foundation.device import Committable, Demand, Level, Readout, Sample, command
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
-from flyball.sequencing import Command, Program, Programmer, Prompt
+from flyball.sequencing import Program, Programmer, Prompt, Step
 from flyball.sequencing.errors import ProgramAlreadyRunningError
 
 TEMP = Quantity("temperature", Celsius)
@@ -39,7 +39,7 @@ def note(fresh):
     tag = fresh("note")
 
     @dataclass(frozen=True)
-    class Note(Command, tag=tag, primary="text"):
+    class Note(Step, tag=tag, primary="text"):
         """Append to a list."""
 
         text: str
@@ -125,8 +125,8 @@ def test_a_later_step_naming_a_missing_controller_fails_the_program_without_runn
     programmer = Programmer(rig)
     program = Program(
         [
-            Regulate(setpoint=30.0, loop=controller.name),  # applies fine
-            Regulate(setpoint=10.0, loop="no_such_controller"),  # step 1: fails
+            Regulate(setpoint=30.0, controllers=controller.name),  # applies fine
+            Regulate(setpoint=10.0, controllers="no_such_controller"),  # step 1: fails
             Note("never"),  # step 2: must not run
         ],
         name="p2",
@@ -185,7 +185,7 @@ def test_an_interrupt_while_a_step_applies_cancels_the_activity_it_returns(rig, 
     returned: list[Activity] = []
 
     @dataclass(frozen=True)
-    class Slow(Command, tag=fresh("slow")):
+    class Slow(Step, tag=fresh("slow")):
         """Applies only once the interrupt has been asked for, then returns a wait."""
 
         def run(self, rig, operator=None):
@@ -247,9 +247,9 @@ def test_arrive_waits_for_a_subset_of_controllers_and_ramp_can_be_non_blocking()
     deliver(b, 20.0)
     program = Program(
         [
-            Regulate(setpoint=50.0, loop=[ca.name, cb.name]),
-            Ramp(to=60.0, pace=Duration(0.01), loop=[ca.name], wait=False),
-            Settle(loop=[ca.name], within=0.5, count=2),
+            Regulate(setpoint=50.0, controllers=[ca.name, cb.name]),
+            Ramp(to=60.0, pace=Duration(0.01), controllers=[ca.name], wait=False),
+            Settle(controllers=[ca.name], within=0.5, count=2),
         ],
         name="settle-test",
     )
@@ -302,7 +302,7 @@ def test_regulate_names_a_controller_by_its_target_address(rig, fresh):
     controller = rig.attach_controller(
         heater.signals["power"], heater.signals["zone"], law=P(kp=2.0)
     )
-    Regulate(setpoint=42.0, loop=heater.signals["power"].address).run(rig)
+    Regulate(setpoint=42.0, controllers=heater.signals["power"].address).run(rig)
     assert controller.reference == 42.0 and controller.mode.active()
 
 
@@ -374,14 +374,14 @@ def test_missing_names_a_controller_the_rig_lacks_or_has_no_default(rig, fresh):
     )
 
     for named_unknown in (
-        Regulate(setpoint=1.0, loop="no_such"),
-        Manual(loop="no_such"),
-        Settle(loop="no_such"),
-        Ramp(to=1.0, pace=Duration(1), loop="no_such"),
+        Regulate(setpoint=1.0, controllers="no_such"),
+        Manual(controllers="no_such"),
+        Settle(controllers="no_such"),
+        Ramp(to=1.0, pace=Duration(1), controllers="no_such"),
     ):
         assert named_unknown.missing(rig) == ["controller 'no_such' is not on the rig"]
 
-    assert Regulate(setpoint=1.0, loop=controller.name).missing(rig) == []
+    assert Regulate(setpoint=1.0, controllers=controller.name).missing(rig) == []
     assert Regulate(setpoint=1.0).missing(rig) == []
 
 
@@ -399,7 +399,7 @@ def test_regulate_missing_also_names_an_unstored_tuning(rig, fresh):
 
     assert Regulate(setpoint=1.0, tuning="brisk").missing(rig) == []
     assert Regulate(setpoint=1.0, tuning="ghost").missing(rig) == ["tuning 'ghost' is not stored"]
-    assert Regulate(setpoint=1.0, loop="no_such", tuning="ghost").missing(rig) == [
+    assert Regulate(setpoint=1.0, controllers="no_such", tuning="ghost").missing(rig) == [
         "controller 'no_such' is not on the rig",
         "tuning 'ghost' is not stored",
     ]

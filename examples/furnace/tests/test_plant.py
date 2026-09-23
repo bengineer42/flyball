@@ -122,10 +122,10 @@ def test_a_firing_runs_deterministically_on_the_stepped_clock(furnace_rig):
     programmer = Programmer(rig)
     programmer.start(
         Program([
-            Regulate(20, loop=HEATERS),
-            Ramp(300, pace=Rate_per_minute(10), loop=HEATERS),
+            Regulate(20, controllers=HEATERS),
+            Ramp(300, pace=Rate_per_minute(10), controllers=HEATERS),
             Wait(Duration_minutes(10)),
-            Manual(loop=HEATERS),
+            Manual(controllers=HEATERS),
         ])
     )
     programmer.join(30)
@@ -180,10 +180,10 @@ def _run_ramp_to_700(rig, feedforward) -> float:
     programmer = Programmer(rig)
     programmer.start(
         Program([
-            Regulate(20, loop=HEATERS),
-            Ramp(700, pace=Rate_per_minute(15), loop=HEATERS),
+            Regulate(20, controllers=HEATERS),
+            Ramp(700, pace=Rate_per_minute(15), controllers=HEATERS),
             Wait(Duration_minutes(20)),
-            Manual(loop=HEATERS),
+            Manual(controllers=HEATERS),
         ])
     )
     programmer.join(60)

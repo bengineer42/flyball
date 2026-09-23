@@ -21,7 +21,7 @@ from flyball.interfaces.server.dialect import (
     normalise_step,
     program_schema,
 )
-from flyball.sequencing.command import Command
+from flyball.sequencing.step import Step
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ def commands(fresh):
     tags = {k: fresh(k) for k in ("setpoint", "ramp", "flag", "twice", "timer", "ask")}
 
     @dataclass(frozen=True)
-    class Setpoint(Command, tag=tags["setpoint"], primary="at"):
+    class Setpoint(Step, tag=tags["setpoint"], primary="at"):
         """Go to this value and hold."""
 
         at: Percent
@@ -38,7 +38,7 @@ def commands(fresh):
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     @dataclass(frozen=True)
-    class Ramp(Command, tag=tags["ramp"]):
+    class Ramp(Step, tag=tags["ramp"]):
         to: Percent
         pace: Rate | Duration
         start: Percent | str = "setpoint"
@@ -46,20 +46,20 @@ def commands(fresh):
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     @dataclass(frozen=True)
-    class Flag(Command, tag=tags["flag"], primary="flag"):
+    class Flag(Step, tag=tags["flag"], primary="flag"):
         flag: str
 
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     @dataclass(frozen=True)
-    class Twice(Command, tag=tags["twice"]):
+    class Twice(Step, tag=tags["twice"]):
         a: Duration
         b: Duration
 
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     @dataclass(frozen=True)
-    class Timer(Command, tag=tags["timer"], primary="duration"):
+    class Timer(Step, tag=tags["timer"], primary="duration"):
         duration: Duration
         message: str | None = None
         timeout: Duration | None = None
@@ -67,7 +67,7 @@ def commands(fresh):
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     @dataclass(frozen=True)
-    class Ask(Command, tag=tags["ask"], primary="message"):
+    class Ask(Step, tag=tags["ask"], primary="message"):
         message: str
         timeout: Duration | None = None
 
@@ -96,7 +96,7 @@ def dialect(commands):
             Modifier("settle", "until", settle),
             Modifier("minutes", "for", {"type": "number"}),
         ),
-        commands={t: classes[k.capitalize()] for k, t in tags.items()},
+        steps={t: classes[k.capitalize()] for k, t in tags.items()},
     )
 
 

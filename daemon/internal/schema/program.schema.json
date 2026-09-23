@@ -204,7 +204,7 @@
                         "title": "Setpoint",
                         "type": "number"
                       },
-                      "loop": {
+                      "controllers": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -220,7 +220,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Loop"
+                        "title": "Controllers"
                       },
                       "tuning": {
                         "anyOf": [
@@ -353,7 +353,7 @@
                         ],
                         "title": "Pace"
                       },
-                      "loop": {
+                      "controllers": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -369,7 +369,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Loop"
+                        "title": "Controllers"
                       },
                       "wait": {
                         "default": true,
@@ -667,12 +667,12 @@
                       }
                     ],
                     "default": null,
-                    "title": "Loop"
+                    "title": "Controllers"
                   },
                   {
                     "additionalProperties": false,
                     "properties": {
-                      "loop": {
+                      "controllers": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -688,7 +688,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Loop"
+                        "title": "Controllers"
                       },
                       "within": {
                         "default": 1.0,
@@ -800,12 +800,12 @@
                       }
                     ],
                     "default": null,
-                    "title": "Loop"
+                    "title": "Controllers"
                   },
                   {
                     "additionalProperties": false,
                     "properties": {
-                      "loop": {
+                      "controllers": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -821,7 +821,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Loop"
+                        "title": "Controllers"
                       }
                     },
                     "title": "ManualRequest",

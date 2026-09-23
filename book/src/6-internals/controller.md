@@ -10,10 +10,8 @@ setting, not a demand: a controller drives only demands`") and one without
 `GET /api/controllers/schema` offers only writable demands as `outputs`
 (C13). A signal known only once its device is built (a `qcodes` or
 `pymeasure` channel) is refused then, with the same message. This chapter is the arithmetic;
-[How a controller works](../2-config/controllers.md#how-a-controller-works) is the shape. Programs still name a
-controller with a `loop:` field (the output's address) — the class is
-`Controller`, the concept is "the loop a controller closes", and the field
-name outlived the rename.
+[How a controller works](../2-config/controllers.md#how-a-controller-works) is the shape. Programs name a
+controller with a `controllers:` field (the output's address, or a list).
 
 ## State
 
