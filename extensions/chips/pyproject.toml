@@ -9,6 +9,11 @@ description = "Chip drivers for flyball rigs: I2C/SPI/GPIO/UART sensors and actu
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
+# Not for PyPI yet: bme680.py says its compensation maths is transcribed
+# verbatim from Bosch's BSD-3 `bme68x.c` and this package carries no notice
+# for it. Declaring the package MIT is one thing; publishing it that way is
+# another. Drop this line once the notice is in.
+classifiers = ["Private :: Do Not Upload"]
 authors = [{ name = "Ben Laurence" }]
 # Protocol-level, OS-agnostic: flyball for the link protocols, flyball-sim for the
 # fakes its own tests (and a hardware-free rig) run against. Never flyball-linux --
