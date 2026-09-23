@@ -102,7 +102,10 @@ decides its own:
 | `NotReadyError` | 503 | rig not configured, or no reading yet |
 | `HardwareError` | 503 | a device failed; usually transient |
 
-The body is `{"detail": "<the exception's message>"}`.
+The body is `{"detail": "<the exception's message>"}`. The store's failures
+land on the same rows: a write it refuses (`ConstraintError`) is 409, a store
+it cannot reach (`StoreUnavailableError`) is 503, and anything else it raises
+is a bug and answers 500.
 
 ## Recording
 

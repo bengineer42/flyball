@@ -151,7 +151,10 @@ which subsystem raised it: `NotFoundError`, `ConflictError`, `NotReadyError`,
 `UnachievableError`, `HardwareError`, and `FlyballError` as the root. Each
 mixes in the builtin a consumer would reach for, so `except LookupError`
 behaves as expected. The HTTP layer maps the six once; no other code decides
-status codes.
+status codes. A subsystem's own error inherits its subsystem's base and one of
+the six, and the map finds the second through the MRO: the store's
+`StoreUnavailableError(StoreError, HardwareError)` is a 503 with no entry of
+its own.
 
 ## Topic and Latest
 

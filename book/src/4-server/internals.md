@@ -19,6 +19,14 @@ module-level instance for `uvicorn flyball.interfaces.server:app`. Routes take t
 dependencies (`RigDep`, `StoreDep`), which raise `NotReadyError` (503) when
 nothing is attached.
 
+The store is synchronous and serialised by one lock
+([Storage](../6-internals/db.md#sqlite)), so a route that touches it is a plain
+`def` — FastAPI runs it on a worker thread — or, when it must be `async` (to
+read a request body), hands the store call to `anyio.to_thread`. `StoreDep`
+holds one of a few `STORE_SLOTS` for the request, so store requests queued
+behind a long one wait on the loop, not on worker threads. `async def` is for
+routes and websockets that never reach the store or the rig's lock.
+
 `server/routes/` is one module per concern, not per device:
 
 | module | serves |

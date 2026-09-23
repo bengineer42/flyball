@@ -53,6 +53,14 @@ a unit mismatch), 422 `UnachievableError` or `ValueError`, 503
 `HardwareError`; 401 with `WWW-Authenticate: Bearer` from the door
 ([authentication](#authentication)), 429 for too many wrong passwords.
 
+The store's own failures take the same map. A write it refuses -- a tuning
+whose `session_id` names no session, a duplicate of a unique row -- is 409
+`ConstraintError`; a store it cannot reach -- locked by another writer, out
+of disk -- is 503 `StoreUnavailableError`. Both carry sqlite's message in
+`detail`. Anything else from the store is a bug and answers 500, never 503,
+so a 500 is not worth retrying. A 503 usually is, though sqlite files a
+transaction begun inside another under the same error; `detail` says which.
+
 ## Rig
 
 | | | |
@@ -78,7 +86,7 @@ saving are never gated.
 | | | |
 | --- | --- | --- |
 | `GET` | `/api/rig/schema` | the rig file's JSON schema, with every driver and link type this runner has |
-| `GET` | `/api/rig/config` | the rig file as loaded (a simulation's, with its changes) |
+| `GET` | `/api/rig/config` | the rig file as loaded (a simulation's, with its changes); `runner.auth` shows only `anonymous` and `session`, never a password, token or secret |
 | `POST` | `/api/rig/check` | body a rig document; validates without building; 422 says what is wrong |
 | `POST` | `/api/links` | body `{name, tag, ...}` (a `links:` entry with its name); 201 the link as the file writes it; 409 the name is taken; 422 a bad config |
 | `DELETE` | `/api/links/{name}` | 204; 409 while a device is built on it |
@@ -335,7 +343,7 @@ Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answe
 | `GET` | `/api/sim/plants/{name}` | a plant's config and state |
 | `PUT` | `/api/sim/plants/{name}` | some of its parameters, changed live |
 | `POST` | `/api/sim/plants/{name}/reset` | `{output?, input?}` |
-| `GET` | `/api/sim/config` | the rig file as it now stands |
+| `GET` | `/api/sim/config` | the rig file as it now stands; never `runner.auth`'s credentials |
 | `POST` | `/api/sim/save` | `{path?}`; writes it, default where it was loaded from; 409 unless the runner runs with `--allow-save` |
 | `GET` | `/api/sim/device` | the application's simulation device: `{config, values}` (`values` its signals' current readings, by path); 404 without one |
 | `GET` | `/api/sim/device/schema` | its `DeviceSchema` |
