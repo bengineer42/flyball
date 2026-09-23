@@ -115,9 +115,40 @@ func TestDaemonTwoRigs(t *testing.T) {
 		t.FailNow()
 	}
 
+	t.Run("keys in no argv, environment or log; runner logs 0600", func(t *testing.T) {
+		for _, dir := range []string{dirA, dirB} {
+			key := readFile(t, filepath.Join(dir, "key"))
+			for _, pid := range []int{lockPid(t, dir), d.pid()} {
+				for _, f := range []string{"cmdline", "environ"} {
+					b, err := os.ReadFile(fmt.Sprintf("/proc/%d/%s", pid, f))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if strings.Contains(string(b), key) {
+						t.Errorf("a runner's key is in /proc/%d/%s", pid, f)
+					}
+				}
+			}
+			for _, log := range []string{d.log, e.path("data", "logs", "a.log"), e.path("data", "logs", "b.log")} {
+				if strings.Contains(readFile(t, log), key) {
+					t.Errorf("a runner's key is in %s", log)
+				}
+			}
+		}
+		for _, log := range []string{"a.log", "b.log"} {
+			st, err := os.Stat(e.path("data", "logs", log))
+			if err != nil || st.Mode().Perm() != 0o600 {
+				t.Errorf("runner log %s: %v %v, want 0600", log, st.Mode(), err)
+			}
+		}
+	})
+
 	t.Run("a scope for rig a does not reach rig b", func(t *testing.T) {
-		if info := authInfo(t, hc, base+"/a", bearer(readA)); verbs(info) != "read" {
-			t.Errorf("reader-a at a: %v", info.Verbs)
+		if info := authInfo(t, hc, base+"/a", bearer(readA)); verbs(info) != "read" || info.Rig != "a" {
+			t.Errorf("reader-a at a: %v (rig %q)", info.Verbs, info.Rig)
+		}
+		if r := do(t, hc, "GET", base+"/api/auth", "", bearer(readA)); r.Status != 200 || strings.Contains(string(r.Body), `"rig"`) {
+			t.Errorf("/api/auth at the daemon root: %v, want no rig", r)
 		}
 		if info := authInfo(t, hc, base+"/b", bearer(readA)); verbs(info) != "" {
 			t.Errorf("reader-a at b: %v, want none", info.Verbs)

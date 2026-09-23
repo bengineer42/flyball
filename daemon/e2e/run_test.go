@@ -117,7 +117,7 @@ func TestRunLocal(t *testing.T) {
 	t.Run("auth info", func(t *testing.T) {
 		info := authInfo(t, hc, base, nil)
 		if info.V != 2 || info.Shape != "local" || info.Scheme != "local" || verbs(info) != "operate,read" ||
-			info.User == nil || info.User.ID != "local:console" {
+			info.User == nil || info.User.ID != "local:console" || info.Rig != "oven" {
 			t.Fatalf("/api/auth = %+v", info)
 		}
 	})
@@ -287,6 +287,10 @@ func TestRunLocal(t *testing.T) {
 			t.Fatalf("flyball stop: %d\n%s%s", code, out, errOut)
 		}
 		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "local:console", "detail": "e2e-cli"})
+		// The runner's access log drops query strings (it shows `?…`).
+		if strings.Contains(fr.output(), "interrupt=true") {
+			t.Error("a query string is in the runner's access log")
+		}
 	})
 
 	t.Run("kill -9, respawn, 200", func(t *testing.T) {
