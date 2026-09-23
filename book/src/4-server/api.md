@@ -59,7 +59,7 @@ has the rules.
 | `POST` | `/api/auth/logout` | ends the session (its open streams and sockets closed within a second) and clears the cookie |
 | `GET` | `/api/auth/tokens` | a front's named tokens, `[{id, name, scopes, kind, created, expires, last_used}]`, never a secret. The admin session or the `local` shape only: anonymous `401`, anyone else `403` |
 | `POST` | `/api/auth/tokens` | `{name, scopes?, kind?, expires_in?}` (`scopes` default `["read"]`, `kind` default `service`, `expires_in` seconds, capped as [the lifetimes](../7-reference/rig-file.md#token-lifetimes) say) → `201` `{token, id, name, scopes, kind, created, expires, last_used}`; `token` is shown this once. `manage` is refused (`403`): only `flyball token create` issues it. The same callers as `GET`; a record the front cannot write in its audit means no token (`503`) |
-| `DELETE` | `/api/auth/tokens/{id}` | `204`; the token's open streams and sockets closed within a second. The same callers |
+| `DELETE` | `/api/auth/tokens/{id}` | `204`; the token's open streams and sockets closed within a second; `404` no such token. The same callers. A revoke the front cannot record in its audit still happens (`503`, saying so) |
 | `GET` | `/api/auth/link?n=NONCE` | a bare runner with a token: a one-time sign-in link (printed at start; ten minutes). `302` to `<root>/` with a session cookie, `Referrer-Policy: no-referrer`; used, expired or wrong: `401` |
 | `POST` | `/api/auth/link` | a bare runner, with its token as a bearer: `{url, expires_in}`, a fresh link for a person |
 | `GET` | `/api/auth/front` | a fronted runner's readiness probe: `401` without a valid principal, `200` `{protocol: 1, aud, pid, flyball}` with one; `404` on a bare runner |

@@ -1029,6 +1029,62 @@ func TestAuditJSONL(t *testing.T) {
 	}
 }
 
+// A revoke is recorded after it is tried, with how it ended; one whose
+// record cannot be written still revokes (the safe direction) and says so.
+func TestRevokeAudit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "front", "audit.jsonl")
+	a, err := OpenAudit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, Config{}, func(o *Options) { o.Audit = a })
+	cli, err := store.OpenTokens(h.opts.TokensPath, store.TokensOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, tok, err := cli.Create(store.NewToken{Name: "t", Scopes: []string{"read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp := h.do("DELETE", "/api/auth/tokens/"+tok.ID, "", h.origin()); resp.StatusCode != 204 {
+		t.Fatalf("revoke: %d", resp.StatusCode)
+	}
+	if resp := h.do("DELETE", "/api/auth/tokens/0000000000000000", "", h.origin()); resp.StatusCode != 404 {
+		t.Fatalf("revoke unknown: %d", resp.StatusCode)
+	}
+	a.Close()
+	raw, _ := os.ReadFile(path)
+	var got []string
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("line %q: %v", line, err)
+		}
+		if rec["event"] == "token.revoke" {
+			got = append(got, fmt.Sprint(rec["id"], " ", rec["outcome"]))
+		}
+	}
+	if want := []string{tok.ID + " revoked", "0000000000000000 not found"}; !slices.Equal(got, want) {
+		t.Fatalf("token.revoke records %q, want %q", got, want)
+	}
+
+	f := newHarness(t, Config{}, func(o *Options) { o.Audit = FailedAudit(errors.New("disk full")) })
+	cli, err = store.OpenTokens(f.opts.TokensPath, store.TokensOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, tok, err := cli.Create(store.NewToken{Name: "t", Scopes: []string{"read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp := f.do("DELETE", "/api/auth/tokens/"+tok.ID, "", f.origin()); resp.StatusCode != 503 {
+		t.Fatalf("revoke with no audit: %d, want 503", resp.StatusCode)
+	}
+	if resp := f.do("GET", "/api/echo", "", bearer(secret, nil)); resp.StatusCode != 401 {
+		t.Fatalf("the token after a revoke the audit could not record: %d, want 401", resp.StatusCode)
+	}
+}
+
 // Merge requirement 17: no credential in a URL.
 func TestNoCredentialInURL(t *testing.T) {
 	h := newHarness(t, Config{Auth: "password", Password: testScrypt})

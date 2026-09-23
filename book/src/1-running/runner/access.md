@@ -311,10 +311,12 @@ as `local:signal`; the signal's sender is not recorded.
   beside its tokens file, mode 0600: `login.ok`, `login.fail`, `logout`,
   `token.create`, `token.create.refused`, `token.revoke`, `token.refused`,
   `proxy.refused`, `proxy.peer` (the local user behind a proxy's socket)
-  and `fallback`, each with its time, a sequence number and a boot id. A
-  sign-in or a token change whose record cannot be written does not happen
-  (`503`); if the file cannot be opened at all, the front still serves the
-  rig and says so at start, but refuses every sign-in and token change.
+  and `fallback`, each with its time, a sequence number and a boot id
+  (`token.revoke` also with its `outcome`). A sign-in or a new token whose
+  record cannot be written does not happen (`503`); a revoke still happens,
+  and its `503` says so. If the file cannot be opened at all, the front
+  still serves the rig and says so at start, but refuses every sign-in and
+  new token.
 - **The runner's audit**, the `audit` table in the rig's store: one row for
   every request that needs more than `read` from a caller who is not
   anonymous -- refused ones included -- and every stop, `SIGUSR1` included:

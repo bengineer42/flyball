@@ -733,16 +733,27 @@ func (f *Front) createToken(w http.ResponseWriter, r *http.Request, c Caller) {
 	writeJSON(w, http.StatusCreated, json.RawMessage(append(append([]byte(`{"token":`), secretJSON...), append([]byte(","), row[1:]...)...)))
 }
 
+// revokeToken revokes, then records how it ended: a revoke is the safe
+// direction, so one whose record cannot be written still happens (503
+// says so).
 func (f *Front) revokeToken(w http.ResponseWriter, r *http.Request, c Caller, id string) {
-	if err := f.o.Audit.Event("token.revoke", slog.String("by", c.Sub), slog.String("id", id)); err != nil {
-		detail(w, http.StatusServiceUnavailable, "The audit log cannot be written")
-		return
+	err := f.tokens.Revoke(id)
+	outcome := "revoked"
+	switch {
+	case errors.Is(err, store.ErrTokenNotFound):
+		outcome = "not found"
+	case err != nil:
+		outcome = "failed"
 	}
-	switch err := f.tokens.Revoke(id); {
+	auditErr := f.o.Audit.Event("token.revoke", slog.String("by", c.Sub), slog.String("id", id), slog.String("outcome", outcome))
+	switch {
 	case errors.Is(err, store.ErrTokenNotFound):
 		detail(w, http.StatusNotFound, "No token with that id")
 	case err != nil:
 		detail(w, http.StatusServiceUnavailable, "Named tokens are unavailable")
+	case auditErr != nil:
+		f.log.Error("front: audit", "err", auditErr)
+		detail(w, http.StatusServiceUnavailable, "The token is revoked, but the audit log cannot be written")
 	default:
 		frontHeaders(w)
 		w.WriteHeader(http.StatusNoContent)
