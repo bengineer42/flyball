@@ -239,11 +239,15 @@ class Rig:
         return event
 
     def write_conditions(self) -> list[tuple[str, Condition]]:
-        """Bus failures the writers of blocking devices are seeing now, by device name."""
+        """Bus failures the writers of blocking devices are seeing now, by device name.
+
+        Read from a snapshot, not under the lock: the async health route
+        calls it on the event loop, which must not wait on a delivery.
+        """
         return [
-            (device.name, writer.failed)
-            for device, writer in self._writers.items()
-            if writer.failed is not None
+            (device.name, failed)
+            for device, writer in list(self._writers.items())
+            if (failed := writer.failed) is not None
         ]
 
     def stop(self) -> None:
@@ -840,33 +844,35 @@ class Rig:
         """
         from flyball.runtime.config import ControllerEntry, RigConfig
 
-        controllers = {
-            name: ControllerEntry(
-                signal=c.source.address,
-                law=c.law.config if c.law is not None else None,
-                # The file's default: the setpoint itself. Left out, as a file would.
-                feedforward=None
-                if c.feedforward.config.tag == "setpoint"
-                else c.feedforward.config,
-                default=self.controllers.default == name,
-                min_period_s=c.min_period_s,
-            )
-            for name, c in self.controllers.items()
-        }
-        links = {
-            name: {
-                "tag": link.config_tag,
-                **link.model_dump(mode="json", exclude_none=True, exclude_defaults=True),
+        with self.lock:  # a consistent view: nothing added or removed while it is read
+            controllers = {
+                name: ControllerEntry(
+                    signal=c.source.address,
+                    law=c.law.config if c.law is not None else None,
+                    # The file's default: the setpoint itself. Left out, as a file would.
+                    feedforward=None
+                    if c.feedforward.config.tag == "setpoint"
+                    else c.feedforward.config,
+                    default=self.controllers.default == name,
+                    min_period_s=c.min_period_s,
+                )
+                for name, c in self.controllers.items()
             }
-            for name, link in self.link_entries.items()
-        }
-        config = RigConfig.model_validate({
-            "name": self.name,
-            **self.header,
-            "links": links,
-            "devices": dict(self.entries),
-            "controllers": controllers,
-        })
+            links = {
+                name: {
+                    "tag": link.config_tag,
+                    **link.model_dump(mode="json", exclude_none=True, exclude_defaults=True),
+                }
+                for name, link in self.link_entries.items()
+            }
+            loaded = {
+                "name": self.name,
+                **self.header,
+                "links": links,
+                "devices": dict(self.entries),
+                "controllers": controllers,
+            }
+        config = RigConfig.model_validate(loaded)
         # Defaults left out, as a hand-written file leaves them: a saved rig
         # says what was chosen, not everything a driver could take.
         document = config.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
@@ -1019,18 +1025,19 @@ class Rig:
             states = self.demand(target.node, {target: demand}, by=controller)
             return None if (state := states.get(target)) is None else state.value
 
-        controller = Controller(
-            self.clock,
-            target,
-            source,
-            law=law,
-            feedforward=feedforward,
-            min_period_s=min_period_s,
-            write=write,
-        )
-        self.controllers.add(controller, default=default)
-        self._changed(f"attached controller {controller.name}")
-        return controller
+        with self.lock:  # not while a delivery is looking controllers up
+            controller = Controller(
+                self.clock,
+                target,
+                source,
+                law=law,
+                feedforward=feedforward,
+                min_period_s=min_period_s,
+                write=write,
+            )
+            self.controllers.add(controller, default=default)
+            self._changed(f"attached controller {controller.name}")
+            return controller
 
     def detach_controller(self, name: str) -> Controller:
         """Take the controller off its target: manual demands may drive it again.

@@ -223,7 +223,8 @@ def device_out(rig: Rig, device: Device) -> DeviceOut:
 @router.get("/devices")
 def read_devices(rig: RigDep) -> list[DeviceOut]:
     """Every device: its tree with the latest values and write states, commands, state."""
-    return [device_out(rig, device) for device in rig.devices.values()]
+    devices = list(rig.devices.values())  # a snapshot: a device may be added meanwhile
+    return [device_out(rig, device) for device in devices]
 
 
 @router.get("/devices/{name}")
