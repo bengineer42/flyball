@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
+from flyball.control.laws import P
 from flyball.foundation.device import (
     Committable,
     Demand,
     DeviceEntry,
     DriverConfig,
+    LimitNotKnownError,
+    LimitsInvertedError,
     Output,
     Sample,
 )
@@ -16,6 +21,7 @@ from flyball.foundation.files import loads
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Percent, Watt
 from flyball.interfaces.server.formats import parse
+from flyball.model.law import Transfer
 from flyball.runtime.overlay import parse_set
 
 POWER = Quantity("power", Watt)
@@ -49,10 +55,10 @@ def blender_tag(fresh, _catalog) -> str:
 
 
 @pytest.fixture
-def build(blender_tag, fresh):
+def build(blender_tag, fresh, _catalog):
     def _build(signals: dict) -> Blender:
         entry = DeviceEntry.model_validate({"driver": blender_tag, "signals": signals})
-        device = entry.build(fresh("blender"))
+        device = entry.build(fresh("blender"), catalogs=_catalog)
         assert isinstance(device, Blender)
         return device
 
@@ -94,3 +100,82 @@ class TestYamlBooleans:
     def test_the_duplicate_key_check_is_kept(self):
         with pytest.raises(ValueError, match="duplicate key 'on'"):
             loads("on: 1\non: 2\n", ".yaml")
+
+
+class TestLimitsNarrowOnly:
+    def test_a_narrower_band_narrows(self, build):
+        heater = build({"heater": {"limits": [100, 2000]}}).signals["heater"]
+        assert heater.limits == (100.0, 2000.0)
+        assert heater.clamp(9000.0) == 2000.0 and heater.clamp(0.0) == 100.0
+
+    @pytest.mark.parametrize("band", [[0, 5000], [-1, 2000], [-10, 9000]])
+    def test_a_wider_band_is_refused_at_load(self, build, band):
+        with pytest.raises(ValueError, match=r"heater.*outside the driver's"):
+            build({"heater": {"limits": band}})
+
+    def test_a_signal_without_driver_limits_takes_the_file_s(self, build):
+        free = build({"free": {"limits": [-5, 5]}}).signals["free"]
+        assert free.limits == (-5.0, 5.0) and free.clamp(99.0) == 5.0
+
+    def test_a_referenced_bound_is_intersected_live(self, rig, build):
+        device = build({"humidity": {"limits": [10, 80]}})
+        rig.add_device(device)
+        humidity = device.signals["humidity"]
+        _read(rig, device, dry=5.0, wet=95.0)
+        assert humidity.limits == (10.0, 80.0), "the file's band inside the supplies'"
+        assert humidity.clamp(99.0) == 80.0 and humidity.clamp(0.0) == 10.0
+        _read(rig, device, dry=20.0, wet=60.0)
+        assert humidity.limits == (20.0, 60.0), "the supplies' band inside the file's"
+        assert humidity.clamp(99.0) == 60.0 and humidity.clamp(0.0) == 20.0
+
+    def test_a_referenced_bound_with_no_value_still_fails_closed(self, rig, build):
+        device = build({"humidity": {"limits": [10, 80]}})
+        rig.add_device(device)
+        _read(rig, device, dry=5.0)
+        with pytest.raises(LimitNotKnownError, match="'wet'"):
+            device.signals["humidity"].clamp(50.0)
+        _read(rig, device, wet=math.nan)
+        with pytest.raises(LimitNotKnownError):
+            device.signals["humidity"].clamp(50.0)
+
+    def test_a_rig_demand_is_clamped_to_the_intersection(self, rig, build):
+        device = build({"humidity": {"limits": [10, 80]}})
+        rig.add_device(device)
+        humidity = device.signals["humidity"]
+        _read(rig, device, dry=5.0, wet=95.0)
+        assert rig.demand(device.root, {humidity: 99.0})[humidity].value == 80.0
+
+
+class TestInvertedLimits:
+    def test_supplies_crossed_raise(self, rig, build):
+        device = build({})
+        rig.add_device(device)
+        _read(rig, device, dry=70.0, wet=30.0)
+        with pytest.raises(LimitsInvertedError, match="inverted"):
+            device.signals["humidity"].clamp(50.0)
+
+    def test_a_narrowing_disjoint_from_the_live_band_raises(self, rig, build):
+        device = build({"humidity": {"limits": [10, 30]}})
+        rig.add_device(device)
+        _read(rig, device, dry=40.0, wet=90.0)
+        with pytest.raises(LimitsInvertedError):
+            device.signals["humidity"].clamp(50.0)
+
+    def test_a_command_demand_is_refused_not_clamped(self, rig, build):
+        device = build({})
+        rig.add_device(device)
+        humidity = device.signals["humidity"]
+        _read(rig, device, dry=70.0, wet=30.0)
+        with pytest.raises(LimitsInvertedError):
+            rig.demand(device.root, {humidity: 50.0})
+        assert device.written == {}
+
+    def test_a_controller_s_demand_is_held(self, rig, build):
+        device = build({})
+        rig.add_device(device)
+        humidity, dry = device.signals["humidity"], device.signals["dry"]
+        controller = rig.attach_controller(humidity, dry, law=P(kp=1.0))
+        _read(rig, device, dry=70.0, wet=30.0)
+        controller.regulate(50.0, transfer=Transfer.RESET)
+        assert device.written == {}, "held, not clamped to either end"
+        assert [e.kind for e in rig.recent if e.kind.startswith("limit_")] == ["limit_unknown"]

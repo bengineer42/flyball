@@ -34,6 +34,7 @@ from flyball.foundation.device import (
     Level,
     Limit,
     LimitNotKnownError,
+    LimitsInvertedError,
     Node,
     Readable,
     Reading,
@@ -507,6 +508,9 @@ class Rig:
             LimitNotKnownError: A signal's limit follows a signal with no
                 value yet (a `NotReadyError`); not raised for a controller's
                 demand, which is held instead.
+            LimitsInvertedError: A signal's limits resolve inverted now, low
+                above high (an `UnachievableError`); held for a controller's
+                demand, like an unknown limit.
             ValueError: No values, one signal named twice, or a value that is
                 not finite (NaN, infinity).
         """
@@ -563,7 +567,7 @@ class Rig:
             original = value
             try:
                 value = signal.clamp(value)
-            except LimitNotKnownError as e:
+            except (LimitNotKnownError, LimitsInvertedError) as e:
                 if by is None:
                     raise
                 if by.name not in self._limit_held:
@@ -959,6 +963,8 @@ class Rig:
                 no value yet.
             LimitNotKnownError: A linked argument's demand has a limit that
                 follows a signal with no value yet: refused, not run unclamped.
+            LimitsInvertedError: A linked argument's demand has limits that
+                resolve inverted now: refused.
         """
         try:
             spec = device.commands[tag]

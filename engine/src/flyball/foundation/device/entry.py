@@ -21,7 +21,9 @@ class SignalOverride(BaseModel):
 
     `access` names the set to keep (`"r"`); `readable`, `publishing` and
     `writable` drop one flag each and take only `false` -- the driver
-    declares what it can honour, the file cannot add to it.
+    declares what it can honour, the file cannot add to it. `limits` only
+    narrows the driver's (see
+    [Signal.narrow][flyball.foundation.device.signal.Signal.narrow]).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -174,7 +176,6 @@ _SIGNAL_FIELDS = (
     "alarm",
     "poll_s",
     "stale_after",
-    "limits",
     "max_rate",
 )
 _NODE_FIELDS = ("label", "poll_s", "tags")
@@ -217,6 +218,8 @@ def _override_signal(signal: Signal, override: SignalOverride) -> None:
         changes["tags"] = {**signal.spec.tags, **override.tags}
     if changes:
         signal.override(**changes)
+    if override.limits is not None:
+        signal.narrow(override.limits)
     value = signal.access.value if override.access is None else Access.parse(override.access).value
     for flag, keep in (
         (Access.R, override.readable),

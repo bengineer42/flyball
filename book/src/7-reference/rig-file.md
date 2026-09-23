@@ -117,7 +117,10 @@ filters by; `stale_after` is seconds since the last reading beyond which a
 controller regulated from the signal holds its demand rather than apply it;
 `max_rate` is `{per_second: N}` (or `per_minute`, `per_hour`, ...), the
 fastest a demand may move -- a faster one is clamped to the largest step the
-elapsed time allows, not refused); `access` names the set to keep (`"r"`), and
+elapsed time allows, not refused; `limits` only narrows: a demand is clamped
+to the intersection of the driver's limits and the file's, resolved at each
+demand, and a file bound past a numeric driver bound is refused at load);
+`access` names the set to keep (`"r"`), and
 `readable`/`publishing`/`writable` drop one flag each and take only
 `false` — the driver declares what it can honour, the file cannot add to
 it, unless the driver also names a ceiling for that signal (a Python-level
