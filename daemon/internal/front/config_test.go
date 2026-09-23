@@ -35,7 +35,7 @@ func TestResolveFallbacks(t *testing.T) {
 		"unknown shape":      {Listen: "0.0.0.0:9000", Auth: "ldap"},
 		"bad TLS files": {Listen: "0.0.0.0:9000", Auth: "password", Password: testScrypt,
 			TLS: &TLSFiles{Cert: filepath.Join(dir, "no.pem"), Key: filepath.Join(dir, "no.key")}},
-		"non-loopback local": {Listen: "0.0.0.0:9000"},
+		"non-loopback local":  {Listen: "0.0.0.0:9000"},
 		"proxy without block": {Listen: "0.0.0.0:9000", Auth: "proxy"},
 		"proxy, no presets":   {Listen: "0.0.0.0:9000", Auth: "proxy", Proxy: &ProxyConfig{Preset: "authelia"}},
 		"bad url":             {Listen: "0.0.0.0:9000", Auth: "password", Password: testScrypt, URL: "ftp://x"},
