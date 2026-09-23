@@ -930,16 +930,21 @@ func TestFallbackRefusesRequestedListen(t *testing.T) {
 			if strings.Contains(b, c.reason) || strings.Contains(b, plan.Fallback) || strings.Contains(b, "hunter2") {
 				t.Fatalf("the refusal carries the reason: %q", b)
 			}
+			// The one path it names is flyballd's documented front-dir.
 			if !strings.Contains(b, "run.log") || !strings.Contains(b, "journalctl -u flyballd") ||
-				regexp.MustCompile("(^|[\\s(`'\"])/\\w").MatchString(b) {
+				regexp.MustCompile("(^|[\\s(`'\"])/\\w").MatchString(strings.ReplaceAll(b, "/run/flyball/NAME", "")) {
 				t.Fatalf("the refusal %q does not say where the reason is, or names a path", b)
 			}
 			// `flyball stop` prints this body: it says how to stop the
-			// rig, before anything else.
+			// rig, before anything else -- under flyballd too, where
+			// stopping flyballd leaves the rig running (D-037, wave 3 F2).
 			if !strings.HasPrefix(b, "flyball: to stop this rig") || !strings.Contains(b, "Ctrl-C") ||
 				!strings.Contains(b, "flyball stop --front-dir") || !strings.Contains(b, "flyball stop --pid") ||
-				!strings.Contains(b, "systemctl stop") {
+				!strings.Contains(b, "/run/flyball/NAME") || !strings.Contains(b, "flyball runners stop NAME") {
 				t.Fatalf("the refusal %q does not lead with how to stop the rig", b)
+			}
+			if strings.Contains(b, "systemctl") {
+				t.Fatalf("the refusal %q advises systemctl, which leaves the rig running (D-037)", b)
 			}
 			if n := len(fr.requests()); n != 0 {
 				t.Fatalf("the runner received %d requests through the refused address", n)

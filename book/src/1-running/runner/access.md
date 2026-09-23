@@ -125,7 +125,12 @@ flyball: serving rig furnace on http://127.0.0.1:40321/ (local)
 A plain `flyball stop` goes to that address too, over HTTP, and gets the
 `503`, so the `503` starts with the stops that work, all signals: Ctrl-C in the `flyball run`
 terminal, `flyball stop --front-dir DIR` or `flyball stop --pid N` on the
-rig's host, or `systemctl stop` for `flyballd`. It then says only that
+rig's host. Under `flyballd`, `DIR` is the rig's front-dir,
+`/run/flyball/NAME` with the systemd unit, and the stop runs as `flyballd`'s
+user. Stopping `flyballd` itself is not a stop: it leaves its runners, and
+their rigs, running ([D-037](../../7-reference/cli.md#what-stopping-flyballd-does)); `flyball runners
+stop NAME`, with a `manage` token and `FLYBALLD_URL` set to the local
+address `flyballd` logs, ends a runner. The `503` then says only that
 authentication is misconfigured and where the reason is -- the `flyball
 run` terminal and its `run.log`, or `journalctl -u flyballd` -- since
 whoever the proxy lets reach that address may be anyone, and a reason
