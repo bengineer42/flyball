@@ -43,7 +43,8 @@ async def stop(request: Request) -> StopReport:
     """Stop the rig: the program interrupted, every controller to manual, each device stopped.
 
     Until the signals work lands the stop is the interim one (`interim: true`): nothing
-    is written, so each writable device is `held` at its last value. 503 with no rig.
+    is written, so each writable device is reported `unchanged`: outputs are left as
+    they were. 503 with no rig.
     """
     stopper = current_stopper()
     if stopper is None:
