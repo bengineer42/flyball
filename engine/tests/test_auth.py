@@ -292,6 +292,23 @@ def test_anyone_may_read_but_only_the_token_may_operate(public):
     assert public.post("/api/recording", json={}).status_code not in (401, 403)
 
 
+def test_a_reader_cannot_write_lines_into_the_runner_log(public, caplog):
+    """`POST /api/rig/check` needs only read; a key it names reaches a warning, escaped.
+
+    A newline in a `runner.front` key used to start a line of the attacker's own in the
+    runner's log (CWE-117).
+    """
+    forged = "ok\n2026-09-23T00:00:00+0100 ERROR flyball.audit: INJECTED\rLINE"
+    with caplog.at_level("WARNING", logger="flyball.runtime.config"):
+        checked = public.post(
+            "/api/rig/check", json={"name": "x", "runner": {"front": {forged: 1}}}
+        )
+    assert checked.status_code == 200, checked.text
+    said = [r.getMessage() for r in caplog.records if r.name == "flyball.runtime.config"]
+    assert said and "INJECTED" in said[0], said
+    assert not any(c in m for m in said for c in "\n\r\x1b"), said
+
+
 def test_a_bare_runner_takes_a_principal_it_signed_itself(public):
     """The MCP mount's inner calls: signed with the runner's in-memory key, for its `aud`."""
     door = public.app.state.door
