@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -110,6 +111,37 @@ func (p *daemonProc) exit(t *testing.T) {
 // runtime dir: a test's teardown, since flyballd leaves them running.
 func killRunners(t *testing.T, dir string) {
 	locks, _ := filepath.Glob(filepath.Join(dir, "rt", "flyball", "*", "*", frontdir.Lock))
+	killLockHolders(locks)
+}
+
+// killRunnersUnder is killRunners for front-dirs anywhere under root (the
+// temp front-dirs flyballd makes with no runtime dir); then, where /proc
+// lists processes, it SIGKILLs any still naming root in its argv (a
+// runner's --front-dir): one killed before it took its runner.lock.
+func killRunnersUnder(root string) {
+	var locks []string
+	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && d.Name() == frontdir.Lock {
+			locks = append(locks, path)
+		}
+		return nil
+	})
+	killLockHolders(locks)
+	procs, _ := filepath.Glob("/proc/[0-9]*/cmdline")
+	for _, p := range procs {
+		argv, err := os.ReadFile(p)
+		if err != nil || !strings.Contains(string(argv), "\x00"+root+string(filepath.Separator)) {
+			continue
+		}
+		if pid, err := strconv.Atoi(filepath.Base(filepath.Dir(p))); err == nil && pid != os.Getpid() {
+			syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
+}
+
+// killLockHolders SIGTERMs the runner holding each runner.lock, then
+// SIGKILLs one still holding it after 5 s.
+func killLockHolders(locks []string) {
 	for _, lock := range locks {
 		fd := filepath.Dir(lock)
 		if held, _ := frontdir.LockHeld(fd); !held {
@@ -244,8 +276,14 @@ type runnerRow struct {
 // row waits for /api/runners to show oven as ok says.
 func row(t *testing.T, d *testDaemon, manage string, ok func(runnerRow) bool) runnerRow {
 	t.Helper()
+	return rowWithin(t, d, manage, 20*time.Second, ok)
+}
+
+// rowWithin is row, waiting up to wait.
+func rowWithin(t *testing.T, d *testDaemon, manage string, wait time.Duration, ok func(runnerRow) bool) runnerRow {
+	t.Helper()
 	var got runnerRow
-	d.until("/api/runners", manage, 20*time.Second, func(b []byte) bool {
+	d.until("/api/runners", manage, wait, func(b []byte) bool {
 		var rows []runnerRow
 		if json.Unmarshal(b, &rows) != nil || len(rows) != 1 {
 			return false
@@ -377,6 +415,21 @@ func TestAForeignRunnerLeavesTheRigBusy(t *testing.T) {
 	}
 }
 
+// realRunnerWait is how long a test waits for the real flyball-runner to
+// come up (or to exit on its own): 60 s, for a slow ARM board, where it
+// takes ~20 s; FLYBALL_TEST_RUNNER_WAIT (a Go duration) overrides it.
+func realRunnerWait(t *testing.T) time.Duration {
+	t.Helper()
+	if s := os.Getenv("FLYBALL_TEST_RUNNER_WAIT"); s != "" {
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			t.Fatalf("FLYBALL_TEST_RUNNER_WAIT=%q: %v", s, err)
+		}
+		return d
+	}
+	return 60 * time.Second
+}
+
 // The real flyball-runner (examples/simulated/oven.yaml) outlives a
 // SIGTERM'd flyballd and is adopted by the next one: the same pid,
 // reachable through the front.
@@ -394,8 +447,9 @@ func TestRealRunnerIsAdopted(t *testing.T) {
 	t.Cleanup(func() { killRunners(t, dir) })
 	d1 := spawnDaemon(t, dir, cfg)
 	manage := d1.token("manage")
-	first := row(t, d1.testDaemon, manage, func(r runnerRow) bool { return r.Status == "running" && r.Pid != 0 })
-	d1.until("/oven/api/runner", "", 30*time.Second, nil)
+	wait := realRunnerWait(t)
+	first := rowWithin(t, d1.testDaemon, manage, wait, func(r runnerRow) bool { return r.Status == "running" && r.Pid != 0 })
+	d1.until("/oven/api/runner", "", wait, nil)
 	d1.cmd.Process.Signal(syscall.SIGTERM)
 	d1.exit(t)
 	time.Sleep(500 * time.Millisecond)
@@ -404,11 +458,11 @@ func TestRealRunnerIsAdopted(t *testing.T) {
 	}
 
 	d2 := spawnDaemon(t, dir, cfg)
-	r := row(t, d2.testDaemon, manage, func(r runnerRow) bool { return r.Status == "running" })
+	r := rowWithin(t, d2.testDaemon, manage, wait, func(r runnerRow) bool { return r.Status == "running" })
 	if !r.Adopted || r.Pid != first.Pid {
 		t.Fatalf("/api/runners: %+v, want adopted, pid %d\n%s", r, first.Pid, d2.logs)
 	}
-	body := d2.until("/oven/api/runner", "", 10*time.Second, nil)
+	body := d2.until("/oven/api/runner", "", wait, nil)
 	t.Logf("adopted pid %d; /oven/api/runner through the new front: %.120s", r.Pid, body)
 }
 
@@ -434,24 +488,23 @@ func TestWithNoRuntimeDirTheRunnerIsNotAdopted(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(tmp) })
+	// Registered before any runner starts, so a failure anywhere below
+	// still ends it (it outlives flyballd, and no runtime dir lists it):
+	// whatever holds a runner.lock under the temp front-dirs.
+	t.Cleanup(func() { killRunnersUnder(tmp) })
 	t.Setenv("TMPDIR", tmp)
 	d1 := spawnDaemon(t, dir, cfg)
 	if !strings.Contains(d1.logs.String(), "is not adopted") || !strings.Contains(d1.logs.String(), "busy") {
 		t.Errorf("flyballd with no runtime dir did not say its runners will not be adopted:\n%s", d1.logs)
 	}
 	manage := d1.token("manage")
-	first := row(t, d1.testDaemon, manage, func(r runnerRow) bool { return r.Status == "running" && r.Pid != 0 })
-	t.Cleanup(func() {
-		syscall.Kill(first.Pid, syscall.SIGTERM)
-		for end := time.Now().Add(10 * time.Second); alive(first.Pid) && time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
-		}
-		syscall.Kill(first.Pid, syscall.SIGKILL)
-	})
+	wait := realRunnerWait(t)
+	first := rowWithin(t, d1.testDaemon, manage, wait, func(r runnerRow) bool { return r.Status == "running" && r.Pid != 0 })
 	d1.cmd.Process.Signal(syscall.SIGKILL)
 	d1.exit(t)
 
 	d2 := spawnDaemon(t, dir, cfg)
-	r := row(t, d2.testDaemon, manage, func(r runnerRow) bool { return r.Status == "busy" })
+	r := rowWithin(t, d2.testDaemon, manage, wait, func(r runnerRow) bool { return r.Status == "busy" })
 	if r.Adopted || !strings.Contains(r.Reason, "exit 3") || !alive(first.Pid) {
 		t.Fatalf("/api/runners: %+v, want busy on exit 3, the first runner (pid %d) alive and not adopted", r, first.Pid)
 	}
@@ -509,13 +562,14 @@ func TestStopAllsAgainstRealRunners(t *testing.T) {
 	d := spawnDaemon(t, dir, cfg)
 	manage, operate := d.token("manage"), d.token("operate")
 	var rows []runnerRow
-	d.until("/api/runners", manage, 60*time.Second, func(b []byte) bool {
+	wait := realRunnerWait(t)
+	d.until("/api/runners", manage, wait, func(b []byte) bool {
 		rows = nil
 		json.Unmarshal(b, &rows)
 		return len(rows) == 2 && rows[0].Status == "running" && rows[1].Status == "running" && rows[0].Pid != 0 && rows[1].Pid != 0
 	})
 	for _, name := range []string{"oven", "chiller"} {
-		d.until("/"+name+"/api/runner", "", 30*time.Second, nil)
+		d.until("/"+name+"/api/runner", "", wait, nil)
 	}
 
 	code, out := cli(t, flyball, d.addr, "--token", operate, "stop", "--all", "--reason", "D-037 test")
