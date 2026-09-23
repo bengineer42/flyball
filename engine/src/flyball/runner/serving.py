@@ -191,6 +191,10 @@ def serve(
     set_retention(retention)
     if retention is not None:
         retention.start()
+    from flyball.interfaces.server.deps import current_stopper
+    from flyball.runner.stopping import install_break_glass
+
+    install_break_glass(current_stopper)  # SIGUSR1: stop the rig, without exiting
     previous = _terminate_as_interrupt()
     try:
         server.run()
