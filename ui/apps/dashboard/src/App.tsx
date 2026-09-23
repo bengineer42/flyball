@@ -1,4 +1,4 @@
-import { createContext, lazy, memo, Suspense, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Component, createContext, lazy, memo, Suspense, useCallback, useContext, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import { Alert, Typography } from "@mui/material";
 import { ExposureBanner, LinksProvider, WaitPrompt, countRender, useWaits, useDevices, useRecording, useEvents, useUnreadEvents, useQuery, useRig, useSimulation, useStreamStatus, useNowS, useTelemetry, usePlayback, type PlaybackHook, type YScale } from "@flyball/react";
 import { RigError, type DeviceOut, type RigEvent, deviceTitle, signalTitle, signalsOf } from "@flyball/client";
@@ -136,6 +136,33 @@ function PageFallback() {
   );
 }
 
+/**
+ * `<Shell>`'s app bar (status chips, `StopButton`) and drawer live above this, as a sibling of
+ * `children`, not a descendant -- but React 18 unmounts the whole root on an uncaught render
+ * error regardless of that layout, unless something between the failing component and the root
+ * catches it first. This is that boundary: a page that throws is replaced in place, and the app
+ * bar (with the stop button) stays mounted and usable. Keyed on `page` so navigating away from a
+ * crashed page (the nav and app bar are unaffected by the crash, so that navigation still works)
+ * gives the next page a fresh mount rather than reusing the caught error state.
+ */
+class PageBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  override state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  override componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("page failed", error, info.componentStack);
+  }
+  override render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <Alert severity="error" sx={{ m: 3 }}>
+        This page failed to render ({this.state.error.message}). Pick another page from the sidebar, or reload.
+      </Alert>
+    );
+  }
+}
+
 /** A program waiting on a person shows on every page: nobody should have to go looking for the Go button. */
 function Waits() {
   const waits = useWaits();
@@ -179,8 +206,9 @@ function SessionsPage({ name, navigate }: { name: string | null; navigate: (page
  */
 export function App({ onSignIn }: { onSignIn(): void }) {
   countRender("App");
+  const authInfo = useAuth().info;
   // Open to the network, or moved to loopback for want of a password: said on every page, never dismissed.
-  const exposure = useAuth().info?.exposure;
+  const exposure = authInfo?.exposure;
   const [route, navigate] = useRoute();
   const { page, name, params } = route;
   // A bare `#/` opens the home dashboard when one is set; the Overview stays a click away.
@@ -243,6 +271,17 @@ export function App({ onSignIn }: { onSignIn(): void }) {
           </Typography>
         </>
       );
+    // A signed-in caller with no `read` verb (a proxy identity mapped to nothing, say): the rig is
+    // reachable, this caller just is not allowed to see it. "Cannot reach the rig" would be a lie.
+    if (devices.error instanceof RigError && devices.error.status === 403 && authInfo?.user)
+      return (
+        <>
+          {settler}
+          <Alert severity="warning" sx={{ m: 3 }}>
+            Signed in as {authInfo.user.name}, but without permission to view this rig.
+          </Alert>
+        </>
+      );
     return (
       <>
         {settler}
@@ -302,30 +341,32 @@ export function App({ onSignIn }: { onSignIn(): void }) {
                   ) : undefined
                 }
               >
-                <ExposureBanner exposure={exposure} />
-                <Waits />
-                <Suspense fallback={<PageFallback />}>
-                  {page === "overview" && <Overview devices={all} onOpen={navigate} {...charts} />}
-                  {page === "dashboards" && <DashboardsPage name={name} generated={"generated" in params} devices={all} onOpen={openDashboard} {...charts} />}
-                  {page === "inputs" && name === null && <Inputs devices={all} {...charts} />}
-                  {page === "inputs" && name !== null && <SignalDetail devices={all} address={name} {...charts} />}
-                  {page === "graph" && <Graph devices={all} {...charts} />}
-                  {page === "devices" && name === null && <Inputs devices={all} {...charts} />}
-                  {page === "devices" && name !== null && <DevicePage devices={all} name={name} {...charts} />}
-                  {page === "rig" && <RigPage />}
-                  {page === "controllers" && <Controllers devices={all} name={name} {...charts} />}
-                  {page === "programs" && <ProgramsPage name={name} navigate={navigate} />}
-                  {page === "events" && (
-                    <EventsPage
-                      level={params.level}
-                      unread={unreadEvents.unread}
-                      onMarkRead={unreadEvents.markRead}
-                      onMarkAllRead={unreadEvents.markAllRead}
-                    />
-                  )}
-                  {page === "sessions" && <SessionsPage name={name} navigate={navigate} />}
-                  {page === "simulation" && <SimulationPage devices={all} playback={playback} />}
-                </Suspense>
+                <PageBoundary key={page}>
+                  <ExposureBanner exposure={exposure} />
+                  <Waits />
+                  <Suspense fallback={<PageFallback />}>
+                    {page === "overview" && <Overview devices={all} onOpen={navigate} {...charts} />}
+                    {page === "dashboards" && <DashboardsPage name={name} generated={"generated" in params} devices={all} onOpen={openDashboard} {...charts} />}
+                    {page === "inputs" && name === null && <Inputs devices={all} {...charts} />}
+                    {page === "inputs" && name !== null && <SignalDetail devices={all} address={name} {...charts} />}
+                    {page === "graph" && <Graph devices={all} {...charts} />}
+                    {page === "devices" && name === null && <Inputs devices={all} {...charts} />}
+                    {page === "devices" && name !== null && <DevicePage devices={all} name={name} {...charts} />}
+                    {page === "rig" && <RigPage />}
+                    {page === "controllers" && <Controllers devices={all} name={name} {...charts} />}
+                    {page === "programs" && <ProgramsPage name={name} navigate={navigate} />}
+                    {page === "events" && (
+                      <EventsPage
+                        level={params.level}
+                        unread={unreadEvents.unread}
+                        onMarkRead={unreadEvents.markRead}
+                        onMarkAllRead={unreadEvents.markAllRead}
+                      />
+                    )}
+                    {page === "sessions" && <SessionsPage name={name} navigate={navigate} />}
+                    {page === "simulation" && <SimulationPage devices={all} playback={playback} />}
+                  </Suspense>
+                </PageBoundary>
               </Shell>
             )}
           </SimulatedContext.Consumer>

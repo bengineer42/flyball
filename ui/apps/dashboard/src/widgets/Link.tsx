@@ -3,15 +3,20 @@ import { Button } from "@mui/material";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { PAGES, hashFor, type Page } from "../router.js";
 import { PAGE_ICONS } from "../icons.js";
+import { isSafeHref } from "./markdown.js";
 import type { WidgetKind, WidgetComponentProps } from "./types.js";
 
 const LinkWidget = memo(function LinkWidget({ config }: WidgetComponentProps) {
   const page = String(config.page ?? "overview");
   const name = String(config.name ?? "").trim();
   const external = page === "url";
-  const href = external ? String(config.url ?? "") : hashFor(page as Page, name || null);
+  // `hashFor` builds this app's own hash links (always safe); an "a URL" link is an operator-supplied
+  // string from a stored dashboard config, so it goes through the same scheme allow-list as the
+  // Markdown widget's links before it ever reaches an `href`.
+  const rawHref = external ? String(config.url ?? "") : hashFor(page as Page, name || null);
+  const href = external && rawHref && !isSafeHref(rawHref) ? "" : rawHref;
   const Icon = external ? OpenInNewIcon : PAGE_ICONS[page as Page] ?? OpenInNewIcon;
-  const label = String(config.label ?? "").trim() || (external ? href : `${PAGES.find((p) => p.id === page)?.label ?? page}${name ? ` › ${name}` : ""}`);
+  const label = String(config.label ?? "").trim() || (external ? rawHref : `${PAGES.find((p) => p.id === page)?.label ?? page}${name ? ` › ${name}` : ""}`);
   return (
     <Button
       component="a"
@@ -41,7 +46,7 @@ export const link: WidgetKind = {
     properties: {
       page: { type: "string", title: "Page", default: "overview", oneOf: [...PAGES.map((p) => ({ const: p.id, title: p.label })), { const: "url", title: "a URL" }] },
       name: { type: "string", title: "Name", default: "", description: "The thing on that page (a device or program name, a signal's or controller's address, a session id); blank for the list." },
-      url: { type: "string", title: "URL", default: "", description: "When the page is \"a URL\"." },
+      url: { type: "string", title: "URL", default: "", description: "When the page is \"a URL\".", pattern: "^$|^(https?:|mailto:|#|/)" },
       label: { type: "string", title: "Label", default: "", description: "Blank: the page and name." },
       variant: { type: "string", title: "Look", default: "outlined", enum: ["outlined", "text"] },
     },

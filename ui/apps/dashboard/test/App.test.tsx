@@ -13,6 +13,13 @@ vi.mock("uplot", () => ({
     destroy() {}
   },
 }));
+// F3: a page that throws during render must not take the app bar (and the stop button) down with
+// it. The Overview page (the default route) is swapped for one that always throws.
+vi.mock("../src/pages/Overview.js", () => ({
+  Overview: () => {
+    throw new Error("boom from Overview");
+  },
+}));
 import { RigProvider } from "@flyball/react";
 import type { AuthInfo, Request, Response, Transport } from "@flyball/client";
 import { AuthProvider } from "../src/auth.js";
@@ -99,5 +106,32 @@ describe("App: the runner starting", () => {
     withProviders(OPERATOR, () => ({ status: 500, json: { detail: "boom" } }));
     await waitFor(() => expect(screen.getByText(/cannot reach the rig/i)).toBeTruthy());
     expect(screen.queryByText(/^starting/i)).toBeNull();
+  });
+
+  it("a 403 for a signed-in caller says they lack permission, not that the rig is unreachable (F5)", async () => {
+    const PROXY_VIEWER: AuthInfo = {
+      v: 2,
+      shape: "proxy",
+      scheme: "proxy",
+      user: { id: "proxy:example.com#bob", name: "bob", kind: "human" },
+      verbs: [],
+      anonymous: "none",
+      login: { password: false, token: false, passkey: false, sso: null },
+    };
+    withProviders(PROXY_VIEWER, () => ({ status: 403, json: { detail: "no read verb" } }));
+    await waitFor(() => expect(screen.getByText(/without permission to view this rig/i)).toBeTruthy());
+    expect(screen.getByText(/bob/)).toBeTruthy();
+    expect(screen.queryByText(/cannot reach the rig/i)).toBeNull();
+  });
+});
+
+describe("App: a page that throws during render (F3)", () => {
+  it("keeps the app bar and the stop button mounted instead of unmounting the whole root", async () => {
+    withProviders(OPERATOR, () => ({ status: 200, json: [] }));
+    // Before the fix, React 18 unmounts the whole root on an uncaught render error: the stop
+    // button (inside the same tree as the page) would disappear along with the crashed page.
+    await waitFor(() => expect(screen.getByTestId("stop-button")).toBeTruthy());
+    expect(screen.getByText(/failed to render/i)).toBeTruthy();
+    expect(screen.getByText(/boom from Overview/)).toBeTruthy();
   });
 });

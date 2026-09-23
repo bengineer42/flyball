@@ -76,7 +76,7 @@ const BARE_ANONYMOUS: AuthInfo = {
 };
 
 function Probe() {
-  const { info, canOperate, signedIn, mustSignIn, open, versionMismatch, login, error } = useAuth();
+  const { info, canOperate, signedIn, mustSignIn, open, versionMismatch, login, error, epoch, refresh } = useAuth();
   return (
     <div>
       <span data-testid="canOperate">{String(canOperate)}</span>
@@ -86,8 +86,12 @@ function Probe() {
       <span data-testid="versionMismatch">{String(versionMismatch)}</span>
       <span data-testid="scheme">{info?.scheme ?? "none"}</span>
       <span data-testid="error">{error ?? ""}</span>
+      <span data-testid="epoch">{epoch}</span>
       <button data-testid="do-login" onClick={() => void login("secret")}>
         login
+      </button>
+      <button data-testid="do-refresh" onClick={() => void refresh()}>
+        refresh
       </button>
     </div>
   );
@@ -187,6 +191,37 @@ describe("v !== 2: a version this client does not understand", () => {
   it("versionMismatch is false once the front and this client agree", async () => {
     await renderWith(OPERATOR_SESSION);
     expect(screen.getByTestId("versionMismatch").textContent).toBe("false");
+  });
+});
+
+describe("refresh bumps epoch when /api/auth answers a different identity (F1)", () => {
+  it("an out-of-band revocation (session -> anonymous-read) bumps epoch, so RigProvider rebuilds and streams reopen", async () => {
+    const { transport } = await renderWith(OPERATOR_SESSION);
+    const epochBefore = screen.getByTestId("epoch").textContent;
+    // The revocation itself: the next /api/auth answer is anonymous-read, not the signed-in session --
+    // exactly what a logout from another tab, a `flyball` revocation or expiry produces.
+    const revoked: AuthInfo = { ...READ_ONLY_SESSION, scheme: "anonymous", user: null };
+    transport.request = async (request: Request) => {
+      if (request.method === "GET" && request.path === "/api/auth") return { status: 200, json: revoked };
+      return { status: 404, json: undefined };
+    };
+    await act(async () => {
+      screen.getByTestId("do-refresh").click();
+    });
+    await waitFor(() => expect(screen.getByTestId("scheme").textContent).toBe("anonymous"));
+    // Before the fix, refresh() only ever called setInfo -- epoch (and so <RigProvider>'s TelemetryStore)
+    // never moved, leaving every socket entry held under the old, now-revoked identity.
+    expect(screen.getByTestId("epoch").textContent).not.toBe(epochBefore);
+  });
+
+  it("a refresh that repeats the same identity does not bump epoch (no spurious remounts on every poll)", async () => {
+    await renderWith(OPERATOR_SESSION);
+    const epochBefore = screen.getByTestId("epoch").textContent;
+    await act(async () => {
+      screen.getByTestId("do-refresh").click();
+    });
+    await waitFor(() => expect(screen.getByTestId("scheme").textContent).toBe(OPERATOR_SESSION.scheme));
+    expect(screen.getByTestId("epoch").textContent).toBe(epochBefore);
   });
 });
 
