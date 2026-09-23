@@ -313,7 +313,7 @@ class Programmer:
                 self._interrupted = None
 
     def _apply(self, command: Step) -> Activity | None:
-        """Apply one step under the rig's lock.
+        """Apply one step: under the rig's lock, unless the step takes it itself (`locked`).
 
         Returns:
             The activity to wait out before the next step, or `None` to move
@@ -329,7 +329,10 @@ class Programmer:
             f"step {step + 1}/{len(program) if program is not None else '?'}: {command.tag}",
             {"step": step, "command": command.tag},
         )
-        with self.rig.lock:
+        if command.locked:
+            with self.rig.lock:
+                activity = command.run(self.rig, self.operator)
+        else:
             activity = command.run(self.rig, self.operator)
         with self.lock:
             self._activity = activity

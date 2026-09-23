@@ -47,7 +47,8 @@ check in `DeviceEntry.build`) keeps the import direction one-way: `entry` ->
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+import threading
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from typing import Any, ClassVar, get_type_hints
@@ -57,6 +58,7 @@ from pydantic import Field
 from flyball.model.config import Config
 
 from ..router.router import Router
+from ..time.clock import Clock
 from .building import _inputs, _last_of, _Leaf, _leaves, _link_params, _setter
 from .commands import RESERVED_NAMES, CommandSpec, _check_command_signature, _schemable, command
 from .conditions import Conditions
@@ -154,6 +156,14 @@ class Staged(dict[Signal, float]):
         self._all = False
 
 
+_WALL = Clock()
+
+
+def _wall_clock() -> Clock:
+    """A device's clock before a rig adds it: wall time."""
+    return _WALL
+
+
 def _declared_return(cls: type, prop: str) -> Any:
     """The return annotation of `cls`'s own `prop` property; None if not overridden here."""
     attr = cls.__dict__.get(prop)
@@ -220,6 +230,13 @@ class Device:
     conditions: Conditions
     """Where this device's conditions live: its own until a rig adds it (which takes what it
     holds), then the rig's. A driver uses `set_condition` / `clear_condition`."""
+    clock_source: Callable[[], Clock]
+    """The clock a long command waits on: wall time until a rig adds the device, then the
+    rig's, whatever it is swapped for (a sim's scaled or stepped clock)."""
+    cancelling: threading.Event
+    """Set by [cancel][flyball.foundation.device.device.Device.cancel] to end a long
+    command's [wait][flyball.foundation.device.device.Device.wait]; the rig clears it when
+    it starts one."""
     config_type: ClassVar[type[DriverConfig[Any]]]
     commands: dict[str, CommandSpec] = {}  # ruff: ignore[mutable-class-default]  the class's; an instance copies and extends
     """Every command, by name: the class's, plus a synthesised `set_<path>` for each demand of a
@@ -233,6 +250,8 @@ class Device:
         self.written = {}
         self.router = Router()
         self.conditions = Conditions(now_ns=lambda: self.router.now_ns())
+        self.clock_source = _wall_clock
+        self.cancelling = threading.Event()
         self._extended = False
         self._batch: dict[Signal, Value] | None = None
         self.bind(self.TREE)
@@ -273,6 +292,28 @@ class Device:
     def held_conditions(self) -> list[Condition]:
         """What is held now on this device and on its signals, in the order raised."""
         return [c for owner in (self, *self.signals.values()) for c in self.conditions.of(owner)]
+
+    # endregion
+
+    # region Long commands
+
+    def wait(self, seconds: float) -> bool:
+        """Wait `seconds` of the rig's time, or until `cancel`: whether it was cancelled.
+
+        What a long command (`@command(long=True)`: a dose, a move) waits on
+        instead of `time.sleep`. The rig runs such a command off its lock, so
+        the device's `stop` can run meanwhile and end the wait at once; on a
+        scaled or stepped clock the wait scales or steps with the rig.
+        """
+        return self.clock_source().wait(self.cancelling, max(0.0, seconds))
+
+    def cancel(self) -> None:
+        """End the long command in progress early: its `wait` returns True at once.
+
+        A `stop` command calls it first. The command's own `finally` still runs,
+        so it leaves the hardware as it would at its normal end.
+        """
+        self.cancelling.set()
 
     # endregion
 

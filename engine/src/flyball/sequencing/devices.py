@@ -7,7 +7,7 @@ here too -- they live on the Simulation tab in the UI, not in this vocabulary.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 from flyball.foundation import AddressNotFoundError, NotFoundError, Operator
 from flyball.foundation.device import Access, Signal
@@ -59,6 +59,8 @@ class RunCommand(Step, tag="command"):
     for its own tag (`"command"`, here), so the device command it should run
     needs a different name.
     """
+
+    locked: ClassVar[bool] = False  # `run_command` takes the rig lock; a long one waits off it
 
     device_command: str
     device: str

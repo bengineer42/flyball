@@ -537,7 +537,11 @@ debounce -- no hand-rolled polling loop.
 A peristaltic pump, PWM-driven DC or a relay: a `dispense(volume_ml)`
 command on top of an existing `pwm_channel` or `gpio_line`, converting a
 volume to a run duration from one calibration point. Always stops the
-pump on the way out, including on an error mid-dispense. Stepper-driven
+pump on the way out, including on an error mid-dispense. A dispense runs
+off the rig lock: polling and control carry on during the dose, and the
+`stop` command cuts the pump at once and ends the dispense, crediting
+`dispensed_ml` with what ran. The dose is timed on the rig's clock, so a
+scaled or stepped sim doses in its own time. Stepper-driven
 pumps (step/direction) aren't supported directly here -- pair a `stepper`
 with your own dispense logic instead.
 
@@ -574,7 +578,9 @@ flagged for. A motorized valve, damper, vent or linear actuator. A
 `move(steps)` command (not `move_to(position)` -- no homing/limit-switch
 story to trust an absolute target against) clocks out a pulse train at
 `steps_per_s`, always leaving the driver safe (direction settled,
-`enable_line` released) even on an error mid-move.
+`enable_line` released) even on an error mid-move. A move runs off the
+rig lock, its gaps between pulses timed on the rig's clock: the `stop`
+command ends it after the pulse in progress and releases `enable_line`.
 
 | field | default | |
 | --- | --- | --- |

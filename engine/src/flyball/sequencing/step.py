@@ -61,6 +61,10 @@ class Step:
 
     tag: ClassVar[str] = ""
     primary: ClassVar[str | None] = None
+    locked: ClassVar[bool] = True
+    """`run` runs under the rig lock, so what the step reads and writes lands between two
+    deliveries. False for a step that takes the lock itself where it needs it: a device
+    command, which may wait (a dose, a move) and must not wait under it."""
 
     def __init_subclass__(
         cls,

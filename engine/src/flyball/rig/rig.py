@@ -26,6 +26,7 @@ from flyball.foundation.device import (
     Access,
     AddressNotFoundError,
     Code,
+    CommandSpec,
     Committable,
     Conditions,
     Device,
@@ -64,6 +65,11 @@ if TYPE_CHECKING:
     from flyball.runtime.recorder import Recorder
 
 log = logging.getLogger("flyball.rig")
+
+
+def _held(lock: RLock) -> bool:
+    """Whether the calling thread holds `lock` (an `RLock`, or a test's wrapper of one)."""
+    return lock._is_owned()  # type: ignore[attr-defined]  # CPython's RLock has no public form
 
 
 class Rig:
@@ -123,6 +129,8 @@ class Rig:
     """The controllers stepped since the outermost delivery began, through every delivery of
     what its commits pushed; None outside one. A controller steps at most once in that chain:
     a commit that pushes back its own measured signal would otherwise step it again, for ever."""
+    _running: dict[Device, str]
+    """The long command each device is running now, off the lock (`@command(long=True)`)."""
     _ignored: set[Signal]
     """Demands whose driver's `commit` did not read them: one event when a signal's demand
     first goes unread, none per demand after, until one is read again."""
@@ -176,6 +184,7 @@ class Rig:
         self._touched = None
         self._stepped = None
         self._ignored = set()
+        self._running = {}
         self.entries = {}
         self.link_entries = {}
         self.files = []
@@ -237,6 +246,7 @@ class Rig:
             signal.bind_limits()  # a limit naming nothing fails here, not at the first demand
         self.claim(device.name, "device", device)
         self.devices[device.name] = device
+        device.clock_source = lambda: self.clock  # its long commands wait on the rig's time
         # What its driver raised before it was added is raised here, on the rig's clock.
         held, device.conditions = device.conditions.items(), self.conditions
         for owner, condition in held:
@@ -314,6 +324,10 @@ class Rig:
         if self._closed:
             return
         self._closed = True
+        with self.lock:
+            running = list(self._running)
+        for device in running:
+            device.cancel()
         self.polling.stop_all()
         for writer in self._writers.values():
             writer.stop()
@@ -1071,6 +1085,8 @@ class Rig:
         if (writer := self._writers.pop(device, None)) is not None:
             writer.stop(join=False)  # a write in flight lands in `written`, which drops it
         self.release(device.name)
+        if device in self._running:
+            device.cancel()  # its long command ends early; what it pushes after goes nowhere
         device.router = Router()
         device.conditions = Conditions(now_ns=lambda: device.router.now_ns())
 
@@ -1142,7 +1158,10 @@ class Rig:
         what drives the device -- one with a `mode`, or a linked argument --
         is refused while a controller drives one of the device's demands,
         unless it `interrupts`: then the controller is put into manual first,
-        with an event. The method runs under the rig lock; afterwards the
+        with an event. The method runs under the rig lock -- unless it is
+        `long` (a dose, a move): then only the checks do, the method runs off
+        the lock, so polling, deliveries and the device's `stop` carry on, and
+        the rig re-enters the lock after it. Afterwards the
         device's `mode` output (if it has one) becomes the command's, a
         `commit=True` command commits the device, each linked demand the
         driver did not push gets its argument as its reading, and
@@ -1150,7 +1169,9 @@ class Rig:
 
         Raises:
             NotFoundError: No such command.
-            ConflictError: A controller drives the device.
+            ConflictError: A controller drives the device; or a long command
+                while the device runs another, or while the caller holds the
+                rig lock (it would wait under it).
             NotReadyError: A linked argument was left out and its demand has
                 no value yet.
             LimitNotKnownError: A linked argument's demand has a limit that
@@ -1166,66 +1187,131 @@ class Rig:
         if spec.demand_of is not None:
             signal = device.signals[spec.demand_of]
             return self.write(signal.node, {signal: given["value"]})
+        if spec.long and _held(self.lock):
+            raise ConflictError(
+                f"{device.name}.{command} waits: it cannot run while the rig lock is held"
+            )
         with self.lock:
-            linked: dict[str, Signal] = {}
-            for name, param in spec.params.items():
-                if param.link is None:
-                    continue
-                signal = linked[name] = device.signals[param.link]
-                if name not in given:
-                    given[name] = self.router.value(signal)
-                elif isinstance(given[name], (int, float)):
-                    given[name] = signal.clamp(float(given[name]))
-            drives = spec.mode is not None or any(s.role is Role.DEMAND for s in linked.values())
-            if drives:
-                # It changes what drives the device: not while a controller does.
-                # A setting (a blend flow) is not what a controller drives.
-                for signal in device.signals.values():
-                    holder = self.controllers.driving(signal)
-                    if holder is None or not holder.mode.active():
-                        continue
-                    if not spec.interrupts:
-                        raise ConflictError(
-                            f"'{signal.address}' is driven by controller {holder.name!r}:"
-                            f" {command!r} would fight it; put it in manual, or detach it"
-                        )
-                    holder.manual()
-                    self.event(
-                        Severity.INFO,
-                        Scope.CONTROLLER,
-                        holder.name,
-                        Code.INTERRUPTED,
-                        f"put in manual by {device.name}.{command}",
-                    )
-                    if self.controller_states.watched:
-                        self.controller_states.set(holder.name, holder.state)
-            time_ns = self.clock.now_ns()
-            outer = self._touched
-            if outer is None:
-                self._touched = {}
+            linked = self._command_checks(device, spec, command, given)
+            if not spec.long:
+                return self._run_locked(device, spec, command, given, linked)
+            if (running := self._running.get(device)) is not None:
+                raise ConflictError(
+                    f"'{device.name}' is running {running!r}: stop it, or wait for it to end"
+                )
+            self._running[device] = command
+            device.cancelling.clear()
             before = dict(self.router.seq)
+        try:
+            result = spec.method(device, **given)
+        finally:
+            with self.lock:
+                self._running.pop(device, None)
+        with self.lock:
+            if self.devices.get(device.name) is not device:
+                return result  # removed while it ran: nothing of it is the rig's any more
+            self._touched = {}
             try:
-                result = spec.method(device, **given)
-                if spec.mode is not None and (mode := device.signals.get("mode")) is not None:
-                    mode.push(spec.mode, time_ns)
-                for name, signal in linked.items():
-                    if self.router.seq.get(signal, 0) == before.get(signal, 0):  # no readback
-                        signal.push(given[name], time_ns)
-                if (last := device.signals.get(f"last.{command}")) is not None:
-                    last.push({"args": given, "at": time_ns}, time_ns)
-                if spec.commit:
-                    if outer is not None:
-                        outer[device] = None
-                    else:
-                        states = self._commit((device,), time_ns)
-                        if states and self.recorder is not None:
-                            self.recorder.record((), (), states, time_ns=time_ns)
+                self._command_ran(
+                    device, spec, command, given, linked, before, self.clock.now_ns(), outer=None
+                )
             finally:
-                if outer is None:
-                    self._touched = None
+                self._touched = None
+            self._flush_pushed()
+        return result
+
+    def _command_checks(
+        self, device: Device, spec: CommandSpec, command: str, given: dict[str, Any]
+    ) -> dict[str, Signal]:
+        """Fill and clamp the linked arguments; refuse, or take over from, a driving controller.
+
+        Under the lock. Returns the linked arguments' signals, by argument.
+        """
+        linked: dict[str, Signal] = {}
+        for name, param in spec.params.items():
+            if param.link is None:
+                continue
+            signal = linked[name] = device.signals[param.link]
+            if name not in given:
+                given[name] = self.router.value(signal)
+            elif isinstance(given[name], (int, float)):
+                given[name] = signal.clamp(float(given[name]))
+        drives = spec.mode is not None or any(s.role is Role.DEMAND for s in linked.values())
+        if drives:
+            # It changes what drives the device: not while a controller does.
+            # A setting (a blend flow) is not what a controller drives.
+            for signal in device.signals.values():
+                holder = self.controllers.driving(signal)
+                if holder is None or not holder.mode.active():
+                    continue
+                if not spec.interrupts:
+                    raise ConflictError(
+                        f"'{signal.address}' is driven by controller {holder.name!r}:"
+                        f" {command!r} would fight it; put it in manual, or detach it"
+                    )
+                holder.manual()
+                self.event(
+                    Severity.INFO,
+                    Scope.CONTROLLER,
+                    holder.name,
+                    Code.INTERRUPTED,
+                    f"put in manual by {device.name}.{command}",
+                )
+                if self.controller_states.watched:
+                    self.controller_states.set(holder.name, holder.state)
+        return linked
+
+    def _run_locked(
+        self,
+        device: Device,
+        spec: CommandSpec,
+        command: str,
+        given: dict[str, Any],
+        linked: Mapping[str, Signal],
+    ) -> Any:
+        """A command that does not wait: the method and what follows it, under the lock."""
+        outer = self._touched
+        if outer is None:
+            self._touched = {}
+        time_ns = self.clock.now_ns()
+        before = dict(self.router.seq)
+        try:
+            result = spec.method(device, **given)
+            self._command_ran(device, spec, command, given, linked, before, time_ns, outer=outer)
+        finally:
             if outer is None:
-                self._flush_pushed()
-            return result
+                self._touched = None
+        if outer is None:
+            self._flush_pushed()
+        return result
+
+    def _command_ran(
+        self,
+        device: Device,
+        spec: CommandSpec,
+        command: str,
+        given: Mapping[str, Any],
+        linked: Mapping[str, Signal],
+        before: Mapping[Signal, int],
+        time_ns: int,
+        *,
+        outer: dict[Device, None] | None,
+    ) -> None:
+        """After the method: `mode`, the linked readings, `last.<command>`, and the commit."""
+        if spec.mode is not None and (mode := device.signals.get("mode")) is not None:
+            mode.push(spec.mode, time_ns)
+        for name, signal in linked.items():
+            if self.router.seq.get(signal, 0) == before.get(signal, 0):  # no readback
+                signal.push(given[name], time_ns)
+        if (last := device.signals.get(f"last.{command}")) is not None:
+            last.push({"args": dict(given), "at": time_ns}, time_ns)
+        if spec.commit:
+            if outer is not None:
+                outer[device] = None
+            else:
+                states = self._commit((device,), time_ns)
+                if states and self.recorder is not None:
+                    self.recorder.record((), (), states, time_ns=time_ns)
 
     # endregion
 

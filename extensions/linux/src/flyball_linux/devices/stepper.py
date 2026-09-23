@@ -24,11 +24,13 @@ the motor coils) is switched on for the duration of a move and off afterwards, s
 does not sit energised -- and drawing current -- between moves. It is skipped when not
 configured; a driver IC wired enable-always-low needs no line here.
 
-`move(steps)` is synchronous, like `dosing_pump.dispense`: it clocks out `abs(steps)` pulses
-at `steps_per_s`, blocking the caller, and mirrors that module's `finally`-based safety
-guarantee -- whatever happens mid-move (an interrupted sleep, a hardware error from the
-underlying link), the enable line is always switched back off and the direction line is left
-at whatever it was last driven to, never half-toggled.
+`move(steps)` is a long command, like `dosing_pump.dispense`: it clocks out `abs(steps)`
+pulses at `steps_per_s`, blocking its caller, off the rig lock. The gaps between pulses are
+waited on `Device.wait`, in the rig's time, so `stop` (which calls `Device.cancel`) ends the
+move after the pulse in progress. It mirrors that module's `finally`-based safety guarantee
+-- whatever happens mid-move (a stop, a hardware error from the underlying link), the enable
+line is always switched back off and the direction line is left at whatever it was last
+driven to, never half-toggled. The pulse width itself is real time: it is the driver IC's.
 
 `steps_per_unit` is an optional calibration constant (steps per degree, steps per mm of
 linear travel) so `move()` can be called in the rig's own engineering unit instead of raw
@@ -162,13 +164,15 @@ class Stepper(Readable, Committable):
             time.sleep(self.pulse_width_s)
         self.link.set(self.step_line, False)
 
-    @command
+    @command(long=True)
     def move(self, steps: float) -> None:
         """Move `steps` steps (negative reverses direction), or units if `steps_per_unit` is set.
 
-        Direction is set once, then `abs(count)` pulses are clocked at `steps_per_s`. The
-        enable line (if configured) is always switched back off afterwards, and direction is
-        always left at whatever it was last set to -- even if a pulse mid-move raises.
+        Direction is set once, then `abs(count)` pulses are clocked at `steps_per_s`. A
+        `stop` ends the move after the pulse in progress; `position` counts the pulses
+        sent. The enable line (if configured) is always switched back off afterwards, and
+        direction is always left at whatever it was last set to -- even if a pulse mid-move
+        raises.
         """
         count = round(steps if self.steps_per_unit is None else steps * self.steps_per_unit)
         if count == 0:
@@ -182,14 +186,15 @@ class Stepper(Readable, Committable):
             for i in range(n):
                 self._pulse()
                 self._position += 1 if forward else -1
-                if i < n - 1:
-                    time.sleep(max(0.0, interval_s - self.pulse_width_s))
+                if i < n - 1 and self.wait(max(0.0, interval_s - self.pulse_width_s)):
+                    break  # stopped
         finally:
             self._enable(False)
 
     @command
     def stop(self) -> None:
-        """Release the enable line immediately; direction and position are left as they are."""
+        """End a move in progress and release the enable line; direction and position stay."""
+        self.cancel()
         self._enable(False)
 
 
