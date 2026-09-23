@@ -207,14 +207,24 @@ func TestHostRules(t *testing.T) {
 		}
 	})
 	t.Run("password without url", func(t *testing.T) {
+		// A signed-in caller is served by any name; an anonymous reader only
+		// by an IP address, a loopback name or the machine's own (D-043).
 		h := newHarness(t, Config{Auth: "password", Password: testScrypt, Anonymous: "read"})
-		for _, host := range []string{"evil.example", "pi.lab:8000", "192.168.1.20"} {
-			req, _ := http.NewRequest("GET", h.srv.URL+"/api/echo", nil)
-			req.Host = host
-			resp, _ := noRedirect.Do(req)
-			resp.Body.Close()
-			if resp.StatusCode != 200 {
-				t.Errorf("Host %s: %d, want 200", host, resp.StatusCode)
+		cookie := h.login()
+		for host, anon := range map[string]int{"evil.example": 403, "pi.lab:8000": 403, "192.168.1.20": 200, "localhost": 200} {
+			for _, signedIn := range []bool{false, true} {
+				req, _ := http.NewRequest("GET", h.srv.URL+"/api/echo", nil)
+				req.Host = host
+				want := anon
+				if signedIn {
+					req.AddCookie(cookie)
+					want = 200
+				}
+				resp, _ := noRedirect.Do(req)
+				resp.Body.Close()
+				if resp.StatusCode != want {
+					t.Errorf("Host %s (signed in %v): %d, want %d", host, signedIn, resp.StatusCode, want)
+				}
 			}
 		}
 	})
