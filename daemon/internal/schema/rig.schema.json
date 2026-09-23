@@ -358,6 +358,17 @@
           },
           "title": "Inputs",
           "type": "object"
+        },
+        "reads": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reads"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1491,6 +1502,56 @@
       "title": "Rate",
       "type": "object"
     },
+    "Reads": {
+      "additionalProperties": false,
+      "description": "A device's `reads:`: when failed reads put it offline, and how it retries.\n\n`fail_after` reads that raise in a row put the device `offline`; it is\nthen read again after each wait in `backoff_s` in turn, the last one\nrepeating, until a read succeeds. `give_up_after_s` stops the retries\nthat long after `offline` was raised (null: never). A key left out is\nthe runner's `reads:`, then the built-in default.",
+      "properties": {
+        "fail_after": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reads that raise in a row before the device is offline.",
+          "title": "Fail After"
+        },
+        "backoff_s": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seconds between retries while offline, in turn; the last repeats.",
+          "title": "Backoff S"
+        },
+        "give_up_after_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stop retrying this long after the device went offline; null: never.",
+          "title": "Give Up After S"
+        }
+      },
+      "title": "Reads",
+      "type": "object"
+    },
     "RunnerConfig": {
       "additionalProperties": false,
       "description": "The `runner:` section: how the process serves, not what the rig is.\n\nEverything here is fixed for the life of the process and says nothing\nabout the equipment, so it may live in the rig file or in a file of its\nown that layers with it. A command-line flag overrides a value here.\nA path is relative to the first rig file's directory.",
@@ -1634,6 +1695,10 @@
           "title": "Allow Shutdown",
           "type": "boolean"
         },
+        "reads": {
+          "$ref": "#/$defs/RunnerReads",
+          "description": "When failed reads put a device offline, and how it retries; a device's own `reads:` wins."
+        },
         "keep": {
           "default": "1h",
           "description": "How much the scratch record holds while nothing is recorded, in the rig's clock (`1h`, `30m`); `0` keeps none.",
@@ -1673,6 +1738,28 @@
         }
       },
       "title": "RunnerConfig",
+      "type": "object"
+    },
+    "RunnerReads": {
+      "additionalProperties": false,
+      "description": "`runner.reads`: the rig's default for when failed reads put a device offline.\n\nA device's own `reads:` wins key by key. `give_up_after_s` is a device's\nonly: rig-wide, a device retries for ever.",
+      "properties": {
+        "fail_after": {
+          "default": 3,
+          "description": "Reads that raise in a row before a device is offline.",
+          "title": "Fail After",
+          "type": "integer"
+        },
+        "backoff_s": {
+          "description": "Seconds between retries while offline, in turn; the last repeats.",
+          "items": {
+            "type": "number"
+          },
+          "title": "Backoff S",
+          "type": "array"
+        }
+      },
+      "title": "RunnerReads",
       "type": "object"
     },
     "ScheduledConfig": {
@@ -3574,6 +3661,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "ads1115"
               },
@@ -3679,6 +3777,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "bme280"
@@ -3792,6 +3901,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "ccs811"
               },
@@ -3883,6 +4003,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "current_loop"
@@ -3980,6 +4111,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "dosing_pump"
@@ -4099,6 +4241,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "ds18b20"
               },
@@ -4193,6 +4346,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "ezo_do"
               },
@@ -4277,6 +4441,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "ezo_ec"
@@ -4363,6 +4538,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "ezo_orp"
               },
@@ -4448,6 +4634,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "ezo_ph"
               },
@@ -4532,6 +4729,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "gpio_line"
@@ -4662,6 +4870,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "htu21d"
               },
@@ -4753,6 +4972,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "hx711"
@@ -4874,6 +5104,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "i2c_table"
               },
@@ -4979,6 +5220,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "mcp3008"
               },
@@ -5078,6 +5330,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "mcp4725"
@@ -5209,6 +5472,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "mhz19"
               },
@@ -5293,6 +5567,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "modbus"
@@ -5400,6 +5685,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "ms5611"
               },
@@ -5503,6 +5799,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "pulse_counter"
@@ -5623,6 +5930,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "pwm_channel"
@@ -5768,6 +6086,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "pymeasure"
               },
@@ -5868,6 +6197,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "qcodes"
@@ -5982,6 +6322,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "scd30"
               },
@@ -6084,6 +6435,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "scd40"
@@ -6201,6 +6563,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "scpi"
               },
@@ -6301,6 +6674,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "sgp30"
@@ -6416,6 +6800,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "sgp40"
@@ -6535,6 +6930,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "sht31"
               },
@@ -6637,6 +7043,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "sht4x"
               },
@@ -6738,6 +7155,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "sht4x_set"
@@ -6842,6 +7270,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "sim_daq"
               },
@@ -6926,6 +7365,17 @@
                 "title": "Inputs",
                 "type": "object"
               },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "driver": {
                 "const": "sim_drive"
               },
@@ -7009,6 +7459,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "driver": {
                 "const": "stepper"
@@ -7152,6 +7613,17 @@
                 },
                 "title": "Inputs",
                 "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               }
             },
             "not": {
