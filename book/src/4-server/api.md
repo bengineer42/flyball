@@ -56,7 +56,9 @@ one signs in with a passkey instead of the password. All of them need the
 optional `passkeys` extra (`pip install "flyball[web,passkeys]"`); without
 it each answers **501** and `GET /api/auth` reports `passkey: false`. Both
 ceremonies require user verification, so an authenticator that only reports
-user *presence* is refused: 400 registering, 401 signing in. On an open
+user *presence* is refused: 400 registering, 401 signing in. A store that
+cannot be reached is `503` either way, and does not count as a failed sign-in.
+On an open
 runner (no password, no token) every one of them is 409: there is no door for a passkey
 to open. Each `POST` and the `DELETE` acts, so the `Origin` check above applies
 to it as to any other: a page on another site cannot run a ceremony here.

@@ -229,7 +229,9 @@ to any passkey; it is unaffected.) That check runs inside the door, so if
 the store cannot be asked at all -- locked, closed, gone -- the passkey
 session is refused rather than the request failing: you are asked to sign
 in again, by password if need be, instead of every request answering 500.
-The refusal is logged with the underlying error.
+The refusal is logged with the underlying error. Registering or signing in
+while the store cannot be reached is a 503 -- try again -- and a sign-in
+refused that way does not count against your address.
 
 The login challenge is under the same guard as the password login: an
 address that has failed ten times in a minute is refused a new challenge

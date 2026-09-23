@@ -35,7 +35,11 @@ behind a long one wait on the loop, not on worker threads. `async def` is for
 routes and websockets that never reach the store or the rig's lock. The
 same holds for any other slow, blocking work: the login's scrypt hash goes
 to `anyio.to_thread`, at most `Auth.max_hashing` (2) at once, and a login
-past that is `429` rather than a queued thread.
+past that is `429` rather than a queued thread. The door itself reaches the
+store for one thing -- whether a passkey session's credential is still
+registered -- and does it the same way: on a worker thread, holding a slot. The
+passkey routes take their store through a like dependency, since a runner
+without a store keeps its passkeys in memory rather than answering 503.
 
 `server/routes/` is one module per concern, not per device:
 
