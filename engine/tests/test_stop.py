@@ -23,7 +23,7 @@ import pytest
 
 from conftest import TestClient
 from flyball.foundation.device import Access
-from flyball.interfaces.server import create_app, set_programmer, set_rig
+from flyball.interfaces.server import create_app, principal, set_programmer, set_rig
 from flyball.interfaces.server.deps import current_stopper, get_dialect, set_stopper
 from flyball.interfaces.server.dialect import program_from_document
 from flyball.model.controller import ControllerMode
@@ -194,25 +194,41 @@ def counting() -> Iterator[Counting]:
 
 
 def test_stop_needs_operate(monkeypatch, counting):
-    """A read-only caller and a wrong token are refused before the stopper is reached.
+    """Stop needs OPERATE: anonymous is 401, a READ-only principal 403 naming the verb.
 
-    The spec's codes (a READ principal 403, anonymous 401 at the front / 403 at the
-    runner) are the door's, which A5 rewires onto the verb table; today's door refuses
-    both with 401. What this pins is that neither reaches the stop.
+    Neither refusal reaches the stopper; the bearer token (OPERATE) does.
     """
     monkeypatch.delenv("FLYBALL_TOKEN", raising=False)
     app = create_app(AuthConfig(token="s3cret", anonymous="read"))
     with TestClient(app) as http:
+        door = app.state.door
+        reader = principal.mint(
+            door.key,
+            principal.Claims(
+                sub="reader",
+                sid="s1",
+                scp=frozenset({"read"}),
+                kind="human",
+                aud=door.aud,
+                cip="",
+                sch="http",
+                iat=int(time.time()),
+                exp=int(time.time()) + 60,
+            ),
+        )
         assert http.get("/api/health").status_code == 200  # anonymous may read ...
-        read_only = http.post("/api/rig/stop")  # ... and may not stop
+        anonymous = http.post("/api/rig/stop")  # ... and may not stop
+        read_only = http.post("/api/rig/stop", headers={principal.HEADER: reader})
         wrong = http.post("/api/rig/stop", headers={"Authorization": "Bearer nope"})
         assert counting.actors == []
         allowed = http.post("/api/rig/stop", headers={"Authorization": "Bearer s3cret"})
-    assert read_only.status_code in (401, 403), read_only.text
+    assert anonymous.status_code == 401, anonymous.text
+    assert read_only.status_code == 403, read_only.text
+    assert read_only.json()["needed"] == "operate"
     assert wrong.status_code == 401, wrong.text
     assert allowed.status_code == 200, allowed.text
     (actor,) = counting.actors
-    assert actor.via == "http" and actor.kind == "service" and actor.sub == "token"
+    assert actor.via == "http" and actor.kind == "service" and actor.sub == "token:bare"
 
 
 def test_stop_not_rate_limited(counting):
