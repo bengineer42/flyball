@@ -120,15 +120,16 @@ type Manifest struct {
 	// 0700 front-dir) or "tcp" (loopback Host:Port). "" is unix, or tcp on
 	// Windows, where uvicorn has no unix sockets; say tcp explicitly for
 	// a runner in another network namespace.
-	Network string `yaml:"network" json:"network"`
-	Host    string `yaml:"host" json:"host"` // loopback only (default 127.0.0.1); meaningful only for tcp
-	Port    int    `yaml:"port" json:"port"` // required only when the network resolves to tcp
-	// Anonymous is what a caller with no credential gets on this rig at
-	// the front: "none" or "read"; "" follows the daemon's setting.
-	Anonymous string `yaml:"anonymous" json:"anonymous"`
-	RootPath  string `yaml:"root_path" json:"root_path"`
-	Store     string `yaml:"store" json:"store"`
-	Enabled   *bool  `yaml:"enabled" json:"enabled"`
+	Network  string `yaml:"network" json:"network"`
+	Host     string `yaml:"host" json:"host"` // loopback only (default 127.0.0.1); meaningful only for tcp
+	Port     int    `yaml:"port" json:"port"` // required only when the network resolves to tcp
+	RootPath string `yaml:"root_path" json:"root_path"`
+	Store    string `yaml:"store" json:"store"`
+	Enabled  *bool  `yaml:"enabled" json:"enabled"`
+	// RemovedAnonymous catches the manifest's anonymous:, removed: it was
+	// checked and then read by nothing. Set at all, Validate refuses it
+	// and names the front-wide anonymous: in flyballd.yaml.
+	RemovedAnonymous *string `yaml:"anonymous" json:"anonymous,omitempty"`
 	// UvProject, when set, launches flyball-runner via `uv run --project
 	// UvProject flyball-runner ...` instead of execing it bare -- needed
 	// whenever flyball-runner isn't already on flyballd's own $PATH, which
@@ -165,6 +166,9 @@ func (m Manifest) Validate() error {
 	if !namePattern.MatchString(m.Name) {
 		return fmt.Errorf("runner name %q: lower-case letters, digits, - and _ only, up to 64", m.Name)
 	}
+	if m.RemovedAnonymous != nil {
+		return fmt.Errorf("runner %s: anonymous: is not a manifest key: what a caller with no credential may do is set once for every rig, by anonymous: in flyballd.yaml", m.Name)
+	}
 	if m.ServerConfig == "" {
 		return fmt.Errorf("runner %s: server_config is required", m.Name)
 	}
@@ -185,11 +189,6 @@ func (m Manifest) Validate() error {
 	}
 	if m.ResolvedNetwork() == "tcp" && m.Port == 0 {
 		return fmt.Errorf("runner %s: network tcp needs a port", m.Name)
-	}
-	switch m.Anonymous {
-	case "", "none", "read":
-	default:
-		return fmt.Errorf("runner %s: anonymous %q: use none or read", m.Name, m.Anonymous)
 	}
 	if rp := m.RootPath; !rootPathPattern.MatchString(rp) || path.Clean(rp) != rp {
 		return fmt.Errorf("runner %s: root_path %q must be /segments of lower-case letters, digits, - and _, such as /%s", m.Name, rp, m.Name)

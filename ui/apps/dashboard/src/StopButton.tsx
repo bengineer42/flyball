@@ -7,13 +7,12 @@ import { Confirm } from "./Confirm.js";
 import { useAuth } from "./auth.js";
 
 /**
- * Stops the rig for everyone: interrupts any running program, puts every controller in manual and
- * holds every writable device (`POST <root>/api/rig/stop`, WP0-9's `StopReport`). Stop needs
- * `OPERATE` (decided): a caller without it never sees this button at all, so nothing here has to
- * gate rendering a second time the way a disabled control would.
- *
- * `POST /api/rig/stop` answers 501 `{"detail": ...}` until package A8 wires the real stopper --
- * this shows that honestly, as a failure, rather than reporting a stop that did not happen.
+ * Stops the rig for everyone: interrupts any running program and puts every controller in manual
+ * (`POST <root>/api/rig/stop`, answering a `StopReport`). Nothing is written to a device: outputs are
+ * left as they were, and the report's `interim` says so. Stop needs `OPERATE`: a caller without it
+ * never sees this button at all, so nothing here has to gate rendering a second time the way a
+ * disabled control would. A refusal or failure is shown as one, in the server's own words, never as
+ * a stop that happened.
  */
 export function StopButton() {
   const { canOperate } = useAuth();
@@ -30,8 +29,7 @@ export function StopButton() {
       const report = await rig.stopRig();
       setResult({ ok: true, message: report.interim ? "Software stop: controllers to manual; nothing written — outputs left as they were" : "Software stop done" });
     } catch (e) {
-      if (e instanceof RigError && e.status === 501) setResult({ ok: false, message: "Stop is not wired up yet on this runner" });
-      else setResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
+      setResult({ ok: false, message: e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(false);
       setConfirming(false);

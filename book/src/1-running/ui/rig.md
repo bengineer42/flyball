@@ -41,7 +41,8 @@ history and how to reach it from outside the browser:
   mode: each row is that tier's absolute URL, a ready-made
   `claude mcp add --transport http …` line, and (below all three) a client
   config block naming all of them, one copy button each. The config's
-  `headers` carry a `Bearer <token>` placeholder when the door takes a
-  password or a token -- the app never holds one; behind a front, put a
-  named token there (`flyball token create`, [The MCP server](../../4-server/mcp.md#the-token)).
-  With neither, the block carries no headers.
+  `headers` carry a `Bearer <token>` placeholder wherever the door is not
+  the `local` shape -- the app never holds one. Behind a `password` or
+  `proxy` front, put a named token there (`flyball token create`,
+  [The MCP server](../../4-server/mcp.md#the-token)); at a bare runner, its
+  own token. At the `local` shape the block carries no headers.

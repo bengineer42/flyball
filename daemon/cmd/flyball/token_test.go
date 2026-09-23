@@ -18,7 +18,7 @@ func TestTokensPathForRigFile(t *testing.T) {
 	rig := filepath.Join(t.TempDir(), "blender.yaml")
 	os.WriteFile(rig, []byte("devices: {}\n"), 0o644)
 
-	path, err := tokensPathFor(rig)
+	path, err := tokensPathFor(rig, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestTokensPathForDaemonConfig(t *testing.T) {
 	daemonYAML := filepath.Join(dir, "flyballd.yaml")
 	os.WriteFile(daemonYAML, []byte("manifests_dir: manifests\ndata_dir: mydata\n"), 0o644)
 
-	path, err := tokensPathFor(daemonYAML)
+	path, err := tokensPathFor(daemonYAML, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestTokensPathForDaemonConfigWithoutManifestsDir(t *testing.T) {
 	daemonYAML := filepath.Join(dir, "flyballd.yaml")
 	os.WriteFile(daemonYAML, []byte("data_dir: mydata\n"), 0o644)
 
-	path, err := tokensPathFor(daemonYAML)
+	path, err := tokensPathFor(daemonYAML, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestTokenCreateListRevoke(t *testing.T) {
 		t.Fatalf("stdout = %q, want a bare fbt1_ secret", out)
 	}
 
-	path, err := tokensPathFor(rig)
+	path, err := tokensPathFor(rig, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestTokenCreateDefaultsScopeToRead(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	path, _ := tokensPathFor(rig)
+	path, _ := tokensPathFor(rig, false)
 	tokens, err := store.OpenTokens(path, store.TokensOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +211,7 @@ func TestTokenCreateElevatedScopeAddsRead(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	path, _ := tokensPathFor(rig)
+	path, _ := tokensPathFor(rig, false)
 	tokens, err := store.OpenTokens(path, store.TokensOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +248,7 @@ func TestTokenCreateHonoursRigFileTokensConfig(t *testing.T) {
 		}
 	})
 
-	path, err := tokensPathFor(rig)
+	path, err := tokensPathFor(rig, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestTokenCreateFallsBackOnBadTokensConfig(t *testing.T) {
 		t.Errorf("stderr = %q, want a max_lifetime warning", stderr.String())
 	}
 
-	path, err := tokensPathFor(rig)
+	path, err := tokensPathFor(rig, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,5 +315,59 @@ func TestTokenCreateFallsBackOnBadTokensConfig(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].Expires.Sub(list[0].Created) != store.TokenLifetimeDefault {
 		t.Errorf("tokens = %+v, want one token at the built-in default lifetime", list)
+	}
+}
+
+// TestTokensPathForFrontOnlyFlyballdYAML: a flyballd.yaml that sets only
+// the front's keys (listen, auth, password) has none of the daemon's own
+// keys, and was taken for a rig file: the token went into a `flyball run`
+// front-dir no front reads. A file named flyballd.yaml is the daemon's.
+func TestTokensPathForFrontOnlyFlyballdYAML(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	daemonYAML := filepath.Join(t.TempDir(), "flyballd.yaml")
+	os.WriteFile(daemonYAML, []byte("listen: 0.0.0.0:9443\nauth: password\npassword: $scrypt$x\n"), 0o644)
+
+	path, err := tokensPathFor(daemonYAML, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(mustAbs(t, "data"), "front", "tokens.json")
+	if path != want {
+		t.Errorf("path = %q, want %q (the daemon's default data_dir)", path, want)
+	}
+}
+
+// TestTokenDaemonFlag: a daemon config under another name, with only the
+// front's keys, is the daemon's when --daemon says so, for create, list
+// and revoke alike.
+func TestTokenDaemonFlag(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "front.yaml")
+	os.WriteFile(conf, []byte("listen: 0.0.0.0:9443\nauth: password\n"), 0o644)
+	t.Chdir(dir)
+
+	if path, _ := tokensPathFor(conf, false); strings.HasPrefix(path, dir) {
+		t.Fatalf("without --daemon a front-only file under another name is a rig file; got %q", path)
+	}
+	out := captureStdout(t, func() {
+		if err := runTokenCreate([]string{"--name", "ci", "--config", conf, "--daemon"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if strings.TrimSpace(out) == "" {
+		t.Fatal("no secret printed")
+	}
+	want := filepath.Join(dir, "data", "front", "tokens.json")
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("--daemon did not write the daemon's tokens file %s: %v", want, err)
+	}
+	listed := captureStdout(t, func() {
+		if err := runTokenList([]string{"--config", conf, "--daemon"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(listed, "ci") {
+		t.Errorf("token list --daemon: %q", listed)
 	}
 }

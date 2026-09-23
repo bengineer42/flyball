@@ -193,13 +193,17 @@ const MCP_MODES: Array<{ mode: "read" | "author" | "operate"; label: string; ser
 /**
  * `GET /mcp/{read,author,operate}`: this runner's MCP server, one tier per mode (book's mcp.md). Shows each
  * tier's absolute URL, the `claude mcp add` line for it, and a client config block. The browser never holds
- * the runner's token (a login is a cookie), so the block carries a placeholder for it when the runner has one.
+ * a token (a login is a cookie), so the block carries a placeholder for one wherever the door (`info.shape`)
+ * is not `local`: a front's named token, or a bare runner's own.
  */
-function ConnectModelCard() {
+export function ConnectModelCard() {
   const { info } = useAuth();
   const base = pageBase();
   const urls = MCP_MODES.map((m) => ({ ...m, url: `${base}/mcp/${m.mode}` }));
-  const needsToken = Boolean(info && (info.login.token || info.login.password));
+  // Every shape but `local` refuses a caller with no credential, and a model cannot type a password or
+  // pass a proxy's sign-in: it sends a bearer token. Which token is the door's: a front's named token,
+  // or a bare runner's own.
+  const needsToken = Boolean(info && info.shape !== "local");
   const config = {
     mcpServers: Object.fromEntries(
       urls.map((m) => [m.server, { type: "http", url: m.url, ...(needsToken ? { headers: { Authorization: "Bearer <token>" } } : {}) }]),
@@ -229,14 +233,16 @@ function ConnectModelCard() {
         ))}
         <Box>
           <Typography variant="subtitle2">Client config</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
-            {info?.login.token
-              ? "Every server here needs the runner's bearer token (--token), since any of them can drive the rig: put it where <token> is."
-              : info?.login.password
-                ? "This runner has a password but no token, and a model cannot type one: start it with --token as well and put that where <token> is."
-                : "This runner has no password and no token: it is open to anyone who can reach it, so the config below carries no headers."}
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }} data-testid="connect-advice" data-shape={info?.shape}>
+            {!info || info.shape === "local"
+              ? "This rig asks nobody to sign in: it is open to whoever can reach it, so the config below carries no headers."
+              : info.shape === "bare"
+                ? "Every server here needs the runner's bearer token (--token), since any of them can drive the rig: put it where <token> is."
+                : "Every server here needs a named token, since a model cannot sign in as a person does: make one on the rig's host with `flyball token create --name claude --kind agent --config <rig file>` (add `--scope operate` to drive the rig) and put it where <token> is."}
           </Typography>
-          <CopyLine value={JSON.stringify(config, null, 2)} />
+          <Box data-testid="connect-config">
+            <CopyLine value={JSON.stringify(config, null, 2)} />
+          </Box>
         </Box>
       </Stack>
     </Paper>

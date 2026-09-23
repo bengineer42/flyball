@@ -123,7 +123,9 @@ What the app asks for depends on the door in front of the rig
   runner with no token): nothing; there is no sign-in and no chip;
 - **the `password` shape**: a **Sign in** page with one field, the admin
   password;
-- **the `proxy` shape**: the proxy's own login, before the app loads;
+- **the `proxy` shape**: the proxy's own login, before the app loads. A
+  request that reaches the rig without the proxy's sign-in gets a **Sign
+  in** page with no field, saying to open the rig through the proxy;
 - **a bare runner with a token**: the link the runner printed at start
   signs the browser in once; the **Sign in** page also takes the token
   pasted in.
