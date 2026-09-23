@@ -143,6 +143,24 @@ def test_a_stop_signal_runs_the_cleanup(tmp_path, sig):
     assert "Traceback" not in err
 
 
+def test_sighup_is_ignored(tmp_path):
+    # D-038: a dropped terminal (SIGHUP) never stops a runner -- unlike SIGTERM/SIGINT
+    # above, the process must still be alive and serving afterwards.
+    store = tmp_path / "s.sqlite"
+    argv = [str(EXAMPLES / "oven.yaml"), "--port", str(PORT), "--store", str(store), "--record"]
+    with runner(tmp_path, *argv) as proc:
+        _wait_up(proc, PORT)
+        proc.send_signal(signal.SIGHUP)
+        time.sleep(0.5)
+        assert proc.poll() is None, "SIGHUP stopped the runner"
+        assert _get(f"http://127.0.0.1:{PORT}/api/health")["rig"] == "oven"
+        assert _open_sessions(store) != [], "SIGHUP closed the recording session"
+        proc.send_signal(signal.SIGINT)
+        _, err = proc.communicate(timeout=20)
+    assert proc.returncode == 0, err[-2000:]
+    assert "terminal hung up" in err
+
+
 def test_a_second_runner_for_the_same_rig_leaves_the_live_one_alone(tmp_path):
     # Two runners on one rig would drive the same hardware; the second used to close the
     # live runner's recording session and start the rig before its port bind failed.
