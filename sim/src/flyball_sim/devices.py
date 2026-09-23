@@ -424,7 +424,7 @@ class SimDaq(Readable):
         node = self.root if node is None else node
         signals = [self.signals[path] for path in self.ports if node.contains(self.signals[path])]
         if broken := [s.path for s in signals if s in self._broken]:
-            raise HardwareError(f"{self.name}.{broken[0]}: thermocouple open circuit (simulated)")
+            raise HardwareError(f"{self.name}.{broken[0]}: sensor failed (simulated)")
         self._advance(time_ns)
         by_node: dict[Node, dict[Signal, float]] = {}
         for signal in signals:
