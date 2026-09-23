@@ -99,7 +99,7 @@ A runner's `status` (in `GET /api/runners`) follows its process:
 | `running` | answering |
 | `restarting` | it exited, its `restart` policy restarts it, and it is waiting out the backoff: 1 s, doubling to 30 s, back to 1 s once a restart reaches `running` |
 | `stopped` | it exited cleanly on its own, and its `restart` policy says not to restart it |
-| `failed` | it crashed and its `restart` policy says not to restart it, or it could not be started again |
+| `failed` | it crashed and its `restart` policy says not to restart it, it exited 2 (a bad rig file), or it could not be started again |
 
 A manifest's `restart` says what happens when a runner exits on its own:
 
@@ -108,6 +108,11 @@ A manifest's `restart` says what happens when a runner exits on its own:
 | `on-failure` (default) | restarted, after the backoff | `stopped` |
 | `always` | restarted, after the backoff | restarted, after the backoff |
 | `never` | `failed` | `stopped` |
+
+Exit code 2 is never restarted, under any policy: it is `flyball-runner`'s
+code for a rig file that does not validate or a rig that cannot be built
+(and `uv`'s, for a project or command it cannot find), which a restart
+cannot fix. The runner is `failed` until `daemon restart`.
 
 `daemon restart` restarts a runner at once, whatever its exit code, and
 cuts short a crash backoff; a `stopped` or `failed` runner starts again. `daemon stop` sends `SIGTERM`, `SIGKILL`s a

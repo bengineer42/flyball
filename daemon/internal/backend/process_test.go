@@ -309,3 +309,18 @@ func TestLogsAreOwnerOnly(t *testing.T) {
 		t.Errorf("new.log.1 %v, want 0600", m)
 	}
 }
+
+// Exit 2 is flyball-runner's "bad config": the rig file does not validate
+// or the rig cannot be built. Restarting cannot help, so no policy does.
+func TestABadConfigExitIsNotRestarted(t *testing.T) {
+	for _, policy := range []string{RestartOnFailure, RestartAlways} {
+		b := newTestBackend(t, "")
+		spawned := countingCommand(b, `exit 2`)
+		mustStartWith(t, b, "r", policy)
+		eventually(t, "failed", func() bool { return status(b, "r") == StatusFailed })
+		time.Sleep(5 * b.minBackoff)
+		if n := spawned(); n != 1 {
+			t.Errorf("restart: %s started a runner with a bad config %d times", policy, n)
+		}
+	}
+}

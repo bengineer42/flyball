@@ -200,6 +200,12 @@ func (b *ProcessBackend) spawn(rp *runnerProc) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
+// exitBadConfig is flyball-runner's exit code for a rig file that does not
+// validate or a rig that cannot be built (and argparse's, and uv's, for a
+// bad command line or project). Restarting cannot fix it, so under any
+// policy the runner is left failed until someone Restarts it.
+const exitBadConfig = 2
+
 // superviseFrom hands rp to a new supervise() goroutine. b.mu held.
 func (b *ProcessBackend) superviseFrom(rp *runnerProc, cmd *exec.Cmd) {
 	rp.supervising = true
@@ -215,7 +221,7 @@ func (b *ProcessBackend) superviseFrom(rp *runnerProc, cmd *exec.Cmd) {
 //   - neither: the manifest's restart policy -- on-failure (the default)
 //     restarts after a crash, always after any exit, never not at all --
 //     with a backoff, so a runner that dies immediately every time is not
-//     hot-looped.
+//     hot-looped. Exit 2 is never restarted: see exitBadConfig.
 func (b *ProcessBackend) supervise(rp *runnerProc, cmd *exec.Cmd, done chan struct{}) {
 	defer close(done)
 	backoff := b.minBackoff
@@ -233,6 +239,9 @@ func (b *ProcessBackend) supervise(rp *runnerProc, cmd *exec.Cmd, done chan stru
 		if !restart {
 			crashed := err != nil
 			again := rp.policy == RestartAlways || (crashed && rp.policy == RestartOnFailure)
+			if cmd.ProcessState.ExitCode() == exitBadConfig {
+				again = false
+			}
 			if !again {
 				rp.status = StatusStopped
 				if crashed {
