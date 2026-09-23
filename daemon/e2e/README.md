@@ -103,10 +103,12 @@ end-to-end test cannot reach it.
 
 ## Not here yet
 
-- **flyballd restart and runner adoption (D-037).** flyballd is to stop leaving its runners to
-  SIGTERM and to adopt live runners on restart. Nothing here asserts what flyballd's SIGTERM does to
-  its runners; the adoption scenario (restart flyballd, same runner pids, reachable again, no
-  respawn) and `flyball stop --all` / `flyball runners stop --all` are to be added once that lands.
+- **flyballd restart and runner adoption (D-037)** are not in this suite; they are covered in
+  `cmd/flyballd/adopt_test.go` against real `flyballd` processes: `TestSIGTERMLeavesTheRunnerRunning`,
+  `TestSIGINTToFlyballdsGroupLeavesTheRunnerRunning`, `TestARestartedFlyballdAdoptsItsRunner`,
+  `TestASIGKILLedFlyballdsRunnerIsAdopted`, `TestRealRunnerIsAdopted` (the real `flyball-runner`),
+  `TestWithNoRuntimeDirTheRunnerIsNotAdopted`, and `flyball stop --all` / `flyball runners stop
+  --all` in `TestStopAllsAgainstRealRunners`; at unit level in `internal/backend/adopt_test.go`.
 - **A second uid.** Requirement 5's "another uid cannot connect" needs a second account.
 
 ## Fixed since D1
