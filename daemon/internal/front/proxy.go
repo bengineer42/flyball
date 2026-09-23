@@ -198,6 +198,12 @@ func (f *Front) serveProxy(w http.ResponseWriter, r *http.Request, rig Rig) {
 		return
 	}
 	if msg := f.HostRefusal(c, r); msg != "" {
+		if isUpgrade(r) {
+			// Signing in (or a token) is the remedy: 4401, which the UI
+			// takes as "sign in" and does not retry.
+			wsRefuse(w, r, closeSignedOut, "Sign in")
+			return
+		}
 		detail(w, http.StatusForbidden, msg)
 		return
 	}

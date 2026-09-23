@@ -82,7 +82,9 @@ a loopback name or the machine's own name (`hostname`, and
 `<hostname>.local`), never by another DNS name, which a web page elsewhere
 could point at the front (DNS rebinding). Signing in and the dashboard's
 own files answer any name, and a session or a token is served by any
-name. To let anonymous viewers in by a site DNS name, set `url` to it.
+name, so by another name the dashboard shows its sign-in page (`/api/auth`
+reports no verb there, and a socket is closed `4401`). To let anonymous
+viewers in by a site DNS name, set `url` to it.
 
 **`tls: {cert, key}`** has the front serve HTTPS itself from a certificate
 and key file (PEM), TLS 1.2 at least. It re-reads both files at most every

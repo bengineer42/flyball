@@ -50,7 +50,9 @@ backslash or an encoded `.`, `/` or `\` (`400`); a `Host` it does not
 answer to (`403`) -- under `--insecure-open` only an IP address, a loopback
 name, the machine's own (`hostname`, `<hostname>.local`) or `url`'s host, on
 every route, and at a `password` or `proxy` front an anonymous caller is
-held to the same names on the rig's `/api`, `/ws` and `/mcp`; and a request that acts -- any method but `GET`, `HEAD`
+held to the same names on the rig's `/api`, `/ws` and `/mcp` (a websocket
+is closed `4401`, the UI's "sign in"; `GET /api/auth` by another name
+answers `verbs: []` and `anonymous: "none"`, so the UI offers sign-in); and a request that acts -- any method but `GET`, `HEAD`
 and `OPTIONS`, and every websocket -- whose `Origin` is missing, `null` or
 another site's, unless it carries a named token (`403`). A bare runner
 refuses the same `Origin`s (a missing one passes there), and, with no

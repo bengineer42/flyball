@@ -624,6 +624,16 @@ func (f *Front) getInfo(w http.ResponseWriter, r *http.Request, rig *Rig) {
 		f.refuse(w, r, err)
 		return
 	}
+	if f.HostRefusal(c, r) != "" {
+		// By this name the caller gets nothing without a credential (D-043):
+		// say so, and the UI offers sign-in rather than a page it would be
+		// refused.
+		c.Scopes = []string{}
+		info := f.info(c, rig)
+		info.Anonymous = "none"
+		writeJSON(w, http.StatusOK, info)
+		return
+	}
 	writeJSON(w, http.StatusOK, f.info(c, rig))
 }
 
