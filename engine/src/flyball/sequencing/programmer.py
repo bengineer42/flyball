@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from threading import RLock, Thread, current_thread
 from typing import TYPE_CHECKING, Any
 
-from flyball.foundation.device import Level
+from flyball.foundation.device import Kind, Level, Scope
 from flyball.foundation.resource import Operator
 
 from .activities import Prompt
@@ -128,9 +128,9 @@ class Programmer:
         program = self.load(work)
         self.rig.event(
             Level.INFO,
-            "program",
+            Scope.PROGRAM,
             program.name or "program",
-            "started",
+            Kind.STARTED,
             f"{program.name or 'program'}: {len(program)} step{'s' if len(program) != 1 else ''}",
             {"steps": len(program), "commands": [c.tag for c in program]},
         )
@@ -266,10 +266,10 @@ class Programmer:
             program = self._program
             self.rig.event(
                 Level.WARNING,
-                "program",
+                Scope.PROGRAM,
                 f"{program.name if program is not None and program.name else 'program'}"
                 f"[{self._step}]",
-                "step_timed_out",
+                Kind.STEP_TIMED_OUT,
                 f"{command.tag} gave up after {activity.timeout_s} s: {activity.message}",
                 {"command": command.tag, "timeout_s": activity.timeout_s},
             )
@@ -286,9 +286,9 @@ class Programmer:
             program, step = self._program, self._step
         self.rig.event(
             Level.INFO,
-            "program",
+            Scope.PROGRAM,
             f"{program.name if program is not None and program.name else 'program'}[{step}]",
-            "step",
+            Kind.STEP,
             f"step {step + 1}/{len(program) if program is not None else '?'}: {command.tag}",
             {"step": step, "command": command.tag},
         )
@@ -314,9 +314,9 @@ class Programmer:
             self._error = failure
         self.rig.event(
             Level.ERROR,
-            "program",
+            Scope.PROGRAM,
             f"{program.name or 'program'}[{step}]",
-            "step_failed",
+            Kind.STEP_FAILED,
             str(failure),
             {"command": program[step].tag, "error": f"{type(error).__name__}: {error}"},
         )
@@ -328,7 +328,11 @@ class Programmer:
                 return
             error = self._error
             outcome = (
-                "failed" if error is not None else "interrupted" if self._abort else "finished"
+                Kind.FAILED
+                if error is not None
+                else Kind.INTERRUPTED
+                if self._abort
+                else Kind.FINISHED
             )
             self._program = None
             self._activity = None
@@ -345,7 +349,7 @@ class Programmer:
             details["error"] = str(error)
         self.rig.event(
             Level.ERROR if error is not None else Level.INFO,
-            "program",
+            Scope.PROGRAM,
             program.name or "program",
             outcome,
             message,

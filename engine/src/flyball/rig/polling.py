@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from flyball.foundation.device import Condition, Device, Level, Readable, Sample
+from flyball.foundation.device import Condition, Device, Kind, Level, Readable, Sample, Scope
 from flyball.foundation.errors import NotFoundError
 from flyball.foundation.router import Latest
 from flyball.foundation.time import PeriodicLoop
@@ -92,7 +92,7 @@ class Polling:
         # fails its first read on the loop's thread, and that `offline` must
         # land after the clearing, not be wiped by it.
         self._update(device, conditions=())
-        self.rig.event(Level.INFO, "device", name, "restarted", "polling again")
+        self.rig.event(Level.INFO, Scope.DEVICE, name, Kind.RESTARTED, "polling again")
         if period is not None:
             self.start(device, period)
         return self._runs[name]
@@ -160,9 +160,9 @@ class Polling:
             log.exception("delivering %s's samples", device.name)
             self.rig.event(
                 Level.ERROR,
-                "rig",
+                Scope.RIG,
                 device.name,
-                "delivery_failed",
+                Kind.DELIVERY_FAILED,
                 f"{type(error).__name__}: {error}",
                 {"device": device.name},
             )
@@ -187,10 +187,13 @@ class Polling:
             if not self._polled(device):
                 return  # removed while it was being read: nothing to put offline
             offline = Condition(
-                "offline", Level.ERROR, f"{type(error).__name__}: {error}", self.rig.clock.now_ns()
+                Kind.OFFLINE,
+                Level.ERROR,
+                f"{type(error).__name__}: {error}",
+                self.rig.clock.now_ns(),
             )
             self._update(device, running=False, conditions=(offline,))
-            self.rig.event(Level.ERROR, "device", device.name, "offline", offline.message)
+            self.rig.event(Level.ERROR, Scope.DEVICE, device.name, Kind.OFFLINE, offline.message)
             if (loop := self.periodic.get(device.name)) is not None:
                 loop.stop(join=False)  # from inside the loop: it exits after this call
             return
@@ -203,13 +206,13 @@ class Polling:
         took = self.rig.clock.monotonic() - started
         if period is not None and took > period:
             slow = Condition(
-                "slow",
+                Kind.SLOW,
                 Level.WARNING,
                 f"read took {took:.2f} s against a {period} s period",
                 self.rig.clock.now_ns(),
             )
             self._update(device, conditions=(slow,))
-            self.rig.event(Level.WARNING, "device", device.name, "slow", slow.message)
+            self.rig.event(Level.WARNING, Scope.DEVICE, device.name, Kind.SLOW, slow.message)
 
     def _polled(self, device: Device) -> bool:
         """Whether `device` itself is still polled: not removed, nor replaced under its name."""
