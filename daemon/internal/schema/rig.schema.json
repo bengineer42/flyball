@@ -1064,6 +1064,15 @@
       "title": "NoFeedforwardConfig",
       "type": "object"
     },
+    "OnNoValue": {
+      "description": "What a banded signal does when it has no value because of a fault (`invalid`, `stale`).",
+      "enum": [
+        "fire",
+        "ignore"
+      ],
+      "title": "OnNoValue",
+      "type": "string"
+    },
     "OnOffConfig": {
       "additionalProperties": false,
       "properties": {
@@ -2015,6 +2024,18 @@
             }
           ],
           "default": null
+        },
+        "on_no_value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OnNoValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A banded signal with no value because of a fault: fire (band_unknown) or ignore. Default: fire with an alarm band, ignore with only a warning band."
         },
         "tags": {
           "anyOf": [
