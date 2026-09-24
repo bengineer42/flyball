@@ -18,6 +18,7 @@ import math
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum, Flag, StrEnum, auto
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from ..errors import NotFoundError, NotReadyError, UnachievableError
@@ -870,6 +871,10 @@ class Reading:
         return value.reason if isinstance(value, NoValue) else ""
 
 
+_NO_MARKS: Mapping[Any, Limit] = MappingProxyType({})
+"""A sample's `marks` when it has none: one shared, read-only, so a sample costs no dict."""
+
+
 @dataclass(frozen=True, slots=True)
 class Sample:
     """Signals under one node read at one instant: the node's declared tree is the message type.
@@ -891,7 +896,7 @@ class Sample:
     node: Node
     time_ns: int
     values: Mapping[Signal, Value]
-    marks: Mapping[Signal, Limit] = field(default_factory=dict[Signal, Limit])
+    marks: Mapping[Signal, Limit] = _NO_MARKS
 
     @property
     def seconds(self) -> float:

@@ -1163,7 +1163,11 @@ export interface SimulationClock {
 
 /** What the rig last delivered on one signal read off a plant: noise and all, not the model's state. */
 export interface SimulationReading {
+  /** The delivered value. NOTE: `null` when the reading has none (a failed sensor); typed
+   * `number` until the simulation page handles that, like `Point.value`. */
   value: number;
+  /** `ok`, or why there is no value (a failed sensor reads `invalid`). */
+  quality?: Quality;
   unit: string;
   precision: number | null;
   /** The device that read it. */
