@@ -41,6 +41,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`mcp4725`](#mcp4725) | a 0-10 V-class analog control signal (a VFD, a dimmable ballast, a damper) | `i2c` | `flyball-chips` | — |
 | [`stepper`](#stepper) | a step/direction stepper motor: a motorized valve, damper or vent | two `gpio_line`s | `flyball-linux` | — |
 | [`values`](#values) | numbers an operator enters, for other devices' inputs to follow | none | `flyball` | — |
+| [`curve`](#curve) | another device's signal through a calibration curve: volts to NTU, pH, kPa | none (an input) | `flyball` | — |
 | [`dual_pump_blender`](#dual_pump_blender) | [the humidity rig](https://bengineer42.github.io/humctrl/)'s split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` | hardware-tested |
 
 `—` means not in `drivers-manifest.yaml` (the generic/wrapped-library drivers
@@ -92,6 +93,7 @@ driver here follows it:
 | `ds18b20` | none: the kernel's CRC line decides [Unverified: whether the kernel reports the 85 °C power-on value as a reading] | a failed CRC |
 | `current_loop` | a NAMUR fault current → `invalid("ne43_low"/"ne43_high")`, low or high; 3.6-3.8 / 20.5-21 mA → the value, `at_limit` | the ADC's own failure |
 | `dual_pump_blender` | `expected_humidity`: `not_applicable("no_flow")` with no flow, `invalid("supply")` while a supply has no value | the PWM bus |
+| `curve` | its input's no-value, as it is; outside a table's domain `invalid("out_of_domain")`, low or high | n/a: reads nothing |
 
 A demand's reading is the value the rig committed (`readback: echo`)
 unless the driver reads it back: `scpi` with a `query`, and `qcodes` /
@@ -757,6 +759,73 @@ devices:
 - **Where it came from**: the device page shows each value's source --
   "rig file", "restored, written by X at T", or written in this run --
   from `sources` on [`GET /api/devices/{name}`](../../4-server/api.md).
+
+### `curve`
+
+A **derived signal**: another device's signal through a calibration curve,
+volts from an ADC channel to NTU, pH or kPa. The ADC reads its channel
+once, as raw volts, and the `curve` device computes the engineering value
+from it, in the same delivery: a controller that regulates on the
+output steps on the value computed from the newest reading, not the one
+before. Any driver's signal can be the input, so a sensor that needs a
+non-linear or per-probe calibration needs no driver change.
+
+```yaml
+devices:
+  turbidity_adc:
+    driver: ads1115
+    link: i2c1
+    address: 0x49
+    channels: { raw_v: { channel: 0, unit: V } }
+    signals: { raw_v: { record: false } }     # live, not stored
+  turbidity:
+    driver: curve
+    label: Turbidity
+    inputs: { x: turbidity_adc.raw_v }
+    unit: NTU
+    curve:
+      type: table
+      points: [[2.5, 3000], [3.0, 2800], [3.5, 2000], [4.0, 700], [4.25, 0]]
+  line_pressure:                              # a 0.5-4.5 V transducer over 0-100 kPa
+    driver: curve
+    inputs: { x: pressure_adc.raw_v }
+    unit: kPa
+    curve: { type: linear, scale: 25, offset: -12.5 }
+```
+
+| field | | |
+| --- | --- | --- |
+| `inputs.x` | address or number | the signal it calibrates, required (a number gives a constant) |
+| `curve` | `{type: linear, scale, offset}` | `scale * x + offset`; `offset` defaults to 0 |
+| | `{type: table, points: [[x, y], ...]}` | straight lines between the points, in any order; at most 1024, each finite |
+| `unit` | string | the unit symbol of `value` (`NTU`, `pH`, `kPa`); omit for none |
+| `quantity` | string | what `value` is (`turbidity`); default: the device's name |
+
+It has one readout, `value` (`rp`); `signals: {value: {...}}` sets its
+label, range, bands and so on like any other signal's. A curve that does
+not build is refused at load: a table with no point or more than 1024, a
+point, `scale` or `offset` that is not finite, a `unit` that is not known.
+So is a cycle through `inputs:` (a curve on its own output, or two curves
+on each other's).
+
+- **No value outside the table.** A reading of `x` before the first
+  point's `x` or past the last one gives `value` no value --
+  `invalid("out_of_domain")`, side `low` or `high` -- and a controller
+  regulating on it holds. The curve is never extrapolated, nor held at
+  its end: a table has to span every reading the sensor can give in use,
+  a little past the ends for noise. A `linear` curve has no ends.
+- **The input's no-value, carried.** While `x` has no value (`stale`,
+  `invalid`, `not_applicable`), `value` has the same one, reason and all;
+  before its first reading, nothing.
+- **Raw and engineering, paired.** `value` names its source (`raw:
+  turbidity_adc.raw_v`) and the source names each curve on it (`raw_for`)
+  on [the wire](../../4-server/wire.md#raw-and-engineering-signals), so a
+  client shows the two in one row and hides the raw one by default. Mark the
+  raw signal `record: false` to keep only the calibrated value in the
+  store; it stays live, and bands, alarms and reads still see it.
+
+**Stop:** not stoppable. It has no demands and nothing to write; a stop
+leaves it alone and the stop report does not list it.
 
 ## From an application
 

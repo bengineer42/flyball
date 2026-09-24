@@ -21,8 +21,8 @@ outputs its no-value (value-health §4: a pointwise operator propagates it);
 nothing is substituted. A stop has nothing to do to it.
 
 [Curve][flyball.foundation.device.derived.Curve] is the first: one input `x`,
-one readout `value`, a [Linear][flyball.foundation.quantities.curves.Linear] or
-[Table][flyball.foundation.quantities.curves.Table] between them. Beyond the
+one readout `value`, a `Linear` or `Table` from
+`flyball.foundation.quantities.curves` between them. Beyond the
 table's domain there is no value, `invalid("out_of_domain")` with the side it
 fell off: a calibration is never extrapolated, and never held flat at its
 end. Its output is the engineering value of the signal it follows, which the

@@ -27,6 +27,8 @@
 
 ::: flyball.foundation.device.values
 
+::: flyball.foundation.device.derived
+
 ::: flyball.foundation.time.clock
 
 ::: flyball.foundation.time.loop

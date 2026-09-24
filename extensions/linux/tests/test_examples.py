@@ -11,6 +11,8 @@ EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 BOARDS = Path(__file__).resolve().parents[1] / "src" / "flyball_linux" / "boards"
 REAL = EXAMPLES / "greenhouse.yaml"
 SIM = EXAMPLES / "sim.yaml"
+SENSORS = EXAMPLES / "sensors"
+SIM_CONFIGS = EXAMPLES / "sim-configs"
 
 
 def test_the_real_file_resolves_its_pins_from_the_board():
@@ -77,3 +79,28 @@ def test_every_board_profile_validates():
         assert board.name, path
         for label, fields in board.pins.items():
             assert fields["link"] in board.links, f"{path}: pin {label} names an undeclared link"
+
+
+@pytest.mark.parametrize(
+    ("example", "adc", "curve", "unit"),
+    [("turbidity", "turbidity_adc", "turbidity", "NTU"), ("ph_probe", "ph_adc", "ph", "pH")],
+)
+def test_an_analog_sensor_reads_its_channel_once_and_calibrates_it_with_a_curve(
+    example, adc, curve, unit, tmp_path
+):
+    base = SENSORS / f"{example}.yaml"
+    fake_bus = tmp_path / "bus.yaml"
+    fake_bus.write_text("links:\n  i2c1: { type: fake_i2c }\n")
+    real = load_rig_config([base, fake_bus]).build(clock=SteppedClock(0), start=False)
+    assert list(real.devices[adc].signals) == ["raw_v"], "one conversion per poll, not two"
+    rig = load_rig_config([base, SIM_CONFIGS / f"{example}.yaml"]).build(
+        clock=SteppedClock(0), start=False
+    )
+    raw, value = rig.resolve(f"{adc}.raw_v"), rig.resolve(f"{curve}.value")
+    assert isinstance(raw, Signal) and isinstance(value, Signal)
+    assert not raw.spec.record and value.spec.record, "the store keeps the calibrated value"
+    assert value.unit.symbol == unit
+    volts = rig.read(raw, fresh=True).value
+    engineering = rig.latest[value]
+    assert engineering.usable, "the sim's baseline sits inside the curve's domain"
+    assert engineering.value == pytest.approx(rig.devices[curve].curve(volts))
