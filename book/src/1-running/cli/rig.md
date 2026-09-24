@@ -22,9 +22,12 @@
 Saving the running rig, its versions and restoring one, and stopping or
 restarting the runner have no subcommand yet; the routes are
 [Composition](../../4-server/api.md#composition) and
-[The runner](../../4-server/api.md#the-runner), and the last two answer 409
-unless the runner was started with `--allow-shutdown`
-([Access](../runner/access.md#stopping-and-restarting-the-runner-from-the-api)).
+[The runner](../../4-server/api.md#the-runner). Stopping and restarting
+answer 409 unless the runner was started with `--allow-shutdown`
+([Access](../runner/access.md#stopping-and-restarting-the-runner-from-the-api));
+a restore, like every change to the rig, saves a version and restarts the
+runner itself, without it
+([Building a rig while it runs](../runner/building.md)).
 
 ## Stopping the rig
 

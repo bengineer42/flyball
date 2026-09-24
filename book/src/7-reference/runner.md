@@ -23,9 +23,9 @@ paths in the file to the first rig file.
 | `--front-dir DIR` | none | none | started by a front (`flyball run`, `flyballd`), never by hand: bind the endpoint `DIR` names and take only principals signed with its key; `--host`, `--port`, `--token` and `--anonymous` are then ignored ([The front and the runner](../6-internals/front.md)) |
 | `--password P`, `--session D` | `FLYBALL_PASSWORD`, `FLYBALL_SESSION` | `auth.password`, `auth.session` | removed: accepted and ignored with a warning; a bare runner has no password login |
 | `--no-mcp` | `FLYBALL_NO_MCP=1` | `mcp: false` | do not mount `/mcp` |
-| `--compose` | | `compose` | let the API build up a hardware rig |
+| `--compose` | | `compose` | let the API change a hardware rig (each change restarts it) |
 | `--allow-save` | | `allow_save` | let the API write rig files |
-| `--allow-shutdown` | | `allow_shutdown` | let the API stop or restart the runner |
+| `--allow-shutdown` | | `allow_shutdown` | let the API stop or restart the runner (a rig edit's own restart does not need it) |
 | `--store PATH` | | `store` | the SQLite store; default `<rig>.sqlite` beside the file |
 | -- | | `store_dir` | `<dir>/<rig name>.sqlite` instead (file only) |
 | `--programs DIR` | | `programs` | program files to import; default `programs/` |
@@ -49,7 +49,9 @@ runs this rig; 4 when `--front-dir` is unsafe or incomplete; 5 when it
 could not serve (its socket or port not bound, its server not started).
 [The exit codes](cli.md#exit-codes) has the whole table, `flyball`'s own
 codes beside them. A restart asked over the API replaces the
-process with the same command line. `SIGUSR1` [stops the rig](../1-running/runner/access.md#stopping-the-rig) without ending the process.
+process with the same command line; so does a rig edit's, with `--resume`
+added for a runner with no rig file ([Building a rig while it
+runs](../1-running/runner/building.md)). `SIGUSR1` [stops the rig](../1-running/runner/access.md#stopping-the-rig) without ending the process.
 
 What each does in practice: [Starting a rig](../1-running/runner/index.md);
 the keys with their meanings: [The runner section](../2-config/runner.md).

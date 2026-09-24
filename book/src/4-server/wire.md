@@ -136,6 +136,12 @@ Kelvin against a °C signal converts before it reports.
 A running law cannot cross the wire; a request that takes one takes a
 config or the name of a stored tuning instead.
 
+## Rig edits
+
+| type | JSON |
+| --- | --- |
+| `RigEditOut` (202 from every [rig edit](api.md#composition)) | `{version, previous, reason, saved, restarting, stop, detail}` -- `version` the edit's rig version, now the head; `previous` the head before it (what a start that cannot build it goes back to); `reason` `edited: added device probe` or `restored from 3`; `saved` the overlay it was written to, or `null` for a bare or resumed rig (the store alone); `stop` the stop's report (`POST /api/rig/stop`'s), or `null` if the stop failed. The runner is restarting: the next request may find it down for a moment |
+
 ## Sessions
 
 A `SessionRow` is `{id, start_ns, end_ns, version, config, hardware,

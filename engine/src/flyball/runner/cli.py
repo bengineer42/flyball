@@ -27,8 +27,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--resume",
         action="store_true",
-        help="start from the store's last rig version instead of the files: what was added"
-        " through the API and not saved comes back",
+        help="start from the store's last rig edit or restore instead of the files (a runner"
+        " with no rig file restarts this way after an edit)",
     )
     p.add_argument(
         "--host",
@@ -47,8 +47,8 @@ def parser() -> argparse.ArgumentParser:
         "--compose",
         action="store_const",
         const=True,
-        help="allow the rig to be built up over the API on a hardware rig"
-        " (a simulated or bare rig always may)",
+        help="allow the rig to be changed over the API on a hardware rig; each change is saved"
+        " and restarts the rig (a simulated or bare rig always may)",
     )
     p.add_argument(
         "--password",
@@ -117,7 +117,8 @@ def parser() -> argparse.ArgumentParser:
         "--allow-shutdown",
         action="store_const",
         const=True,
-        help="let the API stop or restart the runner (/api/runner/shutdown, /restart); default: no",
+        help="let the API stop or restart the runner (/api/runner/shutdown, /restart); a rig"
+        " edit's own restart does not need it; default: no",
     )
     p.add_argument("--port", type=int, help="TCP port (default 8000)")
     p.add_argument(

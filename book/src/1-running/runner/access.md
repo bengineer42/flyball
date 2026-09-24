@@ -518,6 +518,10 @@ business driving.
 /api/runner/restart` does that and then starts the same command line again
 in the same process id, so a supervisor sees nothing. Both need `operate`,
 and both are 409 unless the runner runs with `--allow-shutdown`
-(`runner.allow_shutdown`). What was built over the API and not saved is gone
-across a restart unless the runner runs with `--resume`. This ends the
-process; the [software stop](#stopping-the-rig) above leaves it running.
+(`runner.allow_shutdown`). A change to the rig made over the API saved
+itself (the overlay beside the rig file, or the store for a runner with no
+file), so it comes back; a controller attached since the start and not
+saved does not. A change to the rig restarts the runner too, the same way,
+and needs no `--allow-shutdown`
+([Building a rig while it runs](building.md)). This ends the process; the
+[software stop](#stopping-the-rig) above leaves it running.

@@ -149,9 +149,15 @@ everything.
 The rig's history is `rig_version`: one row per version, the whole document
 each time (never a diff, so any row stands alone), `parent_id` the version
 it was made from, and a one-row `rig_head` naming where the running rig
-is. Saving a version chains it to the head and moves the head to it;
-restoring moves the head and writes nothing; so after a restore the next
-change branches from what was restored. Migration 0009 chained the rows an
+is. Saving a version chains it to the head and moves the head to it. A
+rig edit (D-051) saves one (`edited: ...`) before the runner restarts on
+it, and a restore saves the restored document again as a new version
+(`restored from N`) on top of the head; a start writes one only when the
+rig it built differs from the head (`loaded`, `started bare`, `resumed`),
+and not at all when it is the start an edit asked for. `--resume` walks back
+from the head past start rows to the last edit or restore. An older store's
+restores moved the head without a row (`set_rig_head`), so a change after
+one branched from what was restored. Migration 0009 chained the rows an
 older store held as the line they were. Migration 0013 renamed a stored
 controller's `signal` key to `measured` in every `rig_version.document`,
 since `ControllerEntry` refuses unknown keys and an older version would not

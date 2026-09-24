@@ -145,12 +145,18 @@ Every tool call is recorded like any other request that needs more than
   is a recorded controller's steps over one -- mode, correction and, when
   logged, setpoint, output and measured, the data behind a ramp's setpoint
   curve, which no signal series carries.
-- The rig can be built up: `attach_link`, `attach_device`, or a whole
-  document with `attach_document`; `rig_document` shows the result,
-  `rig_versions` every change, `restore_rig_version` undoes one, `save_rig`
-  writes it out. A change rebuilds the tool list, so a new device's
-  commands appear as tools at once. A simulated or bare rig can always be
-  built up; a hardware rig only when the runner runs with `--compose`.
+- The rig can be changed: `attach_link`, `attach_device`, or a whole
+  document with `attach_document`; `detach_device`, `detach_link`;
+  `rig_document` shows the result, `rig_versions` every change,
+  `restore_rig_version` goes back to one, `save_rig` writes it out. None of
+  them changes the running rig in place (D-051): each saves a new rig
+  version, stops the rig (outputs to their stop states, a running program
+  cancelled -- refused while one runs unless `force`) and restarts the
+  runner on that version, controllers in manual. The result names the
+  version; the runner answers again once it is back, and the tool list is
+  rebuilt, so a new device's commands appear as tools. A simulated or bare
+  rig can always be changed; a hardware rig only when the runner runs with
+  `--compose`.
 - New equipment: `driver_guide` (also the resource `flyball://guide/driver`)
   says how to write a driver and when not to; `driver_scaffold` gives a
   module that already runs; `check_driver` imports one where the server
