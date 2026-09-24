@@ -775,8 +775,8 @@ def programmer(client, rig):
 def test_load_tunings_stores_law_configs_under_the_directory_from_their_file_stem(tmp_path, rig):
     from flyball.interfaces.server.routes.library import load_tunings
 
-    (tmp_path / "gentle.yaml").write_text("type: P\nkp: 0.5\n")
-    (tmp_path / "brisk.toml").write_text('type = "PID"\nkp = 0.8\nki = 0.08\nkd = 1.0\ntt = 5\n')
+    (tmp_path / "gentle.yaml").write_text("type: p\nkp: 0.5\n")
+    (tmp_path / "brisk.toml").write_text('type = "pid"\nkp = 0.8\nki = 0.08\nkd = 1.0\ntt = 5\n')
     (tmp_path / "notes.txt").write_text("not a tuning")
 
     loaded = load_tunings(rig, tmp_path)

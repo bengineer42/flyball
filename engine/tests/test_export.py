@@ -148,7 +148,7 @@ def test_session_long_json_and_zip(client):
             {
                 "name": f"{heater}.power",
                 "measured": f"{probe}.temperature",
-                "law": {"type": "PI", "kp": 1.0, "ki": 0.0, "tt": 0.0, "b": 1.0},
+                "law": {"type": "pi", "kp": 1.0, "ki": 0.0, "tt": 0.0, "b": 1.0},
                 "feedforward": {"type": "none"},
             }
         ]

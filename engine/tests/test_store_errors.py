@@ -12,7 +12,7 @@ from flyball.interfaces.server.deps import set_store
 from flyball.record.errors import ConstraintError, StoreUnavailableError
 from flyball.record.sqlite import SqliteStore
 
-TUNING = {"law": "PID", "config": {}, "created_ns": 0}
+TUNING = {"law": "pid", "config": {}, "created_ns": 0}
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ def test_a_foreign_key_violation_is_a_conflict(client):
 
 def test_a_write_the_store_refuses_keeps_sqlites_error_as_its_cause(store):
     with pytest.raises(ConstraintError) as caught:
-        store.save_tuning("gentle", "PID", {}, 0, 999999)
+        store.save_tuning("gentle", "pid", {}, 0, 999999)
     assert isinstance(caught.value.__cause__, sqlite3.IntegrityError)
 
 

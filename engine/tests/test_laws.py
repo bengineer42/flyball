@@ -83,10 +83,10 @@ def settled(trace: list[float], target: float, tail: int = 60, within: float = 0
 # IMC appears twice on purpose, once with derivative action and once without.
 _LAW_KWARGS: dict[str, list[dict[str, Any]]] = {
     "open_loop": [{}],
-    "P": [{"kp": 1.0}],
-    "PI": [{"kp": 1.0, "ki": 0.1, "b": 0.7}],
-    "PID": [{"kp": 1.0, "ki": 0.1, "kd": 2.0, "b": 0.7}],
-    "IMC": [
+    "p": [{"kp": 1.0}],
+    "pi": [{"kp": 1.0, "ki": 0.1, "b": 0.7}],
+    "pid": [{"kp": 1.0, "ki": 0.1, "kd": 2.0, "b": 0.7}],
+    "imc": [
         {"gain": 1.0, "tau": 60.0, "dead_time": 5.0},
         {"gain": 2.0, "tau": 30.0, "lam": 10.0, "derivative": False},
     ],
@@ -122,7 +122,7 @@ def test_each_law_round_trips_through_its_config_and_view(law):
 
 
 def test_the_registry_has_the_new_tags():
-    assert {"IMC", "on_off", "smith", "scheduled", "sliding"} <= set(get_catalog().laws)
+    assert {"imc", "on_off", "smith", "scheduled", "sliding"} <= set(get_catalog().laws)
 
 
 # endregion

@@ -235,11 +235,11 @@ class TestParsing:
             "controllers": {
                 "heaters.heater1": {
                     "measured": "furnace.zone1",
-                    "law": {"type": "PI", "kp": 100, "ki": 0.15, "tt": 30},
+                    "law": {"type": "pi", "kp": 100, "ki": 0.15, "tt": 30},
                 },
                 "heaters.heater2": {
                     "measured": "furnace.zone2",
-                    "law": {"type": "PI", "kp": 100, "ki": 0.15, "tt": 30},
+                    "law": {"type": "pi", "kp": 100, "ki": 0.15, "tt": 30},
                     "default": True,
                 },
             },
@@ -266,7 +266,7 @@ class TestParsing:
             "controllers": {
                 "blender.humidity": {
                     "measured": "hum_sensors.chamber.humidity",
-                    "law": {"type": "PI", "kp": 0.8, "ki": 0.02, "tt": 60},
+                    "law": {"type": "pi", "kp": 0.8, "ki": 0.02, "tt": 60},
                     "default": True,
                 }
             },
@@ -413,7 +413,7 @@ class TestBuild:
             "controllers": {
                 "blender.humidity": {
                     "measured": "hum_sensors.chamber.humidity",
-                    "law": {"type": "PI", "kp": 0.8, "ki": 0.02},
+                    "law": {"type": "pi", "kp": 0.8, "ki": 0.02},
                 }
             },
         }
@@ -453,7 +453,7 @@ class TestBuild:
                 "heaters": {"driver": heaters_tag, "zones": 2, "limits": [2500, 6000]},
             },
             "controllers": {
-                "heaters.heater1": {"measured": "furnace.zone1", "law": {"type": "PI", "kp": 1.0}}
+                "heaters.heater1": {"measured": "furnace.zone1", "law": {"type": "pi", "kp": 1.0}}
             },
         }
         rig = RigConfig.model_validate(document).build(start=False)

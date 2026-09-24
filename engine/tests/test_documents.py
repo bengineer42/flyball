@@ -78,7 +78,7 @@ def test_session_becomes_start_descriptors_events_stop(rig, fresh, clock):
 
     stream = f"controller:{oven.name}.heater"
     controller_descriptor = next(d for n, d in docs if n == "descriptor" and d["name"] == stream)
-    assert controller_descriptor["configuration"][stream]["data"]["law"]["type"] == "PI"
+    assert controller_descriptor["configuration"][stream]["data"]["law"]["type"] == "pi"
     assert controller_descriptor["data_keys"][f"{stream}.setpoint"]["units"] == "°C"
     tick = next(
         d for n, d in docs if n == "event" and d["descriptor"] == controller_descriptor["uid"]

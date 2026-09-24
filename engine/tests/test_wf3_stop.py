@@ -720,7 +720,7 @@ SIM = {
     "controllers": {
         "drive.power": {
             "measured": "daq.t",
-            "law": {"type": "P", "kp": 0.1},
+            "law": {"type": "p", "kp": 0.1},
             "on_fault": {"freeze_s": 30.0, "then": "manual"},
         }
     },
