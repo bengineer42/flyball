@@ -4,7 +4,7 @@ Each names a controller by its output address -- or a list of them, or none
 for the rig's default -- and does what the controller's own methods do, as a
 program step and as `POST /api/programs/command`. `settle` may name a signal
 instead, and wait for its readings to meet a
-[Criterion][flyball.sequencing.criterion.Criterion].
+[Criterion][flyball.foundation.device.criterion.Criterion].
 """
 
 from __future__ import annotations
@@ -15,13 +15,12 @@ from pydantic import ValidationError
 
 from flyball.control.setpoint import LinearRampSetpoint
 from flyball.foundation import Operator
-from flyball.foundation.device import Access, AddressNotFoundError, OnNoValue, Signal
+from flyball.foundation.device import Access, AddressNotFoundError, Criterion, OnNoValue, Signal
 from flyball.foundation.time import Duration, Speed
 from flyball.model.controller import Controller
 from flyball.rig import Rig
 
 from .activities import CriterionMet, Settled, Timed
-from .criterion import Criterion
 from .step import Activity, Step
 
 ControllerNames = str | list[str] | None

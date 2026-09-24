@@ -134,7 +134,7 @@ same as it always has for a step that cannot even be applied.
 | `regulate` | `setpoint` (primary), `controllers?`, `tuning?` | aim a controller at `setpoint` and let its law drive; returns at once |
 | `ramp` | `to` (primary), `pace` as `per_minute: 5` or `minutes: 20` flat, `controllers?`, `wait=True` | walk the setpoint to `to`; waits for arrival unless `wait: false` |
 | `wait` | `duration` (primary, `minutes: 10` flat *without* `message`), `message?`, `timeout?` | keep everything as it is; controllers go on regulating |
-| `settle` | `controllers?` (primary), `within=1.0`, `count=3`, `timeout?`, `message?`; or `signal`, one of `above`/`below`/`near`+`within`, `from_start?`, `on_no_value?`, `count=3`, `timeout?`, `message?` | wait until the named controllers settle within `within` of their setpoints for `count` consecutive readings, or until a signal meets a test for `count` readings running: [Waiting on a signal](#waiting-on-a-signal) |
+| `settle` | `controllers?` (primary), `within=1.0`, `count=3`, `timeout?`, `message?`; or `signal`, `above` and/or `below`, or `near`+`within`, `from_start?`, `on_no_value?`, `count=3`, `timeout?`, `message?` | wait until the named controllers settle within `within` of their setpoints for `count` consecutive readings, or until a signal meets a test for `count` readings running: [Waiting on a signal](#waiting-on-a-signal) |
 | `manual` | `controllers?` (primary) | stop a controller regulating; its target keeps its last demand |
 | `set` | `device`, `values: {name: value}` | put `values` on `device`'s writable signals, as one demand |
 | `command` | `device_command`, `device`, `args?` | call one of `device`'s own commands, exactly as `POST /api/devices/{name}/commands/{command}` would |
@@ -181,8 +181,8 @@ signal, it waits until that signal's readings meet a **criterion** for
 | `count` | readings running that must meet it; one that does not resets the count (default 3) |
 | `on_no_value` | `ignore` (the default): a reading with no value is not met and resets the count, so a dead sensor waits for `timeout`. `fire`: a reading with no value because of a fault (`invalid`, `stale`) counts as met |
 
-Exactly one of `above`, `below` and `near` is given, and `within` only with
-`near`. Each reading is judged as it arrives, from the step's start: the
+Give `above`, `below`, both (a band: met strictly between them, `above`
+under `below`), or `near` alone, with `within` only beside `near`. Each reading is judged as it arrives, from the step's start: the
 reading already there when the step starts is not. A reading at a limit
 (the caveat `at_limit`: the sensor railed, so the true value may lie
 beyond it) resets the count, as it does for the controller form. `pending`

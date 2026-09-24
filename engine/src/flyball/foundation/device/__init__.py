@@ -1,6 +1,7 @@
 from .binding import InputBinding, InputState, rank, values_of
 from .commands import RESERVED_NAMES, CommandSpec, command
 from .conditions import ConditionEdge, Conditions
+from .criterion import Criterion
 from .descriptors import (
     Demand,
     Descriptor,
@@ -61,6 +62,7 @@ __all__ = [
     "Condition",
     "ConditionEdge",
     "Conditions",
+    "Criterion",
     "Demand",
     "Descriptor",
     "Device",

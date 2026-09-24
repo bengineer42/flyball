@@ -57,7 +57,7 @@ omitted for the rig's default controller. Source:
 | | `timeout` | `Duration` | none |
 | | `message` | string | none |
 | | `signal` | address of a published signal; not with `controllers` | none |
-| | `above` / `below` / `near` | number; exactly one, only with `signal` | none |
+| | `above` / `below` / `near` | number; `above`, `below`, both (a band, strictly between), or `near` alone; only with `signal` | none |
 | | `from_start` | bool; only with `signal` | `false` |
 | | `on_no_value` | `fire`, `ignore`; only with `signal` | `ignore` |
 | `manual` | `controllers` (primary) | address, list, or omitted | rig default |
@@ -73,7 +73,7 @@ omitted for the rig's default controller. Source:
 `regulate`/`ramp`/`wait`/`settle`/`manual` are steps on a **controller**
 (named by its target's address), except `settle` with a `signal`, which
 waits on that signal's readings meeting a criterion
-(`flyball.sequencing.criterion.Criterion`; see
+(`flyball.foundation.device.criterion.Criterion`; see
 [Waiting on a signal](../1-running/programs/writing.md#waiting-on-a-signal));
 `set` and `command` reach a **device**
 directly — `set` is one demand (`rig.write`) on its writable signals,

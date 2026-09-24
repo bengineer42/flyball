@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from flyball.foundation.device import (
+    Criterion,
     Device,
     OnNoValue,
     Reading,
@@ -17,7 +18,6 @@ from flyball.foundation.device import (
 )
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius
-from flyball.sequencing.criterion import Criterion
 
 
 class Probe(Device):
@@ -31,16 +31,19 @@ def reading(fresh):
 
 
 class TestShape:
-    def test_exactly_one_of_above_below_near(self):
+    def test_above_below_a_band_or_near(self):
         Criterion(signal="a.b", above=1)
         Criterion(signal="a.b", below=1)
+        Criterion(signal="a.b", above=1, below=2)
         Criterion(signal="a.b", near=1, within=0.5)
-        with pytest.raises(ValidationError, match="exactly one of"):
+        with pytest.raises(ValidationError, match="found none"):
             Criterion(signal="a.b")
-        with pytest.raises(ValidationError, match=r"found \['above', 'below'\]"):
-            Criterion(signal="a.b", above=1, below=2)
-        with pytest.raises(ValidationError, match="exactly one of"):
+        with pytest.raises(ValidationError, match=r"found \['above', 'near'\]"):
             Criterion(signal="a.b", above=1, near=2, within=1)
+        with pytest.raises(ValidationError, match="above 2.0 is not below 1.0"):
+            Criterion(signal="a.b", above=2, below=1)
+        with pytest.raises(ValidationError, match="is not below"):
+            Criterion(signal="a.b", above=1, below=1)
 
     def test_within_goes_with_near_and_near_needs_it(self):
         with pytest.raises(ValidationError, match="`near` needs `within`"):
@@ -80,6 +83,12 @@ class TestPasses:
         above, below = Criterion(signal="a.b", above=60), Criterion(signal="a.b", below=60)
         assert above.passes(60.1) and not above.passes(60) and not above.passes(59)
         assert below.passes(59.9) and not below.passes(60) and not below.passes(61)
+
+    def test_a_band_is_strict_at_both_ends(self):
+        band = Criterion(signal="a.b", above=20, below=80)
+        assert band.passes(50) and band.passes(20.1) and band.passes(79.9)
+        assert not band.passes(20) and not band.passes(80) and not band.passes(90)
+        assert band.describe() == "a.b between 20 and 80"
 
     def test_near_is_inclusive_either_side(self):
         near = Criterion(signal="a.b", near=700, within=5)

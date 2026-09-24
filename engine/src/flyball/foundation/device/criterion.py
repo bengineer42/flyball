@@ -1,9 +1,10 @@
-"""A criterion: a test on one signal's value -- above, below, or near a number.
+"""A criterion: a test on one signal's value -- above, below, between, or near a number.
 
 What a program's `settle` waits for when it names a signal
 (`settle: {signal: furnace.sample, below: 60}`), and the shape a rule's
 `when:`, a value trip and a permissive are meant to take too, so there is one
-way to write "this signal is past that value". It is only the test: how many
+way to write "this signal is past that value". A demand's `permissive` is one
+already (the band form). It is only the test: how many
 readings running, how long to wait, and what to do once it is met belong to
 whoever holds it.
 
@@ -20,13 +21,15 @@ import math
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from flyball.foundation.device import NoValue, OnNoValue, Reading, Value
+from .novalue import NoValue, OnNoValue
+from .signal import Reading, Value
 
 
 class Criterion(BaseModel):
-    """A test on one signal: `above`, `below`, or `near` with `within`; exactly one of them.
+    """A test on one signal: `above`, `below`, both (a band), or `near` with `within`.
 
-    `above` and `below` are strict: `above: 60` is not met at 60. `near: 700,
+    `above` and `below` are strict: `above: 60` is not met at 60, and `above: 20,
+    below: 80` is met strictly between them. `near` goes alone. `near: 700,
     within: 5` is met from 695 to 705 inclusive. With `from_start`, the number
     is added to the signal's value when the holder started (a step's start):
     `above: 36, from_start: true` is 36 more than it was.
@@ -61,11 +64,12 @@ class Criterion(BaseModel):
 
     @model_validator(mode="after")
     def _one_test(self) -> Criterion:
-        given = [name for name in ("above", "below", "near") if getattr(self, name) is not None]
-        if len(given) != 1:
+        bounds = [name for name in ("above", "below") if getattr(self, name) is not None]
+        if (self.near is None) == (not bounds):  # near alone, or one or both bounds
+            given = [*bounds, *(["near"] if self.near is not None else [])]
             raise ValueError(
-                f"a criterion on {self.signal!r} gives exactly one of `above`, `below` or "
-                f"`near` (with `within`); found {given or 'none'}"
+                f"a criterion on {self.signal!r} gives `above`, `below`, both, or `near` "
+                f"(with `within`); found {given or 'none'}"
             )
         if self.near is None and self.within is not None:
             raise ValueError(f"criterion on {self.signal!r}: `within` goes with `near`")
@@ -77,17 +81,21 @@ class Criterion(BaseModel):
                 raise ValueError(f"criterion on {self.signal!r}: {name} {value!r} is not finite")
         if self.within is not None and self.within < 0:
             raise ValueError(f"criterion on {self.signal!r}: within {self.within!r} is negative")
+        if self.above is not None and self.below is not None and self.above >= self.below:
+            raise ValueError(
+                f"criterion on {self.signal!r}: above {self.above} is not below {self.below}"
+            )
         return self
 
     def passes(self, value: float, base: float = 0.0) -> bool:
         """Whether a number passes the test; `base` is the value at the start, with `from_start`."""
         offset = base if self.from_start else 0.0
-        if self.above is not None:
-            return value > self.above + offset
-        if self.below is not None:
-            return value < self.below + offset
-        assert self.near is not None and self.within is not None
-        return abs(value - (self.near + offset)) <= self.within
+        if self.near is not None:
+            assert self.within is not None
+            return abs(value - (self.near + offset)) <= self.within
+        return (self.above is None or value > self.above + offset) and (
+            self.below is None or value < self.below + offset
+        )
 
     def met(
         self,
@@ -123,12 +131,15 @@ class Criterion(BaseModel):
         def number(value: float) -> str:
             return f"its start {value:+g}" if self.from_start else f"{value:g}"
 
+        if self.near is not None:
+            assert self.within is not None
+            return f"{self.signal} within {self.within:g} of {number(self.near)}"
+        if self.above is not None and self.below is not None:
+            return f"{self.signal} between {number(self.above)} and {number(self.below)}"
         if self.above is not None:
             return f"{self.signal} above {number(self.above)}"
-        if self.below is not None:
-            return f"{self.signal} below {number(self.below)}"
-        assert self.near is not None and self.within is not None
-        return f"{self.signal} within {self.within:g} of {number(self.near)}"
+        assert self.below is not None
+        return f"{self.signal} below {number(self.below)}"
 
 
 __all__ = ["Criterion"]

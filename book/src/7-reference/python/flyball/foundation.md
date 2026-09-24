@@ -9,6 +9,8 @@
 
 ::: flyball.foundation.device.conditions
 
+::: flyball.foundation.device.criterion
+
 ::: flyball.foundation.device.commands
 
 ::: flyball.foundation.device.descriptors

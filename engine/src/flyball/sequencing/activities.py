@@ -5,12 +5,11 @@ from dataclasses import dataclass
 from threading import Thread
 
 from flyball.foundation import Operator, Positive, Reading
-from flyball.foundation.device import InputBinding, OnNoValue
+from flyball.foundation.device import Criterion, InputBinding, OnNoValue
 from flyball.foundation.time import Clock, Duration
 from flyball.model.controller import Controller
 from flyball.rig import Rig
 
-from .criterion import Criterion
 from .step import Activity, Step
 
 

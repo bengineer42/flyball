@@ -68,8 +68,8 @@ feedforward in force are its `ControllerSpec`.
 **correction** — what the law produces: the offset added to the
 feedforward's output value.
 
-**criterion** — a test on one signal's value: `above`, `below`, or `near`
-with `within`, optionally `from_start` (relative to its value when the test
+**criterion** — a test on one signal's value: `above`, `below`, both (a
+band), or `near` with `within`, optionally `from_start` (relative to its value when the test
 began); written `{signal: furnace.sample, below: 60}`. What `settle` waits
 for on a signal. A reading with no value meets it only if it is a fault
 (`invalid`, `stale`) and `on_no_value` is `fire`; whoever holds the
