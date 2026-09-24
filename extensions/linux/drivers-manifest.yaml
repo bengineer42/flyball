@@ -313,6 +313,27 @@ sensors:
       - label: caveat
         url: "Gain/channel pulse counts (25/26/27) confirmed against the Avia HX711 datasheet's Serial Interface section and Table 3/Fig.2 -- but the fake used for tests only exercises decode logic, not real GPIO bit-bang timing (no hardware, ever)"
 
+  - type: max6675
+    part_number: MAX6675
+    manufacturer: Maxim Integrated / Analog Devices
+    category: temp
+    interface: spi
+    tier: bespoke_driver
+    file: extensions/chips/src/flyball_chips/max6675.py
+    loc_estimate: "50-100"
+    loc_actual: 71
+    status: done
+    datasheet_checked: true
+    hardware_tested: false
+    price_approx: "~$8-12 module [Unverified]"
+    domains: [brewing, industrial_process]
+    links:
+      - label: note
+        url: "K-type only, positive Celsius only (unsigned 12-bit field, no cold-junction linearisation choice); max31855/max31856 supersede it for anything else"
+
+
+
+
   - type: tsl2591
     part_number: TSL2591
     manufacturer: ams

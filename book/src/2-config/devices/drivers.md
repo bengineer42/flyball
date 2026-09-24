@@ -23,6 +23,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`sht4x`](#sht4x), [`sht4x_set`](#sht4x_set) | Sensirion humidity / temperature | `i2c` | `flyball-chips` | hardware-tested |
 | [`ads1115`](#ads1115) | TI 16-bit ADC | `i2c` | `flyball-chips` | — |
 | [`mcp3008`](#mcp3008) | Microchip 10-bit ADC | `spi` | `flyball-chips` | — |
+| [`max6675`](#max6675) | Maxim K-type thermocouple | `spi` | `flyball-chips` | — |
 | [`gpio_line`](#gpio_line) | a relay, a switch | `gpio` | `flyball-linux` | datasheet-checked |
 | [`pwm_channel`](#pwm_channel) | a PWM output | `pwm` | `flyball-linux` | — |
 | [`ds18b20`](#ds18b20) | 1-Wire thermometers | `onewire` | `flyball-linux` | — |
@@ -84,6 +85,7 @@ driver here follows it:
 | `sim_daq` | `fail(signal)` → `invalid("sensor_failed")` on that channel | `fail(signal, raises=true)`: every read of it |
 | `sim_drive`, `pwm_channel`, `mcp4725`, `dosing_pump`, `stepper` | n/a: write-only, or internal state | the bus |
 | `i2c_table`, `ads1115`, `mcp3008`, `gpio_line`, `pulse_counter`, `hx711` | none: every read is a number | the bus; `hx711` a conversion not ready |
+| `max6675` | an open thermocouple → `invalid("open_circuit")` | the bus |
 | `sht4x`, `sht4x_set`, `sht31`, `htu21d`, `scd30`, `scd40`, `sgp40`, `mhz19`, `ms5611` | none (humidity is cropped to 0-100 %, as the datasheets say) | a CRC failure, a short frame, a sensor not ready in time; in an `sht4x_set` one sensor's failure fails that read of the set |
 | `bme280` | a BMP280 has no `humidity` signal at all | the bus |
 | `ezo_*` | none | a `*` status reply, a malformed one |
@@ -345,6 +347,22 @@ Microchip 10-bit ADC, eight channels, over SPI.
 | `link` | required | an `spi` link |
 | `vref` | `3.3` | the reference voltage on VREF |
 | `channels` | required | `{signal: {channel, scale?, unit?}}` |
+
+### `max6675`
+
+Maxim K-type thermocouple to digital, SPI, read-only: `temperature [RP]` in
+°C, 0.25 °C steps. No cold-junction linearisation and no negative
+temperatures -- for either, use `max31855` or `max31856` instead.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `spi` link |
+
+**Stop:** `temperature` is read-only, so a rig stop does nothing to this
+device; `stop:` values are refused on it.
+
+
+
 
 ### `gpio_line`
 
