@@ -1,4 +1,5 @@
 from .activities import Prompt, Prompted, Settled, Sustained, Timed
+from .criterion import Criterion
 from .devices import RunCommand, Set
 from .loops import Manual, Ramp, Regulate, Settle, Wait
 from .program import Program
@@ -7,6 +8,7 @@ from .step import Activity, Step
 
 __all__ = [
     "Activity",
+    "Criterion",
     "Manual",
     "Program",
     "Programmer",
