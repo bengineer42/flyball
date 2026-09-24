@@ -737,7 +737,9 @@ A plain frequency unit (`Hz`, `rpm`, ...) has a dimensionless numerator, so
 `per_pulse` is itself dimensionless -- a whole pulse (`1.0`), or a fraction
 of a revolution for a multi-pulse-per-turn encoder (`0.5` for two pulses a
 turn). Any other unit must be written `amount/time` (`L/min`, `mL/s`):
-`per_pulse` is then in the amount's own unit -- litres, millilitres. Either
+`per_pulse` is then in the amount's own unit -- litres, millilitres. A unit
+written neither way (`L`, or a single-symbol flow such as `sccm`) is refused
+when the rig loads. Either
 way, the division by elapsed time is by whichever time unit `unit` names --
 a minute for `rpm` or `L/min`, a second for `Hz` or `mL/s` -- so a flow
 meter reads naturally in litres/minute and a tachometer in rpm from the

@@ -91,6 +91,7 @@ class PulseCounter(Readable):
         self.line = line
         self.unit = unit
         self._unit = Unit.get(unit)
+        _rate(0.0, per_pulse, 1, self._unit)  # refuse a unit it cannot rate at build, not per read
         self.per_pulse = per_pulse
         self.debounce_s = debounce_s
         self.pull_up = pull_up

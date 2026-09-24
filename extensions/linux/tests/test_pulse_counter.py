@@ -59,13 +59,12 @@ def test_rate_in_rpm_from_a_two_pulse_per_revolution_encoder():
     assert sample.by_name() == pytest.approx({"rate": 1200.0, "count": 20.0})
 
 
-def test_a_unit_with_no_time_and_not_a_frequency_is_refused_at_read():
-    chip = FakeGpio()
-    meter = PulseCounter("bad", chip, 21, unit="L", per_pulse=1.0)
-    list(meter.read(0))
-    chip.pulse(21, 1)
+@pytest.mark.parametrize("unit", ["L", "sccm"])
+def test_a_unit_it_cannot_rate_is_refused_at_build(unit):
+    # Refused when the device is built, not on every read: a read that raises
+    # would count against the device's read-failure budget and take it offline.
     with pytest.raises(ValueError, match="not a plain frequency"):
-        list(meter.read(1 * NS))
+        PulseCounter("bad", FakeGpio(), 21, unit=unit, per_pulse=1.0)
 
 
 def test_count_keeps_rising_across_reads():
