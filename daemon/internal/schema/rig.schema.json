@@ -260,6 +260,20 @@
           "default": null,
           "description": "Update the law at most this often; omit to update on every reading.",
           "title": "Min Period S"
+        },
+        "setpoint_period_s": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "While following a moving setpoint (a ramp, a profile), re-apply its feedforward this often between readings; the law steps only on readings. Omit for max(0.1 s, poll_s / 4) from the measured signal's poll_s.",
+          "title": "Setpoint Period S"
         }
       },
       "required": [
@@ -369,6 +383,19 @@
             }
           ],
           "default": null
+        },
+        "retry_max_age_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+          "title": "Retry Max Age S"
         }
       },
       "required": [
@@ -3693,6 +3720,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "ads1115"
               },
@@ -3809,6 +3849,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "bme280"
@@ -3933,6 +3986,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "ccs811"
               },
@@ -4035,6 +4101,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "current_loop"
@@ -4143,6 +4222,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "dosing_pump"
@@ -4273,6 +4365,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "ds18b20"
               },
@@ -4378,6 +4483,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "ezo_do"
               },
@@ -4473,6 +4591,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "ezo_ec"
@@ -4570,6 +4701,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "ezo_orp"
               },
@@ -4666,6 +4810,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "ezo_ph"
               },
@@ -4761,6 +4918,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "gpio_line"
@@ -4902,6 +5072,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "htu21d"
               },
@@ -5004,6 +5187,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "hx711"
@@ -5136,6 +5332,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "i2c_table"
               },
@@ -5252,6 +5461,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "mcp3008"
               },
@@ -5362,6 +5584,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "mcp4725"
@@ -5504,6 +5739,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "mhz19"
               },
@@ -5599,6 +5847,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "modbus"
@@ -5717,6 +5978,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "ms5611"
               },
@@ -5831,6 +6105,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "pulse_counter"
@@ -5962,6 +6249,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "pwm_channel"
@@ -6118,6 +6418,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "pymeasure"
               },
@@ -6229,6 +6542,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "qcodes"
@@ -6354,6 +6680,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "scd30"
               },
@@ -6467,6 +6806,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "scd40"
@@ -6595,6 +6947,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "scpi"
               },
@@ -6706,6 +7071,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "sgp30"
@@ -6832,6 +7210,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "sgp40"
@@ -6962,6 +7353,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "sht31"
               },
@@ -7075,6 +7479,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "sht4x"
               },
@@ -7187,6 +7604,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "sht4x_set"
@@ -7302,6 +7732,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "sim_daq"
               },
@@ -7397,6 +7840,19 @@
                 ],
                 "default": null
               },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
               "driver": {
                 "const": "sim_drive"
               },
@@ -7491,6 +7947,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               },
               "driver": {
                 "const": "stepper"
@@ -7645,6 +8114,19 @@
                   }
                 ],
                 "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
               }
             },
             "not": {
