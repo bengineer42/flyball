@@ -113,15 +113,16 @@ class GpioLine(Readable, Committable):
             if readback != value:
                 signal.push(readback, time_ns)
 
-    @command
+    @command(writes=("on",))
     def on(self) -> None:
-        """Switch the line on, whatever was last demanded."""
+        """Switch the line on, whatever was last demanded; refused while a controller drives it."""
         self._drive(True)
         self.signals["on"].push(1.0)
 
-    @command
+    @command(writes=("on",))
     def off(self) -> None:
-        """Switch the line off, whatever was last demanded."""
+        """Switch the line off, whatever was last demanded; refused while a controller drives
+        it."""
         self._drive(False)
         self.signals["on"].push(0.0)
 

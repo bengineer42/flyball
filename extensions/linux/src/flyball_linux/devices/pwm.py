@@ -109,9 +109,12 @@ class PwmChannel(Committable):
         self.frequency_hz.push(frequency_hz)
         self._drive(self._duty)
 
-    @command
+    @command(writes=("drive",))
     def off(self) -> None:
-        """Duty to zero and the channel disabled, until the next demand."""
+        """Duty to zero and the channel disabled, until the next demand.
+
+        Refused while a controller drives `drive`: put it in manual first.
+        """
         self._drive(0.0)
         self.link.enable(self.channel, False)
         self._enabled = False

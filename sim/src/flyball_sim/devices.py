@@ -600,6 +600,12 @@ class SimDrive(Committable):
                     raise ValueError(f"{name}.{path}: say `quantity`, `unit` and `limits`")
                 _input_quantity(plant, spec.port)  # the port exists
                 quantity, limits, port = Quantity(spec.quantity, spec.unit), spec.limits, spec.port
+            if (other := next((p for p, q in self.ports.items() if q == port), None)) is not None:
+                # Two demands on one input would each overwrite the other's drive at commit.
+                raise ValueError(
+                    f"{name}: {path!r} and {other!r} both drive the port {port!r};"
+                    " a port takes one demand"
+                )
             spelled = None if isinstance(spec, str) else spec
             leaves[path] = SignalSpec(
                 name=path.rpartition(".")[2],
