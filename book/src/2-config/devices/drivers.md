@@ -165,13 +165,27 @@ Two Python libraries carry hundreds of drivers between them; one wrapper
 each turns any of them into a device. The library owns the connection, so
 the link fakes are not involved -- test against the library's own
 simulated instruments. Their calls block like any polled device's. Neither
-wrapper imports its library until built, so `import flyball` needs nothing.
+wrapper imports its library until a rig names it, so `import flyball` needs
+nothing.
+
+`instrument` is imported and then called with the file's arguments, so it
+is held to the library's own instrument classes: a subclass of the
+library's `Instrument` from under its driver package (below). Anything
+else -- `os.system`, a function, a class from another package -- is refused
+when the rig is validated, before anything is imported or called; a rig
+edit through the API that names one is refused with 422. An in-house
+driver package is allowed only by the machine running the rig:
+`FLYBALL_INSTRUMENT_PACKAGES` in the runner's environment, comma-separated
+package prefixes (`my_lab.instruments,qcodes_contrib_drivers`); a class
+from one must still subclass the library's `Instrument`. No rig file key
+widens it. `flyball rig check` checks the schema only and does not see
+this; the runner does, and it needs the library installed to check.
 
 ### `qcodes`
 
 | field | default | |
 | --- | --- | --- |
-| `instrument` | required | a dotted class in an installed package: `qcodes.instrument_drivers.Keithley.Keithley2450` |
+| `instrument` | required | a dotted `qcodes.instrument.Instrument` subclass under `qcodes.instrument_drivers.` or `qcodes.instrument.`: `qcodes.instrument_drivers.Keithley.Keithley2450` |
 | `instrument_name` | the device's name | the QCoDeS instrument's own `name` |
 | `args`, `kwargs` | `[]`, `{}` | passed to the class |
 | `link` | none | a transport by name, where the class takes one |
@@ -194,7 +208,7 @@ also has a getter). A `None` from a getter is a reading with no value
 
 | field | default | |
 | --- | --- | --- |
-| `instrument` | required | `pymeasure.instruments.keithley.Keithley2400` |
+| `instrument` | required | a dotted `pymeasure.instruments.Instrument` subclass under `pymeasure.instruments.`: `pymeasure.instruments.keithley.Keithley2400` |
 | `adapter` | required | `"GPIB::24"`, `"ASRL/dev/ttyUSB0"`, a VISA string |
 | `kwargs` | `{}` | |
 | `link` | none | a transport by name |

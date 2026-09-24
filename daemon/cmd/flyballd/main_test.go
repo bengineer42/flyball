@@ -96,6 +96,14 @@ type testDaemon struct {
 func startDaemon(t *testing.T, extra, rig string) *testDaemon {
 	t.Helper()
 	dir, cfg := daemonFixture(t, extra, rig)
+	return serveDaemon(t, dir, cfg, filepath.Join(dir, "data"))
+}
+
+// serveDaemon runs flyballd (run) on the flyballd.yaml cfg, the fixture's
+// under dir, its data in dataDir; stopped at the test's end, and its
+// runners with it.
+func serveDaemon(t *testing.T, dir, cfg, dataDir string) *testDaemon {
+	t.Helper()
 	t.Cleanup(func() { killRunners(t, dir) })
 
 	logs := &logBuffer{}
@@ -115,7 +123,7 @@ func startDaemon(t *testing.T, extra, rig string) *testDaemon {
 	})
 	select {
 	case a := <-addrs:
-		return &testDaemon{t: t, addr: a, dataDir: filepath.Join(dir, "data"), rigDir: filepath.Join(dir, "rig"), logs: logs}
+		return &testDaemon{t: t, addr: a, dataDir: dataDir, rigDir: filepath.Join(dir, "rig"), logs: logs}
 	case err := <-done:
 		t.Fatalf("flyballd: %v\n%s", err, logs)
 	case <-time.After(10 * time.Second):
@@ -272,6 +280,52 @@ func TestDaemonBadFrontFallsBack(t *testing.T) {
 	if !strings.Contains(d.logs.String(), "flyball token create") || !strings.Contains(d.logs.String(), "D-028") ||
 		strings.Contains(d.logs.String(), "s3cret") {
 		t.Fatalf("banner:\n%s", d.logs)
+	}
+}
+
+// flyballd's state never depends on its cwd: relative manifests_dir and
+// data_dir are under flyballd.yaml's directory, whatever directory
+// flyballd was started from.
+func TestDaemonRelativeDirsUnderItsConfig(t *testing.T) {
+	fakeOnPath(t)
+	dir, cfg := daemonFixture(t, "", "name: oven\n")
+	os.WriteFile(cfg, []byte("listen: 127.0.0.1:0\nmanifests_dir: manifests\ndata_dir: data\n"), 0o600)
+	elsewhere := t.TempDir()
+	t.Chdir(elsewhere)
+
+	d := serveDaemon(t, dir, cfg, filepath.Join(dir, "data"))
+	assertStateAt(t, d, filepath.Join(dir, "data"), elsewhere)
+}
+
+// With no manifests_dir or data_dir, flyballd keeps its state in systemd's
+// StateDirectory= ($STATE_DIRECTORY), its manifests under it.
+func TestDaemonStateDirectory(t *testing.T) {
+	fakeOnPath(t)
+	dir, cfg := daemonFixture(t, "", "name: oven\n") // manifests in dir/manifests
+	os.WriteFile(cfg, []byte("listen: 127.0.0.1:0\n"), 0o600)
+	t.Setenv("STATE_DIRECTORY", dir)
+	elsewhere := t.TempDir()
+	t.Chdir(elsewhere)
+
+	d := serveDaemon(t, dir, cfg, dir)
+	assertStateAt(t, d, dir, elsewhere)
+}
+
+// assertStateAt: the oven manifest was found and its runner runs, the
+// front takes a token from data's tokens file, the runner's log and the
+// front's audit are under data, and nothing was made in cwd.
+func assertStateAt(t *testing.T, d *testDaemon, data, cwd string) {
+	t.Helper()
+	d.until("/api/runners", d.token("manage"), 10*time.Second, func(b []byte) bool {
+		return strings.Contains(string(b), `"name":"oven"`) && strings.Contains(string(b), `"status":"running"`)
+	})
+	for _, f := range []string{filepath.Join(data, "logs", "oven.log"), filepath.Join(data, "front", "audit.jsonl")} {
+		if _, err := os.Stat(f); err != nil {
+			t.Errorf("%v", err)
+		}
+	}
+	if entries, _ := os.ReadDir(cwd); len(entries) != 0 {
+		t.Errorf("flyballd wrote into its cwd: %v", entries)
 	}
 }
 

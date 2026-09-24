@@ -120,8 +120,12 @@ class TestCatalogs:
         assert catalog.discover() == ["acme"] and calls == [catalog]
         assert catalog.discover("other") == []
 
-    def test_discover_raises_loudly_when_an_entry_point_has_no_register(self, monkeypatch):
-        """The bluesky/qcodes/pymeasure regression this whole mechanism exists to catch."""
+    def test_discover_reports_an_entry_point_with_no_register(self, monkeypatch):
+        """The bluesky/qcodes/pymeasure regression this whole mechanism exists to catch.
+
+        Named in `discovery_errors` rather than raised, so it does not take
+        every rig down; `test_catalog_discovery.py` fails CI on it.
+        """
         from importlib.metadata import EntryPoint
 
         class BrokenModule:
@@ -136,8 +140,11 @@ class TestCatalogs:
             "importlib.metadata.entry_points",
             lambda group: entries if group == "flyball.configs" else [],
         )
-        with pytest.raises(AttributeError, match="register"):
-            Catalogs().discover()
+        catalog = Catalogs()
+        assert catalog.discover() == []
+        assert list(catalog.discovery_errors) == ["broken"]
+        assert catalog.discovery_errors["broken"].startswith("AttributeError: ")
+        assert "register" in catalog.discovery_errors["broken"]
 
 
 class TestCurrentCatalog:

@@ -16,6 +16,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"flyballd/internal/endpoint"
 	"flyballd/internal/front"
@@ -41,9 +42,13 @@ type DaemonConfig struct {
 	FrontError error `yaml:"-"`
 
 	DefaultServer string `yaml:"default_server"` // which identity when -s is omitted
-	ManifestsDir  string `yaml:"manifests_dir"`  // where layer-2 files live
-	DataDir       string `yaml:"data_dir"`       // registry state, captured logs, the front's tokens and audit
-	LogMaxSize    int64  `yaml:"log_max_size"`   // per-runner captured-log cap, bytes
+	// ManifestsDir and DataDir are absolute once loaded: by default under
+	// StateDir(), and a relative one in the file is under the file's own
+	// directory -- never the process's cwd, which a service manager sets
+	// to / or leaves wherever flyballd was started.
+	ManifestsDir string `yaml:"manifests_dir"` // where layer-2 files live
+	DataDir      string `yaml:"data_dir"`      // registry state, captured logs, the front's tokens and audit
+	LogMaxSize   int64  `yaml:"log_max_size"`  // per-runner captured-log cap, bytes
 }
 
 // DefaultListen is where flyballd's front listens when flyballd.yaml says
@@ -51,13 +56,41 @@ type DaemonConfig struct {
 // distinct).
 const DefaultListen = "127.0.0.1:9000"
 
-// DefaultDaemonConfig matches what plan.md's CLI addressing section
-// settled on.
+// DefaultStateDir is flyballd's state directory when systemd names none.
+const DefaultStateDir = "/var/lib/flyball"
+
+// StateDir is where flyballd keeps its state when flyballd.yaml names no
+// data_dir or manifests_dir: $STATE_DIRECTORY (systemd's
+// StateDirectory=flyball; the first, if it lists several), else
+// DefaultStateDir.
+func StateDir() string {
+	if sd, _, _ := strings.Cut(os.Getenv("STATE_DIRECTORY"), ":"); sd != "" {
+		return sd
+	}
+	return DefaultStateDir
+}
+
+// UnderConfig makes dir, read from the flyballd.yaml at configPath,
+// absolute: a relative one is under that file's directory.
+func UnderConfig(configPath, dir string) string {
+	if filepath.IsAbs(dir) {
+		return dir
+	}
+	base := filepath.Dir(configPath)
+	if abs, err := filepath.Abs(base); err == nil {
+		base = abs
+	}
+	return filepath.Join(base, dir)
+}
+
+// DefaultDaemonConfig is flyballd's config when flyballd.yaml says
+// nothing: its data in StateDir(), its manifests in StateDir()/manifests.
 func DefaultDaemonConfig() DaemonConfig {
+	state := StateDir()
 	return DaemonConfig{
 		Front:        front.Config{Listen: DefaultListen},
-		ManifestsDir: "manifests",
-		DataDir:      "data",
+		ManifestsDir: filepath.Join(state, "manifests"),
+		DataDir:      state,
 		LogMaxSize:   10 << 20, // 10MiB, a placeholder default
 	}
 }
@@ -80,6 +113,8 @@ func LoadDaemonConfig(path string) (DaemonConfig, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parsing daemon config %s: %w", path, err)
 	}
+	cfg.ManifestsDir = UnderConfig(path, cfg.ManifestsDir)
+	cfg.DataDir = UnderConfig(path, cfg.DataDir)
 	var top map[string]any
 	if err := yaml.Unmarshal(data, &top); err != nil {
 		return cfg, fmt.Errorf("parsing daemon config %s: %w", path, err)

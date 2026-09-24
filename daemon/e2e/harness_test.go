@@ -74,6 +74,7 @@ func TestMain(m *testing.M) {
 		for _, c := range []string{"flyball", "flyballd"} {
 			cmd := exec.Command("go", "build", "-o", filepath.Join(dir, c), "./cmd/"+c)
 			cmd.Dir = filepath.Join(repoRoot, "daemon")
+			cmd.Env = append(os.Environ(), "CGO_ENABLED=0") // static, as build-with-ui.sh builds it
 			if out, err := cmd.CombinedOutput(); err != nil {
 				fmt.Fprintf(os.Stderr, "building %s: %v\n%s", c, err, out)
 				return 1
