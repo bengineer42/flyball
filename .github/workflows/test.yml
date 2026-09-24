@@ -71,7 +71,8 @@ jobs:
           python-version: "3.12"
       - name: Sync
         working-directory: extensions/${{ matrix.extension }}
-        run: uv sync
+        # modbus's client comes from its `modbus` extra (pymodbus); its tests exercise it.
+        run: uv sync ${{ matrix.extension == 'modbus' && '--extra modbus' || '' }}
       - name: Test
         working-directory: extensions/${{ matrix.extension }}
         run: uv run pytest -q

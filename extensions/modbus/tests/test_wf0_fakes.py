@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import time
 
+import pytest
 from flyball.runtime.config import RigConfig
 
 from flyball_modbus import FakeRegisterLink, Modbus, ModbusRegister
@@ -84,6 +85,8 @@ class TestModbusTcpTimeout:
         assert ModbusTcpConfig(host="10.0.0.1").timeout_s == 3.0
 
     def test_tcp_client_is_built_with_the_configured_timeout(self, monkeypatch):
+        # pymodbus is the `modbus` extra; without it there is no client class to patch.
+        pymodbus_client = pytest.importorskip("pymodbus.client")
         captured: dict = {}
 
         class FakePymodbusClient:
@@ -95,8 +98,6 @@ class TestModbusTcpTimeout:
             def connect(self):
                 pass
 
-        import pymodbus.client
-
-        monkeypatch.setattr(pymodbus.client, "ModbusTcpClient", FakePymodbusClient)
+        monkeypatch.setattr(pymodbus_client, "ModbusTcpClient", FakePymodbusClient)
         ModbusLink.tcp("10.0.0.1", port=502, timeout_s=7.5)
         assert captured == {"host": "10.0.0.1", "port": 502, "timeout": 7.5}
