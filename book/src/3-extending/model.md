@@ -28,6 +28,19 @@ and keeps `-` as `_` (`SignalSpec(name="dry-bulb")` is the signal
 `set_<path>` would be one command (`flows.dry` beside `flows_dry`) are refused
 when the tree is bound.
 
+What a person reads is a **label**, never the key. A driver declares one where
+the key cannot say it (`Readout("tvoc", "TVOC")`), and may leave any blank:
+a blank label resolves to `flyball.foundation.keys.humanise(name)` -- underscores
+to spaces, the first letter capitalised, the rest as written (D-086). The bound
+objects resolve it -- `Device.label`, `Node.label`, `Signal.label`,
+`InputBinding.label`, `CommandSpec.label`, `Controller.label` (its output
+signal's when none is given) and `Rig.label` are never empty -- and keep what
+was declared apart (`declared_label`, or the spec's own `label`), so a rig
+rendered back to a file never gains the fallback. A command takes one as
+`@command(label="Purge the lines")`. A JSON Schema field with no `title` is
+titled by the same rule (`poll_s` → "Poll s"; `flyball.foundation.schema.Titled`),
+so `Field(title="Poll period")` is how a config field says more.
+
 ```python
 from flyball.foundation import Quantity
 from flyball.foundation.quantities.si import Celsius

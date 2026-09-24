@@ -6,7 +6,9 @@ it -- [The device model](../3-extending/model.md) for the developer,
 [The controller in detail](../6-internals/controller.md) for the contributor.
 
 **The rig** is everything one runner serves: the page you open. It has a
-name (`furnace`, `humidity`), a clock (real time, or faster on a
+name (`furnace`, `humidity`) and a label, what the page shows for it (left
+unset, the name humanised: `tube_furnace` reads "Tube furnace"; the same goes
+for every device, signal and controller below), a clock (real time, or faster on a
 simulation), and at any moment it is either recording or not.
 
 **A device** is one thing on the rig -- a sensor, a heater, a bench

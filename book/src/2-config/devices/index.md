@@ -22,7 +22,7 @@ devices:
 | key | type | |
 | --- | --- | --- |
 | `driver` | string | which driver builds it -- one of the [supported drivers](drivers.md), a board driver, or one from the runner's `drivers/` directory |
-| `label` | string | shown instead of the name |
+| `label` | string | what a person reads for it; left out or blank, the name humanised (`wet_pump` → "Wet pump") |
 | `poll_s` | number | how often it is read; inherited down the tree, a signal's own winning. Unset: never polled (a pushed device) |
 | `signals` | `{name: metadata}` | per-signal metadata, [below](#signals) |
 | `inputs` | `{input: address or number}` | what each of this device's inputs follows: another device's signal, or a number. Every input the driver declares must be given one -- an input has no default, [below](#binding-one-device-to-another) |
@@ -39,7 +39,7 @@ Metadata on the tree the driver declared -- what to show and what to
 guard, never new access. A key that is a namespace takes `label`,
 `poll_s`, `tags` and its own `signals:`; a key that is a signal takes the
 keys below. A key left out keeps the driver's value; a key set to `null`
-clears it (`label: null` shows the titlecased name, `warning: null` drops the
+clears it (`label: null` shows the name humanised, `warning: null` drops the
 band, `poll_s: null` inherits from the namespace again) -- except `limits:
 null`, which drops only the file's narrowing, never the driver's limits.
 

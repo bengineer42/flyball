@@ -28,6 +28,7 @@ controllers:
 
 | key | type | |
 | --- | --- | --- |
+| `label` | string | what a person reads for it; left out, its output signal's label |
 | `measured` | address | the measured signal: a published signal, what is regulated (ISA's PV). Under `open_loop` it only sets the units and clocks the step |
 | `law` | `{type, …}` | `open_loop`; `P {kp}`; `PI {kp, ki, tt_s, b}`; `PID {kp, ki, kd, tt_s, b, n}` (`tt_s`: anti-windup tracking time, omitted or 0 disables it; `b`: setpoint weight; `n`: derivative filter, omitted leaves the derivative unfiltered); `IMC {gain, tau_s, dead_time_s, lam_s, derivative, n}`; `on_off {high, low, hysteresis}`; `smith {kp, ki, tt_s, gain, tau_s, dead_time_s, feedforward}`; `scheduled {points: [[setpoint, kp, ki, kd], …], tt_s, n}`; `sliding {k, lam, boundary}` — each in [Control laws](../3-extending/laws.md). Omit for none |
 | `feedforward` | `{type, …}` | `identity` (the setpoint passed through, in the measured unit); `none`; `affine {gain, bias, rate_gain}`; `table {points, rate_gain}`. Omit: `identity` when the units agree, else `none` |

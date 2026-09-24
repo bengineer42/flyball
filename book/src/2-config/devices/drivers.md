@@ -749,7 +749,7 @@ devices:
 | `values.<name>.initial` | number | its value from build, finite |
 | `values.<name>.unit` | string | the unit symbol (`%`, `°C`, `L/min`); omit for none |
 | `values.<name>.quantity` | string | what it is (`humidity`); default: the entry's name |
-| `values.<name>.label` | string | the display text |
+| `values.<name>.label` | string | the display text; left out, the name humanised |
 | `values.<name>.limits` | `[lo, hi]` | what a write is clamped to |
 
 - **Written like any writable signal**: `PUT /api/signals/bench.dry_supply`

@@ -117,18 +117,22 @@ Kelvin against a °C signal converts before it reports.
 
 ## Devices
 
+Every `label` is a string, never empty and never null: the declared one, else
+the name humanised (`dry_pump_flow` → "Dry pump flow"); a controller's, else
+its output signal's (D-086).
+
 | type | JSON |
 | --- | --- |
 | `DeviceOut` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, consumers, sources, readable, writable, conditions, run}` — see [Devices](api.md#devices) |
 | `InputOut` | `{name, label, quantity, unit, bound, constant?, quality, reason?, age_s?}`: what an input follows (an address, or a number) and its quality now |
 | `ValueSourceOut` | `{origin: rig_file \| restored \| written, initial, actor, written_utc_ns}`: where a `values` device's value in force came from; `actor` who wrote it (`null`: not known) |
 | `Actor` | `{principal, kind, via, sid, message}` -- who acted, on every record of an action (a stop, a latch, a write, an event's `details.actor`): `principal` the caller's id (`local:console`, `token:<name>`) or the rig's own (`program`, a controller's name, `stop`); `kind` `human`, `service`, `agent`, or `program`, `controller`, `rule`; `via` `http`, `mcp`, `signal` (the break-glass, the runner's shutdown) or `rig` (the rig's own); `sid` the login, `""` for none; `message` anything more (`from 127.0.0.1`) |
-| `CommandOut` | `{name, description, simulation, commit, mode, interrupts, writes, demand_of, links}` |
+| `CommandOut` | `{name, label, description, simulation, commit, mode, interrupts, writes, demand_of, links}` |
 | `CommandRunOut` (`POST .../commands/{command}`) | `{"result": any, "interrupted": [{"controller": str, "was": "regulating"}]}` — `result` what the method returned; `interrupted` the controllers an `interrupts` command put in manual once it had succeeded |
 | a device's `config` (`GET .../schema`'s `config`) | a JSON Schema; an instance is `{...fields}` |
 | `Condition` | `{"code": str, "severity": "debug" \| "info" \| "warning" \| "error", "message": str, "since_ns": int, "subject_kind": "device" \| "signal" \| "controller" \| "rig", "subject": str, "details": any}` — `subject` is the owner's name (a signal's address) |
 | `Event` | `{"time_ns": int, "severity": …, "subject_kind": str, "subject": str, "code": str, "message": str, "details": any, "edge": "raised" \| "cleared" \| null}` — see [Events](api.md#events) |
-| `DeviceSchema` (`GET .../schema`) | `{name, label, class_name, driver, description, readable, writable, config, signals, inputs, commands: {command: {description, arguments, simulation, commit, mode, interrupts, writes, demand_of}}}` |
+| `DeviceSchema` (`GET .../schema`) | `{name, label, class_name, driver, description, readable, writable, config, signals, inputs, commands: {command: {label, description, arguments, simulation, commit, mode, interrupts, writes, demand_of}}}` |
 | a command request | one property per method parameter after `self`, from the method's signature; an argument linked to a demand also carries `x-signal`, `unit`, `minimum`/`maximum` |
 
 ## Controllers and laws

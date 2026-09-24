@@ -111,6 +111,11 @@ the CLI reads anyway.
 the domain types so the HTTP surface and the control code can change shape
 independently.
 
+A model's `label` is the domain object's resolved `label` (`Signal.label`,
+`Node.label`, `Device.label`, `InputBinding.label`, `CommandSpec.label`,
+`Controller.label`): never empty. A route never falls back itself; what was
+declared stays on the domain object (`declared_label`) for the rig file.
+
 | model | of | shape |
 | --- | --- | --- |
 | `SignalOut` | a `Signal` in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warning, alarm, poll_s, stale_after_s, limits, initial, quality, readback, on_no_value, latest, last_usable, write}`; `stale_after_s` from `rig.liveness.threshold_s` |
@@ -119,7 +124,7 @@ independently.
 | `WriteMetaOut` | a demand's `Reading` | `{requested, at_limit, controller}` -- `WriteOut` without `value`, already in `SampleOut.values` |
 | `SampleOut` | a `Sample`, plus `rig.latest` for each demand's write record | `{node, time_ns, values, writes}`, both keyed relative to `node`; `writes` only for the demands the sample includes |
 | `ReadingOut` | a `Reading` | `{signal, time_ns, value}` |
-| `CommandOut` | a `CommandSpec` | `{name, description, simulation, commit, mode, interrupts, writes, demand_of, links}` |
+| `CommandOut` | a `CommandSpec` | `{name, label, description, simulation, commit, mode, interrupts, writes, demand_of, links}` |
 | `CommandRunOut` | a `CommandRun` (`Rig.invoke`) | `{result, interrupted: [{controller, was}]}` |
 | `DeviceOut` | a `Device` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, consumers, sources, readable, writable, conditions, run}`; `inputs` from each `InputBinding` on `device.bound`, `consumers` from `Rig.consumers`, `sources` from `Rig.values.source` |
 | `ControllerOut` | a `Controller`/`ControllerView` | identity, mode, law config and state, reference, setpoint, correction, demand, expected, reading |

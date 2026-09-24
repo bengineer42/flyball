@@ -34,8 +34,8 @@ forced on, titled for the controller and which trend (`… · process` /
 **Graph** (`#/graph`) is a free-form chart: pick any signals across any
 devices and plot them together, unlike Readings' charts which stay grouped by
 device or unit. A picker on the left lists every numeric published signal
-under its device, each by its title (a signal the driver left unlabelled, or
-whose label another signal of the device shares, is named by its namespace
+under its device, each by its title (a signal whose label says no more than
+its name, or whose label another signal of the device shares, is named by its namespace
 too: `Dry line humidity`, never three `Humidity`) with its unit; above the
 list a search box and a row of filter chips per axis — **unit**, **device**,
 and every tag axis the rig's signals carry (`Line: Chamber / Dry / Wet` on

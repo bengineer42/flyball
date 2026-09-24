@@ -155,7 +155,7 @@ naming it; one that is looked up simply is not found.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, activities, recording, stopped, latches}`; `stopped` is `{actor, at_utc_ns, reason}` while the rig is latched by a stop, else `null`; `latches` is `[{subject_kind, subject, cause}]`, every subject a latch holds; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every [`Condition`](wire.md#devices) held now, from the rig's condition store, on any device, signal, controller or the rig itself (`[{code, severity, message, since_ns, subject_kind, subject, details}]`: `offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path, `stale_input`/`limit_unknown`/`step_failed`/`not_permitted` on a controller, `stopped` on the rig and `latched` on what an `on_fault` action holds, `band_warning`/`band_alarm`/`band_unknown` on a signal, `frozen` on a controller, `recording_failed` on the rig, and each driver's own on its device or signals); `alarms` is `{warn, alarm, unknown, max_level}`, counted from the rig's band conditions: `warn` is the signals holding `band_warning` (outside their `warning` band), `alarm` those holding `band_alarm` (outside `alarm`), `unknown` those holding `band_unknown` (a banded signal with no value because of a fault, past its grace, whose `on_no_value` is `fire`), each signal once, `unknown` first; these keep the rig's hysteresis ([Bands](../2-config/devices/index.md#bands)). Fault conditions are never alarms: one offline device is one condition and zero alarms. `max_level` is `40`/`30`/`0` from `alarm`/`warn`; `unknown` does not raise it. `ok` is false while any condition at `error` is held other than a band condition -- a band alarm is not a fault; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
+| `GET` | `/api/health` | `{ok, rig, label, uptime_s, devices, controllers, conditions, alarms, activities, recording, stopped, latches}`; `stopped` is `{actor, at_utc_ns, reason}` while the rig is latched by a stop, else `null`; `latches` is `[{subject_kind, subject, cause}]`, every subject a latch holds; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every [`Condition`](wire.md#devices) held now, from the rig's condition store, on any device, signal, controller or the rig itself (`[{code, severity, message, since_ns, subject_kind, subject, details}]`: `offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path, `stale_input`/`limit_unknown`/`step_failed`/`not_permitted` on a controller, `stopped` on the rig and `latched` on what an `on_fault` action holds, `band_warning`/`band_alarm`/`band_unknown` on a signal, `frozen` on a controller, `recording_failed` on the rig, and each driver's own on its device or signals); `alarms` is `{warn, alarm, unknown, max_level}`, counted from the rig's band conditions: `warn` is the signals holding `band_warning` (outside their `warning` band), `alarm` those holding `band_alarm` (outside `alarm`), `unknown` those holding `band_unknown` (a banded signal with no value because of a fault, past its grace, whose `on_no_value` is `fire`), each signal once, `unknown` first; these keep the rig's hysteresis ([Bands](../2-config/devices/index.md#bands)). Fault conditions are never alarms: one offline device is one condition and zero alarms. `max_level` is `40`/`30`/`0` from `alarm`/`warn`; `unknown` does not raise it. `ok` is false while any condition at `error` is held other than a band condition -- a band alarm is not a fault; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `label` is the rig's (the rig file's `label`, else its name humanised); `{ok: false, rig: null, label: null, exposure}` with no rig |
 | `GET` | `/api/schema` | `{devices: {name: DeviceSchema}}` |
 | `GET` | `/api/clock` | `ClockOut`: `{start_time_ns, now_ns, elapsed_ns, speed}` |
 | `GET` | `/api/tunings` | `{name: LawConfig}` |
@@ -251,6 +251,11 @@ token's is refused with 409, as is any write to what an `on_fault: stop` or
 does not allow is 409, naming the signal and the band; a write of the
 demand's resolved stop value is always allowed.
 
+Every `label` the server sends -- a device's, a namespace's, a signal's, an
+input's, a command's, a controller's, the rig's, a dashboard row's -- is a
+string, never empty and never null: the one declared, else the name humanised
+(`dry_pump_flow` → "Dry pump flow"; D-086).
+
 A `DeviceOut` is `{name, label, kind, driver, class_name, link, poll_s, signals,
 commands, inputs, consumers, sources, readable, writable, conditions, run}`: `kind` is
 `device`, or `simulation` for an application's own simulation device (see
@@ -309,8 +314,9 @@ set after limits, what was asked for when the clamp changed it, `low` /
 `high` when the value sits on a limit, and the controller driving the
 signal (it refuses manual demands; set its setpoint or detach it).
 
-A `CommandOut` is `{name, description, simulation, commit, sets_mode,
-interrupts, writes, demand_of, links}`: `commit` whether the rig commits the
+A `CommandOut` is `{name, label, description, simulation, commit, sets_mode,
+interrupts, writes, demand_of, links}`: `label` the driver's `@command(label=...)`,
+else the name humanised (`set_flows` → "Set flows"), `commit` whether the rig commits the
 device once the method returns, `sets_mode` what the device's `mode` output
 becomes when it runs (if it has one), `interrupts` whether it may run while
 a controller drives the device (the controller goes to manual once the
@@ -325,7 +331,7 @@ description, readable, writable, config, signals, inputs, commands}`:
 access, role, tags, label, quantity, unit, dimension, dtype, value_schema, range,
 precision, limits}}` by path relative to the device (`value_schema` a JSON Schema
 for the signal's own type), `inputs` `{name: {label, quantity, unit,
-bound, constant}}`, and `commands` `{command: {description, arguments, simulation,
+bound, constant}}`, and `commands` `{command: {label, description, arguments, simulation,
 commit, sets_mode, interrupts, writes, demand_of}}` — `arguments` a JSON Schema whose
 properties linked to a demand also carry `x-signal`, `unit` and
 `minimum`/`maximum` from that signal's limits now.
@@ -349,7 +355,7 @@ is named by its output's address.
 | `GET` | `/api/controllers/default` | `ControllerOut`; 503 when there is none |
 | `GET` | `/api/controllers/{address}` | `ControllerOut` |
 | `GET` | `/api/controllers/schema` | what a form needs to make a controller: `measured` and `outputs` (`[{address, device, label, unit, dimension, range, limits}]`: every published signal, every writable one), `laws`, `feedforwards` and `generators` (JSON Schema unions on `type`), `tunings` (`{name, law, config}`), `regulated` (`{measured: controller}`), `driven` (`{output: controller}`) |
-| `POST` | `/api/controllers` | `{output, measured, law?, feedforward?, is_default?, min_period_s?, setpoint_period_s?, on_fault?}` (the rig file's keys); 201 `ControllerOut`; 409 if the output is already driven or the measured signal already regulated, `feedforward: "setpoint"` across units, or `on_fault: stop` on an output whose stop is `keep`; 404 for an unknown address |
+| `POST` | `/api/controllers` | `{output, measured, label?, law?, feedforward?, is_default?, min_period_s?, setpoint_period_s?, on_fault?}` (the rig file's keys); 201 `ControllerOut`; 409 if the output is already driven or the measured signal already regulated, `feedforward: "setpoint"` across units, or `on_fault: stop` on an output whose stop is `keep`; 404 for an unknown address |
 | `DELETE` | `/api/controllers/{address}` | 204; put in manual first, so the output holds its last value; manual demands may drive it again |
 | `POST` | `/api/controllers/{address}/regulate` | `{at, start?, tuning?, transfer?}`; `at` a value, `measured`/`setpoint`/`output`, or a generator spec (`{type, ...its own arguments}`, e.g. `{type: "linear_ramp_setpoint", pace, end}`, discriminated by `type` against the `generators` union); `start` says where a generator starts from -- a value, `setpoint` or `measured` (the last reading) -- and defaults to the controller's current setpoint, or its last reading if it has none yet; `output` is converted back to the measured unit through the feedforward's inverse, 422 if it has none; the handover's output is committed at once; 503 if a generator is given and there is neither a setpoint nor a reading to start it from; 409 while a latch holds the controller, its output or the rig -- except that a person's `regulate` clears the controller's own `on_fault: manual` latch first, which holds nothing else |
 | `POST` | `/api/controllers/{address}/manual` | stop regulating; the output keeps its last value |
@@ -359,7 +365,7 @@ A `ControllerOut` is `{name, label, output_signal, measured_signal,
 is_default, mode, law, feedforward, output_unit, reference, setpoint, arrived,
 correction, output_value, expected, delivered_correction, measured_value}`: `name` is
 `output_signal`, the output's address, and `measured_signal` the measured
-signal's; `label` the output signal's; `reference` is a number or, mid-trajectory, `{type,
+signal's; `label` the rig file's `label` for it, else the output signal's; `reference` is a number or, mid-trajectory, `{type,
 ...the generator's own arguments, end_time?}` (`end_time` in seconds from
 the rig's start, once started and unless endless), `setpoint` the value it
 resolved to at the last tick (in the measured unit), `arrived` whether the
@@ -489,7 +495,8 @@ file itself takes); they are imported on start.
 | `POST` | `/api/dashboards/{name}/rename` | `{name}`; every version moves to the new key (its `label` is kept); 409 if taken |
 | `DELETE` | `/api/dashboards/{name}` | 204; every version |
 
-A `DashboardRow` is `{id, name, rig, body, created_ns, sha256}`; a
+A `DashboardRow` is `{id, name, rig, body, created_ns, sha256, label}`, `label` the
+document's own, else the name humanised (the `body` keeps what it declared); a
 `DashboardWithProblems` is the same plus `problems: [{widget_id, address,
 reason}]` — every widget whose binding (a `readout`/`gauge`'s `address`, a
 `chart`'s `addresses`, a `loop`'s `controller`, a `device`'s `device`, all
@@ -499,7 +506,7 @@ saved and returned as given; nothing is refused for this.
 
 Documents carry `schema_version: 6`, and only 6: a `PUT` of any other
 version is a `422`, and a file of any other is skipped on import. The
-document has a `label` (a string or `null`, default `null`: show the name),
+document has a `label` (a string or `null`, default `null`: the name humanised),
 `readonly` (bool, default `false`: the app disables the dashboard's write
 controls for everyone; a convenience, not access control) and `order` (a
 number or `null`, default `null`: where its tab sits, ascending, with
