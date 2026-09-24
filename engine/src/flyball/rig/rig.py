@@ -675,11 +675,6 @@ class Rig:
             try:
                 for name, source in inputs.items():
                     bound.append(self.bind(device.binding(name), source))
-                if (cycle := self._cycle_through(device)) is not None:
-                    raise ConflictError(
-                        "a cycle through inputs: "
-                        + "; ".join(f"{b.where} <- {b.address}" for b in cycle)
-                    )
             except Exception:
                 for binding in bound:
                     self.unbind(binding)
@@ -701,7 +696,8 @@ class Rig:
         Raises:
             AddressNotFoundError: An address does not resolve.
             ConflictError: A signal that does not publish; a node with nothing
-                published under it.
+                published under it; for a device's input, a cycle through
+                inputs back to that device, named (the binding is left unbound).
             ValueError: A number that is not finite.
         """
         if isinstance(source, str):
@@ -723,6 +719,10 @@ class Rig:
                 raise ValueError(f"{binding.where}: {target!r} is not a finite number")
             self.unbind(binding)
             binding.attach(target)
+            if isinstance(owner := binding.owner, Device) and (cycle := self._cycle_through(owner)):
+                path = "; ".join(f"{b.where} <- {b.address}" for b in cycle)
+                binding.detach()
+                raise ConflictError(f"a cycle through inputs: {path}")
             if isinstance(target, Signal):
                 self._followers.setdefault(target, {})[binding] = None
             elif isinstance(target, Node):
