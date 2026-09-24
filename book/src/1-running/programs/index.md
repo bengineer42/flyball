@@ -17,7 +17,7 @@ derived from its constructor. The vocabulary shipped with the library:
 | `regulate` | aim a controller at a setpoint and hand control to the law |
 | `ramp` | walk a controller's setpoint to a target at a pace, and wait until it arrives |
 | `wait` | keep everything as it is for a duration; controllers go on regulating |
-| `settle` | wait until named controllers have settled within a band of their setpoints |
+| `settle` | wait until named controllers have settled within a band of their setpoints, or until a signal's readings meet a test (above, below, near a value) |
 | `manual` | stop a controller regulating; its target keeps its last demand |
 | `set` | put values on one device's writable signals, as one demand |
 | `command` | call one of a device's own commands |
@@ -26,6 +26,8 @@ derived from its constructor. The vocabulary shipped with the library:
 `regulate`/`ramp`/`wait`/`settle`/`manual` name a **controller** by the
 address of the signal it drives (or a list, or none for the rig's default) --
 not the device itself, since a writable signal has at most one controller.
+`settle` may name a **signal** instead, one no controller need regulate: a
+sample's temperature, a weight, a count.
 Device commands (`@command` methods on a device) are reachable as `command`
 steps; a humidity rig's `set_blend` is one. Its `blend` is a `Setting`
 signal — shown on the wire, `RP` — but a setting is re-set by a command,

@@ -6,15 +6,27 @@ from pathlib import Path
 
 import pytest
 from flyball.control.feedforward import Table
-from flyball.foundation.device import invalid
+from flyball.foundation.device import OnNoValue, invalid
+from flyball.interfaces.server.dialect import Dialect, program_from_file
+from flyball.model.catalog import get_catalog
 from flyball.model.feedforward import NoFeedforward
-from flyball.sequencing import Manual, Program, Programmer, Ramp, Regulate, Wait
 from flyball.runtime.config import RigConfig, resolve_document
+from flyball.sequencing import (
+    CriterionMet,
+    Manual,
+    Program,
+    Programmer,
+    Ramp,
+    Regulate,
+    Settle,
+    Wait,
+)
 from flyball_sim import Port, SteppedClock
 
 from furnace.plant import KELVIN, STEFAN_BOLTZMANN, Furnace
 
 RIG = Path(__file__).resolve().parents[1] / "rig.yaml"
+PROGRAMS = RIG.parent / "programs"
 
 
 class TestFurnace:
@@ -182,6 +194,84 @@ def test_an_open_thermocouple_reads_invalid_and_freezes_its_zone_s_loop(furnace_
     furnace.restore("zone3")
     rig.clock.advance(3)
     assert rig.latest[zone3].usable and controller.held is None
+
+
+def _dialect() -> Dialect:
+    return Dialect(steps=dict(get_catalog().steps.items()))
+
+
+def test_every_program_parses():
+    for path in sorted(PROGRAMS.glob("*.yaml")):
+        assert len(program_from_file(path, _dialect())) > 0, path.name
+
+
+def _settle_on(rig, step: Settle, most_s: float) -> tuple[CriterionMet, float]:
+    """Start `step`, advance the clock a second at a time until it fires: it and the seconds."""
+    programmer = Programmer(rig)
+    programmer.start(step)
+    activity = programmer._activity
+    assert isinstance(activity, CriterionMet)
+    waited = 0
+    while not activity.fired and waited < most_s:
+        rig.clock.advance(1)
+        waited += 1
+    programmer.join(2)
+    assert programmer.running is False
+    return activity, waited
+
+
+def test_a_settle_waits_on_the_sample_which_no_controller_regulates(furnace_rig):
+    rig = furnace_rig
+    rig.clock.advance(1)
+    sample = rig.resolve("furnace.sample")
+    assert rig.controllers.find(sample) is None, "nothing regulates the sample"
+    rig.controllers["heaters.heater2"].regulate(300.0)
+    activity, waited = _settle_on(
+        rig, Settle(signal="furnace.sample", above=250, count=5), most_s=3 * 3600
+    )
+    assert activity.fired and rig.latest[sample].value > 250
+    assert 5 * 60 < waited < 90 * 60, "the sample lags its zone by minutes"
+    assert _zone(rig, "zone2") > rig.latest[sample].value, "the zone leads, the sample follows"
+    assert rig.consumers(sample) == [], "the step let go of the signal"
+
+
+def test_a_failed_sample_thermocouple_is_not_met_unless_on_no_value_fires(furnace_rig):
+    rig = furnace_rig
+    furnace = rig.devices["furnace"]
+    rig.clock.advance(1)
+    furnace.fail("sample")
+    programmer = Programmer(rig)
+    programmer.start(Settle(signal="furnace.sample", below=1000, count=3))
+    rig.clock.advance(60)
+    assert rig.latest[rig.resolve("furnace.sample")].value == invalid("sensor_failed")
+    assert programmer.running, "30 invalid readings: not met, so the timeout would decide"
+    programmer.cancel()
+    activity, waited = _settle_on(
+        rig,
+        Settle(signal="furnace.sample", below=1000, count=3, on_no_value=OnNoValue.FIRE),
+        most_s=60,
+    )
+    assert activity.fired and waited == 6, "three invalid readings, one every 2 s"
+
+
+def test_the_anneal_soaks_on_the_sample_and_ends_when_it_can_be_unloaded(furnace_rig):
+    """The whole program, about 7 h of furnace time, on the stepped clock.
+
+    Its waits step the clock themselves -- a timed wait by its duration, a settle's
+    timeout to its deadline -- so the clock ends past the last settle's firing.
+    """
+    rig = furnace_rig
+    program = program_from_file(PROGRAMS / "anneal.yaml", _dialect())
+    rig.clock.advance(1)
+    programmer = Programmer(rig)
+    programmer.start(program)
+    programmer.join(120)
+    assert programmer.running is False
+    codes = [e.code for e in rig.recent if e.scope == "program"]
+    assert "step_timed_out" not in codes and codes[-1] == "succeeded", codes
+    assert _zone(rig, "sample") < 60, "cool enough to unload"
+    for name in ("heater1", "heater2", "heater3"):
+        assert rig.latest[rig.resolve(f"heaters.{name}")].value == 0.0, f"{name} is off"
 
 
 # The single-zone losses curve for the furnace's shared loss model

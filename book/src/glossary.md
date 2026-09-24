@@ -68,6 +68,14 @@ feedforward in force are its `ControllerSpec`.
 **correction** — what the law produces: the offset added to the
 feedforward's output value.
 
+**criterion** — a test on one signal's value: `above`, `below`, or `near`
+with `within`, optionally `from_start` (relative to its value when the test
+began); written `{signal: furnace.sample, below: 60}`. What `settle` waits
+for on a signal. A reading with no value meets it only if it is a fault
+(`invalid`, `stale`) and `on_no_value` is `fire`; whoever holds the
+criterion sets the default (`settle`: `ignore`). Not a **condition**, which
+is something the rig holds true of a device or signal.
+
 **delivery** — one call to `rig.on_samples`: the input bindings whose
 source got a reading are told (their devices' `inputs_changed`, and marked
 touched), then controllers tick, then one commit per device touched, then
@@ -316,8 +324,10 @@ not driven by a controller (`Role.SETTING`, `RP`); a `values` device's
 entries are settings an operator writes (`RPW`).
 
 **settle** — a program step: wait until the named controllers sit within a
-band of their setpoints for `count` consecutive readings, or time out.
-Registers as an **activity** named `settle:<controllers>`.
+band of their setpoints for `count` consecutive readings, or until a named
+signal's readings meet a **criterion** `count` times running; or time out.
+Registers as an **activity** named `settle:<controllers>` or
+`settle:<signal>`.
 
 **signal metadata** — a signal's descriptive and limiting fields (label,
 range, precision, warning, alarm, limits, poll_s, stale_after_s, max_rate,

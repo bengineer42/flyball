@@ -7,6 +7,8 @@
 
 ::: flyball.sequencing.activities
 
+::: flyball.sequencing.criterion
+
 ::: flyball.sequencing.step
 
 ::: flyball.sequencing.devices
