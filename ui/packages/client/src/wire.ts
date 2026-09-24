@@ -85,7 +85,12 @@ export type Role = "demand" | "readout" | "setting" | "config";
  */
 export type Quality = "ok" | "pending" | "not_applicable" | "invalid" | "stale";
 
-/** Why a signal is `stale`: the rig's own reasons. A driver's `invalid` reason is its own string. */
+/**
+ * Why a signal is `stale`: the rig's own reasons. A driver's `invalid` reason is its own string.
+ * `silent` (nothing from its device within `stale_after_s`), `last_read` (its device delivers,
+ * but not this signal), `never_read` (`pending` past its deadline) are pushed by the rig at the
+ * threshold, as a reading with `value: null`: the chart breaks there.
+ */
 export type StaleReason =
   | "device_offline"
   | "device_hung"
@@ -238,6 +243,13 @@ export interface SignalOut {
   alarm: Bounds | null;
   /** The signal's own poll period; null: the enclosing node's. */
   poll_s: number | null;
+  /**
+   * The threshold the rig judges its liveness by now: its own `stale_after_s`, else
+   * `max(3·poll_s, 5 s)` while its device is polled; null: not judged (a push, a setting, an
+   * echo demand, a record). Past it with nothing arriving, the rig pushes `stale` on it itself.
+   * Always sent; optional here only so client-built signals type-check.
+   */
+  stale_after_s?: number | null;
   /** What a demand is clamped to, in the signal's unit, as effective now; a demand only. */
   limits: Bounds | null;
   /**
@@ -601,6 +613,8 @@ export interface NewController {
   feedforward?: FeedforwardConfig | string | null;
   default?: boolean;
   min_period_s?: number | null;
+  /** While following a moving setpoint, re-apply its feedforward this often between readings; omitted: `max(0.1 s, poll_s / 4)`. */
+  setpoint_period_s?: number | null;
 }
 
 export type ValueSource = "measured" | "setpoint" | "output";
@@ -730,6 +744,8 @@ export interface NewDevice {
   label?: string;
   poll_s?: number;
   inputs?: Record<string, string>;
+  /** How long a value a failed write kept may wait to be sent again; omitted: 60 s. */
+  retry_max_age_s?: number;
   [key: string]: unknown;
 }
 
@@ -1072,6 +1088,11 @@ export interface Tick {
   output: number | null;
   expected: number | null;
   delivered_correction: number | null;
+  /**
+   * A re-apply between readings (a moving setpoint's feedforward, on the rig clock): no reading,
+   * so `measured` is null and the law did not step. Always sent; optional for older servers.
+   */
+  reapplied?: boolean;
 }
 
 /** What one writable signal was set to at one instant. */
