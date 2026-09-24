@@ -20,9 +20,9 @@ relative to the first rig file's directory.
 | `auth.anonymous` | `none` / `read` | `none` | `--anonymous`, `FLYBALL_ANONYMOUS` | what a caller with no token and no session may do: nothing, or every `GET` and stream -- by an IP address, `localhost` or the machine's own name only |
 | `auth.password`, `auth.session`, `auth.secret` | | | `--password`, `--session`, `FLYBALL_PASSWORD`, `FLYBALL_SESSION` | removed: read, so an old file still starts, and ignored with a warning. A password is the front's now (`front.password`) |
 | `mcp` | bool | `true` | `--no-mcp`, `FLYBALL_NO_MCP` | mount the MCP servers at `/mcp/{read,author,operate}` |
-| `compose` | bool | `false` | `--compose` | let the API add links and devices to a *hardware* rig; a simulated or bare rig always may |
+| `compose` | bool | `false` | `--compose` | let the API change a *hardware* rig (add or remove links and devices, restore a version; each change restarts the rig); a simulated or bare rig always may |
 | `allow_save` | bool | `false` | `--allow-save` | let the API write rig files: `/api/rig/save` to a path, `/api/sim/save`. The overlay save (`<rig>.d/added.yaml`) needs no flag |
-| `allow_shutdown` | bool | `false` | `--allow-shutdown` | let the API stop or restart the runner (`/api/runner/shutdown`, `/restart`) |
+| `allow_shutdown` | bool | `false` | `--allow-shutdown` | let the API stop or restart the runner (`/api/runner/shutdown`, `/restart`); a rig edit's own restart does not need it |
 | `store` | path | `<rig>.sqlite` beside the file | `--store` | the SQLite store: sessions, versions, programs, dashboards |
 | `store_dir` | path | none | -- | put the store at `<store_dir>/<name>.sqlite` instead, so several runners keep theirs in one place; `store` wins |
 | `programs` | path | `programs/` beside the file | `--programs` | program files imported into the library at start |

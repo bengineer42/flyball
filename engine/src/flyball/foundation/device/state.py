@@ -170,6 +170,10 @@ class Code(StrEnum):
     """A command on a device succeeded, but its polling was not restarted: a read of it has
     been in flight for longer than its period (hung in its driver). Not waited on."""
     RESTORED = "restored"
+    EDIT_NOT_BUILT = "edit_not_built"
+    """A condition on the rig (`error`), from the start after a rig edit whose rig did not
+    build: the runner put back the version before it and started again on that. `details`:
+    `{version, previous, error}`. Held until the next restart."""
     RESTARTED = "restarted"
     """The runner's own, when it is restarted (not yet raised). A device's polling that starts
     again clears its `offline` instead."""

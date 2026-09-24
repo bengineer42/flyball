@@ -18,13 +18,13 @@ from mcp import types
 from mcp.client.session import ClientSession
 from mcp.shared.memory import create_client_server_memory_streams
 
-from conftest import TestClient, free_port
+from conftest import FakeRunner, TestClient, free_port
 from flyball.interfaces.client import Rig as Client
 from flyball.interfaces.client import RigError
 from flyball.interfaces.mcp import Tier, tools_for
 from flyball.interfaces.mcp.server import build
 from flyball.interfaces.server import create_app, set_rig
-from flyball.interfaces.server.deps import set_rig_config, set_store
+from flyball.interfaces.server.deps import set_rig_config, set_runner, set_store
 from flyball.model.catalog import get_catalog
 from flyball.record.sqlite import SqliteStore
 from flyball.sequencing.step import Step
@@ -592,29 +592,41 @@ class TestComposition:
     def tool(self, client, name):
         return next(t for t in tools_for(client, "operate") if t.name == name)
 
-    def test_link_device_document_and_changes(self, client):
+    def test_an_edit_is_saved_and_restarts_the_rig(self, client, rig):
         assert {"attach_link", "attach_device", "attach_document", "rig_versions"} <= names(
             tools_for(client, "operate")
         )
-        assert "spare" not in self.tool(client, "rig_document").run(client, {})["devices"]
-        self.tool(client, "attach_link").run(
-            client, {"name": "plant", "config": {"type": "sim_furnace"}}
-        )
-        added = self.tool(client, "attach_device").run(
-            client,
-            {
-                "name": "spare",
-                "entry": {"driver": "sim_drive", "link": "plant", "ports": {"power": "heater1"}},
-            },
-        )
-        assert added["name"] == "spare"
-        client.refresh()  # the server does this after a tool that changes the rig
-        assert "spare" in client.schema["devices"]
-        assert "spare-disturb" not in names(tools_for(client, "operate")), "simulation-only: hidden"
-        assert isinstance(self.tool(client, "rig_changes").run(client, {}), dict)
-        self.tool(client, "detach_device").run(client, {"name": "spare"})
-        assert "spare" not in self.tool(client, "rig_document").run(client, {})["devices"]
-        # Versions and restore need the runner's change hook on the store: test_composition.
+        restore = self.tool(client, "restore_rig_version")
+        assert "Not applied in place" in restore.description
+        assert "restarts" in restore.description and "force" in restore.schema["properties"]
+        runner = FakeRunner()
+        set_runner(runner)
+        try:
+            out = self.tool(client, "attach_document").run(
+                client,
+                {
+                    "document": {
+                        "links": {"plant": {"type": "sim_furnace"}},
+                        "devices": {
+                            "spare": {
+                                "driver": "sim_drive",
+                                "link": "plant",
+                                "ports": {"power": "heater1"},
+                            }
+                        },
+                    }
+                },
+            )
+            assert out["restarting"] is True and out["reason"].startswith("edited: added a doc")
+            assert runner.edits == [(out["version"], out["previous"], False)]
+            assert "spare" not in self.tool(client, "rig_document").run(client, {})["devices"]
+            saved = self.tool(client, "rig_version").run(client, {"version_id": out["version"]})
+            assert "spare" in saved["document"]["devices"], "saved: the restart builds it"
+            again = self.tool(client, "attach_link")
+            with pytest.raises(RigError, match="restarting"):
+                again.run(client, {"name": "p2", "config": {"type": "sim_furnace"}, "force": True})
+        finally:
+            set_runner(None)
 
     async def test_attaching_announces_a_new_tool_list(self, client):
         server = build(client, "operate")
@@ -623,35 +635,38 @@ class TestComposition:
         async def handler(message: Any) -> None:
             seen.append(type(message).__name__)
 
-        async with create_client_server_memory_streams() as (client_streams, server_streams):
+        set_runner(FakeRunner())
+        try:
+            async with create_client_server_memory_streams() as (client_streams, server_streams):
 
-            async def serve() -> None:
-                await server.run(*server_streams, server.create_initialization_options())
+                async def serve() -> None:
+                    await server.run(*server_streams, server.create_initialization_options())
 
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(serve)
-                async with ClientSession(*client_streams, message_handler=handler) as session:
-                    await session.initialize()
-                    await session.list_tools()
-                    await session.call_tool(
-                        "attach_link", {"name": "plant", "config": {"type": "sim_furnace"}}
-                    )
-                    result = await session.call_tool(
-                        "attach_device",
-                        {
-                            "name": "spare",
-                            "entry": {
-                                "driver": "sim_drive",
-                                "link": "plant",
-                                "ports": {"power": "heater1"},
+                async with anyio.create_task_group() as tg:
+                    tg.start_soon(serve)
+                    async with ClientSession(*client_streams, message_handler=handler) as session:
+                        await session.initialize()
+                        await session.list_tools()
+                        result = await session.call_tool(
+                            "attach_document",
+                            {
+                                "document": {
+                                    "links": {"plant": {"type": "sim_furnace"}},
+                                    "devices": {
+                                        "spare": {
+                                            "driver": "sim_drive",
+                                            "link": "plant",
+                                            "ports": {"power": "heater1"},
+                                        }
+                                    },
+                                }
                             },
-                        },
-                    )
-                    assert not result.is_error, result.content
-                    assert "ToolListChangedNotification" in seen
-                    described = await session.call_tool("describe_device", {"name": "spare"})
-                    assert not described.is_error
-                tg.cancel_scope.cancel()
+                        )
+                        assert not result.is_error, result.content
+                        assert "ToolListChangedNotification" in seen
+                    tg.cancel_scope.cancel()
+        finally:
+            set_runner(None)
 
 
 # region The re-mint: an MCP tool's inner call carries its caller, capped to the mode

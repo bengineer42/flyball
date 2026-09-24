@@ -121,7 +121,7 @@ without a handle).
 | --- | --- | --- |
 | `GET` | `/api/runner` | `{endpoint, root_path, mcp, compose, allow_save, allow_shutdown, store, programs, tunings, drivers, files, keep, keep_size, retain, rotate, max_store, keep_ns, keep_bytes, retain_ns, rotate_ns, max_bytes}`: the settings as resolved (the `runner:` section under the command line), never the token; `endpoint` is what the runner binds, `tcp:<host>:<port>`, or `unix:<path>` behind a front; `files` the rig files loaded; the five retention keys as written and as resolved (0 = off / no cap) |
 | `POST` | `/api/runner/shutdown` | 202 `{detail}`; the rig stops and the process exits. 409 unless started with `--allow-shutdown`. Not the [software stop](#stopping-the-rig) |
-| `POST` | `/api/runner/restart` | 202 `{detail}`; as shutdown, then the same command line runs again in the same process. 409 the same |
+| `POST` | `/api/runner/restart` | 202 `{detail}`; as shutdown, then the same command line runs again in the same process. 409 the same. A [rig edit](#composition) restarts the runner itself and needs no `--allow-shutdown` |
 
 ## Errors
 
@@ -156,33 +156,65 @@ A `LawConfig` is `{type, ...gains}`, e.g. `{"type": "PI", "kp": 0.5, "ki": 0.05,
 
 ### Composition
 
-The rig built up while it runs, in the rig file's own terms; every change
-is a version in the store (see [the runner](../1-running/runner/building.md#building-a-rig-while-it-runs)).
-On a rig with real hardware links the writes below (links, devices, a
-document, restore) answer `409` unless the runner runs with `--compose`;
-a simulated rig, or one started bare, may always be built up. Reading and
-saving are never gated.
+The rig changed while it runs, in the rig file's own terms (see
+[the runner](../1-running/runner/building.md#building-a-rig-while-it-runs)).
+A change is never applied to the running rig (D-051). Each of the six edits
+below -- add or remove a link, add or remove a device, add a document,
+restore a version -- goes one way:
+
+1. **Check.** The edited rig is validated whole (the schema, the driver,
+   link and law types, and that every input and controller address names a
+   device of the rig). Refused with nothing changed: `422` invalid, `404` an
+   unknown link or an address on no device, `409` a name taken, a link still
+   used, a device another's input is bound to, a key a `--set` pins, a stale
+   `?base=`, a program running without `?force=true`, a runner already
+   restarting, no change at all, or an edit the overlay cannot express.
+2. **Save.** A new rig version, the head, with reason `edited: <what>` or
+   `restored from N`; for a rig from files, also the overlay
+   `<first file>.d/added.<suffix>` the next start loads (checked first to
+   rebuild exactly that version; the one it replaces is kept as
+   `added.<suffix>.prev`). A bare or `--resume`d runner keeps it in the store
+   alone.
+3. **Stop** the rig with the installed stop, as `POST /api/rig/stop` does
+   (the program cancelled, outputs to their stop states, controllers to
+   manual), not latched.
+4. **Restart** the runner by exec (a bare or resumed one with `--resume`):
+   it builds the head version and comes up passive, every controller in
+   manual and each driver at its build values; a recording goes on in a new
+   session. If it cannot build, it puts the version before back (`restored
+   from M`), starts again once, and holds an `edit_not_built` condition on
+   the rig.
+
+Each answers 202 `RigEditOut`: `{version, previous, reason, saved, restarting,
+stop, detail}` -- `saved` the overlay's path or `null`, `stop` the stop's
+report -- before the restart; the API answers again once the runner is back.
+Each takes `?base=<version>` (the head the edit was made on; `409` if it
+moved) and `?force=true` (cancel a running program). On a rig with real
+hardware links the edits answer `409` unless the runner runs with
+`--compose`; a simulated rig, or one started bare, may always be changed.
+Reading and saving are never gated. Attaching a controller
+(`POST /api/controllers`) is still applied in place.
 
 | | | |
 | --- | --- | --- |
 | `GET` | `/api/rig/schema` | the rig file's JSON schema, with every driver and link type this runner has |
 | `GET` | `/api/rig/config` | the rig file as loaded (a simulation's, with its changes); of `runner:` only what a reader needs -- `host`, `port`, `log_level`, `compose`, `mcp`, `root_path`, `allow_save`, `allow_shutdown`, the retention keys, `auth.anonymous`, and `front`'s `listen`, `auth`, `url` and `anonymous`. No credential (`auth.token`, `front.password`), no path (`store`, `drivers`, `front.tls`, ...), none of `front.proxy` or `front.trusted_proxies` |
 | `POST` | `/api/rig/check` | body a rig document; validates without building; 422 says what is wrong |
-| `POST` | `/api/links` | body `{name, type, ...}` (a `links:` entry with its name); 201 the link as the file writes it; 409 the name is taken; 422 a bad config |
-| `DELETE` | `/api/links/{name}` | 204; 409 while a device is built on it |
-| `POST` | `/api/devices` | body the file's device envelope with its `name` (`driver`, `label`, `poll_s`, `signals`, `inputs`, and the driver's fields flat beside them); 201 `DeviceOut`, bound, polled and recorded; 409 name taken; 404 unknown link or input address; 422 unknown driver or a config it refuses |
-| `DELETE` | `/api/devices/{name}` | 204; its poll stops, controllers on it are detached, inputs bound into it unbound |
-| `POST` | `/api/rig` | body a rig document (`links`, `devices`, `controllers`; other keys ignored); added in that order; 201 the running document |
+| `POST` | `/api/links` | body `{name, type, ...}` (a `links:` entry with its name); 202 `RigEditOut`; 409 the name is taken; 422 a bad config |
+| `DELETE` | `/api/links/{name}` | 202 `RigEditOut`; 404 no such link; 409 while a device is built on it |
+| `POST` | `/api/devices` | body the file's device envelope with its `name` (`driver`, `label`, `poll_s`, `signals`, `inputs`, and the driver's fields flat beside them); 202 `RigEditOut`; 409 name taken; 404 unknown link, or an input address on no device; 422 unknown driver or a config it refuses. A config that validates but will not build is caught at the restart, which goes back to the version before |
+| `DELETE` | `/api/devices/{name}` | 202 `RigEditOut`; the controllers on it go with it; 404 no such device; 409 while another device's input is bound to it |
+| `POST` | `/api/rig` | body a rig document (`links`, `devices`, `controllers`; other keys ignored), added to the rig; 202 `RigEditOut`; 409 a name the rig already has |
 | `GET` | `/api/rig/document` | the running rig as a rig file would build it, defaults left out |
-| `GET` | `/api/rig/changes` | what differs from the rig as this run started, as an overlay (a removed key is `null`); `{}` when nothing |
-| `GET` | `/api/rig/versions` | `[{id, time_ns, reason, files, parent, head}]`, newest first; `?limit=`. `parent`: the version this was made from (the head when it was saved; `null` for a first); `head`: whether the running rig is at it |
+| `GET` | `/api/rig/changes` | what differs from the rig as this run started, as an overlay (a removed key is `null`); `{}` when nothing. An edit restarts the rig, so only a controller attached or removed since the start shows |
+| `GET` | `/api/rig/versions` | `[{id, time_ns, reason, files, parent, head}]`, newest first; `?limit=`. `parent`: the version this was made from (the head when it was saved; `null` for a first); `head`: the version the running rig is at, or is restarting to |
 | `GET` | `/api/rig/versions/{id}` | the same with `document` |
-| `POST` | `/api/rig/versions/{id}/restore` | make the running rig that version: links, devices and controllers removed, added or rebuilt to match. Writes no version: the head moves to `{id}`, and the next change's `parent` is `{id}`; a `rig`/`versions`/`restored` event marks it on the event stream |
+| `POST` | `/api/rig/versions/{id}/restore` | make the rig that version again, whole: 202 `RigEditOut`, a new version `restored from {id}` on top of the head (its `parent`), built fresh at the restart; 404 no such version; 409 if the rig already is it |
 | `GET` | `/api/drivers` | every registered type: `{role: "driver" \| "link", module, description, schema}` (`schema_error` in place of `schema` if pydantic cannot build one) |
 | `POST` | `/api/drivers/reload` | re-import the runner's drivers directory (`--drivers`, default `drivers/` beside the first rig file): `{directory, registered: {file: [tags]}, errors: {file: message}}`; a file's earlier tags are dropped first, so an edited driver re-registers; 404 with no directory |
 | `POST` | `/api/probe` | `{report}`: the board's buses, GPIO chips and I²C addresses (flyball-linux); `?scan=false` for the list without a bus transaction; 404 where it is not installed. A `POST` because a scan drives every I²C bus |
 | `POST` | `/api/links/{name}/query` | body `{text}`; `{reply}` from a text link's `query()`; 409 for a link that is not one |
-| `POST` | `/api/rig/save` | body `{path?, overwrite?}`; no path: the overlay `<rig>.d/added.<suffix>` beside the first rig file, holding what that file held when this run started with this run's changes merged on top, so a later run's save keeps an earlier one's (409 if the runner was not started from a file; unchanged, the file is not rewritten); a path: the whole rig, flattened (409 unless the runner runs with `--allow-save`; 422 a bad suffix; 409 a file the rig was loaded from unless `overwrite`; an existing file keeps its own `runner:` section, which is not returned; 409 if that section cannot be read); returns `{path, document, written}`, `written` false when the overlay already said the same |
+| `POST` | `/api/rig/save` | body `{path?, overwrite?}`; no path: the overlay `<rig>.d/added.<suffix>` beside the first rig file, holding what that file held when this run started with this run's changes merged on top (an edit already saved itself there; what is left to save is a controller attached or removed since the start), so a later run's save keeps an earlier one's (409 if the runner was not started from a file; unchanged, the file is not rewritten); a path: the whole rig, flattened (409 unless the runner runs with `--allow-save`; 422 a bad suffix; 409 a file the rig was loaded from unless `overwrite`, which then also clears the overlay, kept as `added.<suffix>.prev`; an existing file keeps its own `runner:` section, which is not returned; 409 if that section cannot be read); returns `{path, document, written}`, `written` false when the overlay already said the same |
 
 ## Devices
 
@@ -499,7 +531,7 @@ message: one `raised` per outage, never one per poll or per step.
 | `signal` | `band_warning`, `band_alarm`, `band_unknown` ([Bands](../2-config/devices/index.md#bands)), a driver's own (the sim's `broken`) | |
 | `controller` | `step_failed` (a law that raised), `stale_input`, `limit_unknown`, `frozen` (its measured signal has no value: `info` for `not_applicable`, `warning` for a fault; cleared after 3 readings with a value) | `interrupted` |
 | `program` | | `started`, `step`, `step_timed_out`, `step_still_running` (a cancel or a stop gave up waiting for the step, which may still act), `step_failed`, `succeeded`, `failed`, `cancelled` (a person), `interrupted` (the engine, with `details.reason`), `run_from_library` |
-| `rig` | `recording_failed` (cleared by the next recording) | `delivery_failed`, `restored` |
+| `rig` | `recording_failed` (cleared by the next recording), `edit_not_built` (`error`: the start after a rig edit could not build it and went back to the version before; `details: {version, previous, error}`; held until the next restart) | `delivery_failed`, `restored` (an in-place restore, before D-051; no longer raised) |
 
 There is no separate "recovered" code: `offline` cleared is what
 `restarted` was, and `write_failed`, `step_failed` and

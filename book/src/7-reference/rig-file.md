@@ -66,6 +66,15 @@ applies as a one-key overlay on top of every file. `extends:` inside a
 file resolves the same way, under that file, before the command line's
 files are merged with each other.
 
+After the command line's files, every start also loads the files in
+`<first file>.d/` (`lab.yaml.d/*.yaml`, sorted), before `--set`. The
+runner's own is `added.<suffix>`: where a [rig edit](../glossary.md) made
+over the API is saved, as the difference from your files, so the edit
+survives a restart and a later change to your file still applies where the
+edit did not touch it. Delete it to go back to your files alone; the one an
+edit replaced is kept as `added.<suffix>.prev`
+([Building a rig while it runs](../1-running/runner/building.md)).
+
 The point of an overlay is that it swaps the **drivers** behind the same
 device and signal names, so every address, controller, dashboard, program
 and recorded session is identical whether the rig is real or simulated.

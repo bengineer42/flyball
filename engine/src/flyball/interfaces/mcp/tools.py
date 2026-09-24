@@ -902,7 +902,8 @@ def _device_tools(rig: Rig, simulated: bool) -> list[Tool]:
 #
 # Most instruments need no code: the generic `scpi` and `modbus` drivers take
 # their signals from the rig-file entry. `probe_hardware` and `link_query`
-# find out what is there; `attach_device` puts an entry on the running rig.
+# find out what is there; `attach_device` adds an entry to the rig (saved, and the rig
+# restarted with it: D-051).
 # Equipment that needs code gets the guide, a scaffold, a checker that
 # imports the file where this server runs, and `reload_drivers` for a
 # directory the runner loads from. A tool whose route the runner does not
@@ -910,6 +911,19 @@ def _device_tools(rig: Rig, simulated: bool) -> list[Tool]:
 # `--compose` opt-in: without it the attach tools are refused with 409.
 
 GUIDES = Path(__file__).parent / "guides"
+
+_RESTARTS = (
+    "Saved as a new rig version, then the rig is stopped (outputs to their stop states, any "
+    "program cancelled) and the runner restarts from that version: controllers come back in "
+    "manual, and a recording goes on in a new session. The result names the version; the "
+    "runner answers again once it is back. Refused while a program runs unless `force`."
+)
+FORCE = _bool("Cancel a running program to make the change; without it, refused while one runs.")
+
+
+def _forced(a: dict[str, Any]) -> str:
+    return _query(force="true" if a.get("force") else None)
+
 
 _CHECK = """\
 import importlib.util, json, sys
@@ -1137,9 +1151,8 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "attach_device",
-        "Build a device from a rig-file entry and add it to the running rig, its links "
-        "resolved; `check_rig` the whole file first. `save_rig` keeps it. On a hardware rig "
-        "only when the runner runs with `--compose`.",
+        "Add a device, from a rig-file entry, to the rig. " + _RESTARTS + " `check_rig` the "
+        "whole file first. On a hardware rig only when the runner runs with `--compose`.",
         _object(
             {
                 "name": NAME,
@@ -1148,57 +1161,62 @@ DRIVERS: tuple[Tool, ...] = (
                     "description": "The device entry: `driver`, optional `label`, `poll_s`, "
                     "`signals`, `inputs`, and the driver's own fields flat beside them.",
                 },
+                "force": FORCE,
             },
             "name",
             "entry",
         ),
         Tier.DRIVE,
-        lambda rig, a: rig.post("/api/devices", {"name": a["name"], **a["entry"]}),
+        lambda rig, a: rig.post("/api/devices" + _forced(a), {"name": a["name"], **a["entry"]}),
         route=("post", "/api/devices"),
         changes_tools=True,
     ),
     Tool(
         "detach_device",
-        "Stop and remove a device from the running rig; its controllers go with it.",
-        _object({"name": NAME}, "name"),
+        "Remove a device from the rig; its controllers go with it. " + _RESTARTS,
+        _object({"name": NAME, "force": FORCE}, "name"),
         Tier.DRIVE,
-        lambda rig, a: rig.delete(f"/api/devices/{segment(a['name'])}"),
+        lambda rig, a: rig.delete(f"/api/devices/{segment(a['name'])}" + _forced(a)),
         route=("delete", "/api/devices/{name}"),
         destructive=True,
         changes_tools=True,
     ),
     Tool(
         "attach_link",
-        "Build a transport on the running rig and hold it under `name`, for devices to be "
-        "built on: the rig file's `links:` entry (`type`, its settings). On a hardware rig only "
+        "Add a transport to the rig under `name`, for devices to be built on: the rig file's "
+        "`links:` entry (`type`, its settings). " + _RESTARTS + " On a hardware rig only "
         "when the runner runs with `--compose`.",
         _object(
-            {"name": NAME, "config": {"type": "object", "description": "The link config."}},
+            {
+                "name": NAME,
+                "config": {"type": "object", "description": "The link config."},
+                "force": FORCE,
+            },
             "name",
             "config",
         ),
         Tier.DRIVE,
-        lambda rig, a: rig.post("/api/links", {"name": a["name"], **a["config"]}),
+        lambda rig, a: rig.post("/api/links" + _forced(a), {"name": a["name"], **a["config"]}),
         route=("post", "/api/links"),
     ),
     Tool(
         "detach_link",
-        "Drop a link no device is built on.",
-        _object({"name": NAME}, "name"),
+        "Remove a link no device is built on. " + _RESTARTS,
+        _object({"name": NAME, "force": FORCE}, "name"),
         Tier.DRIVE,
-        lambda rig, a: rig.delete(f"/api/links/{segment(a['name'])}"),
+        lambda rig, a: rig.delete(f"/api/links/{segment(a['name'])}" + _forced(a)),
         route=("delete", "/api/links/{name}"),
         destructive=True,
     ),
     Tool(
         "attach_document",
-        "Add a whole rig document -- `links`, `devices`, `controllers` -- to the running rig, "
-        "in that order; the way to build a rig from nothing. Validated whole before anything "
-        "is built; a failure part-way leaves what was built before it. `check_rig` first. On a "
-        "hardware rig only when the runner runs with `--compose`.",
-        _object({"document": DOCUMENT}, "document"),
+        "Add a whole rig document -- `links`, `devices`, `controllers` -- to the rig; the way "
+        "to build a rig from nothing. Validated whole, with the rig it joins, before anything "
+        "is saved. " + _RESTARTS + " `check_rig` first. On a hardware rig only when the runner "
+        "runs with `--compose`.",
+        _object({"document": DOCUMENT, "force": FORCE}, "document"),
         Tier.DRIVE,
-        lambda rig, a: rig.post("/api/rig", a["document"]),
+        lambda rig, a: rig.post("/api/rig" + _forced(a), a["document"]),
         route=("post", "/api/rig"),
         changes_tools=True,
     ),
@@ -1214,7 +1232,8 @@ DRIVERS: tuple[Tool, ...] = (
     Tool(
         "rig_changes",
         "What differs between the running rig and the files it was loaded from, as an overlay: "
-        "added or changed keys with their values, removed ones as null.",
+        "added or changed keys with their values, removed ones as null. An edit restarts the "
+        "rig, so only a controller added or removed since the start shows.",
         _object(),
         Tier.READ,
         lambda rig, a: rig.get("/api/rig/changes"),
@@ -1222,8 +1241,9 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "rig_versions",
-        "Every change made to the running rig through the API, newest first, with its reason; "
-        "`rig_version` for one's document, `restore_rig_version` to go back.",
+        "Every version of the rig, newest first, with its reason (a start, an edit, a "
+        "restore); the `head` is what the rig runs. `rig_version` for one's document, "
+        "`restore_rig_version` to go back.",
         _object({"limit": _int("At most this many.", minimum=1)}),
         Tier.READ,
         lambda rig, a: {"versions": rig.get("/api/rig/versions" + _query(limit=a.get("limit")))},
@@ -1240,20 +1260,23 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "restore_rig_version",
-        "Make the running rig match a recorded version: what is absent is removed, what is "
-        "missing is added, a changed device is rebuilt, controllers re-attached.",
-        _object({"version_id": _int("From `rig_versions`.")}, "version_id"),
+        "Make the rig a recorded version again, whole: saved as a new version (`restored "
+        "from N`). Not applied in place: " + _RESTARTS[0].lower() + _RESTARTS[1:],
+        _object({"version_id": _int("From `rig_versions`."), "force": FORCE}, "version_id"),
         Tier.DRIVE,
-        lambda rig, a: rig.post(f"/api/rig/versions/{segment(a['version_id'])}/restore"),
+        lambda rig, a: rig.post(
+            f"/api/rig/versions/{segment(a['version_id'])}/restore" + _forced(a)
+        ),
         route=("post", "/api/rig/versions/{version_id}/restore"),
         destructive=True,
         changes_tools=True,
     ),
     Tool(
         "save_rig",
-        "Write the running rig out. No `path`: what changed since the files were loaded, to "
-        "an overlay beside the rig file the runner loads next start. A `path`: the whole rig "
-        "to that file (`overwrite` to flatten onto one it was loaded from).",
+        "Write the running rig out; an edit already saved itself. No `path`: what changed "
+        "since the files were loaded (a controller added or removed), to the overlay beside "
+        "the rig file the runner loads next start. A `path`: the whole rig to that file "
+        "(`overwrite` to flatten onto one it was loaded from, which clears the overlay).",
         _object({
             "path": _str("Where to write; a .yaml, .toml or .json."),
             "overwrite": _bool("Allow `path` to be a file the rig was loaded from."),

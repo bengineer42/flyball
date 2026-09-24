@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from flyball.foundation.device import Device
     from flyball.rig.stopping import Stopper
     from flyball.runtime.config import Exposure, RigConfig, RunnerConfig
+    from flyball.runtime.edits import Origin
     from flyball.runtime.retention import Retention
     from flyball.sequencing import ProgrammerState
 
@@ -124,6 +125,11 @@ def set_programmer(programmer: Programmer | None) -> None:
     """Attach the programmer that runs commands against the rig."""
     global _programmer
     _programmer = programmer
+
+
+def current_programmer() -> Programmer | None:
+    """The attached programmer, or None: for a route that only asks whether one is running."""
+    return _programmer
 
 
 def get_programmer() -> Programmer:
@@ -234,8 +240,25 @@ class Runner(Protocol):
     def files(self) -> list[Path]: ...
     @property
     def exposure(self) -> Exposure | None: ...
+    @property
+    def restarting(self) -> bool:
+        """A restart has been asked for: the process is on its way out."""
+        ...
+
+    @property
+    def origin(self) -> Origin:
+        """The rig files and `--set`s it was started with: where a rig edit is saved."""
+        ...
+
     def shutdown(self) -> None: ...
     def restart(self) -> None: ...
+    def restart_for_edit(self, version: int, previous: int | None, record: bool = False) -> None:
+        """Restart to build rig version `version`, which an edit saved.
+
+        `previous`: what to go back to if it does not build. `record`: open a recording
+        session again, as one was.
+        """
+        ...
 
 
 _runner: Runner | None = None

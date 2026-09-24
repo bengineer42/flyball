@@ -153,6 +153,12 @@ under it.
 scalars and lists replace, `null` deletes. Swaps drivers behind the same
 names — the real-vs-simulated pattern.
 
+**rig edit** — a change to the rig made through the API, the UI or MCP: a
+link or a device added or removed, a document added, a version restored.
+Never applied in place (D-051): saved as a new rig version and, for a rig
+from files, in the runner's own overlay `<first file>.d/added.<suffix>`;
+then the rig is stopped and the runner restarts from that version, passive.
+
 **measured** — a controller's measured signal: the published signal it
 regulates (ISA's PV), `measured:` in the rig file. Also the faceplate row
 and the wire field holding its last reading.

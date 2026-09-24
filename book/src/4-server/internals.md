@@ -80,6 +80,7 @@ the worker threads other routes share.
 | `runner.py` | `/api/runner*`: the process's resolved settings, shutdown and restart, through the handle `flyball-runner` sets with `set_runner` (404 without one) |
 | `auth.py` | `/api/auth*`: AuthInfo v2, a bare runner's token sign-in, logout and one-time link, and the fronted runner's readiness probe `/api/auth/front` |
 | `stop.py` | `POST /api/rig/stop`: calls the `Stopper` (`deps.current_stopper()`) and answers its `StopReport` |
+| `composition.py` | the rig edits (links, devices, a document, a version restored), versions, `changes`, `save`. An edit is never applied in place (D-051): `_edit` builds the edited document from the running one, checks it, saves it (`flyball.runtime.edits`: the overlay beside the rig file, checked to rebuild exactly that version, or the store alone for a bare or resumed runner) and a version row, calls the installed `Stopper`, then the runner handle's `restart_for_edit`, which execs the process (with `--resume` when the store holds the edit). One edit at a time; the old process refuses edits once it is restarting |
 | `devices.py` | `/api/devices*`: the tree, commands, demands |
 | `read.py` | `/api/read*`: readings, samples, fresh reads |
 | `controllers.py` | `/api/controllers*`: wiring, regulate/manual, reference |

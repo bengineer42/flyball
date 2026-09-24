@@ -1135,6 +1135,57 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
     return {"additionalProperties": {"oneOf": [*variants, overlay]}}, defs
 
 
+def render_document(loaded: dict[str, Any]) -> dict[str, Any]:
+    """A rig as a rig file, in the form [Rig.document][flyball.rig.rig.Rig.document] gives.
+
+    `loaded` holds `name`, the header keys (`board`, `clock`, `recording`), `links` as the
+    file writes them (`{type, ...}`), `devices` as entries and `controllers` as
+    [ControllerEntry][flyball.runtime.config.ControllerEntry]s. Defaults are left out, as a
+    hand-written file leaves them; a law's or feedforward's `type` is kept, since the file
+    needs it.
+    """
+    config = RigConfig.model_validate(loaded)
+    document = config.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
+    document["links"] = loaded["links"]
+    for key in ("devices", "controllers"):
+        document.setdefault(key, {})
+    controllers: dict[str, ControllerEntry] = loaded["controllers"]
+    for name, entry in controllers.items():
+        rendered = document["controllers"][name]
+        if entry.law is not None:
+            rendered.setdefault("law", {})["type"] = entry.law.type
+        if entry.feedforward is not None:
+            rendered.setdefault("feedforward", {})["type"] = entry.feedforward.type
+    return document
+
+
+def document_of(config: RigConfig) -> dict[str, Any]:
+    """`config` as the rig it builds would render itself (`Rig.document()`), without building.
+
+    What a rig edit is saved as, and compared by: the running rig's document and one read
+    from files are then in the same form.
+    """
+    header = {
+        k: v
+        for k, v in canonical(config).items()
+        if k not in ("name", "links", "devices", "controllers")
+    }
+    links = {
+        name: {
+            "type": link.type_name,
+            **link.model_dump(mode="json", exclude_none=True, exclude_defaults=True),
+        }
+        for name, link in config.links.items()
+    }
+    return render_document({
+        "name": config.name,
+        **header,
+        "links": links,
+        "devices": dict(config.devices),
+        "controllers": dict(config.controllers),
+    })
+
+
 def canonical(config: RigConfig) -> dict[str, Any]:
     """`config` as the canonical document -- what `rig check` prints.
 
@@ -1283,11 +1334,37 @@ def resolve_documents(
         contributed: the layers, in the order first read, then the board
         file, if one was used.
     """
+    path_list = [Path(paths)] if isinstance(paths, (str, Path)) else [Path(p) for p in paths]
+    return _layered(path_list, [*path_list, *saved_overlays(path_list[0])], sets)
+
+
+def resolve_with_overlay(
+    paths: Sequence[str | Path], sets: Sequence[str], overlay: Mapping[str, Any]
+) -> tuple[dict[str, Any], list[Path]]:
+    """`resolve_documents`, with `overlay` in place of the saved overlay (`<file>.d/added.*`).
+
+    What a start from the same command line would load once `overlay` is saved there, read
+    before it is written; an empty `overlay` is a start with none. The other files in the
+    `.d/` directory keep their places (the directory's sorted order, `added.*` among them).
+    """
+    path_list = [Path(p) for p in paths]
+    added = saved_overlay_path(path_list[0])
+    others = [p for p in saved_overlays(path_list[0]) if p.name != added.name]
+    layers: list[Path | Mapping[str, Any]] = list(path_list)
+    for path in sorted([*others, added]):
+        if path != added:
+            layers.append(path)
+        elif overlay:
+            layers.append(overlay)
+    return _layered(path_list, layers, sets)
+
+
+def _layered(
+    path_list: list[Path], layers: Sequence[Path | Mapping[str, Any]], sets: Sequence[str]
+) -> tuple[dict[str, Any], list[Path]]:
     from flyball.runtime.overlay import resolve_layers
 
-    path_list = [Path(paths)] if isinstance(paths, (str, Path)) else [Path(p) for p in paths]
-    path_list.extend(saved_overlays(path_list[0]))
-    document, files = resolve_layers(path_list, sets)
+    document, files = resolve_layers(layers, sets)
     board_name = document.get("board")
     if not isinstance(board_name, str):
         return document, files
@@ -1362,15 +1439,18 @@ __all__ = [
     "apply_board",
     "board_dirs",
     "canonical",
+    "document_of",
     "find_board",
     "is_simulated",
     "load_board",
     "load_rig",
     "load_rig_config",
     "registered",
+    "render_document",
     "resolve_document",
     "resolve_documents",
     "resolve_live",
+    "resolve_with_overlay",
     "rig_model",
     "rig_schema",
     "role_of",

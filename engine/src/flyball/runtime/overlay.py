@@ -12,13 +12,13 @@ bases with `extends`, resolved before it is merged with the rest
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from flyball.foundation.files import load_document, yaml_loader
 
-__all__ = ["apply_set", "merge", "parse_set", "resolve_layers"]
+__all__ = ["apply_set", "delta", "merge", "parse_set", "resolve_layers"]
 
 
 def merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -39,6 +39,27 @@ def merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
         else:
             result[key] = value
     return result
+
+
+def delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    """The overlay that turns `before` into `after`: merging the one onto the other gives `after`.
+
+    A key only `after` has, or whose value changed, appears with `after`'s value; a key only
+    `before` has appears as `None` (what a layer writes to delete); mappings on both sides
+    are compared key by key. Empty when the two are equal.
+    """
+    out: dict[str, Any] = {}
+    for key in (*before, *(k for k in after if k not in before)):
+        if key not in after:
+            out[key] = None
+        elif key not in before:
+            out[key] = after[key]
+        elif isinstance(before[key], dict) and isinstance(after[key], dict):
+            if (inner := delta(before[key], after[key])) != {}:
+                out[key] = inner
+        elif before[key] != after[key]:
+            out[key] = after[key]
+    return out
 
 
 def parse_set(expr: str) -> tuple[list[str], Any]:
@@ -135,9 +156,12 @@ def _load_layer(path: Path, stack: tuple[Path, ...]) -> tuple[dict[str, Any], li
 
 
 def resolve_layers(
-    paths: Sequence[str | Path], sets: Sequence[str] = ()
+    paths: Sequence[str | Path | Mapping[str, Any]], sets: Sequence[str] = ()
 ) -> tuple[dict[str, Any], list[Path]]:
     """Every file in `paths`, each with its own `extends` resolved, merged in order.
+
+    A mapping in `paths` is a layer already read (a saved overlay not yet written, for a rig
+    edit to check before it writes it): laid like a file, contributing no file.
 
     Later files in `paths` overlay earlier ones -- and, since each file's
     `extends` is resolved before it is merged with the rest, a base named by
@@ -154,7 +178,9 @@ def resolve_layers(
     document: dict[str, Any] = {}
     contributed: list[Path] = []
     for index, path in enumerate(paths):
-        layer, files = _load_layer(Path(path), ())
+        layer, files = (
+            (dict(path), []) if isinstance(path, Mapping) else _load_layer(Path(path), ())
+        )
         document = layer if index == 0 else _lay(document, layer)
         contributed.extend(f for f in files if f not in contributed)
     for expr in sets:

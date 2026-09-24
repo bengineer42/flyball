@@ -817,7 +817,7 @@ export interface RigDocument {
   controllers: Record<string, Record<string, unknown>>;
 }
 
-/** A link as the file writes one: `{name, type, ...its config}`. Body for `POST /api/links`, and what it returns. */
+/** A link as the file writes one: `{name, type, ...its config}`. Body for `POST /api/links` (which answers `RigEditOut`). */
 export interface LinkEntry {
   name: string;
   type: string;
@@ -827,7 +827,7 @@ export interface LinkEntry {
 /**
  * A device entry with its name, as `POST /api/devices` takes it: the file's
  * envelope (`driver`, `label`, `poll_s`, `inputs`) plus the driver's own
- * fields, flat beside the envelope.
+ * fields, flat beside the envelope. The route answers `RigEditOut`.
  */
 export interface NewDevice {
   name: string;
@@ -847,10 +847,35 @@ export interface RigVersion {
   time_ns: Nanoseconds;
   reason: string;
   files: string[];
-  /** The version this one was made from; the head moves on a restore rather than a new row being written. */
+  /** The version this one was made from: the head when it was saved (a restore is a new version on top, `restored from N`). */
   parent?: number | null;
-  /** The version the running rig is at. */
+  /** The version the running rig is at, or is restarting to after an edit. */
   head?: boolean;
+}
+
+/**
+ * What a rig edit answers (202): `POST /api/links`, `DELETE /api/links/{name}`,
+ * `POST /api/devices`, `DELETE /api/devices/{name}`, `POST /api/rig`,
+ * `POST /api/rig/versions/{id}/restore` (D-051). Nothing is applied in place:
+ * the edit is saved as a new head version, the rig is stopped, and the runner
+ * restarts from that version (controllers in manual, each driver at its build
+ * values); the API answers again once it is back. Each takes `?base=<version>`
+ * (409 unless that is the head) and `?force=true` (a running program is
+ * cancelled; without it, 409 while one runs).
+ */
+export interface RigEditOut {
+  /** The edit's rig version, now the head. */
+  version: number;
+  /** The head before it: what a start that cannot build the edit goes back to. */
+  previous: number | null;
+  /** The version's reason: `edited: added device probe`, `restored from 3`. */
+  reason: string;
+  /** The overlay the edit was saved to (`<rig file>.d/added.<suffix>`); null for a bare or resumed rig (the store alone). */
+  saved: string | null;
+  restarting: boolean;
+  /** The stop's report, as `POST /api/rig/stop` answers; null if the stop failed. */
+  stop: StopReport | null;
+  detail: string;
 }
 
 /**

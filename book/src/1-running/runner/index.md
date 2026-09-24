@@ -168,7 +168,7 @@ so, and the API still works.
 | `/api/devices` | each device's signal tree, schema, and a `POST` per command |
 | `/api/read`, `/api/signals` | a signal's reading, a namespace's sample, or a device's samples; put a demand on a writable signal |
 | `/api/controllers`, `/api/tunings`, `/api/clock` | the live rig |
-| `/api/links`, `/api/devices` (`POST`, `DELETE`), `/api/rig` | build the rig up while it runs: see above |
+| `/api/links`, `/api/devices` (`POST`, `DELETE`), `/api/rig` | change the rig: each change is saved and the rig restarted with it ([Building a rig while it runs](building.md)) |
 | `/api/rig/document`, `/api/rig/changes`, `/api/rig/versions`, `/api/rig/save` | the running rig as a file, what changed, its versions, saving it |
 | `/api/rig/schema`, `/api/rig/config`, `/api/rig/check` | the rig file's schema, the file as loaded, validate a document without building |
 | `/api/drivers`, `/api/drivers/reload`, `/api/probe`, `/api/links/{name}/query` | what the runner can build, load the drivers directory again, what the board has, one raw exchange on a link |

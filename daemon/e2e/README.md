@@ -40,6 +40,7 @@ about 15 s; each test runs in parallel with its own world.
 | `TestRunProxy` | `flyball run`, proxy shape (`authelia`) on a unix socket behind a stand-in proxy; the same preset on TCP with an unvouched peer |
 | `TestRunFallbacks` | `flyball run` with each front misconfiguration, and with the runner's removed flags |
 | `TestRunCleartextWarning` | `flyball run`, password shape on `0.0.0.0:0` without TLS |
+| `TestRunRigEditRestarts` | `flyball run`, local shape: a rig edit (`POST /api/devices`) through the front, the runner restarting itself by execv (D-051) |
 | `TestRunOldRunner` | `flyball run` with a stand-in runner that ignores the principal, and one that refuses `--front-dir` |
 | `TestDaemonTwoRigs` | `flyballd` (password shape) with rigs `a` and `b`, an overlapping `c`, then a second `flyballd` over the same manifests |
 

@@ -1082,3 +1082,56 @@ func TestRunOldRunner(t *testing.T) {
 		}
 	})
 }
+
+// flyball run, no flyballd: a rig edit through the front (D-051) saves the
+// change beside the rig file, and the runner restarts itself by execv --
+// the same pid, the front still in front, the new device in the rig -- with
+// no --allow-shutdown.
+func TestRunRigEditRestarts(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	rig := e.rig("edit", "")
+	_, base := e.flyballRun("front", rig, "--listen", "127.0.0.1:0")
+	same := origin(base)
+	waitStatus(t, hc, "GET", base+"/api/runner", nil, 200, 90*time.Second)
+	dir := filepath.Dir(strings.TrimPrefix(endpointOf(t, hc, base+"/api/runner", nil), "unix:"))
+	pid := lockPid(t, dir)
+
+	probe := `{"name": "probe2", "driver": "sim_daq", "link": "chamber",` +
+		` "ports": {"temperature": {"port": "output", "quantity": "temperature", "unit": "°C"}}}`
+	r := do(t, hc, "POST", base+"/api/devices", probe, same)
+	if r.Status != 202 {
+		t.Fatalf("POST /api/devices: %v, want 202", r)
+	}
+	var out struct {
+		Version    int    `json:"version"`
+		Saved      string `json:"saved"`
+		Restarting bool   `json:"restarting"`
+	}
+	r.json(t, &out)
+	if !out.Restarting || !strings.HasSuffix(out.Saved, "oven.yaml.d/added.yaml") || !fileExists(out.Saved) {
+		t.Fatalf("the edit's answer: %+v", out)
+	}
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		if got, err := try(hc, "GET", base+"/api/rig/document", "", nil); err == nil && got.Status == 200 &&
+			strings.Contains(string(got.Body), `"probe2"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the runner never came back with probe2")
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if got := lockPid(t, dir); got != pid {
+		t.Errorf("pid %d after the edit's restart, want %d (execv: the same process)", got, pid)
+	}
+	var versions []struct {
+		ID   int  `json:"id"`
+		Head bool `json:"head"`
+	}
+	do(t, hc, "GET", base+"/api/rig/versions", "", nil).json(t, &versions)
+	if len(versions) == 0 || versions[0].ID != out.Version || !versions[0].Head {
+		t.Errorf("versions after the restart: %+v, want the edit's %d at the head", versions, out.Version)
+	}
+}
