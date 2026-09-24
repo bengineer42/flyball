@@ -10,6 +10,10 @@
 # has both, not necessarily the machine that ends up running the binary
 # (cross-compile with GOOS/GOARCH as usual; only `go build` itself cares
 # about the target platform, npm run build's output isn't platform-specific).
+#
+# CGO_ENABLED=0: the binary is static, so one built on a new distribution
+# starts on an old one (a cgo build links the build machine's glibc --
+# GLIBC_2.34 on anything newer than Ubuntu 20.04). Nothing in daemon/ uses cgo.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
@@ -42,8 +46,8 @@ else
   echo "$new_hash" > "$HASH_FILE"
 fi
 
-echo "==> go build"
-go build -o "$out" ./cmd/flyball
+echo "==> go build (static, CGO_ENABLED=0)"
+CGO_ENABLED=0 go build -o "$out" ./cmd/flyball
 
 echo "==> built $out ($(du -h "$out" | cut -f1)) with the UI embedded"
 echo "note: internal/webui/dist/ now holds the real build, not the placeholder --"

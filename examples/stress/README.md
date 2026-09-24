@@ -34,7 +34,7 @@ carrying the plant's static inverse.
 ```bash
 cd engine
 uv run flyball-runner ../examples/stress/plant.yaml --record
-flyball program run ../examples/stress/programs/plant-firing.yaml   # cd daemon && go build ./cmd/flyball first
+flyball program run ../examples/stress/programs/plant-firing.yaml   # cd daemon && CGO_ENABLED=0 go build ./cmd/flyball first
 flyball rig check ../examples/stress/chaos.yaml
 ```
 
