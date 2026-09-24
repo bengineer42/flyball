@@ -28,15 +28,44 @@ description is not printed under it: an ⓘ beside the label carries it on
 hover (and for a screen reader). A choice of two kinds is two equal halves,
 of three or more a stacked list.
 
+A form sends only the arguments the person changed: an argument left as
+the form opened it (prefilled with the signal's current value, or at its
+default) is left out, and the rig keeps it where it is -- so setting one
+line of a pair does not write the other.
+
+A command that changes what drives the device (it has a `mode`, `writes`,
+or an argument that sets a demand) and does not interrupt is refused
+while a controller regulates one of the device's signals; its card says
+so ("refused while blender.humidity regulates: put it in manual first")
+and its button is held until that controller is in manual. A command
+that interrupts runs, and puts the controller in manual once it has
+succeeded.
+
 After a run the card shows what the command returned ("done" when it
 returned nothing) and, when it put a regulating controller in manual to do
-its work, which ones: "put chamber.rh in manual".
+its work, which ones: "put chamber.rh in manual". A refusal is shown as the
+rig words it: a write to a readback names the command that moves it
+("moved by the command 'set_flows' (it puts a regulating controller in
+manual)").
+
+Under the header, the device's inputs, one per binding: "dry ←
+hum_sensors.dry.humidity" for an input bound to an address, "dry = 36.5 %"
+for one bound to a number, with the source's quality when it is not ok
+("stale: device offline") and the age of its newest reading. Below the
+signals, a `driver: values` device lists where each value came from
+("rig file", "restored, written by ben at …", or "written by ben at …"),
+and a device others follow lists, per signal, the inputs bound to it
+(**Followed by**). These refresh every few seconds.
 
 In [Options › Rig file](rig.md), **Add link** builds a link — a bus, a simulated plant, anything a rig
 file's `links:` takes — from the rig's schema (`GET /api/rig/schema`): a kind picker, then a
 `SchemaForm` for its config. **Add device** builds a device on the rig the same way: a name, a
 driver picker, that driver's config as a `SchemaForm` (a `link` field the schema names becomes
 a select of the rig's current links once there are any, else a free-form box), a label, a poll
-period, and any **Inputs** (`input -> address`) the driver takes. Removing a device or a link
+period, how long a value kept from a failed write may wait to be resent
+(`retry_max_age_s`; blank: 60 s), and any **Inputs** the driver takes
+(`input -> address`, or a number to bind the input to a constant). A config
+field that is a number or an object (a blender's `blend_flow`: a flow, or
+`{keep: true, fallback}`) offers both by name. Removing a device or a link
 takes everything built on it down too, after a confirmation naming what that is; a link still
 carrying a device refuses (409) until the device is removed first.
