@@ -297,12 +297,32 @@ export interface CommandOut {
   commit: boolean;
   /** What the device's `mode` output becomes when this runs, if it has one. */
   mode: Value;
-  /** Puts a controller driving the device into manual and runs; without it the command is refused while one is active. */
+  /** Runs while a controller drives the device and puts it into manual once the method has succeeded (the response's `interrupted` names it); without it the command is refused while one is active. */
   interrupts: boolean;
+  /** What it moves that no linked argument says: demand paths (gpio `on`/`off` move `on`), or a private child's name (a dosing pump's `pump`). A command with any is refused while a controller drives the device, unless it `interrupts`. Always sent; optional here only for older fixtures. */
+  writes?: string[];
   /** A synthesised `set_<name>`: the path of the demand it sets. */
   demand_of: string | null;
   /** Argument name -> the path (relative to the device) of the demand or setting it is a value for. */
   links: Record<string, string>;
+}
+
+/** A controller a command put into manual, once the command had succeeded. */
+export interface Interrupted {
+  controller: string;
+  /** Its mode before: `regulating`. */
+  was: ControllerMode;
+}
+
+/**
+ * `POST /api/devices/{name}/commands/{command}`'s response: what the method
+ * returned, and each controller an `interrupts` command put into manual
+ * (empty when it displaced none). `/api/sim/device/{command}` still returns
+ * the bare result.
+ */
+export interface CommandRunOut {
+  result: unknown;
+  interrupted: Interrupted[];
 }
 
 /** An input a device declares: what it follows, and what the rig bound to that role. */
@@ -383,6 +403,8 @@ export interface CommandSchema {
   commit: boolean;
   mode: Value;
   interrupts: boolean;
+  /** As `CommandOut.writes`. Always sent; optional here only for older fixtures. */
+  writes?: string[];
   demand_of: string | null;
 }
 
