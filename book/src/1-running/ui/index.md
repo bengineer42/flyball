@@ -10,7 +10,7 @@ with no front-end change. This section is what the app does, a page per area:
 | --- | --- |
 | [Devices](devices.md) | a card per device: signals, commands, conditions; adding and removing devices and links |
 | [Controllers](controllers.md) | the faceplate: reading, target, output, trends, the law |
-| [Charts and the Graph page](charts.md) | Readings, Graph, chart controls, keyboard shortcuts, downloads, stale tiles |
+| [Charts and the Graph page](charts.md) | Readings, Graph, chart controls, keyboard shortcuts, downloads, readings with no value, stale tiles |
 | [Sessions](sessions.md) | recording, the rolling record, keep, pin, export, delete |
 | [The rig file](rig.md) | Options › Rig file: the running document, versions and restore, save, restart, connect a model |
 | [Dashboards](../dashboards.md) | saved and generated layouts of widgets |
@@ -90,7 +90,8 @@ from the telemetry store, which cuts the window from what it already holds
 (up to an hour) or reads it from the session's `/api/history` once a seek
 settles — a panel never knows the difference, and nothing moves or changes
 size when the page flips between live and history. A signal with no sample
-in that window shows a blank value, not a stale or alarm state; a bool, enum
+in that window shows a blank value, not a stale or alarm state; a reading
+recorded with no value shows `—` and its quality, read off its stored flag; a bool, enum
 or JSON signal (a mode, a device's blend) shows what was recorded at that
 moment, read from the session.
 
@@ -221,6 +222,7 @@ neutral, warn and alarm change the tile's border and never only its colour,
 and warn and alarm are the rig's word, not the browser's: a tile shows the
 band alarm the rig holds on its signal (raised at once, cleared with the
 rig's hysteresis), never a check of the value against the bands of its own,
-and a stale tile is dashed with a hollow status dot. Every colour, space,
+a stale tile (the rig's `stale` reading) is dashed with a hollow status dot,
+and a tile whose band is unknown is dotted in its own colour, never red. Every colour, space,
 radius and duration is a token in `ui/packages/react/src/styles.css`
 (`ui/README.md` *Theming* lists them with their purpose and contrast).

@@ -7,8 +7,8 @@
  */
 import type { ReactNode } from "react";
 import { Chip, Typography } from "@mui/material";
-import { useFreshness, useLatestValue, type PanelSeverity } from "@flyball/react";
-import { alarmLevel, humanise, type SignalOut } from "@flyball/client";
+import { QualityBadge, noValue, useReading, type PanelSeverity } from "@flyball/react";
+import { alarmLevel, formatValue, humanise, type SignalOut } from "@flyball/client";
 
 export interface ValueReadout {
   level: PanelSeverity;
@@ -58,15 +58,18 @@ export function JsonValue({ value }: { value: unknown }) {
   );
 }
 
-/** `signal`'s live value, dtype-rendered, with the same staleness a numeric `Readout` would show. */
+/** `signal`'s live value, dtype-rendered, stale when the rig says so, as a numeric `Readout` would be. */
 export function useValueReadout(signal: SignalOut | undefined): ValueReadout {
-  const point = useLatestValue(signal?.address);
-  const fresh = useFreshness(signal?.address);
-  const level = signal ? alarmLevel(null, signal, fresh) : "ok";
-  const ageS = fresh.lastSampleS != null && fresh.nowS != null ? Math.round(fresh.nowS - fresh.lastSampleS) : null;
-  const footer = level === "stale" ? `last sample ${ageS} s ago` : undefined;
-  const value = point?.value;
-  const body =
+  const reading = useReading(signal?.address);
+  const level = signal ? alarmLevel(null, signal, undefined, reading?.quality) : "ok";
+  const none = noValue(reading, (v) => formatValue(v, signal));
+  const footer = undefined;
+  const value = reading?.value;
+  const body = none ? (
+    <span className="fb-readout-value" title={none.hint}>
+      <Chip size="small" label={none.glyph} variant="outlined" className="fb-muted" /> <QualityBadge state={none} />
+    </span>
+  ) :
     value === undefined || value === null ? (
       // The same chip a value takes, so a tile keeps its height with nothing to show (before the first sample, or at a paused moment with none).
       <Chip size="small" label="—" variant="outlined" className="fb-muted" />

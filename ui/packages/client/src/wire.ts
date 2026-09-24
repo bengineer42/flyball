@@ -75,11 +75,8 @@ export type Dtype = "float" | "int" | "bool" | "str" | "enum" | "json";
  * written from outside), `setting` (re-set by a command; an operator-entered
  * value of a `driver: values` device is a setting with `rpw`). A number a
  * device is built from is not a signal. Inputs are bindings, not signals.
- *
- * `config` is never sent since wave 2 stage 7 (`ConfigSignal` is gone); it stays in the
- * union only until the panels stop testing for it.
  */
-export type Role = "demand" | "readout" | "setting" | "config";
+export type Role = "demand" | "readout" | "setting";
 
 /**
  * What a signal's value is worth now: `ok`, or why there is none. First match wins:
@@ -1213,14 +1210,12 @@ export type StoreFlag = 1 | 2 | 3 | 4 | 16 | 17;
  * One stored reading, with its `flag`. An averaged bucket carries the lowest no-value code in
  * it when any reading in it had no value.
  *
- * NOTE: since store migration 0021 the server sends `value: null` for a reading with no value
- * (`flag` 1-4; a chart breaks there), and for such a bucket. `value` stays typed `number` only
- * until the UI's session loaders (`useSession.ts`, `store/telemetry.ts`) map null to a break;
- * then it becomes `number | null`.
+ * `value` is `null` for a reading with no value (`flag` 1-4; a chart breaks there), and for
+ * such a bucket.
  */
 export interface Point {
   offset_ns: Nanoseconds;
-  value: number;
+  value: number | null;
   flag?: StoreFlag | null;
 }
 
@@ -1350,9 +1345,8 @@ export interface SimulationClock {
 
 /** What the rig last delivered on one signal read off a plant: noise and all, not the model's state. */
 export interface SimulationReading {
-  /** The delivered value. NOTE: `null` when the reading has none (a failed sensor); typed
-   * `number` until the simulation page handles that, like `Point.value`. */
-  value: number;
+  /** The delivered value; `null` when the reading has none (a failed sensor): `quality` says why. */
+  value: number | null;
   /** `ok`, or why there is no value (a failed sensor reads `invalid`). */
   quality?: Quality;
   unit: string;

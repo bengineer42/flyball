@@ -1,35 +1,15 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Alert, Snackbar } from "@mui/material";
-import { RigError, type Condition } from "@flyball/client";
-import { useHealth, useRig } from "@flyball/react";
+import { RigError } from "@flyball/client";
+import { useRig } from "@flyball/react";
 import { Confirm } from "./Confirm.js";
 import { confirmLevel } from "./confirmLevels.js";
 
-interface Holds {
-  /** Each controller's own conditions now, by name. */
-  byController: Map<string, Condition[]>;
-  refresh(): void;
-}
-
-const HoldsContext = createContext<Holds | null>(null);
-
-/** One `/api/health` read for a page of faceplates: each controller's conditions (a latch, a permissive holding it). */
-export function ControllerHoldsProvider({ children }: { children: ReactNode }) {
-  const health = useHealth(5000);
-  const value = useMemo<Holds>(() => {
-    const byController = new Map<string, Condition[]>();
-    for (const c of health.data?.conditions ?? []) if (c.scope === "controller") byController.set(c.subject, [...(byController.get(c.subject) ?? []), c]);
-    return { byController, refresh: health.refresh };
-  }, [health.data, health.refresh]);
-  return <HoldsContext.Provider value={value}>{children}</HoldsContext.Provider>;
-}
-
 /**
- * What a faceplate needs to say why its controller cannot regulate, and to let its own fault latch
- * go: its conditions, `onReset` (behind a confirmation), and the dialog to render.
+ * A faceplate's Reset for its own fault latch: `onReset` (behind a confirmation) and the dialog to
+ * render. The latch itself the faceplate reads from the store's conditions.
  */
-export function useControllerHolds(name: string): { conditions: Condition[]; onReset(cause: string): void; dialog: ReactNode } {
-  const holds = useContext(HoldsContext);
+export function useControllerHolds(name: string): { onReset(cause: string): void; dialog: ReactNode } {
   const rig = useRig();
   const [cause, setCause] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -39,7 +19,6 @@ export function useControllerHolds(name: string): { conditions: Condition[]; onR
     try {
       await rig.resetRig(which);
       setCause(null);
-      holds?.refresh();
     } catch (e) {
       setError(e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e));
     } finally {
@@ -69,7 +48,6 @@ export function useControllerHolds(name: string): { conditions: Condition[]; onR
     </>
   );
   return {
-    conditions: holds?.byController.get(name) ?? [],
     onReset: (which) => (confirmLevel("rig.reset") === 0 ? void reset(which) : setCause(which)),
     dialog,
   };

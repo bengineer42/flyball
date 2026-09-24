@@ -15,6 +15,20 @@ conditions as badges (each held condition, on the device or one of its signals),
 and `last.*` drawn as the chip and "ran at" lines they are rather
 than raw JSON. A device's name anywhere in the app links to its page.
 
+A signal with no value shows `—` and why ("invalid: open circuit", "stale:
+device silent", `…` while pending), the last usable value on hover, never the
+value before it ([Readings with no value](charts.md#readings-with-no-value)). A
+signal's name carries, on hover, what the rig says of it beyond its value: a
+demand's readback (`echo`: its reading is what was committed; `sensed`: read
+back from the device) and a banded signal's `on_no_value`. A demand the device only
+reports (`access: rp`, a readback its commands move, such as a blender's pump
+flows) is shown read-only, like a reading: no entry and no **Set**, since the
+rig refuses every write to it.
+
+The line under the title lists what the device follows, one per input: `dry ←
+hum_sensors.dry.humidity` for one bound to a signal (with its quality when not
+`ok`, "stale: device silent"), `dry = 36.5 %RH` for one bound to a number.
+
 The run line under the title says how the device is being read: "polling ·
 every 1 s · last read …" normally; "retrying · 4 failed · … · next try …" when
 reads keep failing and the rig is backing off (the device stays running and

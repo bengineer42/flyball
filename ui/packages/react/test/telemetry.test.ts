@@ -332,7 +332,7 @@ describe("TelemetryStore", () => {
     expect(view.reference).toEqual([100, 100]);
   });
 
-  it("keeps device runs by name and derives a signal's period from its device", () => {
+  it("keeps device runs by name", () => {
     const { rig, send } = fakeRig();
     const store = new TelemetryStore(rig);
     const one = vi.fn();
@@ -344,15 +344,9 @@ describe("TelemetryStore", () => {
     vi.advanceTimersByTime(20);
     expect(one).toHaveBeenCalledTimes(1);
     expect(store.deviceRun("furnace")?.period_s).toBe(0.5);
-    expect(store.periodOf("furnace.zone1")).toBe(0.5);
-    expect(store.periodOf("heaters.heater1")).toBe(2);
-    expect(store.periodOf("nothing.here")).toBeUndefined();
-    expect(store.devicePeriodsKey()).toBe("furnace=0.5,heaters=2");
-    const key = store.devicePeriodsKey();
     send("samples", { runs: [run("heaters", 2, 3)] });
     vi.advanceTimersByTime(20);
     expect(one).toHaveBeenCalledTimes(1); // another device's read does not wake furnace's subscriber
-    expect(store.devicePeriodsKey()).toBe(key);
     expect(store.deviceVersion("heaters")).toBe(2);
   });
 
@@ -494,7 +488,6 @@ describe("TelemetryStore", () => {
       expect(series).not.toHaveBeenCalled();
       // The live clock and the live ring carry on underneath.
       expect(store.nowS()).toBe(100);
-      expect(store.clockS()).toBe(50);
     });
 
     it("live samples fill the ring silently while paused; resume wakes once and shows them with no gap", () => {
@@ -581,10 +574,9 @@ describe("TelemetryStore", () => {
       expect(series.mock.calls.filter(([, a]) => a === "a.mode").map(([, , q]) => [q.start_ns, q.end_ns])).toEqual([[30e9, 100e9 + 1], [0, 30e9]]);
       expect(store.latestValue("a.mode")).toEqual({ t: 20, value: "heating" });
       expect(store.latest("a.mode")).toBeUndefined(); // never on a ring
-      expect(store.lastSampleS("a.mode")).toBeUndefined(); // a recorded enum has no age: the session may keep it only when it changes
-      expect(store.lastSampleS("a.x")).toBe(100);
+      expect(store.reading("a.x")).toMatchObject({ t: 100, value: 100, quality: "ok" });
       store.playback(null);
-      expect(store.lastSampleS("a.mode")).toBe(500);
+      expect(store.reading("a.mode")).toMatchObject({ t: 500, value: "off", quality: "ok" });
       expect(store.latestValue("a.mode")).toEqual({ t: 500, value: "off" });
     });
 
@@ -608,7 +600,7 @@ describe("TelemetryStore", () => {
       expect(trend.t[trend.t.length - 1]).toBe(95);
       expect(trend.output[trend.t.length - 1]).toBe(190);
       const c = store.controller("heaters.heater1")!;
-      expect(c.measured).toEqual({ signal: "furnace.zone1", time_ns: 95e9, value: 95 });
+      expect(c.measured).toEqual({ signal: "furnace.zone1", time_ns: 95e9, value: 95, quality: "ok" });
       expect(c.output).toBe(200); // commanded: live
       expect(store.controller("heaters.heater1")).toBe(c); // the same object until something changes
       store.playback(null);

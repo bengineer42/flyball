@@ -36,7 +36,7 @@ import { Form as MuiForm } from "@rjsf/mui";
 import { ControllerPanel, SchemaForm, WritePanel, useControllers, useQuery, useRig, type ControllerTrace } from "@flyball/react";
 import { signalTitle, signalsOf, writable, type ControllerOut, type ControllerSchema, type DeviceOut, type FaultAction, type FeedforwardConfig, type JsonSchema, type OnFault, type LawConfig, type SetpointSpec, type SignalChoice, type StartSpec, type SignalOut } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
-import { ControllerHoldsProvider, useControllerHolds } from "../controllerHolds.js";
+import { useControllerHolds } from "../controllerHolds.js";
 import { useAuth } from "../auth.js";
 import { useRecordingExports } from "../model.js";
 import { TuningPicker } from "../TuningPicker.js";
@@ -800,7 +800,6 @@ const Faceplate = memo(function Faceplate({
       controls={controls}
       headerControls={headerControls}
       canOperate={auth.canOperate}
-      conditions={holds.conditions}
       onReset={holds.onReset}
     />
     {holds.dialog}
@@ -879,7 +878,7 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
   if (name !== null && shown.length === 0)
     return status === "connecting" ? <Typography color="text.secondary">loading…</Typography> : <Alert severity="warning">No writable signal at {name}.</Alert>;
   return (
-    <ControllerHoldsProvider>
+    <>
       {toolbar}
       {shown.length === 0 &&
         (status === "connecting" ? (
@@ -920,6 +919,6 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
           </div>
         ))}
       </div>
-    </ControllerHoldsProvider>
+    </>
   );
 }

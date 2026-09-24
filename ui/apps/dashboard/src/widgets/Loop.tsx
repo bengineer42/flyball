@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ControllerPanel, Ref, useFreshness, useVisible, type ControllerTrace } from "@flyball/react";
-import { alarmLevel, describeController, signalsOf, signalTitle } from "@flyball/client";
+import { ControllerPanel, Ref, useReading, useVisible, type ControllerTrace } from "@flyball/react";
+import { describeController, signalsOf, signalTitle } from "@flyball/client";
 import { useBindings, useControllersData, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
@@ -74,9 +74,8 @@ const ControllerWidget = memo(function ControllerWidget({ config }: WidgetCompon
   // The measured signal (units, bands) from the bindings; the output (limits) from its device's tree, which may not publish.
   const source = controller ? bindings.signalAt(controller.measured_signal) : undefined;
   const target = controller ? bindings.devices.flatMap((d) => signalsOf(d.signals)).find((s) => s.address === controller.output_signal) : undefined;
-  // Measured-offline (B-3): the measured signal's own staleness, its device's period against its last sample.
-  const fresh = useFreshness(controller?.measured_signal);
-  const offline = alarmLevel(null, {}, fresh) === "stale";
+  // Measured-offline (B-3): the rig's own `stale` reading on the measured signal.
+  const offline = useReading(controller?.measured_signal)?.quality === "stale";
   // A controller is named by its output's label; an output with none is titled like any signal, never by its address.
   const title = useMemo(
     () => (controller ? <Ref kind="controller" name={controller.name}>{controller.label ? describeController(controller) : target ? signalTitle(target, bindings.devices) : controller.name}</Ref> : undefined),

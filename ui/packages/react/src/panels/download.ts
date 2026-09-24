@@ -20,7 +20,7 @@ export interface TraceLike {
   label: string;
   unit?: string;
   t: number[];
-  v: Array<number | null>;
+  v: Array<number | null | undefined>;
 }
 
 const cell = (value: string | number | null): string => {
@@ -57,7 +57,8 @@ export function seriesTable(series: TraceLike[]): Table {
     series.forEach((s, i) => {
       while (next[i]! < s.t.length && s.t[next[i]!]! <= at) {
         const value = s.v[next[i]!];
-        if (value !== null && value !== undefined) held[i] = value;
+        // A reading with no value (null, or `NaN` from the store) empties the cell; `undefined` is no reading.
+        if (value !== undefined) held[i] = value === null || Number.isNaN(value) ? null : value;
         next[i]!++;
       }
     });

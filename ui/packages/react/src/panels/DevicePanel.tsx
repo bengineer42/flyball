@@ -89,7 +89,8 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
   const conditions = live?.conditions ?? device.conditions;
   const modeSignal = modeSignalOf(device);
   const liveMode = useLatestValue(modeSignal?.address);
-  const currentMode = liveMode?.value ?? modeSignal?.latest?.value ?? modeSignal?.initial;
+  // A live reading with no value is no mode now, not the mode before it.
+  const currentMode = liveMode ? liveMode.value : (modeSignal?.latest?.value ?? modeSignal?.initial);
   const [restarting, setRestarting] = useState(false);
   const restart = async () => {
     setRestarting(true);

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import uPlot from "uplot";
 import type { Condition, ControllerOut, FeedforwardConfig, GeneratorOut, SignalOut } from "@flyball/client";
-import { alarmLevel, describeController, describeStateKey, deviceOf, humanise, setpointOf, describeSignal, fixed } from "@flyball/client";
+import { alarmLevel, describeController, describeQuality, describeStateKey, deviceOf, humanise, setpointOf, describeSignal, fixed, withUnit } from "@flyball/client";
 import type { ControllerTrace } from "../hooks/useControllers.js";
 import { useQuery } from "../hooks/useQuery.js";
 import { Ref } from "../links.js";
 import { useRig } from "../provider.js";
-import { useBandLevel, useDeviceRun, useFreshness, useNowS, useSignal, useWriteState } from "../store/hooks.js";
+import { useBandLevel, useConditions, useDeviceRun, useNowS, useReading, useWriteState } from "../store/hooks.js";
+import { QualityBadge, noValue } from "./quality.js";
 import { thin } from "./thin.js";
 import { MultiSeries, toBreaks, type MultiSeriesTrace } from "./MultiSeries.js";
 import { axisValues, yRange, type YScale } from "./yscale.js";
@@ -16,7 +17,8 @@ const SERIES_FALLBACK = ["#2a78d6", "#c2410c", "#15803d", "#7e22ce", "#b45309", 
 
 interface MiniTrace {
   t: number[];
-  v: (number | null)[];
+  /** `null` a break (a reading with none); `undefined` joined across (a re-apply that took no reading). */
+  v: (number | null | undefined)[];
   color?: string;
   dash?: boolean;
   /** Draws as a step (holds the previous value until the next point, then jumps) rather than
@@ -44,7 +46,7 @@ interface MiniTrace {
  * than building a second overlay/expand mechanism for this one.
  */
 /** Population standard deviation, ignoring nulls; 0 with fewer than two points. */
-function stdDev(values: (number | null)[]): number {
+function stdDev(values: (number | null | undefined)[]): number {
   const xs = values.filter((v): v is number => v != null);
   if (xs.length < 2) return 0;
   const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
@@ -60,7 +62,7 @@ function stdDev(values: (number | null)[]): number {
  * to cover the reading itself, so a real excursion (an output at limit,
  * say) still shows instead of being clipped to the floor.
  */
-function settledBand(center: number, warning: [number, number] | null | undefined, range: [number, number] | null | undefined, reading: (number | null)[]): [number, number] | null {
+function settledBand(center: number, warning: [number, number] | null | undefined, range: [number, number] | null | undefined, reading: (number | null | undefined)[]): [number, number] | null {
   const xs = reading.filter((v): v is number => v != null);
   const halves = [5 * stdDev(reading)];
   if (warning) halves.push(Math.max(Math.abs(center - warning[0]), Math.abs(warning[1] - center)));
@@ -241,7 +243,7 @@ export interface ControllerPanelProps {
   extra?: ReactNode;
   /** This browser may drive the rig (the server's `AuthState.canOperate`); default true. False dims `controls`/`headerControls` and blocks clicks into them, greyed out but still visible -- a proactive echo of the 401 the server would otherwise give. */
   canOperate?: boolean;
-  /** The controller's own conditions now (`/api/health`, scope `controller`): `latched` and `not_permitted` are shown on the panel. */
+  /** The controller's own conditions, when the caller has them; omitted, the store's (`useConditions`). `latched` and `not_permitted` are shown on the panel. */
   conditions?: Condition[];
   /** Lets a latch on this controller go (`POST /api/rig/reset {cause}`); offered for its own `on_fault:<name>` latch. Omitted: no Reset here. */
   onReset?(cause: string): void;
@@ -259,6 +261,16 @@ const differs = (demand: number | null, expected: number) => demand == null || M
 
 /** The trace column's last value: the current one, or null when the latest tick had none (never an older one, which would be stale). */
 const latest = (column: (number | null)[]): number | null => (column.length ? column[column.length - 1]! : null);
+
+/** A `frozen` condition's `details.quality` / `details.reason`: why its measured signal has no value. */
+const frozenQuality = (details: unknown) => {
+  const q = (details as { quality?: unknown } | null | undefined)?.quality;
+  return q === "invalid" || q === "stale" || q === "not_applicable" || q === "pending" ? q : undefined;
+};
+const frozenReason = (details: unknown) => {
+  const r = (details as { reason?: unknown } | null | undefined)?.reason;
+  return typeof r === "string" ? r : undefined;
+};
 
 /** A value's fraction of `range`, clamped to [0, 1]; null with no value or no range. */
 const fractionOf = (value: number | null, range: [number, number] | null | undefined): number | null =>
@@ -412,13 +424,15 @@ export function ControllerPanel({
   conditions,
   onReset,
 }: ControllerPanelProps) {
-  const point = useSignal(controller.measured_signal);
+  const live = useReading(controller.measured_signal);
   const nowS = useNowS();
   const startS = useRigStartS();
   const write = useWriteState(controller.output_signal) ?? target?.write ?? null;
   const run = useDeviceRun(deviceOf(controller.measured_signal));
-  const fresh = useFreshness(controller.measured_signal);
   const measuredBand = useBandLevel(controller.measured_signal);
+  // `frozen`: the measured signal has no value, so the law is not stepped and nothing is written.
+  const held = useConditions(controller.name);
+  const frozen = held.find((c) => c.code === "frozen");
   const unit = source.unit;
   const dUnit = target?.unit ?? controller.output_unit ?? unit;
   const precision = source.precision ?? 2;
@@ -501,14 +515,17 @@ export function ControllerPanel({
   // Under a generator the setpoint is the resolved value; failing that, recovered through the feedforward, or read off
   // the latest tick -- only when that tick carries one (a stored tick does; a live one under a `none` feedforward does not).
   const setpoint = setpointOf(controller) ?? (following ? latest(history.reference) : null);
-  // PV: the measured signal's newest sample from the store, else what the controller saw at its last tick.
-  const reading = point?.v ?? (typeof controller.measured?.value === "number" ? controller.measured.value : null);
+  // PV: the measured signal's newest reading from the store, else what the controller saw at its last tick --
+  // never an older value when the newest has none: that shows as "—" and why.
+  const measured = live ?? (controller.measured ? { t: controller.measured.time_ns / 1e9, value: controller.measured.value, quality: controller.measured.quality, reason: controller.measured.reason } : undefined);
+  const reading = typeof measured?.value === "number" ? measured.value : null;
+  const none = noValue(measured, (v) => withUnit(fixed(v, precision), unit));
   // OP: the output signal's write state (after limits) from `/ws/writes`, else what the controller expects it to give.
   const clamped = write ? write.at_limit !== null : controller.expected != null && differs(controller.output, controller.expected);
   const output = write?.value ?? controller.expected ?? controller.output;
   const requested = write?.requested ?? controller.output;
   const deviation = reading != null && setpoint != null ? reading - setpoint : null;
-  const deviationWarn = alarmLevel(reading, source, undefined, measuredBand) !== "ok";
+  const deviationWarn = alarmLevel(reading, source, measuredBand) !== "ok";
 
   const range = source.range;
   const pvFraction = fractionOf(reading, range);
@@ -519,19 +536,23 @@ export function ControllerPanel({
   // Which rail the output is pinned to, for the OP bar's highlighted end when clamped.
   const limitEdge: "hi" | "lo" | null = !clamped ? null : write?.at_limit ? (write.at_limit === "high" ? "hi" : "lo") : (controller.output ?? 0) > controller.expected! ? "hi" : "lo";
 
-  // The measured signal's device run says whether anything is arriving at all; freshness catches a device
-  // that is nominally running but has gone quiet. Open loop is not a mode (D23): it is the `open_loop` law
-  // type, under "regulating" (it is still driving the output), just with nothing correcting for error.
+  // The measured signal's device run says whether anything is arriving at all; the rig's own `stale`
+  // reading catches a device that is nominally running but has gone quiet, and its `frozen` condition a
+  // controller holding because its measured signal has no value. Open loop is not a mode (D23): it is the
+  // `open_loop` law type, under "regulating" (it is still driving the output), just with nothing correcting for error.
   const offline = !!run && (!run.running || run.conditions.some((c) => c.code === "offline"));
-  const stale = alarmLevel(reading, source, fresh) === "stale";
+  const stale = measured?.quality === "stale";
+  const frozenWhy = frozen ? describeQuality(frozenQuality(frozen.details), frozenReason(frozen.details)) : "";
   const banner = offline
-    ? { text: "measured offline", hint: `${deviceOf(controller.measured_signal)} is not being read; the controller has nothing to regulate on.` }
-    : stale
-      ? { text: "no recent reading", hint: `No sample has arrived on ${controller.measured_signal} recently.` }
+    ? { text: "measured offline", hint: `${deviceOf(controller.measured_signal)} is not being read; the controller has nothing to regulate on.`, level: "warn" }
+    : frozen
+      ? { text: "frozen", hint: `${frozen.message || `${controller.measured_signal} has no value${frozenWhy ? ` (${frozenWhy})` : ""}`}. The law is not stepped and nothing is written until it reads again.`, level: frozen.severity === "info" ? "info" : "warn" }
+      : stale
+      ? { text: "no recent reading", hint: `${controller.measured_signal}: ${describeQuality("stale", measured?.reason)}.`, level: "warn" }
       : clamped
-        ? { text: "output at limit", hint: `${controller.output_signal} cannot give the full output; it is clamped to what it can achieve.` }
+        ? { text: "output at limit", hint: `${controller.output_signal} cannot give the full output; it is clamped to what it can achieve.`, level: "warn" }
         : lawType === "open_loop"
-          ? { text: "open loop", hint: "Following the setpoint with no law correcting for error." }
+          ? { text: "open loop", hint: "Following the setpoint with no law correcting for error.", level: "warn" }
           : null;
 
   // Neither `controls` nor `headerControls` are this panel's own -- the caller builds them (a
@@ -557,17 +578,17 @@ export function ControllerPanel({
           {/* In the header, not its own row: a row that appears/disappears as `banner` flips
               would otherwise reflow everything below it each time (grid rows size to content). */}
           {banner && (
-            <span className="fb-loop-warn" title={banner.hint}>
-              ⚠ {banner.text}
+            <span className={banner.level === "info" ? "fb-loop-info" : "fb-loop-warn"} title={banner.hint} data-testid="loop-banner">
+              {banner.level === "info" ? "ⓘ" : "⚠"} {banner.text}
             </span>
           )}
         </header>
       )}
-      <LatchLine controller={controller} conditions={conditions} onReset={canOperate ? onReset : undefined} />
+      <LatchLine controller={controller} conditions={conditions ?? held} onReset={canOperate ? onReset : undefined} />
       <dl className="fb-loop-rows">
         <div className="fb-loop-row">
           <dt title="measured value — PV">Measured</dt>
-          <dd>{fmt(reading, unit)}</dd>
+          <dd title={none?.hint}>{none ? <>{none.glyph} <QualityBadge state={none} /></> : fmt(reading, unit)}</dd>
           {pvFraction !== null && (
             <div className="fb-range" title={`${range![0]} – ${range![1]} ${unit}`}>
               <div className="fb-range-fill" style={{ width: `${pvFraction * 100}%` }} />

@@ -1,5 +1,5 @@
-import type { Address, ActivityOut, ControllerOut, DeviceRunOut, Event, RigClient, SampleOut, Series, Subscription, Value, WriteOut } from "@flyball/client";
-import { addressOf, deviceOf, setpointOf, signalsOf, isScratch } from "@flyball/client";
+import type { Address, ActivityOut, Caveats, Condition, ControllerOut, DeviceRunOut, Event, LatestOut, Quality, RigClient, SampleOut, Series, Subscription, Value, WriteOut } from "@flyball/client";
+import { addressOf, flagOfQuality, qualityOfFlag, setpointOf, signalsOf, isScratch } from "@flyball/client";
 import { Ring, type RingView } from "./ring.js";
 import { debugCounters } from "./debug.js";
 
@@ -12,8 +12,19 @@ export type StreamStatus = "connecting" | "open" | "closed";
  * they stay separate buckets here, so a `useWriteState`/`useDeviceRun`
  * subscriber still wakes only on the update it asked for.
  */
-/** The rig's band-alarm condition codes and the level each means on a tile. */
-const BAND_CODES: Record<string, "warn" | "alarm" | undefined> = { band_warning: "warn", band_alarm: "alarm" };
+/**
+ * A signal's newest reading as the store holds it: `value` null when it has none, `quality`
+ * saying why (`ok` with a value), the driver's or the rig's `reason`, the `caveats` a usable
+ * value carries, and `lastUsable`, the newest reading that had a value, while this one has none.
+ */
+export interface SignalReading {
+  t: number;
+  value: Value;
+  quality: Quality;
+  reason?: string;
+  caveats?: Caveats;
+  lastUsable?: { t: number; value: Value };
+}
 
 export type StoreStream = "samples" | "writes" | "controllers" | "devices" | "activities" | "events";
 /** The streams that actually open a socket; `writes` and `devices` share `samples`'s. */
@@ -29,17 +40,21 @@ const STREAMS: SocketStream[] = ["samples", "controllers", "activities", "events
 const OFFLINE_GRACE_MS = 3000;
 const socketOf = (stream: StoreStream): SocketStream => (stream === "writes" || stream === "devices" ? "samples" : stream);
 
-/** Plain arrays a chart reuses between refreshes: time in seconds since the epoch, value. */
+/** Plain arrays a chart reuses between refreshes: time in seconds since the epoch, value (`NaN` where a reading had none: a break). */
 export interface TraceView {
   t: number[];
   v: number[];
 }
 
-/** A controller's ticks as parallel arrays; null where it had no value (see `ControllerTrace`). */
+/**
+ * A controller's ticks as parallel arrays; null where it had no value (see `ControllerTrace`).
+ * `measured` is `undefined` at a re-apply between readings (`Tick.reapplied`): no reading was
+ * taken there, so a trend joins across it rather than breaking.
+ */
 export interface ControllerView {
   t: number[];
   reference: (number | null)[];
-  measured: (number | null)[];
+  measured: (number | null | undefined)[];
   output: (number | null)[];
   expected: (number | null)[];
   correction: (number | null)[];
@@ -97,7 +112,10 @@ interface Sub {
   dirty: boolean;
 }
 
-const CONTROLLER_COLS = 5; // reference, reading, demand, expected, correction
+const CONTROLLER_COLS = 6; // reference, reading, demand, expected, correction, reapplied (1: a re-apply between readings)
+/** A signal's ring: its value (`NaN` with none) and the stored `flag` of its quality (`flagOfQuality`). */
+const SIGNAL_COLS = 2;
+const NO_CONDITIONS: Condition[] = [];
 
 /** A controller's identity across sessions and restarts: what it drives and what it reads. */
 const pairOf = (name: string, measured: string) => `${name}|${measured}`;
@@ -163,8 +181,12 @@ export class TelemetryStore {
 
   private signals = new Map<Address, Ring>();
   private signalVersions = new Map<Address, number>();
-  /** A signal's newest value whatever its dtype (a number is also in its `Ring`; a bool/str/json only lives here). */
-  private latestValues: Record<Address, { t: number; value: Value }> = {};
+  /** A signal's newest reading whatever its dtype (a number is also in its `Ring`; a bool/str/json only lives here). */
+  private latestValues: Record<Address, SignalReading> = {};
+  /** A signal's newest reading that had a value, whatever came after it. */
+  private lastUsable: Record<Address, { t: number; value: Value }> = {};
+  /** Scratch for a ring's flag column when a reader asks for values only. */
+  private flagScratch: number[] = [];
   private nodeLatest: Record<Address, SampleOut> = {};
   private nodeVersions = new Map<Address, number>();
   private writeList: Record<Address, WriteOut> = {};
@@ -179,14 +201,18 @@ export class TelemetryStore {
   private deviceRunList: Record<string, DeviceRunOut> = {};
   private deviceVersions = new Map<string, number>();
   private devicesVersion = 0;
-  private periodsKey = "";
   private activityList: Record<string, ActivityOut> = {};
   private activitiesVersion = 0;
   private eventList: Event[] = [];
-  /** The rig's band alarms by signal address (a `band_warning`/`band_alarm` condition it holds), from `/api/health` then the events' edges. */
-  private bands = new Map<string, "warn" | "alarm">();
-  /** When the band alarms were last read whole from `/api/health`: 0 until the first read lands (bands then unknown). */
+  /**
+   * Every condition the rig holds, by subject then code, from `/api/health` then the events'
+   * edges: a signal's band (`band_warning`/`band_alarm`/`band_unknown`), a controller's `frozen`.
+   */
+  private held = new Map<string, Map<string, Condition>>();
+  /** When the conditions were last read whole from `/api/health`: 0 until the first read lands (bands then unknown). */
   private bandsSeededAt = 0;
+  private conditionsVersion = 0;
+  private conditionsCache = new Map<string, { version: number; list: Condition[] }>();
   private bandsAskedAt = 0;
   private eventsVersion = 0;
   private readonly eventCap = 2000;
@@ -225,7 +251,7 @@ export class TelemetryStore {
   /** The window of history per signal and per controller, ending at `atS`. */
   private playbackRings = new Map<Address, Ring>();
   /** The last bool/str/json value at or before `atS` per signal (a number goes on its playback ring). */
-  private playbackValues = new Map<Address, { t: number; value: Value }>();
+  private playbackValues = new Map<Address, SignalReading>();
   private playbackTicks = new Map<Address, Ring>();
   /** Signals and controllers whose window must come from the recording store, waiting for the debounce. */
   private playbackPending = new Set<Address>();
@@ -250,7 +276,7 @@ export class TelemetryStore {
   private ring(address: Address): Ring {
     let ring = this.signals.get(address);
     if (!ring) {
-      ring = new Ring({ width: 1, initial: 1024, cap: this.capacity, windowS: this.windowS });
+      ring = new Ring({ width: SIGNAL_COLS, initial: 1024, cap: this.capacity, windowS: this.windowS });
       this.signals.set(address, ring);
     }
     return ring;
@@ -262,41 +288,53 @@ export class TelemetryStore {
   }
 
   /**
-   * The newest point of a signal, numeric dtypes only (fed the ring); undefined
-   * for a signal never sampled or never numeric. In playback: its last point at
-   * or before `atS`, or undefined when the window holds none.
+   * The newest point of a signal, numeric dtypes only (fed the ring): `v` null when that reading
+   * had no value -- never the value before it; undefined for a signal never sampled or never
+   * numeric. In playback: its last point at or before `atS`, or undefined when the window holds none.
    */
-  latest(address: Address): { t: number; v: number } | undefined {
+  latest(address: Address): { t: number; v: number | null } | undefined {
     const ring = this.atS === null ? this.signals.get(address) : this.playbackRings.get(address);
     if (!ring || !ring.length) return undefined;
-    return { t: ring.lastT()!, v: ring.last()! };
+    const v = ring.last()!;
+    return { t: ring.lastT()!, v: Number.isNaN(v) ? null : v };
   }
 
   /**
    * The newest value of a signal whatever its dtype: a number, a bool, a
-   * string (an enum) or JSON. In playback: the last value at or before
-   * `atS` -- a number from its window, anything else from the session's
+   * string (an enum) or JSON; null when that reading had none. In playback: the last value at or
+   * before `atS` -- a number from its window, anything else from the session's
    * series (the recording store keeps every dtype).
    */
   latestValue(address: Address): { t: number; value: Value } | undefined {
-    if (this.atS === null) return this.latestValues[address];
-    const held = this.playbackValues.get(address);
-    if (held) return held;
-    const point = this.latest(address);
-    return point && { t: point.t, value: point.v };
+    const r = this.reading(address);
+    return r && { t: r.t, value: r.value };
   }
 
   /**
-   * When the signal last delivered, whatever its dtype (a number's ring, or a
-   * bool/str/json's latest value): what freshness ages. In playback, a
-   * number's last point at or before `atS`; a bool/str/json has no age there
-   * -- the session keeps some of those only when they change (a device's
-   * mode: one row, then nothing), so the row's time says when it changed,
-   * not when it was last read, and ageing it would call a live mode stale.
+   * The newest reading of a signal with its quality: why it has no value (`quality`, `reason`),
+   * the caveats on a usable one, and the last usable value while it has none. In playback, what
+   * the session stored at or before `atS` (a stored reading keeps its quality as a `flag`, and no
+   * driver's reason).
    */
-  lastSampleS(address: Address): number | undefined {
-    if (this.atS === null) return this.latestValues[address]?.t ?? this.latest(address)?.t;
-    return this.latest(address)?.t;
+  reading(address: Address): SignalReading | undefined {
+    if (this.atS === null) return this.latestValues[address];
+    const held = this.playbackValues.get(address);
+    if (held) return held;
+    const ring = this.playbackRings.get(address);
+    if (!ring || !ring.length) return undefined;
+    const last = ring.length - 1;
+    const v = ring.valueAt(last, 0);
+    const out: SignalReading = { t: ring.timeAt(last), value: Number.isNaN(v) ? null : v, ...qualityOfFlag(ring.valueAt(last, 1)) };
+    if (out.value === null) {
+      for (let i = last - 1; i >= 0; i--) {
+        const u = ring.valueAt(i, 0);
+        if (!Number.isNaN(u)) {
+          out.lastUsable = { t: ring.timeAt(i), value: u };
+          break;
+        }
+      }
+    }
+    return out;
   }
 
   /** Bumps whenever the signal gains a point (or its history lands), and on every seek and resume. */
@@ -321,7 +359,7 @@ export class TelemetryStore {
       out.v.length = 0;
       return out;
     }
-    const view: RingView = { t: out.t, cols: [out.v] };
+    const view: RingView = { t: out.t, cols: [out.v, this.flagScratch] };
     ring.read(view, options);
     return out;
   }
@@ -347,8 +385,10 @@ export class TelemetryStore {
   /**
    * The rig's clock now: the newest sample time, or -- when that has stopped moving (every polled
    * device down, or none polled) -- the rig's own clock carried forward from `/api/clock` at its speed,
-   * whichever is later. Without the second, a rig whose only poller dies freezes the clock the UI
-   * ages samples against, and nothing ever shows stale. Null before either is known. Live even in playback.
+   * whichever is later. Nothing is aged against it any more (the rig pushes `stale` itself); it is
+   * what a live chart's window, a ramp's "in 3 min", a session's running length and the playback bar
+   * measure from, and without the second a rig whose only poller dies would freeze all of those.
+   * Null before either is known. Live even in playback.
    */
   nowS(): number | null {
     this.refreshClock();
@@ -371,11 +411,6 @@ export class TelemetryStore {
         if (typeof c?.now_ns === "number") this.clockAnchor = { rigS: c.now_ns / 1e9, wallMs: Date.now(), speed: typeof c.speed === "number" ? c.speed : 1 };
       })
       .catch(() => undefined);
-  }
-
-  /** The clock a sample is aged against: `atS` in playback (a point just before it is fresh), `nowS()` otherwise. */
-  clockS(): number | null {
-    return this.atS ?? this.nowS();
   }
 
   /**
@@ -410,24 +445,27 @@ export class TelemetryStore {
     return this.nodeVersions.get(node) ?? 0;
   }
 
-  /**
-   * The poll period of the device an address is under, from `/ws/samples`'s
-   * `runs`; undefined until the device has reported, or for one that is not polled.
-   * The input to a stale threshold (`staleAfterS`).
-   */
-  periodOf(address: Address): number | null | undefined {
-    return this.deviceRunList[deviceOf(address)]?.period_s;
-  }
-
   /** A live point landed: the version moves always, the subscribers only while live (a paused panel shows the past). */
   private bumpSignal(address: Address): void {
     this.signalVersions.set(address, (this.signalVersions.get(address) ?? 0) + 1);
     if (this.atS === null) this.mark("samples", address);
   }
 
+  /** Keep a signal's newest reading, and its newest usable one: what a badge and its hover read. */
+  private hold(address: Address, t: number, value: Value, quality: Quality, reason?: string, caveats?: Caveats, lastUsable?: LatestOut | null): SignalReading {
+    const reading: SignalReading = { t, value, quality };
+    if (reason) reading.reason = reason;
+    if (caveats) reading.caveats = caveats;
+    if (value !== null) this.lastUsable[address] = { t, value };
+    else if (lastUsable && lastUsable.value !== null && !this.lastUsable[address]) this.lastUsable[address] = { t: lastUsable.time_ns / 1e9, value: lastUsable.value };
+    if (value === null && this.lastUsable[address]) reading.lastUsable = this.lastUsable[address];
+    this.latestValues[address] = reading;
+    return reading;
+  }
+
   private onSamples(samples: SampleOut[]): void {
     if (!samples.length) return;
-    const row = [0];
+    const row = [0, 0];
     const next = { ...this.nodeLatest };
     let nextWrites: Record<Address, WriteOut> | null = null;
     for (const sample of samples) {
@@ -436,10 +474,12 @@ export class TelemetryStore {
       for (const name in sample.values) {
         const address = addressOf(sample.node, name);
         const value = sample.values[name]!;
-        this.latestValues[address] = { t: time, value };
-        // Only a number feeds a ring (charts, sparklines); a bool/str/json is kept as a latest value only.
-        if (typeof value === "number") {
-          row[0] = value;
+        const reading = this.hold(address, time, value, sample.quality?.[name] ?? (value === null ? "invalid" : "ok"), sample.reason?.[name], sample.caveats?.[name]);
+        // Only a number feeds a ring (charts, sparklines), and a reading with no value on a signal that
+        // has one (a break); a bool/str/json is kept as a latest value only.
+        if (typeof value === "number" || (value === null && this.signals.has(address))) {
+          row[0] = value === null ? Number.NaN : value;
+          row[1] = flagOfQuality(reading.quality, reading.reason, reading.caveats);
           this.ring(address).push(time, row);
         }
         this.bumpSignal(address);
@@ -540,11 +580,24 @@ export class TelemetryStore {
     const devices = await this.rig.devices();
     let changed = false;
     for (const signal of devices.flatMap((d) => signalsOf(d.signals))) {
-      if (!wanted.has(signal.address) || !signal.latest || signal.latest.value === null || this.latestValues[signal.address]) continue;
-      const time = signal.latest.time_ns / 1e9;
-      const value = signal.latest.value;
-      this.latestValues[signal.address] = { t: time, value };
-      if (typeof value === "number" && this.ring(signal.address).length === 0) this.ring(signal.address).push(time, [value]);
+      if (!wanted.has(signal.address) || !signal.latest) continue;
+      const held = this.latestValues[signal.address];
+      if (held) {
+        // The socket got there first with a reading that has no value: the rig's last usable one is still news.
+        const last = signal.last_usable;
+        if (held.value === null && !held.lastUsable && last && last.value !== null) {
+          this.lastUsable[signal.address] ??= { t: last.time_ns / 1e9, value: last.value };
+          this.latestValues[signal.address] = { ...held, lastUsable: this.lastUsable[signal.address] };
+          this.bumpSignal(signal.address);
+          changed = true;
+        }
+        continue;
+      }
+      const { latest } = signal;
+      const time = latest.time_ns / 1e9;
+      const value = latest.value;
+      const reading = this.hold(signal.address, time, value, latest.quality ?? (value === null ? "invalid" : "ok"), latest.reason, latest.caveats, signal.last_usable);
+      if (typeof value === "number" && this.ring(signal.address).length === 0) this.ring(signal.address).push(time, [value, flagOfQuality(reading.quality, reading.reason, reading.caveats)]);
       this.bumpSignal(signal.address);
       changed = true;
     }
@@ -556,7 +609,7 @@ export class TelemetryStore {
     const [sessions, clock, current] = await Promise.all([rig.sessions(20), rig.clock(), rig.recording().catch(() => null)]);
     const nowS = clock.now_ns / 1e9;
     const horizonS = nowS - this.windowS;
-    const parts = new Map<Address, Array<{ t: number[]; v: number[] }>>();
+    const parts = new Map<Address, Array<{ t: number[]; v: number[]; f: number[] }>>();
     let floorS = Number.POSITIVE_INFINITY; // sessions must not overlap on the axis (see `seedControllers`)
     const maxPoints = historyPoints();
     for (const session of sessions) {
@@ -574,12 +627,15 @@ export class TelemetryStore {
       await Promise.all(
         addresses.filter((address) => declared.has(address)).map(async (address) => {
           const series = await rig.series(session.id, address, { start_ns: startOffset, max_points: maxPoints }).catch(() => null);
-          // Only a number belongs on a ring: the store records a bool/str/json signal too, and those used to land as NaN rows.
-          const points = series?.points.filter((p) => typeof p.value === "number") ?? [];
+          // Only a number belongs on a ring (the store records a bool/str/json signal too), and a
+          // reading with no value (`null`, its `flag` saying why) on a numeric one: a break.
+          const numeric = series?.signal.dtype === "float" || series?.signal.dtype === "int" || !!series?.points.some((p) => typeof p.value === "number");
+          const points = numeric ? (series?.points.filter((p) => typeof p.value === "number" || p.value === null) ?? []) : [];
           if (!points.length) return;
           (parts.get(address) ?? parts.set(address, []).get(address)!).push({
             t: points.map((p) => startS + p.offset_ns / 1e9),
-            v: points.map((p) => p.value),
+            v: points.map((p) => p.value ?? Number.NaN),
+            f: points.map((p) => p.flag ?? 0),
           });
         }),
       );
@@ -588,7 +644,8 @@ export class TelemetryStore {
       chunks.sort((a, b) => a.t[0]! - b.t[0]!);
       const t = chunks.flatMap((k) => k.t);
       const v = chunks.flatMap((k) => k.v);
-      this.ring(address).prepend(t, [v]);
+      const f = chunks.flatMap((k) => k.f);
+      this.ring(address).prepend(t, [v, f]);
       this.bumpSignal(address);
     }
     this.flushSoon();
@@ -643,11 +700,13 @@ export class TelemetryStore {
   controller(name: Address): ControllerOut | undefined {
     const live = this.controllerLatest[name];
     if (this.atS === null || !live) return live;
-    const point = this.latest(live.measured_signal);
+    const point = this.reading(live.measured_signal);
+    const v = point && typeof point.value === "number" ? point.value : undefined;
     const held = this.playbackControllers.get(name);
-    if (held && held.live === live && held.t === point?.t && held.v === point?.v) return held.out;
-    const out: ControllerOut = { ...live, measured: point ? { signal: live.measured_signal, time_ns: Math.round(point.t * 1e9), value: point.v } : null };
-    this.playbackControllers.set(name, { live, t: point?.t, v: point?.v, out });
+    if (held && held.live === live && held.t === point?.t && held.v === v) return held.out;
+    const measured = point ? { signal: live.measured_signal, time_ns: Math.round(point.t * 1e9), value: point.value, quality: point.quality, ...(point.reason ? { reason: point.reason } : {}) } : null;
+    const out: ControllerOut = { ...live, measured };
+    this.playbackControllers.set(name, { live, t: point?.t, v, out });
     return out;
   }
 
@@ -665,8 +724,11 @@ export class TelemetryStore {
       for (const c of cols) c.length = 0;
       return out;
     }
-    ring.read({ t: out.t, cols }, options);
+    const reapplied = this.flagScratch;
+    ring.read({ t: out.t, cols: [...cols, reapplied] }, options);
     for (const c of cols) for (let i = 0; i < c.length; i++) if (Number.isNaN(c[i])) (c as (number | null)[])[i] = null;
+    // A re-apply between readings took no reading: its measured is alignment, not a gap.
+    for (let i = 0; i < reapplied.length; i++) if (reapplied[i] === 1) (out.measured as (number | null | undefined)[])[i] = undefined;
     return out;
   }
 
@@ -682,6 +744,7 @@ export class TelemetryStore {
       row[2] = nan(c.output);
       row[3] = nan(c.expected);
       row[4] = nan(c.correction);
+      row[5] = 0;
       this.controllerRing(c.name).push(time, row);
       this.controllerVersions.set(c.name, (this.controllerVersions.get(c.name) ?? 0) + 1);
       this.mark("controllers", c.name);
@@ -712,7 +775,8 @@ export class TelemetryStore {
         for (const c of wanted) this.seededControllers.add(pairOf(c.name, c.measured_signal));
         const traces = await this.fetchTicks(wanted, every);
         for (const [name, view] of traces) {
-          this.controllerRing(name).prepend(view.t, [view.reference, view.measured, view.output, view.expected, view.correction].map((c) => c.map(nan)));
+          const reapplied = view.measured.map((m) => (m === undefined ? 1 : 0));
+          this.controllerRing(name).prepend(view.t, [...[view.reference, view.measured, view.output, view.expected, view.correction].map((c) => c.map(nan)), reapplied]);
           this.controllerVersions.set(name, (this.controllerVersions.get(name) ?? 0) + 1);
           this.mark("controllers", name);
         }
@@ -760,7 +824,7 @@ export class TelemetryStore {
         for (const k of ticks) {
           view.t.push(startS + k.offset_ns / 1e9);
           view.reference.push(k.setpoint);
-          view.measured.push(k.measured);
+          view.measured.push(k.reapplied ? undefined : k.measured);
           view.output.push(k.output);
           view.expected.push(k.expected ?? null);
           view.correction.push(k.correction ?? null);
@@ -789,11 +853,6 @@ export class TelemetryStore {
     return name === undefined ? this.devicesVersion : (this.deviceVersions.get(name) ?? 0);
   }
 
-  /** The devices' periods as one string; changes only when a period does (a stale threshold's input). */
-  devicePeriodsKey(): string {
-    return this.periodsKey;
-  }
-
   private onDevices(devices: DeviceRunOut[]): void {
     if (!devices.length) return;
     const next = { ...this.deviceRunList };
@@ -804,10 +863,6 @@ export class TelemetryStore {
     }
     this.deviceRunList = next;
     this.devicesVersion++;
-    this.periodsKey = Object.keys(next)
-      .sort()
-      .map((name) => `${name}=${next[name]!.period_s ?? ""}`)
-      .join(",");
   }
 
   /** Called when the named device reports (any device when `name` is null), at most every `everyMs` (a second: a run is a footer line). */
@@ -868,25 +923,53 @@ export class TelemetryStore {
     this.mark("events", null);
   }
 
-  /** A band alarm raised or cleared on a signal: kept by address; a clear only drops the one it names. */
+  /** A condition raised or cleared: kept by subject and code; a clear drops the one it names. */
   private applyBandEdge(e: Event): void {
-    const level = BAND_CODES[e.code];
-    if (!level || e.scope !== "signal" || !e.edge) return;
-    if (e.edge === "raised") this.bands.set(e.subject, level);
-    else if (this.bands.get(e.subject) === level) this.bands.delete(e.subject);
+    if (!e.edge) return;
+    if (e.edge === "raised") {
+      const codes = this.held.get(e.subject) ?? this.held.set(e.subject, new Map()).get(e.subject)!;
+      codes.set(e.code, { code: e.code, severity: e.severity, message: e.message, since_ns: e.time_ns, scope: e.scope, subject: e.subject, details: e.details });
+    } else {
+      const codes = this.held.get(e.subject);
+      if (!codes?.delete(e.code)) return;
+      if (!codes.size) this.held.delete(e.subject);
+    }
+    this.conditionsVersion++;
   }
 
   /**
-   * The rig's band alarm on a signal: `"warn"`/`"alarm"` while it holds one, `"ok"` when not,
-   * and `undefined` until the rig's conditions have been read once (then the caller cannot tell).
+   * The rig's band condition on a signal: `"warn"`/`"alarm"` while it holds one, `"unknown"` while it
+   * holds `band_unknown`, `"ok"` when none, and `undefined` until the rig's conditions have been read
+   * once (then the caller cannot tell).
    */
-  bandOf(address: string): "ok" | "warn" | "alarm" | undefined {
+  bandOf(address: string): "ok" | "warn" | "alarm" | "unknown" | undefined {
     if (!this.bandsSeededAt) return undefined;
-    return this.bands.get(address) ?? "ok";
+    const codes = this.held.get(address);
+    if (!codes) return "ok";
+    // A signal holds at most one of `band_warning`/`band_alarm`; `band_unknown` only while it has no value.
+    return codes.has("band_alarm") ? "alarm" : codes.has("band_warning") ? "warn" : codes.has("band_unknown") ? "unknown" : "ok";
+  }
+
+  /** Every condition the rig holds on `subject` (a signal's address, a controller's or device's name); the same array until one changes. */
+  conditionsOf(subject: string): Condition[] {
+    const codes = this.held.get(subject);
+    if (!codes) return NO_CONDITIONS;
+    const cached = this.conditionsCache.get(subject);
+    if (cached && cached.version === this.conditionsVersion) return cached.list;
+    const list = [...codes.values()];
+    const same = cached && cached.list.length === list.length && cached.list.every((c, i) => c === list[i]);
+    const out = same ? cached.list : list;
+    this.conditionsCache.set(subject, { version: this.conditionsVersion, list: out });
+    return out;
+  }
+
+  /** Bumps whenever a held condition is raised or cleared, or the whole set is read again. */
+  conditionsVersionNow(): number {
+    return this.conditionsVersion;
   }
 
   /**
-   * Read the rig's band alarms whole from `/api/health` (at most every ten seconds): the base the
+   * Read the rig's conditions whole from `/api/health` (at most every ten seconds): the base the
    * events' edges then keep current, and a resync after a dropped socket missed some.
    */
   seedBands(): void {
@@ -896,14 +979,13 @@ export class TelemetryStore {
     this.rig
       .health()
       .then((h) => {
-        const next = new Map<string, "warn" | "alarm">();
-        for (const c of h.conditions ?? []) {
-          const level = BAND_CODES[c.code];
-          if (level && c.scope === "signal") next.set(c.subject, level);
-        }
-        this.bands = next;
+        const next = new Map<string, Map<string, Condition>>();
+        for (const c of h.conditions ?? []) (next.get(c.subject) ?? next.set(c.subject, new Map()).get(c.subject)!).set(c.code, c);
+        this.held = next;
         this.bandsSeededAt = Date.now();
+        this.conditionsVersion++;
         this.mark("events", null);
+        this.flushSoon();
       })
       .catch(() => undefined); // no rig, or an older one: bands stay unknown and panels judge the value themselves
   }
@@ -1122,16 +1204,18 @@ export class TelemetryStore {
     const [signals, controllers] = await Promise.all([declared.signals, declared.controllers]);
     await Promise.all([
       ...addresses.map(async (address) => {
-        const ring = new Ring({ width: 1, initial: 64, cap: this.capacity });
-        let last: { t: number; value: Value } | undefined;
+        const ring = new Ring({ width: SIGNAL_COLS, initial: 64, cap: this.capacity });
+        let last: SignalReading | undefined;
         if (signals.has(address)) {
           const take = (series: Series | null) => {
             for (const p of series?.points ?? []) {
               const t = session.startS + p.offset_ns / 1e9;
-              // The wire says `number`, but the store keeps a bool/str/json signal's values too: those are a latest value, never a ring row.
+              // The wire says `number`, but the store keeps a bool/str/json signal's values too: those are a
+              // latest value, never a ring row. A reading with no value is a break on a numeric one.
               const value = p.value as Value;
-              if (typeof value === "number") ring.push(t, [value]);
-              else if (value !== null) last = { t, value };
+              const numeric = series?.signal.dtype === "float" || series?.signal.dtype === "int";
+              if (typeof value === "number" || (value === null && numeric)) ring.push(t, [value ?? Number.NaN, p.flag ?? 0]);
+              else last = { t, value, ...qualityOfFlag(p.flag) };
             }
             return series;
           };
@@ -1157,7 +1241,7 @@ export class TelemetryStore {
         if (controllers.has(name)) {
           const ticks = await this.rig.ticks(session.id, name, { start_ns, end_ns }).catch(() => []);
           if (gen !== this.playbackGen) return;
-          for (const k of ticks) ring.push(session.startS + k.offset_ns / 1e9, [nan(k.setpoint), nan(k.measured), nan(k.output), nan(k.expected), nan(k.correction)]);
+          for (const k of ticks) ring.push(session.startS + k.offset_ns / 1e9, [nan(k.setpoint), nan(k.measured), nan(k.output), nan(k.expected), nan(k.correction), k.reapplied ? 1 : 0]);
         }
         if (gen !== this.playbackGen) return;
         this.playbackTicks.set(name, ring);
