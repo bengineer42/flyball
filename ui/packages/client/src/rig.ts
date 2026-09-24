@@ -12,6 +12,7 @@ import type { DashboardDocument, DashboardRow, DashboardWithProblems } from "./d
 import { decodeCreationOptions, decodeRequestOptions, encodeCredential } from "./webauthn.js";
 import type {
   AuthInfo,
+  CommandRunOut,
   PasskeyOut,
   PasskeyListOut,
   Address,
@@ -189,8 +190,8 @@ export class RigClient {
     return this.get(`/api/devices/${enc(name)}/schema`, undefined, signal);
   }
 
-  /** Run a marked command; resolves to whatever the method returned. A command that succeeds on an offline device restarts its polling. */
-  command(name: string, command: string, args: Record<string, unknown> = {}): Promise<unknown> {
+  /** Run a marked command: what the method returned (`result`) and the controllers it put in manual (`interrupted`). A command that succeeds on an offline device restarts its polling. */
+  command(name: string, command: string, args: Record<string, unknown> = {}): Promise<CommandRunOut> {
     return this.call({ method: "POST", path: `/api/devices/${enc(name)}/commands/${enc(command)}`, body: args });
   }
 
