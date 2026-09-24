@@ -50,7 +50,7 @@ async def stop(request: Request) -> StopReport:
     if stopper is None:
         raise HTTPException(status_code=503, detail="No rig attached: nothing to stop")
     reason = _reason(await request.body())
-    return await to_thread.run_sync(stopper.stop, _actor(request), reason, limiter=STOP_SLOTS)
+    return await to_thread.run_sync(stopper.stop, actor(request), reason, limiter=STOP_SLOTS)
 
 
 def _reason(body: bytes) -> str:
@@ -62,7 +62,7 @@ def _reason(body: bytes) -> str:
     return reason[:REASON_CHARS] if isinstance(reason, str) else ""
 
 
-def _actor(request: Request) -> Actor:
+def actor(request: Request) -> Actor:
     """Who is asking, from the principal the door put on the request.
 
     A principal with `sub`/`sid`/`kind` (v1) is taken as it is; today's door's

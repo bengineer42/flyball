@@ -114,6 +114,11 @@ class SignalMeta(BaseModel):
     )
     tags: dict[str, str] | None = None
     """Groupings across the tree, `{axis: name}`, added to the driver's."""
+    record: bool | None = Field(
+        default=None,
+        description="false: left out of a recording started with the default selection (a raw"
+        " value a derived signal is computed from). Default: recorded.",
+    )
     access: str | None = None
     readable: bool | None = None
     published: bool | None = None
@@ -190,8 +195,13 @@ class DeviceEntry(BaseModel):
     label: str | None = None
     poll_s: float | None = None
     signals: dict[str, SignalMeta | NamespaceMeta] = Field(default_factory=dict)
-    inputs: dict[str, str] = Field(default_factory=dict)
-    """Input name -> address on another device; the rig binds it."""
+    inputs: dict[str, str | float] = Field(
+        default_factory=dict,
+        description="Input name -> what it follows: an address on another device"
+        " (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares"
+        " must be given one; it has no default.",
+    )
+    """Input name -> an address on another device, or a number; the rig binds it."""
     reads: Reads | None = None
     """When failed reads put the device offline, and how it retries; the runner's otherwise."""
     retry_max_age_s: float | None = Field(
@@ -204,6 +214,19 @@ class DeviceEntry(BaseModel):
     @classmethod
     def _positive_seconds(cls, value: float | None, info: Any) -> float | None:
         return _period(value, info.field_name)
+
+    @field_validator("inputs", mode="before")
+    @classmethod
+    def _addresses_or_numbers(cls, value: Any) -> Any:
+        if isinstance(value, Mapping):
+            for name, source in value.items():
+                if isinstance(source, bool) or not isinstance(source, (str, int, float)):
+                    raise ValueError(
+                        f"inputs.{name}: {source!r} is neither an address nor a number"
+                    )
+                if isinstance(source, float) and not math.isfinite(source):
+                    raise ValueError(f"inputs.{name}: {source!r} is not finite")
+        return value
 
     @model_validator(mode="before")
     @classmethod
@@ -271,6 +294,7 @@ _SIGNAL_FIELDS = (
     "stale_after_s",
     "max_rate",
     "on_no_value",
+    "record",
 )
 _NODE_FIELDS = ("label", "poll_s", "tags")
 

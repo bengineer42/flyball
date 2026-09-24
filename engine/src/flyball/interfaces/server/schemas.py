@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -30,7 +30,7 @@ from flyball.foundation.device import (
     CommandSpec,
     Condition,
     Device,
-    Input,
+    InputBinding,
     Limit,
     Node,
     NoValue,
@@ -492,25 +492,71 @@ class CommandRunOut(BaseModel):
 
 
 class InputOut(BaseModel):
-    """An input the device declares: what it is, and what the rig bound to it."""
+    """One input of a device: what it follows (an address, or a number) and its quality now.
+
+    Every input the device has: those its driver declares, and any other name the rig file's
+    `inputs:` gives. `bound` is the source's address, `constant` the number for an input bound
+    to one; `quality`/`reason`/`age_s` are the source's now, as a reading of it shows them
+    (a number is always `ok`).
+    """
 
     name: str
     label: str
+    """The declared input's label; `""` for a name only the rig file gives."""
     quantity: str
+    """The declared input's quantity, else the source signal's; `""` when neither says."""
     unit: str
+    """The source signal's unit, else the declared input's; `""` when neither says."""
     bound: str | None = None
-    """The address of the signal (or namespace) bound to this role, if any."""
+    """The address of the signal (or namespace) it follows; null for a number, or unbound."""
+    constant: float | None = None
+    """The number, for an input bound to one (`inputs: {dry: 36.5}`)."""
+    quality: Quality = Quality.PENDING
+    """`ok`; `pending` before the source's first reading (or while unbound); else the
+    source's no-value quality (`stale`, `invalid`, `not_applicable`)."""
+    reason: str | None = None
+    """The source's reason for having no value, when it gives one."""
+    age_s: float | None = None
+    """Seconds since the rig received the source's newest reading with a value."""
+
+    @model_serializer(mode="wrap")
+    def _sparse(self, handler: SerializerFunctionWrapHandler):
+        """`constant`, `reason` and `age_s` only when set."""
+        return _without_none(handler(self), ("constant", "reason", "age_s"))
 
     @classmethod
-    def of(cls, device: Device, role: str, spec: Input) -> InputOut:
-        bound = device.bound.get(role)
+    def of(cls, binding: InputBinding, now_ns: int | None = None) -> InputOut:
+        declared = binding.declared
+        source = binding.signal
+        unit = binding.unit
         return cls(
-            name=spec.name,
-            label=spec.label,
-            quantity=spec.quantity.name,
-            unit=spec.quantity.unit.symbol,
-            bound=None if bound is None else bound.address,
+            name=binding.name,
+            label="" if declared is None else declared.label,
+            quantity=declared.quantity.name
+            if declared is not None
+            else ("" if source is None else source.quantity.name),
+            unit="" if unit is None else unit.symbol,
+            bound=binding.address,
+            constant=binding.constant,
+            quality=binding.quality,
+            reason=binding.reason or None,
+            age_s=binding.age_s(now_ns),
         )
+
+
+class ValueSourceOut(BaseModel):
+    """Where a `driver: values` signal's value in force came from, for the device page.
+
+    `rig_file`: its `initial`; `restored`: kept from an earlier run ("restored, written by
+    `writer` at `written_ns`"); `written`: written in this run.
+    """
+
+    origin: Literal["rig_file", "restored", "written"]
+    initial: Any
+    """The rig file's `initial` in force."""
+    writer: str | None = None
+    written_ns: int | None = None
+    """Wall time, ns since the epoch."""
 
 
 class RunOut(BaseModel):
@@ -565,7 +611,12 @@ class DeviceOut(BaseModel):
     signals: list[SignalOut | NamespaceOut]
     commands: list[CommandOut]
     inputs: dict[str, InputOut]
-    """What the device follows, by role: the declared input and the address bound to it."""
+    """Each input by name: what it follows (an address or a number) and its quality now."""
+    consumers: dict[str, list[str]] = {}
+    """Who follows each signal of this device, by path: the inputs bound to it
+    (`blender.inputs.dry`), or to a namespace above it; a signal nobody follows is left out."""
+    sources: dict[str, ValueSourceOut] = {}
+    """A `driver: values` device's: where each value in force came from, by path."""
     readable: bool
     writable: bool
     conditions: list[Condition]
@@ -584,6 +635,9 @@ class DeviceOut(BaseModel):
         conditions: list[Condition] | None = None,
         last_usable: Mapping[Signal, Reading] | None = None,
         stale_after: Callable[[Signal], float | None] | None = None,
+        consumers: Callable[[Signal], list[InputBinding]] | None = None,
+        sources: Callable[[Signal], Any] | None = None,
+        now_ns: int | None = None,
     ) -> DeviceOut:
         return cls(
             name=device.name,
@@ -595,8 +649,21 @@ class DeviceOut(BaseModel):
             poll_s=device.poll_s,
             signals=tree_out(device.root, latest, device.written, last_usable, stale_after),
             commands=[CommandOut.of(spec) for spec in device.commands.values()],
-            inputs={
-                role: InputOut.of(device, role, spec) for role, spec in type(device).INPUTS.items()
+            inputs={name: InputOut.of(b, now_ns) for name, b in device.bound.items()},
+            consumers={
+                path: [b.where for b in found]
+                for path, signal in device.signals.items()
+                if consumers is not None and (found := consumers(signal))
+            },
+            sources={
+                path: ValueSourceOut(
+                    origin=source.origin,
+                    initial=source.initial,
+                    writer=source.writer,
+                    written_ns=source.written_ns,
+                )
+                for path, signal in device.signals.items()
+                if sources is not None and (source := sources(signal)) is not None
             },
             readable=device.readable,
             writable=device.writable,

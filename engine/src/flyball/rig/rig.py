@@ -32,6 +32,7 @@ from flyball.foundation.device import (
     Device,
     DeviceEntry,
     Event,
+    InputBinding,
     Limit,
     LimitNotKnownError,
     LimitsInvertedError,
@@ -51,6 +52,7 @@ from flyball.foundation.device import (
     normalised,
     stale,
 )
+from flyball.foundation.device.values import Values
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
 from flyball.foundation.router import RECENT_READINGS, Latest, Router, Topic
 from flyball.foundation.time import Timer, Timers
@@ -68,6 +70,7 @@ from .faults import Faults
 from .liveness import Liveness
 from .polling import Polling, poll_period
 from .triggers import Triggers
+from .values import LiveValues
 
 if TYPE_CHECKING:
     from flyball.record import Store
@@ -205,10 +208,17 @@ class Rig:
     _pushed: list[Sample]
     """Samples pushed from inside the delivery in progress (a commit's readbacks); delivered
     next, as one more delivery."""
-    _observers: dict[Signal, OrderedSet[Device]]
-    """Devices with a bound input on a signal, by that signal."""
-    _node_observers: dict[Node, OrderedSet[Device]]
-    """Devices bound to a whole node, by that node: they get each sample cut down to it."""
+    _followers: dict[Signal, OrderedSet[InputBinding]]
+    """Every input binding that follows a signal, by that signal: a device's, a controller's,
+    a program step's."""
+    _node_followers: dict[Node, OrderedSet[InputBinding]]
+    """Input bindings that follow a whole node, by that node: a sample with something published
+    under it reaches them."""
+    values: LiveValues
+    """Where each `driver: values` signal's value came from, and the store row that keeps its
+    last write across restarts."""
+    _written_by: dict[Signal, str | None]
+    """Who asked for each staged write, until its commit: a values signal's writer."""
     _requested: dict[Signal, float]
     """What a demand asked for where the clamp changed it, until the commit reports it."""
     _touched: dict[Device, None] | None
@@ -290,8 +300,10 @@ class Rig:
         self.write_states = Latest()
         self.controller_states = Latest()
         self._pushed = []
-        self._observers = {}
-        self._node_observers = {}
+        self._followers = {}
+        self._node_followers = {}
+        self.values = LiveValues(self)
+        self._written_by = {}
         self._requested = {}
         self._touched = None
         self._stepped = None
@@ -556,10 +568,11 @@ class Rig:
         """Open a session and record into it from the next delivery on.
 
         Defaults to every signal that publishes or is written, on every
-        device, and every controller. Replaces a running recorder, closing
-        its session first. `session` is what the store's `open_session`
-        takes; a `start_ns` in it backdates the session (for what is then
-        backfilled), else it starts now.
+        device, except those the rig file marks `record: false`, and every
+        controller. Replaces a running recorder, closing its session first.
+        `session` is what the store's `open_session` takes; a `start_ns` in
+        it backdates the session (for what is then backfilled), else it
+        starts now.
         """
         from flyball.runtime.recorder import Recorder
 
@@ -574,7 +587,7 @@ class Rig:
                     s
                     for device in self.devices.values()
                     for s in device.signals.values()
-                    if Access.P in s.access or Access.W in s.access
+                    if (Access.P in s.access or Access.W in s.access) and s.spec.record
                 ]
             if controllers is None:
                 controllers = [c for _, c in self.controllers.items()]
@@ -619,36 +632,203 @@ class Rig:
 
     # region Addresses and reads
 
-    def bind_inputs(self, device: Device, inputs: Mapping[str, str]) -> None:
-        """Resolve `device`'s inputs (the rig file's `inputs:`, name -> address) and follow them.
+    def bind_inputs(self, device: Device, inputs: Mapping[str, str | float]) -> None:
+        """Bind `device`'s inputs: the rig file's `inputs:`, name -> an address or a number.
 
         Call after every device is added: an address may name a device
-        declared later in the file. From then on, every reading on a bound
-        signal reaches `device.observe` in the delivery it arrives in; for a
-        bound node, every sample carrying something under it does, cut down
-        to that, after the readings.
+        declared later in the file. Each becomes the device's
+        [InputBinding][flyball.foundation.device.binding.InputBinding] for that
+        name (`device.bound`), through [bind][flyball.rig.rig.Rig.bind]. From
+        then on, every delivery that brings a bound signal a reading -- or,
+        for a bound node, a sample with something published under it --
+        reaches the device in that delivery: `Device.inputs_changed`, before
+        the controllers step, then its `commit` if it has demands. Inputs that
+        have a value already (a number, a source read before) are delivered to
+        it the same way once, now.
+
+        Every input the driver declares must be given one, and a driver that
+        declares its inputs takes no other names: an input has no default.
 
         Raises:
             AddressNotFoundError: An address does not resolve; names it.
-            ConflictError: A signal that does not publish, or a node with
-                nothing published under it.
+            ConflictError: A declared input left out, or a name the driver does
+                not declare; a signal that does not publish, or a node with
+                nothing published under it; a cycle through `inputs:`, named
+                (nothing of this call stays bound).
         """
-        for role, address in inputs.items():
-            target = self.resolve(address)
+        declared = type(device).INPUTS
+        if declared:
+            if missing := [name for name in declared if name not in inputs]:
+                raise ConflictError(
+                    f"{device.name}: input {', '.join(repr(n) for n in missing)} is neither"
+                    " bound nor a number: give `inputs: {"
+                    + ", ".join(f"{n}: <address or number>" for n in missing)
+                    + "}`"
+                )
+            if unknown := [name for name in inputs if name not in declared]:
+                raise ConflictError(
+                    f"{device.name}: {', '.join(repr(n) for n in unknown)} is not an input of"
+                    f" its driver; it has {', '.join(repr(n) for n in declared)}"
+                )
+        with self.lock:
+            bound: list[InputBinding] = []
+            try:
+                for name, source in inputs.items():
+                    bound.append(self.bind(device.binding(name), source))
+                if (cycle := self._cycle_through(device)) is not None:
+                    raise ConflictError(
+                        "a cycle through inputs: "
+                        + "; ".join(f"{b.where} <- {b.address}" for b in cycle)
+                    )
+            except Exception:
+                for binding in bound:
+                    self.unbind(binding)
+                raise
+            known = [b for b in bound if b.constant is not None or b.reading is not None]
+            if known:
+                self._first_values(device, known)
+
+    def bind(self, binding: InputBinding, source: str | float | Signal | Node) -> InputBinding:
+        """Point `binding` at `source`: an address, a signal or node, or a number. Returns it.
+
+        What `inputs:` is made of, and what anything else that follows a
+        signal holds: a controller, a program's `settle` step. An address is
+        resolved here, once; a signal must publish, a node have something
+        published under it. Bound again, it leaves what it followed.
+        Readings on the source reach the binding's watchers, and a device
+        that owns it, in the delivery they arrive in.
+
+        Raises:
+            AddressNotFoundError: An address does not resolve.
+            ConflictError: A signal that does not publish; a node with nothing
+                published under it.
+            ValueError: A number that is not finite.
+        """
+        if isinstance(source, str):
+            target: Signal | Node | float = self.resolve(source)
+        else:
+            target = source
+        with self.lock:
             if isinstance(target, Signal):
                 if Access.P not in target.access:
                     raise ConflictError(
-                        f"{device.name}.inputs.{role}: '{target.address}' [{target.access}]"
-                        " is not published"
+                        f"{binding.where}: '{target.address}' [{target.access}] is not published"
                     )
-                self._observers.setdefault(target, {})[device] = None
-            else:
+            elif isinstance(target, Node):
                 if not any(Access.P in s.access for s in target.walk()):
                     raise ConflictError(
-                        f"{device.name}.inputs.{role}: nothing under '{target.address}' publishes"
+                        f"{binding.where}: nothing under '{target.address}' publishes"
                     )
-                self._node_observers.setdefault(target, {})[device] = None
-            device.bound[role] = target
+            elif isinstance(target, bool) or not math.isfinite(float(target)):
+                raise ValueError(f"{binding.where}: {target!r} is not a finite number")
+            self.unbind(binding)
+            binding.attach(target)
+            if isinstance(target, Signal):
+                self._followers.setdefault(target, {})[binding] = None
+            elif isinstance(target, Node):
+                self._node_followers.setdefault(target, {})[binding] = None
+            return binding
+
+    def follow(
+        self, source: str | float | Signal | Node, *, owner: object, name: str
+    ) -> InputBinding:
+        """A new binding of `owner`'s input `name` to `source`: for a holder that is not a device.
+
+        A program's `settle` step, a controller: it reads the binding, or
+        [watches][flyball.foundation.device.binding.InputBinding.watch] it, and
+        [unbinds][flyball.rig.rig.Rig.unbind] it when done.
+        """
+        return self.bind(InputBinding(owner, name), source)
+
+    def unbind(self, binding: InputBinding) -> None:
+        """Stop `binding` following what it follows: it is unbound (`pending`) until bound again."""
+        with self.lock:
+            source = binding.source
+            if isinstance(source, Signal):
+                followers = self._followers.get(source)
+                if followers is not None:
+                    followers.pop(binding, None)
+                    if not followers:
+                        del self._followers[source]
+            elif isinstance(source, Node):
+                followers = self._node_followers.get(source)
+                if followers is not None:
+                    followers.pop(binding, None)
+                    if not followers:
+                        del self._node_followers[source]
+            binding.detach()
+
+    def consumers(self, signal: Signal) -> list[InputBinding]:
+        """Every input binding that consumes `signal`: follows it, or a node above it.
+
+        The reverse of each device's `bound`: "who uses this signal". Devices'
+        inputs, and any other holder's (a controller, a program step).
+        """
+        with self.lock:
+            found = list(self._followers.get(signal, ()))
+            node: Node | None = signal.node
+            while node is not None:
+                found.extend(self._node_followers.get(node, ()))
+                node = node.parent
+            return found
+
+    def _cycle_through(self, start: Device) -> list[InputBinding] | None:
+        """A path of device inputs from `start` back to itself, if one exists; None if not."""
+        stack: list[tuple[Device, list[InputBinding]]] = [(start, [])]
+        seen: set[Device] = set()
+        while stack:
+            device, path = stack.pop()
+            for binding in device.bound.values():
+                if (source := binding.source) is None:
+                    continue
+                follows = source.device
+                if follows is start:
+                    return [*path, binding]
+                if follows not in seen:
+                    seen.add(follows)
+                    stack.append((follows, [*path, binding]))
+        return None
+
+    def _first_values(self, device: Device, bindings: list[InputBinding]) -> None:
+        """Deliver inputs that have a value already to `device` once, as a delivery would.
+
+        Its `inputs_changed`, then its commit if it has demands; what they push is
+        delivered in the same chain.
+        """
+        now = self.clock.now_ns()
+        for binding in bindings:
+            binding.notify()
+        if self._touched is not None:  # inside a delivery: it commits the device at its end
+            self._touched[device] = None
+            self._inputs_changed(device, now, bindings)
+            return
+        touched: dict[Device, None] = {device: None}
+        outer = self._stepped
+        if outer is None:
+            self._stepped = set()
+        self._touched = touched
+        failed: dict[Signal, WriteState] = {}
+        try:
+            self._inputs_changed(device, now, bindings)
+            states = self._commit(touched, now, failed)
+        finally:
+            self._touched = None
+        try:
+            self._deliver(failed)
+            self._deliver(states)
+            if states and self.recorder is not None:
+                self.recorder.record((), (), states, time_ns=now)
+            self._flush_pushed()
+        finally:
+            if outer is None:
+                self._stepped = None
+
+    def _inputs_changed(self, device: Device, time_ns: int, bindings: list[InputBinding]) -> None:
+        """`device.inputs_changed`, kept from the delivery: a driver that raises is logged."""
+        try:
+            device.inputs_changed(time_ns, bindings)
+        except Exception:
+            log.exception("%s: inputs_changed failed", device.name)
 
     def resolve(self, address: str) -> Node | Signal:
         """Walk `address` from its device down to a namespace or a signal.
@@ -770,7 +950,12 @@ class Rig:
     # region Writes
 
     def write(
-        self, node: Node, values: Mapping[str | Signal, float], *, by: Controller | None = None
+        self,
+        node: Node,
+        values: Mapping[str | Signal, float],
+        *,
+        by: Controller | None = None,
+        writer: str | None = None,
     ) -> Mapping[Signal, WriteState]:
         """Write `values` to W signals under `node`, as one atomic write, in each signal's unit.
 
@@ -790,7 +975,8 @@ class Rig:
         committed with everything else at its end, and this returns nothing.
         A blocking device's commit runs on its writer thread, so its states
         arrive later, through [written][flyball.rig.rig.Rig.written];
-        this returns nothing.
+        this returns nothing. `writer` says who asked (the principal's `sub`):
+        a `driver: values` signal's write is logged and kept under it.
 
         Raises:
             AddressNotFoundError: A name does not resolve under `node`.
@@ -858,14 +1044,15 @@ class Rig:
             clamped[signal] = value
         with self.lock:
             time_ns = self.clock.now_ns()
-            writer = self._writer_for(device)
+            thread = self._writer_for(device)
             for signal, value in clamped.items():
-                if writer is None:
+                if thread is None:
                     device.apply(signal, time_ns, value)
                     self._staged_ns[signal] = time_ns  # a newer demand replaces a staged one
                 else:
-                    writer.apply(signal, time_ns, value)
+                    thread.apply(signal, time_ns, value)
             for signal in clamped:  # a newer demand supersedes an earlier clamped one
+                self._written_by[signal] = writer
                 if signal in requested:
                     self._requested[signal] = requested[signal]
                 else:
@@ -949,13 +1136,23 @@ class Rig:
     def _limit_unknown(
         self, controller: Controller, error: LimitNotKnownError | LimitsInvertedError
     ) -> None:
-        """Hold `limit_unknown` on the controller: raised once, not per step."""
+        """Hold `limit_unknown` on the controller: raised once, not per step.
+
+        `info` while every unknown bound is only `pending` (an input not read yet: benign,
+        A3), `warning` when one is `stale` or `invalid` (a fault). `details.why` gives each
+        unknown bound's `[quality, reason]`.
+        """
+        benign = isinstance(error, LimitNotKnownError) and error.benign
         self.conditions.set(
             controller,
             Code.LIMIT_UNKNOWN,
-            Severity.WARNING,
+            Severity.INFO if benign else Severity.WARNING,
             f"{error}: held",
-            {"signal": error.address, "unknown": error.unknown},
+            {
+                "signal": error.address,
+                "unknown": error.unknown,
+                "why": getattr(error, "why", {}),
+            },
         )
 
     def _rate_clamped(
@@ -1346,6 +1543,8 @@ class Rig:
             pushed = seq.get(signal, 0) != before.get(signal, 0)  # the driver's readback
             requested = self._requested.pop(signal, None)
             self._staged_ns.pop(signal, None)
+            writer = self._written_by.pop(signal, None)
+            before_value = self.router.latest.get(signal)
             ignored = signal in unread
             if ignored:
                 self._demand_ignored(device, signal, value)
@@ -1373,6 +1572,11 @@ class Rig:
                 controller=None if holder is None else holder.name,
             )
             device.written[signal] = states[signal] = state
+            if isinstance(device, Values):
+                was = (
+                    None if before_value is None or not before_value.usable else before_value.value
+                )
+                self.values.written(signal, value, was, writer)
             if self.write_states.watched:
                 self.write_states.set(signal.address, state)
             signal.at_limit = None
@@ -1527,8 +1731,7 @@ class Rig:
             device = entry.build(name, self.links)
             self.add_device(device)
             try:
-                if entry.inputs:
-                    self.bind_inputs(device, entry.inputs)
+                self.bind_inputs(device, entry.inputs)
             except Exception:
                 self._drop_device(device)
                 raise
@@ -1536,7 +1739,7 @@ class Rig:
             if start:
                 self.start_polling(device)
             if self.recorder is not None:
-                self.recorder.declare(device.signals.values())
+                self.recorder.declare(s for s in device.signals.values() if s.spec.record)
             self._changed(f"added device {name}")
             return device
 
@@ -1572,20 +1775,20 @@ class Rig:
         what it has.
         """
         self.polling.stop(device.name)
-        for signal in list(self._observers):
-            if signal.device is device:
-                del self._observers[signal]
-            else:
-                self._observers[signal].pop(device, None)
-        for node in list(self._node_observers):
-            if node.device is device:
-                del self._node_observers[node]
-            else:
-                self._node_observers[node].pop(device, None)
-        for other in self.devices.values():
-            for role, bound in list(other.bound.items()):
-                if bound.device is device:
-                    del other.bound[role]
+        # Its own inputs, and every binding that follows it (another device's, a step's):
+        # unbound, so each reads `pending` rather than a device that is gone.
+        followers = [
+            binding
+            for table in (self._followers, self._node_followers)
+            for source, bindings in table.items()
+            for binding in bindings
+            if source.device is device or binding.owner is device
+        ]
+        for binding in followers:
+            self.unbind(binding)
+            owner = binding.owner
+            if owner is not device and isinstance(owner, Device) and binding.declared is None:
+                owner.bound.pop(binding.name, None)  # a name only the rig file gave
         self._write_lost.pop(device, None)
         self._read_path.pop(device, None)
         self.liveness.unwatch(device)
@@ -1603,6 +1806,8 @@ class Rig:
         for signal in device.signals.values():
             self.conditions.clear_owner(signal)
             self.bands.forget(signal)
+            self.values.forget(signal)
+            self._written_by.pop(signal, None)
         self.conditions.clear_owner(device)
         for node in (device.root, *device.root.descendants()):
             self.router.samples.pop(node, None)
@@ -2085,6 +2290,7 @@ class Rig:
         ticks: list[tuple[Controller, Reading | None]] = []
         published: list[Sample] = []
         touched: dict[Device, None] = {}
+        landed: dict[InputBinding, None] = {}
         received = self.clock.now_ns()
         watches = self.liveness.watches
         self._touched = touched
@@ -2111,40 +2317,42 @@ class Rig:
                                 {**marks, **streamed.marks},
                             )
                         self.samples.set(sample.node.address, streamed)
-                messages: dict[tuple[Device, Node], None] = {}
+                messages: dict[tuple[InputBinding, Node], None] = {}
                 for reading in sample.readings(received):
                     signal = reading.signal
                     if signal in watches:
                         self.liveness.arrived(reading, received)
                     self.bands.check(reading)  # noted: its band condition, raised or cleared
-                    for device in self._observers.get(signal, ()):
-                        touched[device] = None  # it reads the router in `commit`
+                    for binding in self._followers.get(signal, ()):
+                        landed[binding] = None  # its holder reads the router
                     # Every node on the way up from the signal, not just
-                    # the sample's, is an instant on that node: a device
-                    # bound to it hears it.
+                    # the sample's, is an instant on that node: a binding
+                    # to it hears it.
                     node: Node | None = signal.node
                     while node is not None:
-                        for device in self._node_observers.get(node, ()):
-                            messages[device, node] = None
+                        for binding in self._node_followers.get(node, ()):
+                            messages[binding, node] = None
                         node = node.parent
                     if (controller := self.controllers.find(signal)) is not None and (
                         self._stepped is None or controller not in self._stepped
                     ):
                         ticks.append((controller, reading))
-                for device, node in messages:
+                for binding, node in messages:
                     # A subscriber hears what publishes, as a signal-level
                     # binding requires P; a fresh read of an R-only setting
                     # is for whoever asked for it.
                     if (message := sample.under(node)) is not None and (
                         message.published()
                     ) is not None:
-                        touched[device] = None
+                        landed[binding] = None
+            time_ns = max(s.time_ns for s in samples)
+            if landed:
+                self._landed(landed, touched, time_ns)
             for controller, reading in ticks:
                 if self._stepped is not None:
                     self._stepped.add(controller)
                 assert reading is not None
                 self._step(controller, reading)
-            time_ns = max(s.time_ns for s in samples)
             failed: dict[Signal, WriteState] = {}
             states = self._commit(touched, time_ns, failed)
         finally:
@@ -2156,6 +2364,24 @@ class Rig:
                 self.controller_states.set(controller.name, controller.state)
         if self.recorder is not None:
             self.recorder.record(published, ticks, states, time_ns=time_ns)
+
+    def _landed(
+        self, landed: Iterable[InputBinding], touched: dict[Device, None], time_ns: int
+    ) -> None:
+        """Bindings whose source got a reading in this delivery: tell their watchers and holders.
+
+        A device holding one is told through `inputs_changed` now, before the
+        controllers step, and committed with the rest at the end: what it
+        pushes is delivered next in the same chain.
+        """
+        changed: dict[Device, list[InputBinding]] = {}
+        for binding in landed:
+            binding.notify()
+            if isinstance(owner := binding.owner, Device):
+                touched[owner] = None  # it reads the router in `commit`
+                changed.setdefault(owner, []).append(binding)
+        for device, bindings in changed.items():
+            self._inputs_changed(device, time_ns, bindings)
 
     def _step(self, controller: Controller, reading: Reading) -> None:
         """One controller's step, kept from the rest of the delivery.

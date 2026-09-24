@@ -1,8 +1,7 @@
+from .binding import InputBinding, InputState, rank, values_of
 from .commands import RESERVED_NAMES, CommandSpec, command
 from .conditions import ConditionEdge, Conditions
 from .descriptors import (
-    BoundInput,
-    ConfigSignal,
     Demand,
     Descriptor,
     Input,
@@ -52,7 +51,6 @@ __all__ = [
     "RESERVED_NAMES",
     "Access",
     "AddressNotFoundError",
-    "BoundInput",
     "Bounds",
     "Code",
     "CommandSpec",
@@ -60,7 +58,6 @@ __all__ = [
     "Condition",
     "ConditionEdge",
     "Conditions",
-    "ConfigSignal",
     "Demand",
     "Descriptor",
     "Device",
@@ -69,6 +66,8 @@ __all__ = [
     "Edge",
     "Event",
     "Input",
+    "InputBinding",
+    "InputState",
     "Limit",
     "LimitNotKnownError",
     "LimitsInvertedError",
@@ -103,5 +102,7 @@ __all__ = [
     "normalised",
     "not_applicable",
     "railed",
+    "rank",
     "stale",
+    "values_of",
 ]

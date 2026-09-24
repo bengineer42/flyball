@@ -111,7 +111,7 @@ class Supplied(Committable):
 
 
 class Follower(Committable):
-    wet = Input("wet", "Wet supply", HUMIDITY, default=88.5)
+    wet = Input("wet", "Wet supply", HUMIDITY)
     out = Demand("out", "Out", HUMIDITY)
 
 
@@ -200,11 +200,13 @@ class TestNothingSubstitutes:
         with pytest.raises(LimitNotKnownError):
             rig.write(dev.root, {"target": 50.0})
 
-    def test_an_input_on_a_no_value_raises_rather_than_take_its_default(self, rig, oven, fresh):
+    def test_an_input_on_a_no_value_raises_and_is_pending_before_its_first(self, rig, oven, fresh):
         follower = Follower(fresh("follower"))
         rig.add_device(follower)
         rig.bind_inputs(follower, {"wet": oven.signals["zone"].address})
-        assert follower.wet.value == 88.5, "the default before the first reading"
+        with pytest.raises(NotReadyError, match="has not been read yet"):
+            _ = follower.wet.value
+        assert follower.wet.quality is Quality.PENDING
         _push(rig, oven.signals["zone"], 70.0)
         assert follower.wet.value == 70.0
         _push(rig, oven.signals["zone"], invalid())

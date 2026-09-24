@@ -496,6 +496,7 @@ def test_the_migration_chains_versions_already_stored(tmp_path):
         db.execute("ALTER TABLE signal RENAME COLUMN warning TO warn")  # 0014's, likewise
         db.execute("ALTER TABLE event RENAME COLUMN code TO kind")  # 0019's, likewise
         db.execute("ALTER TABLE event DROP COLUMN edge")  # 0020's, likewise
+        db.execute("DROP TABLE live_value")  # 0023's, likewise
         old = {"controllers": {"h.power": {"signal": "p.t", "default": True}, "h.fan": {}}}
         for i in (1, 2, 3):
             db.execute(

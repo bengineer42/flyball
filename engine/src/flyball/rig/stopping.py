@@ -54,7 +54,8 @@ class StopReport:
     actor: Actor
     reason: str
     devices: dict[str, DeviceStop]
-    """Every device with a writable signal, by name; one with none has nothing to stop."""
+    """Every device with a writable signal and a demand, by name; one with none has nothing to
+    stop (a `driver: values` device, whose writable settings a stop leaves as they are)."""
     program_interrupted: bool
     """Whether this stop found a program running and interrupted it."""
     controllers_manual: list[str]
@@ -124,8 +125,8 @@ class InterimStopper:
         devices: dict[str, DeviceStop] = {}
         for name, device in list(self.rig.devices.items()):
             writables = sorted(device.writables)
-            if not writables:
-                continue
+            if not writables or not device.demands:
+                continue  # nothing a stop drives: a `driver: values` device has no demands
             errors = [failed[s.address] for s in device.writables.values() if s.address in failed]
             if errors:
                 devices[name] = {"state": "failed", "detail": "; ".join(errors)}

@@ -10,6 +10,7 @@ import pytest
 
 from conftest import TestClient
 from flyball.foundation.device import (
+    Access,
     Committable,
     Demand,
     Namespace,
@@ -17,6 +18,7 @@ from flyball.foundation.device import (
     Readable,
     Readout,
     Sample,
+    Setting,
     Severity,
     Signal,
     command,
@@ -522,7 +524,7 @@ def test_a_demand_whose_limit_is_not_known_yet_is_a_503_and_reaches_nothing(clie
         assert r.status_code == 503, "not ready: never passed through unclamped"
         assert (
             "limit" in r.json()["detail"]
-            and "follows 'supply', which has no value yet" in r.json()["detail"]
+            and "follows 'supply' (pending), which has no value yet" in r.json()["detail"]
         )
     assert supplied.inputs == {}
 
@@ -636,12 +638,11 @@ def test_events_are_kept_and_streamed(client, rig):
 
 
 def test_samples_stream_carries_only_what_publishes(rig, fresh):
-    """A config is `[R]`, not `[P]`: mixed into a sample with a zone, only the zone streams."""
-    from flyball.foundation.device import ConfigSignal
+    """A setting read on demand is `[R]`, not `[P]`: mixed into a sample, only the zone streams."""
 
     class Mixed(Readable):
         zone = Readout("zone", "", TEMP)
-        static = ConfigSignal("static", "", TEMP)
+        static = Setting("static", "", TEMP, access=Access.R)
 
         def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
             yield self.sample(time_ns, zone=0.0)

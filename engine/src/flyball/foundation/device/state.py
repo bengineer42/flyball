@@ -90,7 +90,9 @@ class Code(StrEnum):
     STALE_INPUT = "stale_input"
     """A condition: the controller's measured signal is older than `stale_after_s`; held."""
     LIMIT_UNKNOWN = "limit_unknown"
-    """A condition: a limit on the controller's output is not known; held."""
+    """A condition: a limit on the controller's output is not known; held. `info` while what
+    it follows is only `pending` (an input not read yet), `warning` when it is `stale` or
+    `invalid`. `details`: `{signal, unknown, why: {name: [quality, reason]}}`."""
     FROZEN = "frozen"
     """A condition on a regulating controller whose measured signal has no value: the law is
     not stepped and nothing is written. `info` for a benign no-value (`not_applicable`),
@@ -111,6 +113,16 @@ class Code(StrEnum):
     `warning`. Cleared after 3 readings in a row with a value. `details`: `{quality, reason,
     side}`."""
     INTERRUPTED = "interrupted"
+    # A value an operator entered (`driver: values`).
+    VALUE_WRITTEN = "value_written"
+    """An event on the signal: an operator wrote a value. `details`: `{value, was, writer}`."""
+    VALUE_RESTORED = "value_restored"
+    """An event on the signal, at start: the value last written was restored from the store,
+    the rig file's `initial` being unchanged. `details`: `{value, writer, written_ns}`."""
+    VALUE_NOT_RESTORED = "value_not_restored"
+    """A condition on the signal, at start: the value last written was not restored because
+    its unit changed in the rig file; the file's `initial` is in force. Cleared by the next
+    write. `details`: `{value, unit, now}`."""
     # A program (`step_failed` too). It ends `succeeded`, `failed`, `cancelled` by a person,
     # or `interrupted` by the engine (a stop, a shutdown), with the reason.
     STARTED = "started"

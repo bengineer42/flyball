@@ -103,6 +103,7 @@ def _open(
     keep_versions(
         rig, store, "resumed" if config.resumed else "loaded" if rig.files else "started bare"
     )
+    rig.values.attach(store)  # values written in an earlier run, while the file agrees
     if record if record is not None else config.recording:
         rig.start_recording(store, config=config.model_dump(mode="json"))
         log.info("recording to %s", store_path)

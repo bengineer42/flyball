@@ -19,6 +19,7 @@ from .types import (
     DeviceRow,
     Downsample,
     Event,
+    LiveValueRow,
     ProgramFormat,
     ProgramRow,
     RigVersionRow,
@@ -373,6 +374,26 @@ class Store(Protocol):
     def rename_dashboard(self, name: str, new_name: str) -> list[DashboardRow]: ...
 
     # endregion
+
+    # endregion
+
+    # region Live values
+
+    def live_values(self) -> list[LiveValueRow]:
+        """Every live value kept across restarts, by device then signal."""
+        ...
+
+    def put_live_value(self, row: LiveValueRow) -> None:
+        """Keep `row`, replacing what was kept for its `(device, signal)`.
+
+        Raises:
+            ValueError: Its value is a secret (a `SecretStr`, `SecretBytes`): never kept.
+        """
+        ...
+
+    def delete_live_value(self, device: str, signal: str) -> None:
+        """Forget what was kept for `(device, signal)`; nothing if there was none."""
+        ...
 
     # endregion
 

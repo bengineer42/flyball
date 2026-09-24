@@ -155,7 +155,8 @@ class Blender(Readable, Committable):
     def commit(self, time_ns: int) -> None:
         """Pull every bound input's newest value -- there is no callback any more."""
         self.commits += 1
-        for role, target in self.bound.items():
+        for role, binding in self.bound.items():
+            target = binding.source
             if isinstance(target, Signal):
                 if (reading := target.reading) is not None:
                     self.supply[role] = reading.value
@@ -629,7 +630,9 @@ class TestLimitsThatFollowASignal:
     ):
         humidity = supplied.signals["humidity"]
         assert humidity.limits is None, "nothing read on the supply yet"
-        with pytest.raises(NotReadyError, match=r"limit follows 'supply', which has no value yet"):
+        with pytest.raises(
+            NotReadyError, match=r"limit follows 'supply' \(pending\), which has no value yet"
+        ):
             rig.write(supplied.root, {humidity: 150.0})
         assert supplied.written == {} and supplied.staged == {}, "nothing reached the device"
         assert humidity.reading is None
@@ -670,7 +673,9 @@ class TestLimitsThatFollowASignal:
         assert supplied.written == {}, "still held on the next step"
         held = [e for e in rig.recent if e.code == "limit_unknown"]
         assert len(held) == 1, "one event on entering the hold, not one per step"
-        assert held[0].severity is Severity.WARNING and held[0].subject == controller.name
+        assert held[0].severity is Severity.INFO, "benign: what it follows is only pending"
+        assert held[0].subject == controller.name
+        assert held[0].details["why"] == {"supply": ("pending", "")}
 
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
         clock.advance(1.0)
@@ -689,7 +694,8 @@ class TestLimitsThatFollowASignal:
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: math.nan})])
         assert humidity.limits is None, "a NaN bound is no bound to display"
         with pytest.raises(
-            NotReadyError, match=r"'supply', which has no value yet, or not a finite"
+            NotReadyError,
+            match=r"'supply' \(invalid: not finite\), which has no value yet, or not a finite",
         ):
             rig.write(supplied.root, {humidity: 150.0})
         assert supplied.written == {} and supplied.staged == {}, "nothing reached the device"
@@ -799,7 +805,7 @@ class TestBoundInputs:
         dry_h, dry_t = sensors.signals["dry.humidity"], sensors.signals["dry.temperature"]
         chamber_h, chamber_t = chamber.signals["humidity"], chamber.signals["temperature"]
         rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry.humidity"})
-        assert blender.bound == {"dry": dry_h}
+        assert blender.bound["dry"].source is dry_h and list(blender.bound) == ["dry"]
         rig.on_samples([Sample(dry, 5, {dry_h: 3.0, dry_t: 20.0})])
         assert blender.supply == {"dry": 3.0} and blender.commits == 1
         assert blender.pump_writes == [(3.0, 50.0)]
@@ -825,7 +831,7 @@ class TestBoundInputs:
         dry_h, dry_t = sensors.signals["dry.humidity"], sensors.signals["dry.temperature"]
         wet_h = sensors.signals["wet.humidity"]
         rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry", "wet": wet_h.address})
-        assert blender.bound == {"dry": dry, "wet": wet_h}
+        assert {n: b.source for n, b in blender.bound.items()} == {"dry": dry, "wet": wet_h}
         rig.on_samples([Sample(dry, 5, {dry_h: 3.0, dry_t: 20.0})])
         assert blender.commits == 1, "the sample itself when it is the node's"
         assert blender.supply["dry"] == {"humidity": 3.0, "temperature": 20.0}
@@ -860,7 +866,7 @@ class TestBoundInputs:
             match=f"{blender.name}.inputs.dry: nothing under '{stage.name}.position' publishes",
         ):
             rig.bind_inputs(blender, {"dry": f"{stage.name}.position"})
-        assert blender.bound == {}
+        assert not any(b.bound for b in blender.bound.values()), "nothing stays bound"
 
 
 def test_a_trailing_or_doubled_dot_resolves_to_nothing(rig, sensors):

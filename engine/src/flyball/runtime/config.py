@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -847,6 +847,8 @@ class RigConfig(BaseModel):
             link = entry.driver_config.get("link")
             if isinstance(link, str) and link not in self.links:
                 raise ValueError(f"link {link!r} is not declared; links are {sorted(self.links)}")
+            _check_inputs(name, entry, driver.device_class())
+        _refuse_input_cycles(self.devices)
         for output, controller in self.controllers.items():
             if "." not in output:
                 raise ValueError(f"controller {output!r} must be a 'node.signal' address")
@@ -914,8 +916,7 @@ class RigConfig(BaseModel):
                 rig.entries[name] = entry
                 built_devices.append(device)
             for name, entry in self.devices.items():
-                if entry.inputs:
-                    rig.bind_inputs(rig.devices[name], entry.inputs)
+                rig.bind_inputs(rig.devices[name], entry.inputs)
             for output_address, controller in self.controllers.items():
                 output = rig.resolve(output_address)
                 if not isinstance(output, Signal):
@@ -976,6 +977,56 @@ def rig_model(catalogs: Catalogs | None = None) -> type[RigConfig]:
     return _models[key]
 
 
+def _check_inputs(name: str, entry: DeviceEntry, device: type[Device] | None) -> None:
+    """Every input the driver declares is bound to an address or a number, and no other name.
+
+    An input has no default (C12): one left out is refused here, so `rig check` says so.
+    """
+    declared = {} if device is None else device.INPUTS
+    if not declared:
+        return
+    if missing := [n for n in declared if n not in entry.inputs]:
+        raise ValueError(
+            f"device {name!r}: input {', '.join(repr(n) for n in missing)} is neither bound nor"
+            " a number: give `inputs: {"
+            + ", ".join(f"{n}: <address or number>" for n in missing)
+            + "}`"
+        )
+    if unknown := [n for n in entry.inputs if n not in declared]:
+        raise ValueError(
+            f"device {name!r}: {', '.join(repr(n) for n in unknown)} is not an input of"
+            f" {entry.driver!r}; it has {', '.join(repr(n) for n in declared)}"
+        )
+
+
+def _refuse_input_cycles(devices: Mapping[str, DeviceEntry]) -> None:
+    """A cycle through `inputs:` -- a device following itself, through others or not -- is refused.
+
+    Device by device, by the first segment of each address; the path is named.
+    """
+    follows = {
+        name: [
+            (input_name, source)
+            for input_name, source in entry.inputs.items()
+            if isinstance(source, str) and source.partition(".")[0] in devices
+        ]
+        for name, entry in devices.items()
+    }
+    for start in devices:
+        stack: list[tuple[str, list[str]]] = [(start, [])]
+        seen: set[str] = set()
+        while stack:
+            name, path = stack.pop()
+            for input_name, source in follows[name]:
+                step = [*path, f"{name}.inputs.{input_name} <- {source}"]
+                target = source.partition(".")[0]
+                if target == start:
+                    raise ValueError("a cycle through inputs: " + "; ".join(step))
+                if target not in seen:
+                    seen.add(target)
+                    stack.append((target, step))
+
+
 def _driver_configs(catalogs: Catalogs) -> tuple[type[DriverConfig[Any]], ...]:
     """Every registered device driver, in type order."""
     return tuple(
@@ -1004,16 +1055,29 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
     for driver in drivers:
         driver_schema = driver.model_json_schema(ref_template="#/$defs/{model}")
         defs.update(driver_schema.pop("$defs", {}))
+        device = driver.device_class()
+        declared = [] if device is None else list(device.INPUTS)
+        properties = {
+            **envelope,
+            "driver": {"const": driver.type_name},
+            **driver_schema.get("properties", {}),
+        }
+        if declared:  # no default: each is bound to an address or a number (C12)
+            properties["inputs"] = {
+                **envelope["inputs"],
+                "required": declared,
+                "propertyNames": {"enum": declared},
+            }
         variants.append({
             "type": "object",
             "title": driver.type_name,
             **({"description": d} if (d := driver_schema.get("description")) else {}),
-            "properties": {
-                **envelope,
-                "driver": {"const": driver.type_name},
-                **driver_schema.get("properties", {}),
-            },
-            "required": ["driver", *driver_schema.get("required", [])],
+            "properties": properties,
+            "required": [
+                "driver",
+                *driver_schema.get("required", []),
+                *(["inputs"] if declared else []),
+            ],
             "not": {"required": ["config"]},
         })
     # A layer may add to a device a base declared (`inputs`, a label, one driver field)

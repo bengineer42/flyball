@@ -21,6 +21,7 @@ from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 
+from pydantic import SecretBytes, SecretStr
 from pydantic_core import to_jsonable_python
 
 from flyball.foundation.device import (
@@ -53,6 +54,7 @@ from .types import (
     Downsample,
     Event,
     Flag,
+    LiveValueRow,
     Point,
     ProgramFormat,
     ProgramRow,
@@ -244,6 +246,21 @@ def _session_row(row: sqlite3.Row) -> SessionRow:
         pinned=bool(row["pinned"]),
         continues=row["continues"],
         bytes=row["bytes"],
+    )
+
+
+def _live_value_row(row: sqlite3.Row) -> LiveValueRow:
+    return LiveValueRow(
+        device=row["device"],
+        signal=row["signal"],
+        kind=row["kind"],
+        value=_loads(row["value"]),
+        unit=row["unit"],
+        initial=_loads(row["initial"]),
+        writer=row["writer"],
+        written_ns=row["written_ns"],
+        config_field=row["config_field"],
+        head_version=row["head_version"],
     )
 
 
@@ -1337,6 +1354,44 @@ class SqliteStore:
     def head_rig_version(self) -> RigVersionRow | None:
         rows = self._query("SELECT v.* FROM rig_version v JOIN rig_head h ON h.version_id = v.id")
         return _rig_version_row(rows[0]) if rows else None
+
+    def live_values(self) -> list[LiveValueRow]:
+        rows = self._query("SELECT * FROM live_value ORDER BY device, signal")
+        return [_live_value_row(r) for r in rows]
+
+    def put_live_value(self, row: LiveValueRow) -> None:
+        if isinstance(row.value, (SecretStr, SecretBytes)) or isinstance(
+            row.initial, (SecretStr, SecretBytes)
+        ):
+            raise ValueError(f"{row.device}.{row.signal}: a secret is never kept as a live value")
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT INTO live_value (device, signal, kind, value, unit, initial,"
+                " config_field, writer, written_ns, head_version)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT (device, signal) DO UPDATE SET kind = excluded.kind,"
+                " value = excluded.value, unit = excluded.unit, initial = excluded.initial,"
+                " config_field = excluded.config_field, writer = excluded.writer,"
+                " written_ns = excluded.written_ns, head_version = excluded.head_version",
+                (
+                    row.device,
+                    row.signal,
+                    row.kind,
+                    json.dumps(to_jsonable_python(row.value), separators=(",", ":")),
+                    row.unit,
+                    _dumps(to_jsonable_python(row.initial)),
+                    row.config_field,
+                    row.writer,
+                    row.written_ns,
+                    row.head_version,
+                ),
+            )
+
+    def delete_live_value(self, device: str, signal: str) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                "DELETE FROM live_value WHERE device = ? AND signal = ?", (device, signal)
+            )
 
     def set_rig_head(self, version_id: int) -> RigVersionRow:
         row = self.rig_version(version_id)  # 404 before anything moves

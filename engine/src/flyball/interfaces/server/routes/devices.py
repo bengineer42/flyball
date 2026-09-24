@@ -16,12 +16,13 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Request
 from pydantic import TypeAdapter, create_model
 
 from flyball.foundation.device import CommandSpec, Device, Node, Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.interfaces.server.deps import RigDep
+from flyball.interfaces.server.routes.stop import actor
 from flyball.interfaces.server.schemas import (
     CommandRunOut,
     DeviceOut,
@@ -101,13 +102,14 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
         "config": TypeAdapter(cls.config_type).json_schema(mode="validation"),
         "signals": {path: _signal_schema(s) for path, s in device.signals.items()},
         "inputs": {
-            role: {
-                "label": spec.label,
-                "quantity": spec.quantity.name,
-                "unit": spec.quantity.unit.symbol,
-                "bound": None if (b := device.bound.get(role)) is None else b.address,
+            name: {
+                "label": "" if (spec := binding.declared) is None else spec.label,
+                "quantity": "" if spec is None else spec.quantity.name,
+                "unit": "" if (unit := binding.unit) is None else unit.symbol,
+                "bound": binding.address,
+                "constant": binding.constant,
             }
-            for role, spec in cls.INPUTS.items()
+            for name, binding in device.bound.items()
         },
         "commands": {
             command: {
@@ -227,6 +229,9 @@ def device_out(rig: Rig, device: Device) -> DeviceOut:
             conditions=device.held_conditions(),
             last_usable=rig.router.last_usable,
             stale_after=rig.liveness.threshold_s,
+            consumers=rig.consumers,
+            sources=rig.values.source,
+            now_ns=rig.clock.now_ns(),
         )
 
 
@@ -256,7 +261,7 @@ def restart_device(rig: RigDep, name: str) -> DeviceOut:
 
 
 @router.put("/devices/{name}/write")
-def write(rig: RigDep, name: str, body: dict[str, float]) -> dict[str, WriteOut]:
+def write(rig: RigDep, request: Request, name: str, body: dict[str, float]) -> dict[str, WriteOut]:
     """Put values on W signals under the device, as one write; keys are relative names.
 
     Dotted for a signal under a namespace (`position.x`). Committed at
@@ -267,16 +272,18 @@ def write(rig: RigDep, name: str, body: dict[str, float]) -> dict[str, WriteOut]
     """
     device = device_of(rig, name)
     values: dict[str | Signal, float] = {name: value for name, value in body.items()}
-    return writes_out(rig.write(device.root, values))
+    return writes_out(rig.write(device.root, values, writer=actor(request).sub))
 
 
 @router.put("/signals/{address}")
-def set_signal(rig: RigDep, address: str, body: Annotated[float, Body()]) -> dict[str, WriteOut]:
+def set_signal(
+    rig: RigDep, request: Request, address: str, body: Annotated[float, Body()]
+) -> dict[str, WriteOut]:
     """The single-signal demand: the body is the value, in the signal's unit."""
     target = rig.resolve(address)
     if isinstance(target, Node):
         raise ConflictError(f"'{address}' is a namespace, not a signal: demand on its device")
-    return writes_out(rig.write(target.node, {target: body}))
+    return writes_out(rig.write(target.node, {target: body}, writer=actor(request).sub))
 
 
 # Plain `def`: FastAPI runs it in the threadpool, so a command that touches

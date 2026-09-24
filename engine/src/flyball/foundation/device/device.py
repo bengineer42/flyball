@@ -3,8 +3,9 @@
 A device has a tree of [signals][flyball.foundation.device.signal.Signal] (namespaces
 group them), each with a [Role][flyball.foundation.device.signal.Role]: a **demand** is
 settable and has a current value, a **readout** is produced, a **setting** is
-re-set by a command, a **config** is effective at build; an **input** is not
-a signal of the device but another device's, which the rig binds to it.
+re-set by a command; an **input** is not a signal of the device but another
+device's (or a number), which the rig binds to it as an
+[InputBinding][flyball.foundation.device.binding.InputBinding].
 Structure is declared once -- as descriptors in the class body
 (`flows = Namespace(...)`, `dry_flow = flows.demand(...)`), or built from
 config in `__init__` with the same factories and bound with
@@ -59,6 +60,7 @@ from flyball.model.config import Config
 
 from ..router.router import Router
 from ..time.clock import Clock
+from .binding import InputBinding
 from .building import _inputs, _last_of, _Leaf, _leaves, _link_params, _setter
 from .commands import RESERVED_NAMES, CommandSpec, _check_command_signature, _schemable, command
 from .conditions import Conditions
@@ -226,9 +228,10 @@ class Device:
     """Every leaf, by address relative to the device: `"dry.humidity"`."""
     nodes: dict[str, Node]
     """Every namespace, likewise: `"dry"`."""
-    bound: dict[str, Signal | Node]
-    """Inputs this device follows on other devices, by role (`"dry"`): a signal, or a whole
-    namespace read as one message; the rig resolves them."""
+    bound: dict[str, InputBinding]
+    """Its inputs, by name (`"dry"`): each declared input's binding from construction, unbound
+    until the rig binds it to a signal, a whole namespace read as one message, or a number;
+    and one per other name the rig file's `inputs:` gives."""
     staged: Staged
     """What `apply` staged since the last `commit`; the rig clears it after each."""
     written: dict[Signal, WriteState]
@@ -256,7 +259,7 @@ class Device:
     def __init__(self, name: str, label: str | None = None) -> None:
         self.name = name
         self.label = label
-        self.bound = {}
+        self.bound = {n: InputBinding(self, n, spec) for n, spec in self.INPUTS.items()}
         self.staged = Staged()
         self.written = {}
         self.router = Router()
@@ -321,6 +324,32 @@ class Device:
     def held_conditions(self) -> list[Condition]:
         """What is held now on this device and on its signals, in the order raised."""
         return [c for owner in (self, *self.signals.values()) for c in self.conditions.of(owner)]
+
+    # endregion
+
+    # region Inputs
+
+    def binding(self, name: str) -> InputBinding:
+        """The binding of input `name`, made unbound if it has none yet: what the rig binds."""
+        if (binding := self.bound.get(name)) is None:
+            binding = self.bound[name] = InputBinding(self, name, self.INPUTS.get(name))
+        return binding
+
+    def inputs_changed(self, time_ns: int, changed: list[InputBinding]) -> None:
+        """Called by the rig when inputs of this device have something new: `changed`.
+
+        In the delivery that brought each source a reading (and once when the
+        rig binds inputs that have a value already: a number, a source read
+        before), under the rig's lock, before the controllers step. What the
+        driver pushes here is delivered next in the same chain, so a
+        controller measuring an output computed from an input steps on it
+        without lagging a delivery. Default: nothing -- a device with demands
+        reads its inputs in `commit`, which the rig calls in the same
+        delivery. An output computed from an input with no value carries the
+        input's quality: push `NoValueError.no_value`
+        ([values_of][flyball.foundation.device.binding.values_of] picks it
+        across several inputs).
+        """
 
     # endregion
 
@@ -645,6 +674,19 @@ class DriverConfig[D: Device](Config[D]):
 
     def build(self, name: str, label: str | None = None) -> D:  # pyright: ignore[reportIncompatibleMethodOverride]  the envelope supplies the name
         raise NotImplementedError(f"{type(self).__name__} cannot build a device")
+
+    @classmethod
+    def device_class(cls) -> type[Device] | None:
+        """The device class this config builds (`DriverConfig[Values]` -> `Values`), if known.
+
+        What a check that has no device yet reads the declared inputs from.
+        """
+        for base in cls.__mro__:
+            metadata = getattr(base, "__pydantic_generic_metadata__", None) or {}
+            for arg in metadata.get("args", ()):
+                if isinstance(arg, type) and issubclass(arg, Device):
+                    return arg
+        return None
 
 
 Device.config_type = DriverConfig  # declared above it; the bare device's tier

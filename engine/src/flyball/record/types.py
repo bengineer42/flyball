@@ -117,6 +117,33 @@ class ControllerRow:
 
 
 @dataclass(frozen=True, slots=True)
+class LiveValueRow:
+    """A live value kept across restarts: a `driver: values` entry's last write (C10(5)).
+
+    Keyed by `(device, signal)`. `kind` is `value` (a values device's) or `setting` (a driver
+    setting behind a config field, C11). `value` and `initial` are what JSON holds.
+    """
+
+    device: str
+    signal: str
+    """The path under the device: `dry_supply`."""
+    kind: Literal["value", "setting"]
+    value: Any
+    unit: str | None
+    """The unit symbol when it was written; None: unitless."""
+    initial: Any
+    """The rig file's value in force when it was written."""
+    writer: str | None
+    """Who wrote it: the principal's `sub`; None when not known."""
+    written_ns: int
+    """When, wall time in ns since the epoch."""
+    config_field: str | None = None
+    """A setting's driver config field; None for a value."""
+    head_version: int | None = None
+    """The rig version in force when it was written."""
+
+
+@dataclass(frozen=True, slots=True)
 class RigVersionRow:
     """The rig file as it stood at one moment, and why it changed."""
 
