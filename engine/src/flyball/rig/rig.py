@@ -677,7 +677,7 @@ class Rig:
         """
         declared = type(device).INPUTS
         if declared:
-            if missing := [name for name in declared if name not in inputs]:
+            if missing := [n for n, i in declared.items() if n not in inputs and not i.optional]:
                 raise ConflictError(
                     f"{device.name}: input {', '.join(repr(n) for n in missing)} is neither"
                     " bound nor a number: give `inputs: {"

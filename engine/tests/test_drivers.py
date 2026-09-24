@@ -142,10 +142,18 @@ def test_the_list_says_what_each_driver_requires(_catalog) -> None:
                 "role": "dry",
                 "label": "Dry supply",
                 "kind": "signal",
+                "optional": False,
                 "quantity": "humidity",
                 "unit": "%",
             },
-            {"role": "wet", "label": "", "kind": "signal", "quantity": "wet", "unit": ""},
+            {
+                "role": "wet",
+                "label": "",
+                "kind": "signal",
+                "optional": False,
+                "quantity": "wet",
+                "unit": "",
+            },
         ],
     }
     assert "addresses" not in blend

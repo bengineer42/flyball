@@ -165,12 +165,12 @@ class EzoDo(Readable):
     dissolved_oxygen = Readout(
         "dissolved_oxygen", quantity=DISSOLVED_OXYGEN, range=(0.0, 100.0), precision=2
     )
-    temperature = Input("temperature", quantity=TEMPERATURE)
+    temperature = Input("temperature", quantity=TEMPERATURE, optional=True)
     """Bound and valued: `RT,<value>` replaces the plain `R`. Otherwise the reading is
     uncompensated (the circuit's own default, 25 C) and `uncompensated` is held."""
-    salinity = Input("salinity", quantity=SALINITY_COMPENSATION)
+    salinity = Input("salinity", quantity=SALINITY_COMPENSATION, optional=True)
     """Bound and valued: `S,<value>` (conductivity, µS/cm) is sent before the read."""
-    pressure = Input("pressure", quantity=PRESSURE_COMPENSATION)
+    pressure = Input("pressure", quantity=PRESSURE_COMPENSATION, optional=True)
     """Bound and valued: `P,<value>` (kPa) is sent before the read."""
 
     def __init__(

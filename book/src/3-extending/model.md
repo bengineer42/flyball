@@ -82,7 +82,10 @@ reading; nothing is copied onto the device:
 
 An input has **no default**: a rig file gives every declared input an
 address or a number, or it does not load (`Input(..., default=...)` is a
-`TypeError`). A device is told its inputs changed through
+`TypeError`). The one exception is an input declared `optional=True`,
+which a rig file may leave out: it is then unbound (`bound` false, `value`
+raises `NotReadyError`) and the driver does without it, as an EZO probe
+reads uncompensated with no `temperature`. It still never takes a default. A device is told its inputs changed through
 `inputs_changed(time_ns, changed)`, in the delivery that brought the
 readings, before the controllers step -- what it pushes there is delivered
 in the same chain, so a controller measuring an output computed from an

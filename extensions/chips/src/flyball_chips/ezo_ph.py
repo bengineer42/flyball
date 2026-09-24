@@ -158,7 +158,7 @@ class EzoPh(Readable):
     """One EZO-pH probe on the device root: `ph [RP]`, one round trip; `temperature` optional."""
 
     ph = Readout("ph", quantity=PH, range=(0.0, 14.0), precision=3)
-    temperature = Input("temperature", quantity=TEMPERATURE)
+    temperature = Input("temperature", quantity=TEMPERATURE, optional=True)
     """Bound (`inputs: {temperature: <address>}`, or a number): sent as `T,<value>` before
     each read. Unbound, or with no value: the reading is uncompensated (the circuit's own
     default, 25 C), and `uncompensated` is held so that is visible."""

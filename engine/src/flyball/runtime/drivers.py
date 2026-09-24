@@ -193,6 +193,7 @@ def requires(driver: type[DriverConfig[Any]], catalogs: Catalogs) -> dict[str, A
             "role": role,
             "label": declared.label,
             "kind": "signal",
+            "optional": declared.optional,
             "quantity": declared.quantity.name,
             "unit": declared.quantity.unit.symbol,
         }

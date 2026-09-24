@@ -186,7 +186,7 @@ class EzoEc(Readable):
     specific_gravity = Readout(
         "specific_gravity", quantity=SPECIFIC_GRAVITY, range=(1.0, 1.3), precision=3
     )
-    temperature = Input("temperature", quantity=TEMPERATURE)
+    temperature = Input("temperature", quantity=TEMPERATURE, optional=True)
     """Bound and valued: `RT,<value>` replaces the plain `R`. Otherwise the reading is
     uncompensated (the circuit's own default, 25 C) and `uncompensated` is held."""
 
