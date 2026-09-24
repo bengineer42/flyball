@@ -29,6 +29,8 @@ class FakeRegisterLink:
 
 
 class FakeRegisterLinkConfig(Config[RegisterLink], type="fake_registers"):
+    family = "modbus"
+
     registers: dict[int, int] = Field(default_factory=dict)
     blocking: bool = Field(
         default=False,
@@ -76,6 +78,8 @@ class ModbusLink:
 
 
 class ModbusTcpConfig(Config[RegisterLink], type="modbus_tcp"):
+    family = "modbus"
+
     host: str
     port: int = 502
     timeout_s: float = Field(default=3.0, description="Socket timeout for the pymodbus client.")
@@ -85,6 +89,8 @@ class ModbusTcpConfig(Config[RegisterLink], type="modbus_tcp"):
 
 
 class ModbusRtuConfig(Config[RegisterLink], type="modbus_rtu"):
+    family = "modbus"
+
     port: str
     baud: int = 9600
 

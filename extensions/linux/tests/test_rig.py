@@ -225,6 +225,25 @@ def test_the_entry_point_registers_every_tag():
         assert fresh.links[tag].type_name == tag
 
 
+def test_a_chip_requires_its_family_s_links_real_and_fake(_catalog):
+    """`GET /api/drivers`' `requires`: sht4x names only `fake_i2c`, and takes the kernel bus too."""
+    from flyball.runtime.drivers import describe
+
+    sht4x = describe(_catalog.devices["sht4x"], _catalog)
+    assert sht4x["requires"] == {"link": ["fake_i2c", "i2c"], "family": "i2c", "inputs": []}
+    assert sht4x["addresses"] == [0x44]
+    assert sht4x["summary"] == "One chip by its I2C address."
+    assert describe(_catalog.devices["sht4x_set"], _catalog).get("addresses") is None
+    assert describe(_catalog.devices["ds18b20"], _catalog)["requires"]["link"] == [
+        "fake_onewire",
+        "onewire",
+    ]
+    assert describe(_catalog.devices["mcp3008"], _catalog)["requires"]["family"] == "spi"
+    for tag in ("i2c", "spi", "gpio", "pwm", "onewire", "uart"):
+        assert describe(_catalog.links[tag], _catalog)["family"] == tag
+        assert describe(_catalog.links[f"fake_{tag}"], _catalog)["family"] == tag
+
+
 def test_the_schema_describes_every_driver():
     by_driver = rig_schema()["properties"]["devices"]["additionalProperties"]
     tags = {

@@ -40,6 +40,8 @@ class FakePwm:
 
 
 class FakePwmConfig(Config[PwmLink], type="fake_pwm"):
+    family = "pwm"
+
     def build(self) -> PwmLink:
         return FakePwm()
 
@@ -94,6 +96,8 @@ class SysfsPwm:
 
 class PwmConfig(Config[PwmLink], type="pwm"):
     """A kernel PWM chip: `chip = 0` is `/sys/class/pwm/pwmchip0`."""
+
+    family = "pwm"
 
     chip: int = Field(default=0, ge=0)
     root: str = "/sys/class/pwm"

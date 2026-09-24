@@ -121,6 +121,16 @@ Kelvin against a °C signal converts before it reports.
 | `DeviceSchema` (`GET .../schema`) | `{name, label, class_name, driver, description, readable, writable, config, signals, inputs, commands: {command: {description, arguments, simulation, commit, mode, interrupts, writes, demand_of}}}` |
 | a command request | one property per method parameter after `self`, from the method's signature; an argument linked to a demand also carries `x-signal`, `unit`, `minimum`/`maximum` |
 
+## Drivers and links
+
+| type | JSON |
+| --- | --- |
+| `DriverOut` (`GET /api/drivers`, by tag) | `{role: "driver" \| "link", module, description, summary, schema}` -- `description` the config's own docstring, `summary` its first line (both `null` without one); `schema_error` in place of `schema` when pydantic cannot build one. A link adds `family`; a driver adds `requires`, and `category` and `addresses` where it has them |
+| `family` | a link's kind of transport: `"i2c"`, `"spi"`, `"gpio"`, `"pwm"`, `"onewire"`, `"uart"`, `"modbus"`, `"text"` (`visa`, `serial`, `fake_text`: a line-oriented instrument), `"plant"` (a simulated plant); the links of one family are interchangeable to a driver. `null` for a link that declares none |
+| `requires` | `{link: [tag], family, inputs: [{role, label, kind: "signal", quantity, unit}]}` -- `link` every registered link type of the driver's family, fakes and simulations included (`sht4x`: `["fake_i2c", "i2c"]` where flyball-linux is installed), `[]` for a driver that takes no link (`values`, or one whose link is nested, such as `current_loop`'s `adc`); `family` `null` then. `inputs` its device's declared inputs: `role` the name under `inputs:`, `kind` `signal` (bound to another device's signal, or to a number held as a constant), `quantity` and `unit` as `InputOut`'s |
+| `category` | a string a driver declares to group itself in a list; absent when it declares none |
+| `addresses` | `[int]`: the I²C address an `i2c` driver defaults to (`sht4x`: `[68]`, 0x44), for probe suggestions; absent otherwise |
+
 ## Controllers and laws
 
 | type | JSON |
