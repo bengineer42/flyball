@@ -282,7 +282,7 @@ class TestSharedPlant:
         for device in (daq, drive):
             rig.add_device(device)
             rig.start_polling(device)
-        assert clock.scheduled == 1, "only the daq publishes, so only it is polled"
+        assert list(rig.polling.periodic) == [daq.name], "only the daq publishes, so is polled"
         rig.write(drive.root, {"heater1": 2500.0})
         clock.advance(600)
         zones = {

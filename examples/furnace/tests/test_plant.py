@@ -97,7 +97,8 @@ def _zone(rig, name: str) -> float:
 def test_the_example_reads_every_port_from_one_plant(furnace_rig):
     rig = furnace_rig
     clock = rig.clock
-    assert isinstance(clock, SteppedClock) and clock.scheduled == 1, "one daq polled, on the clock"
+    assert isinstance(clock, SteppedClock), "on the clock"
+    assert list(rig.polling.periodic) == ["furnace"], "one daq polled"
     assert set(rig.devices) == {"furnace", "heaters"}
     assert rig.devices["furnace"].plant is rig.devices["heaters"].plant is rig.links["tube"]
     rig.detach_controller("heaters.heater1")  # a driven signal refuses a manual demand
