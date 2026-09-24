@@ -45,8 +45,8 @@ class SaveProgram(BaseModel):
 
     format: ProgramFormat
     body: str
-    label: str | None = None
     notes: Any = None
+    """What the author says about this version: free text, or any JSON."""
 
 
 def _check(row: ProgramRow, dialect: Any, rig: Rig) -> ProgramCheck:
@@ -177,7 +177,9 @@ async def save_program(
     rig: RigDep,
     name: str,
     content_type: Annotated[str | None, Header()] = None,
-    label: Annotated[str | None, Query()] = None,
+    notes: Annotated[
+        str | None, Query(description="what the author says about this version")
+    ] = None,
 ) -> ProgramRow:
     """Add a version: the document itself (YAML/TOML/JSON media type) or a JSON ``SaveProgram``.
 
@@ -188,7 +190,7 @@ async def save_program(
     """
     raw = (await request.body()).decode()
     fmt = detect(content_type, name)
-    notes: Any = None
+    said: Any = notes
     if content_type and content_type.split(";")[0].strip() == "application/json":
         # Either a SaveProgram envelope or a bare JSON program: the envelope has `body`.
         try:
@@ -196,8 +198,8 @@ async def save_program(
         except ValidationError:
             envelope = None
         if envelope is not None:
-            fmt, raw, notes = envelope.format, envelope.body, envelope.notes
-            label = envelope.label or label
+            fmt, raw = envelope.format, envelope.body
+            said = envelope.notes if envelope.notes is not None else notes
     if fmt is None:
         raise HTTPException(
             status_code=415,
@@ -209,7 +211,7 @@ async def save_program(
     except FormatError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     # Async to read the body; the store call goes to a thread, never on the loop.
-    save = partial(store.save_program, name, fmt, raw, rig.clock.now_ns(), label=label, notes=notes)
+    save = partial(store.save_program, name, fmt, raw, rig.clock.now_ns(), notes=said)
     return await to_thread.run_sync(save)
 
 

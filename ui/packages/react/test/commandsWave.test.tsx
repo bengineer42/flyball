@@ -37,7 +37,7 @@ const command = (over: Partial<CommandSchema>): CommandSchema => ({
   arguments: { type: "object", properties: {} },
   simulation: false,
   commit: false,
-  mode: null,
+  sets_mode: null,
   interrupts: false,
   writes: [],
   demand_of: null,
@@ -71,7 +71,7 @@ describe("editedArguments", () => {
 describe("commandDrives", () => {
   const signals = { "flows.dry": { role: "demand" }, "blend_flow": { role: "setting" } } as unknown as Record<string, SignalSchema>;
   it("a mode, a writes, or a linked demand drives; a linked setting does not", () => {
-    expect(commandDrives(command({ mode: "humidity" }))).toBe(true);
+    expect(commandDrives(command({ sets_mode: "humidity" }))).toBe(true);
     expect(commandDrives(command({ writes: ["on"] }))).toBe(true);
     expect(commandDrives(SET_FLOWS, "blender", signals)).toBe(true);
     const setting = command({ arguments: { type: "object", properties: { flow: { type: "number", "x-signal": "blender.blend_flow" } } } });

@@ -34,23 +34,24 @@ def client(tmp_path):
 
 def test_save_verbatim_versions_and_history(client):
     r = client.put(
-        "/api/programs/library/dry", content=YAML, headers={"content-type": "application/yaml"}
+        "/api/programs/library/dry?notes=first cut",
+        content=YAML,
+        headers={"content-type": "application/yaml"},
     )
     assert r.status_code == 201
     first = r.json()
     assert first["format"] == "yaml" and first["body"] == YAML and "# a comment" in first["body"]
+    assert first["notes"] == "first cut" and "label" not in first, "a version's text is its notes"
 
     r = client.put(
-        "/api/programs/library/dry?label=v2",
+        "/api/programs/library/dry?notes=v2",
         json={
             "format": "json",
             "body": '{"name": "dry-then-hold", "steps": []}',
             "notes": {"why": "trim"},
         },
     )
-    assert (
-        r.status_code == 201 and r.json()["label"] == "v2" and r.json()["notes"] == {"why": "trim"}
-    )
+    assert r.status_code == 201 and r.json()["notes"] == {"why": "trim"}, "the envelope's own wins"
 
     newest = client.get("/api/programs/library/dry").json()
     assert newest["format"] == "json" and newest["id"] != first["id"]

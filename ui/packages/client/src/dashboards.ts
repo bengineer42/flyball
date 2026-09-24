@@ -63,7 +63,7 @@ export interface DashboardDocument {
  */
 export interface DashboardProblem {
   widget_id: string;
-  ref: string;
+  address: string;
   reason: string;
 }
 

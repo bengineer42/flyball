@@ -106,7 +106,7 @@ controllers:
   heater.drive:
     measured: air.temperature
     law: { type: pi, kp: 0.5, ki: 0.01 }
-    default: true
+    is_default: true
 ```
 
 The profile's links go underneath the file's own (the file wins on a

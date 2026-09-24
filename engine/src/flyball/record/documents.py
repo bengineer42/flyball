@@ -22,7 +22,14 @@ from .store import Store
 
 Document = tuple[str, dict[str, Any]]
 
-TICK_KEYS = ("measured", "setpoint", "correction", "output", "expected", "delivered_correction")
+TICK_KEYS = (
+    "measured_value",
+    "setpoint",
+    "correction",
+    "output_value",
+    "expected",
+    "delivered_correction",
+)
 
 
 def _descriptor_dtype(dtype: str, hint: Any = None) -> str:
@@ -60,7 +67,7 @@ def documents(store: Store, session_id: int) -> Iterator[Document]:
             "detectors": [d.address for d in devices],
             "flyball": {
                 "session": session.id,
-                "version": session.version,
+                "flyball_version": session.flyball_version,
                 "config": session.config,
                 "hardware": session.hardware,
                 "details": session.details,

@@ -170,13 +170,13 @@ def test_an_open_thermocouple_reads_invalid_and_freezes_its_zone_s_loop(furnace_
     rig.clock.advance(1)
     controller.regulate(200.0)
     rig.clock.advance(5)
-    output = controller.output
+    output = controller.output_value
     furnace.fail("zone3")
     rig.clock.advance(5)
     zone3 = rig.resolve("furnace.zone3")
     assert rig.latest[zone3].value == invalid("sensor_failed")
     assert rig.conditions.of(furnace) == [], "a no-value is a good read: never offline"
-    assert controller.held == "frozen" and controller.output == output, "the law never saw it"
+    assert controller.held == "frozen" and controller.output_value == output, "the law never saw it"
     zone1 = rig.latest[rig.resolve("furnace.zone1")]
     assert zone1.usable and zone1.time_ns == rig.latest[zone3].time_ns, "the others read on"
     furnace.restore("zone3")

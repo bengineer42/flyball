@@ -85,7 +85,7 @@ func (rn *runner) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if r.URL.Path == "/api/auth/front" {
-		json.NewEncoder(w).Encode(endpoint.FrontInfo{Protocol: 1, Aud: rn.aud, Pid: os.Getpid(), Flyball: "test"})
+		json.NewEncoder(w).Encode(endpoint.FrontInfo{Protocol: 1, Aud: rn.aud, Pid: os.Getpid(), FlyballVersion: "test"})
 		return
 	}
 	json.NewEncoder(w).Encode(echo{Claims: c, Headers: r.Header})

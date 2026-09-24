@@ -97,7 +97,7 @@ const CONTROLLER: ControllerOut = {
   label: null,
   output_signal: "heater.demand",
   measured_signal: "chamber.temp",
-  default: false,
+  is_default: false,
   mode: "regulating",
   law: null,
   feedforward: { type: "none" },
@@ -105,10 +105,10 @@ const CONTROLLER: ControllerOut = {
   reference: 50,
   setpoint: 50,
   correction: 0,
-  output: 10,
+  output_value: 10,
   expected: 10,
   delivered_correction: 0,
-  measured: null,
+  measured_value: null,
 };
 
 // A real dead-time break landing as NaN in the process reading -- the same sentinel the ring's

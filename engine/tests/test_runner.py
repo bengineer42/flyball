@@ -490,8 +490,8 @@ def test_the_migration_chains_versions_already_stored(tmp_path):
         db.execute("DROP TABLE rig_head")
         db.execute("ALTER TABLE rig_version DROP COLUMN parent_id")
         # 0013's renames, undone: the columns as 0011 knew them
-        db.execute("ALTER TABLE tick RENAME COLUMN measured TO reading")
-        db.execute("ALTER TABLE tick RENAME COLUMN output TO demand")
+        db.execute("ALTER TABLE tick RENAME COLUMN measured_value TO reading")
+        db.execute("ALTER TABLE tick RENAME COLUMN output_value TO demand")
         db.execute("ALTER TABLE controller RENAME COLUMN measured TO source")
         db.execute("ALTER TABLE signal RENAME COLUMN warning TO warn")  # 0014's, likewise
         db.execute("ALTER TABLE event RENAME COLUMN code TO kind")  # 0019's, likewise
@@ -591,7 +591,7 @@ class TestExposure:
         loopback = settle_exposure(RunnerConfig())
         assert (loopback.host, loopback.restricted, loopback.warning) == ("127.0.0.1", False, None)
         moved = settle_exposure(RunnerConfig(host="0.0.0.0", port=8123))
-        assert moved.host == "127.0.0.1" and moved.requested == "0.0.0.0" and moved.restricted
+        assert moved.host == "127.0.0.1" and moved.requested_host == "0.0.0.0" and moved.restricted
         assert not moved.open_network and moved.open
         assert moved.warning is not None
         for needed in ("127.0.0.1:8123", "token", "--insecure-open"):
@@ -1098,7 +1098,7 @@ def test_an_edit_that_does_not_build_is_rolled_back_and_said(tmp_path, monkeypat
     assert not overlay.exists(), "there was no overlay before the edit: none now"
     assert EDIT_ENV not in os.environ
     failed = json.loads(os.environ[EDIT_FAILED_ENV])
-    assert failed["version"] == edited.id and failed["previous"] == started.id
+    assert failed["rig_version_id"] == edited.id and failed["previous"] == started.id
     assert "nope" in failed["error"]
     store = SqliteStore(store_path)
     head = store.head_rig_version()

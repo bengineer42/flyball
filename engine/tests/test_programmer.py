@@ -118,7 +118,7 @@ def test_a_later_step_naming_a_missing_controller_fails_the_program_without_runn
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
     controller = rig.attach_controller(
-        heater.signals["power"], heater.signals["zone"], law=P(kp=1.0), default=True
+        heater.signals["power"], heater.signals["zone"], law=P(kp=1.0), is_default=True
     )
     rig.on_samples([Sample(heater.root, rig.clock.now_ns(), {heater.signals["zone"]: 20.0})])
 
@@ -259,7 +259,9 @@ def test_arrive_waits_for_a_subset_of_controllers_and_ramp_can_be_non_blocking()
     a, b = Heater("ha"), Heater("hb")
     rig.add_device(a)
     rig.add_device(b)
-    ca = rig.attach_controller(a.signals["power"], a.signals["zone"], law=P(kp=1.0), default=True)
+    ca = rig.attach_controller(
+        a.signals["power"], a.signals["zone"], law=P(kp=1.0), is_default=True
+    )
     cb = rig.attach_controller(b.signals["power"], b.signals["zone"], law=P(kp=1.0))
     programmer = Programmer(rig)
 
@@ -416,7 +418,7 @@ def test_regulate_missing_also_names_an_unstored_tuning(rig, fresh):
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
     rig.attach_controller(
-        heater.signals["power"], heater.signals["zone"], law=P(kp=1.0), default=True
+        heater.signals["power"], heater.signals["zone"], law=P(kp=1.0), is_default=True
     )
     rig.tunings.add(Tuning(name="brisk", config=P(kp=4.0).config))
 

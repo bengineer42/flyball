@@ -63,7 +63,7 @@ controllers:
   heater.drive:
     measured: dual_temp.temperature
     law: { type: pi, kp: 0.02, ki: 0.0005 }
-    default: true
+    is_default: true
   valve.drive:
     measured: dual_level.volume
     law: { type: pi, kp: 0.05, ki: 0.01 }

@@ -7,7 +7,7 @@
 --
 -- E25: a controller following a moving setpoint re-applies its feedforward
 -- between readings, on the rig clock. That tick has no reading: `reapplied`
--- is 1 on it, and its `measured` is NULL. Every tick stored before is a
+-- is 1 on it, and its `measured_value` is NULL. Every tick stored before is a
 -- reading's (0).
 
 UPDATE event SET code = 'write_failed' WHERE code = 'commit_failed';

@@ -184,20 +184,20 @@ class TestEdits:
         r = client.post("/api/links", json=PLANT)
         assert r.status_code == 202, r.text
         body = r.json()
-        assert body["previous"] == started and body["version"] == head(store) != started
+        assert body["previous"] == started and body["rig_version_id"] == head(store) != started
         assert body["reason"] == "edited: added link t1" and body["restarting"] is True
         assert body["saved"] is None, "a bare rig's edit lives in the store alone"
         assert body["stop"]["reason"].startswith("rig edit: edited: added link t1")
         assert body["stop"]["latched"] is False, "a planned stop: the restart comes up passive"
         assert rig.stopping.latches.all() == [] and store.latches() == []
-        assert runner.edits == [(body["version"], started, False)]
+        assert runner.edits == [(body["rig_version_id"], started, False)]
         assert rig.links == {}, "nothing is applied in place"
-        assert store.rig_version(body["version"]).document["links"].keys() == {"t1"}
+        assert store.rig_version(body["rig_version_id"]).document["links"].keys() == {"t1"}
         # The old process is on its way out: it takes no second edit.
         again = client.post("/api/devices", json=DAQ)
         assert again.status_code == 409 and "restarting" in again.json()["detail"]
         rig = restart(store, runner)
-        assert set(rig.links) == {"t1"} and head(store) == body["version"], "nothing new"
+        assert set(rig.links) == {"t1"} and head(store) == body["rig_version_id"], "nothing new"
         assert client.post("/api/devices", json=DAQ).status_code == 202
         rig = restart(store, runner)
         assert client.post("/api/devices", json=DRIVE).status_code == 202
@@ -212,7 +212,7 @@ class TestEdits:
         assert client.delete("/api/devices/nope").status_code == 404
         r = client.delete("/api/devices/probe")
         assert r.status_code == 202, r.text
-        document = store.rig_version(r.json()["version"]).document
+        document = store.rig_version(r.json()["rig_version_id"]).document
         assert set(document["devices"]) == {"drive"}
         assert document["controllers"] == {}, "the controller on it goes with it"
         rig = restart(store, runner)
@@ -311,7 +311,7 @@ class TestEdits:
             "devices": {"probe": entry(DAQ), "drive": entry(DRIVE)},
             "controllers": CONTROLLER,
         }
-        full = client.post("/api/rig", json=document).json()["version"]
+        full = client.post("/api/rig", json=document).json()["rig_version_id"]
         rig = restart(store, runner)
         assert set(rig.devices) == {"probe", "drive"} and "drive.u" in rig.controllers
         r = client.post(f"/api/rig/versions/{first}/restore")
@@ -319,7 +319,7 @@ class TestEdits:
         rig = restart(store, runner)
         assert rig.devices == {} and rig.links == {} and list(rig.controllers) == []
         versions = client.get("/api/rig/versions").json()
-        assert [v["id"] for v in versions if v["head"]] == [r.json()["version"]]
+        assert [v["id"] for v in versions if v["head"]] == [r.json()["rig_version_id"]]
         assert versions[0]["parent"] == full, "a restore is a version on top, not a jump back"
         r = client.post(f"/api/rig/versions/{full}/restore")
         assert r.status_code == 202
@@ -350,7 +350,7 @@ class TestEdits:
         assert rig.devices["pwm"].frequency_hz.value == 500.0  # type: ignore[attr-defined]
         r = client.post("/api/links", json=PLANT)
         assert r.status_code == 202
-        saved = store.rig_version(r.json()["version"]).document["devices"]["pwm"]
+        saved = store.rig_version(r.json()["rig_version_id"]).document["devices"]["pwm"]
         assert saved["frequency_hz"] == 1000.0, "the version holds the build value"
         assert rig.devices["pwm"].frequency_hz.value == 500.0, "not touched in place"  # type: ignore[attr-defined]
         rig = restart(store, runner)
@@ -377,8 +377,8 @@ class TestSavedOverlay:
         assert not overlay.with_name("added.yaml.prev").exists(), "there was none before"
         rig = restart(store, runner, rig_file)
         assert set(rig.devices) == {"probe"}
-        assert rig.document() == store.rig_version(r.json()["version"]).document
-        assert head(store) == r.json()["version"], "the start is at the head: no new row"
+        assert rig.document() == store.rig_version(r.json()["rig_version_id"]).document
+        assert head(store) == r.json()["rig_version_id"], "the start is at the head: no new row"
         # A second edit keeps the first, and the one it replaced as `.prev`.
         r = client.post("/api/devices", json={**DRIVE})
         assert r.status_code == 202

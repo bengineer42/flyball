@@ -194,7 +194,7 @@ a setting, or an `RP` demand, is refused when the rig is built.
 | `measured` | address | the measured signal: a published (`P`) signal, what is regulated |
 | `law` | `{type, ...gains}` | e.g. `{type: pi, kp: 0.2, ki: 0.05}`; omit for none |
 | `feedforward` | `{type, ...}` | maps the measured signal's unit to the output's: `identity`, `none`, `affine {gain, bias, rate_gain?}`, `table {points, rate_gain?}`; omit for `identity` when the units agree, else `none` |
-| `default` | bool | the controller a command means when it names none; at most one per file |
+| `is_default` | bool | the controller a command means when it names none; at most one per file |
 | `min_period_s` | number, optional | update the law at most this often |
 | `setpoint_period_s` | number, optional | while following a moving setpoint, re-apply its feedforward this often between readings (> 0); unset: `max(0.1 s, poll_s / 4)` from the measured signal's `poll_s`. [Controllers](../2-config/controllers.md#a-setpoint-that-moves-faster-than-its-sensor) |
 | `on_fault` | `freeze` \| `manual` \| `stop` \| `stop_device` \| `{freeze_s, then}`, optional | what it does once its measured signal has been faulty for its wait; default `freeze`. `freeze_s` finite, ≥ 0; `then` one of `manual`, `stop`, `stop_device`. `stop` on an output whose stop resolves to `keep` is refused when the rig is built. [Controllers: `on_fault`](../2-config/controllers.md#on_fault-what-a-controller-does-about-a-faulty-source) |
@@ -206,7 +206,7 @@ controllers:
     measured: furnace.zone2
     law: { type: pi, kp: 100, ki: 0.15, tt_s: 30 }
     feedforward: { type: table, rate_gain: 3000, points: [[20, 0], [200, 289.4], [400, 659.8]] }
-    default: true
+    is_default: true
 ```
 
 (`examples/furnace/rig.yaml`, abridged). `rate_gain` (`affine`,
@@ -242,7 +242,7 @@ anything but `local`, or the block cannot be read, a fallback answers `503` on `
 | `url` | `http(s)://host[:port]` | none | the external address: its host joins the `Host` allow-list (with the loopback names; under `--insecure-open` also IP addresses and the machine's own name), its origin the `Origin` allow-list; `https` makes the cookie `Secure` and `__Host-flyball`, and the scheme the principal reports when the peer is this machine or in `trusted_proxies` (a peer elsewhere without TLS is `http`). A path, query or user part falls back |
 | `tls` | `{cert, key}` | none | PEM files the front serves HTTPS from, TLS 1.2 at least; re-read every 10 s and on `SIGHUP`, the last good pair kept. Unreadable at start: falls back |
 | `proxy` | table | none | `auth: proxy`'s identity layer: [below](#proxy-presets). Missing, or one that cannot be vouched for: falls back |
-| `session` | duration | `12h` | how long a session lasts without a request from it (`12h`, `2d`); it ends after 7 days whatever. An open dashboard polls, which counts, so it keeps its session to the 7 days. Unparseable warns |
+| `login` | duration | `12h` | how long a login (what a password sign-in makes) lasts without a request from it (`12h`, `2d`); it ends after 7 days whatever. An open dashboard polls, which counts, so it keeps its login to the 7 days. Unparseable warns |
 | `trusted_proxies` | `[IP or CIDR, …]` | `[]` | peers whose `X-Forwarded-For` the front believes: when the connection comes from one, the client is the right-most address in that header not in the list. That address is what the sign-in limit counts and the audit and principal record. List the proxies themselves, not the network they share with clients: a client whose own address is in the list is believed too, so it can name any address it likes. A bad entry warns and is dropped |
 | `tokens` | `{default_lifetime, max_lifetime}` | 90 days, 365 days | [named-token lifetimes](#token-lifetimes) |
 | `uv` | bool | `false` | `flyball run` only: run `flyball-runner` via `uv run --project <the rig file's directory>` |

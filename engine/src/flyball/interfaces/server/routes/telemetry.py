@@ -99,9 +99,9 @@ def _controller_out(rig: Rig, name: str, state: Any) -> dict[str, Any] | None:
     """
     if (controller := rig.controllers.get(name)) is None:
         return None
-    return ControllerOut.of(controller, name == rig.controllers.default, state).model_dump(
-        mode="json"
-    )
+    return ControllerOut.of(
+        controller, name == rig.controllers.default_controller, state
+    ).model_dump(mode="json")
 
 
 def _run_out(rig: Rig, name: str, run: Any) -> dict[str, Any]:

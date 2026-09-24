@@ -76,7 +76,7 @@ before touching anything:
    leaves its target to direct demands; anything else attempting to move
    a regulating controller's target gets "is driven by controller ...:
    set its reference, put it in manual, or detach it". The same rule
-   refuses a command with a `mode`, a linked demand or `writes=`, unless it
+   refuses a command with a `sets_mode`, a linked demand or `writes=`, unless it
    `interrupts`. `Rig.invoke` checks that before the method runs and puts
    each displaced controller in manual only after the method has returned,
    before the commit and the flush, so a controller cannot write again in
@@ -325,9 +325,9 @@ still arrive) or `silent`.
 
 `Controllers` indexes by the output's address — a demand has at most one
 controller, so the controller *is* named by what it drives — and by
-measured signal, for the tick (`Controllers.find(signal)`). The `default` flag is
-what a command or program step means when it names no controller.
-`rig.attach_controller(output, measured, law=..., feedforward=..., default=...)`
+measured signal, for the tick (`Controllers.find(signal)`). Its `default_controller` (set by the `is_default`
+flag) is what a command or program step means when it names no controller.
+`rig.attach_controller(output, measured, law=..., feedforward=..., is_default=...)`
 builds one and wires its `write` callback to `rig.write`; `detach_controller`
 takes it off its output (left in manual, its last value held) so a manual
 demand may drive the output again.

@@ -151,7 +151,7 @@ func (fr *fakeRunner) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case path == "/api/auth/front":
-		json.NewEncoder(w).Encode(endpoint.FrontInfo{Protocol: 1, Aud: fr.aud, Pid: os.Getpid(), Flyball: "test"})
+		json.NewEncoder(w).Encode(endpoint.FrontInfo{Protocol: 1, Aud: fr.aud, Pid: os.Getpid(), FlyballVersion: "test"})
 	case path == "/mcp/body":
 		// As FastAPI does for a JSON body (POST /mcp/read): read it all
 		// before answering.

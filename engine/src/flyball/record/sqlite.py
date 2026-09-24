@@ -215,7 +215,6 @@ def _program_row(row: sqlite3.Row) -> ProgramRow:
         body=row["body"],
         created_ns=row["created_ns"],
         sha256=row["sha256"],
-        label=row["label"],
         notes=_loads(row["notes"]),
     )
 
@@ -238,7 +237,7 @@ def _session_row(row: sqlite3.Row) -> SessionRow:
         id=row["id"],
         start_ns=row["start_ns"],
         end_ns=row["end_ns"],
-        version=row["version"],
+        flyball_version=row["flyball_version"],
         config=_loads(row["config"]),
         hardware=_loads(row["hardware"]),
         details=_loads(row["details"]),
@@ -520,10 +519,10 @@ class SqliteSessionWriter:
                 tick.controller,
                 tick.offset_ns,
                 tick.mode,
-                tick.measured,
+                tick.measured_value,
                 tick.setpoint,
                 tick.correction,
-                tick.output,
+                tick.output_value,
                 tick.expected,
                 tick.delivered_correction,
                 int(tick.reapplied),
@@ -531,8 +530,8 @@ class SqliteSessionWriter:
         if not rows and not reapplied:
             return
         insert = (
-            " INTO tick (session_id, controller, offset_ns, mode, measured, setpoint,"
-            " correction, output, expected, delivered_correction, reapplied)"
+            " INTO tick (session_id, controller, offset_ns, mode, measured_value, setpoint,"
+            " correction, output_value, expected, delivered_correction, reapplied)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         with self._store._transaction() as connection:
@@ -657,7 +656,7 @@ class SqliteStore:
     def open_session(
         self,
         start_ns: int,
-        version: str | None = None,
+        flyball_version: str | None = None,
         config: Any = None,
         hardware: Any = None,
         details: Any = None,
@@ -669,7 +668,7 @@ class SqliteStore:
             session_id = self._insert_session(
                 connection,
                 start_ns,
-                version,
+                flyball_version,
                 config,
                 hardware,
                 details,
@@ -683,7 +682,7 @@ class SqliteStore:
         self,
         connection: sqlite3.Connection,
         start_ns: int,
-        version: str | None,
+        flyball_version: str | None,
         config: Any,
         hardware: Any,
         details: Any,
@@ -694,13 +693,13 @@ class SqliteStore:
     ) -> int:
         """Within the caller's transaction."""
         cursor = connection.execute(
-            "INSERT INTO session (start_ns, origin_ns, end_ns, version, config, hardware,"
+            "INSERT INTO session (start_ns, origin_ns, end_ns, flyball_version, config, hardware,"
             " details, rig_version_id, kind, continues) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 start_ns,
                 start_ns,
                 end_ns,
-                version,
+                flyball_version,
                 _dumps(config),
                 _dumps(hardware),
                 _dumps(details),
@@ -903,7 +902,7 @@ class SqliteStore:
             target = self._insert_session(
                 connection,
                 start_ns,
-                source.version,
+                source.flyball_version,
                 source.config,
                 source.hardware,
                 details,
@@ -1024,10 +1023,10 @@ class SqliteStore:
             " JOIN controller tc ON tc.session_id = ? AND tc.name = t.controller" if mapped else ""
         )
         connection.execute(
-            "INSERT OR REPLACE INTO tick (session_id, controller, offset_ns, mode, measured,"
-            " setpoint, correction, output, expected, delivered_correction, reapplied)"
-            " SELECT ?, t.controller, t.offset_ns + ?, t.mode, t.measured, t.setpoint,"
-            " t.correction, t.output, t.expected, t.delivered_correction, t.reapplied"
+            "INSERT OR REPLACE INTO tick (session_id, controller, offset_ns, mode, measured_value,"
+            " setpoint, correction, output_value, expected, delivered_correction, reapplied)"
+            " SELECT ?, t.controller, t.offset_ns + ?, t.mode, t.measured_value, t.setpoint,"
+            " t.correction, t.output_value, t.expected, t.delivered_correction, t.reapplied"
             f" FROM tick t{controller_map}"
             " WHERE t.session_id = ? AND t.offset_ns >= ? AND t.offset_ns < ?",
             (target_id, delta, *([target_id] if mapped else []), source.id, lo, hi),
@@ -1257,9 +1256,9 @@ class SqliteStore:
                 offset_ns=r["offset_ns"] - shift,
                 mode=r["mode"],
                 correction=r["correction"],
-                measured=r["measured"],
+                measured_value=r["measured_value"],
                 setpoint=r["setpoint"],
-                output=r["output"],
+                output_value=r["output_value"],
                 expected=r["expected"],
                 delivered_correction=r["delivered_correction"],
                 reapplied=bool(r["reapplied"]),
@@ -1503,15 +1502,14 @@ class SqliteStore:
         format: ProgramFormat,
         body: str,
         created_ns: int,
-        label: str | None = None,
         notes: Any = None,
     ) -> ProgramRow:
         digest = hashlib.sha256(body.encode()).hexdigest()
         with self._transaction() as connection:
             cursor = connection.execute(
-                "INSERT INTO program (name, format, body, created_ns, label, notes, sha256)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (name, format, body, created_ns, label, _dumps(notes), digest),
+                "INSERT INTO program (name, format, body, created_ns, notes, sha256)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (name, format, body, created_ns, _dumps(notes), digest),
             )
             program_id = int(cursor.lastrowid or 0)
         return self.program_version(program_id)

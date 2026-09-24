@@ -353,7 +353,7 @@ func TestTokensFile(t *testing.T) {
 	t.Run("a bad file is an error, not an empty store", func(t *testing.T) {
 		f := newTokenFixture(t)
 		secret, _ := f.create(t, NewToken{})
-		for _, body := range []string{"{not json", `{"version":2,"tokens":[]}`, `{"version":1,"tokens":[{"id":"x","hash":"zz"}]}`} {
+		for _, body := range []string{"{not json", `{"format_version":2,"tokens":[]}`, `{"format_version":1,"tokens":[{"id":"x","hash":"zz"}]}`} {
 			if err := os.WriteFile(f.path, []byte(body), 0o600); err != nil {
 				t.Fatal(err)
 			}

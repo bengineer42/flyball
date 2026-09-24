@@ -420,7 +420,7 @@ holding `operate` can do it:
 - the **Software stop** button in the dashboard's app bar;
 - `flyball stop` (or `flyball stop --all` on every rig a `flyballd` runs);
 - `POST /api/rig/stop` with an optional `{"reason": "…"}`;
-- the MCP tool `stop_rig`, in `operate` mode;
+- the MCP tool `stop_rig`, on the `operate` tier;
 - `SIGUSR1` to the runner's process, which needs no front, no credential
   and no network: `flyball stop --front-dir DIR`, `flyball stop RIG-FILE`
   (the rig file `flyball run` was started with) and `flyball stop --pid N`

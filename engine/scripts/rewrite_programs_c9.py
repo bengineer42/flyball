@@ -5,7 +5,7 @@
 Not a migration, and not shipped as one: run it once against each store that
 holds programs written before the renames. Programs are versioned bodies with
 a sha256, so nothing is rewritten in place -- each affected program gets a
-*new* version (labelled `c9 rewrite`, its hash computed from the new body) and
+*new* version (its notes `c9 rewrite`, its hash computed from the new body) and
 its old versions stay in its history.
 
 What changes, in a program written with the old names:
@@ -52,7 +52,7 @@ from flyball.interfaces.server.formats import dump, parse
 from flyball.model.catalog import ensure_discovered
 from flyball.record.sqlite import SqliteStore
 
-LABEL = "c9 rewrite"
+NOTES = "c9 rewrite"
 
 
 def _is_old(steps: list[Any], commands: Mapping[str, Any]) -> bool:
@@ -147,9 +147,7 @@ def run(path: Path, dry_run: bool = False, out: Any = sys.stdout) -> int:
                 continue
             newest = max(r.created_ns for r in store.program_history(row.name))
             created_ns = max(time.time_ns(), newest + 1)
-            version = store.save_program(
-                row.name, row.format, body, created_ns, label=LABEL, notes=row.notes
-            )
+            version = store.save_program(row.name, row.format, body, created_ns, notes=NOTES)
             print(f"{row.name}: saved version #{version.id} (was #{row.id})", file=out)
             saved += 1
     finally:

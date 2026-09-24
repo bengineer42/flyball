@@ -58,7 +58,7 @@ class Tunings:
 def _open_loop_tuning() -> Tuning:
     from flyball.control.laws import OpenLoop
 
-    return Tuning("open_loop", OpenLoop.config())
+    return Tuning("open_loop", OpenLoop.config_type())
 
 
 OpenLoopTuning = _open_loop_tuning()

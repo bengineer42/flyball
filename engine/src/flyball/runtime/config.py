@@ -93,9 +93,11 @@ log = logging.getLogger(__name__)
 # `RigConfig` from here).
 _LAWS = (OpenLoop, P, PI, PID, IMC, OnOff, SmithPredictor, Scheduled, SlidingMode)
 _FEEDFORWARDS = (Identity, NoFeedforward, Affine, Table)
-LawConfig = discriminated_union({law.type: law for law in _LAWS}, "type", lambda law: law.config)
+LawConfig = discriminated_union(
+    {law.type: law for law in _LAWS}, "type", lambda law: law.config_type
+)
 FeedforwardConfig = discriminated_union(
-    {ff.type: ff for ff in _FEEDFORWARDS}, "type", lambda ff: ff.config
+    {ff.type: ff for ff in _FEEDFORWARDS}, "type", lambda ff: ff.config_type
 )
 
 Role = Literal["link", "driver"]
@@ -158,7 +160,7 @@ class ControllerEntry(BaseModel):
         description="Maps the measured signal's unit to the output's; the law adds to it."
         " Omit for identity (the setpoint itself) when the units agree, else none.",
     )
-    default: bool = False
+    is_default: bool = False
     min_period_s: float | None = Field(
         default=None,
         gt=0,
@@ -384,7 +386,7 @@ class FrontConfig(BaseModel):
     anonymous: Anonymous = "none"
     proxy: ProxyConfig | None = None
     uv: bool = False
-    session: str = "12h"
+    login: str = "12h"
     trusted_proxies: list[str] = Field(default_factory=list)
     tokens: TokensConfig | None = Field(
         default=None, description="Named-token lifetime ceilings: default_lifetime, max_lifetime."
@@ -415,10 +417,10 @@ LOOPBACK = "127.0.0.1"
 class Exposure:
     """Where the runner serves, against where it was asked to, and what to say about it."""
 
-    requested: str
+    requested_host: str
     """The bind address asked for (`runner.host`, `--host`)."""
     host: str
-    """The bind address served on: `requested`, or loopback for an open runner."""
+    """The bind address served on: `requested_host`, or loopback for an open runner."""
     port: int
     open: bool
     """No password and no token: whoever reaches the port may operate the rig."""
@@ -434,7 +436,7 @@ class Exposure:
     @property
     def restricted(self) -> bool:
         """Moved to loopback because the runner is open."""
-        return self.host != self.requested
+        return self.host != self.requested_host
 
     @property
     def open_network(self) -> bool:
@@ -443,7 +445,7 @@ class Exposure:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "requested": self.requested,
+            "requested_host": self.requested_host,
             "host": self.host,
             "port": self.port,
             "open": self.open,
@@ -893,7 +895,7 @@ class RigConfig(BaseModel):
                     f"controller {output!r}: measured {controller.measured!r}"
                     " must be a 'node.signal' address"
                 )
-        if sum(c.default for c in self.controllers.values()) > 1:
+        if sum(c.is_default for c in self.controllers.values()) > 1:
             raise ValueError("only one controller can be the default")
         if self.clock is not None and not is_simulated(self.links):
             raise ValueError("`clock` is only for a rig whose links are all sim_* or fake_*")
@@ -971,7 +973,7 @@ class RigConfig(BaseModel):
                     measured,
                     law=controller.law,
                     feedforward=controller.feedforward,
-                    default=controller.default,
+                    is_default=controller.is_default,
                     min_period_s=controller.min_period_s,
                     setpoint_period_s=controller.setpoint_period_s,
                     on_fault=controller.fault_policy(),

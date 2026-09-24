@@ -14,8 +14,8 @@ from .types import Arx, Plant, Schema
 class Sample:
     """One observation of a loop, in the order its schema declares."""
 
-    measured: float
-    output: float
+    measured_value: float
+    output_value: float
     disturbances: tuple[float, ...] = ()
 
 
@@ -144,15 +144,15 @@ class Identifier:
         The first sample, and any taken while the input is steady, are recorded
         but not fitted.
         """
-        self._inputs.append(sample.output)
-        excited = self._excitation.push(sample.output)
-        previous, self._previous = self._previous, sample.measured
+        self._inputs.append(sample.output_value)
+        excited = self._excitation.push(sample.output_value)
+        previous, self._previous = self._previous, sample.measured_value
 
         if previous is None or not excited or len(self._inputs) <= self.delay_samples:
             return False
 
         regressor = [previous, self._inputs[0], 1.0, *sample.disturbances]
-        self.residual = self._rls.update(regressor, sample.measured)
+        self.residual = self._rls.update(regressor, sample.measured_value)
         self._seen += 1
         return True
 

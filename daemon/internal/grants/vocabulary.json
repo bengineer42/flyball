@@ -1,4 +1,4 @@
-{"version": 1, "pending": "D-034",
+{"format_version": 1, "pending": "D-034",
  "vocabulary": ["operate", "read"],
  "roles": {"all": ["operate", "read"], "viewer": ["read"]},
  "management": "manage"}

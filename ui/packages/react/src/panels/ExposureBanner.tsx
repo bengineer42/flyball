@@ -27,7 +27,7 @@ export function ExposureBanner({ exposure }: ExposureBannerProps) {
               ? "This rig asks nobody to sign in, and is open to anyone on the network: whoever reaches it may operate it."
               : exposure.open
                 ? "This rig asks nobody to sign in, so it is served to this machine only."
-                : `This rig is served on ${exposure.host}, not where it was asked (${exposure.requested}).`}
+                : `This rig is served on ${exposure.host}, not where it was asked (${exposure.requested_host}).`}
           </strong>
           {exposure.warning && <span className="fb-muted"> {exposure.warning}</span>}
         </div>

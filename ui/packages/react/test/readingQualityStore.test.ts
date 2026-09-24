@@ -84,12 +84,12 @@ describe("the store keeps a reading with no value as a break, with why", () => {
 
   it("a re-applied tick's measured is alignment (undefined), a tick with no reading a break (null)", async () => {
     vi.useFakeTimers();
-    const tick = (t: number, measured: number | null, reapplied = false) => ({ controller: "h.p", offset_ns: t * 1e9, mode: "regulating", correction: 0, measured, setpoint: 1, output: 2, expected: null, delivered_correction: null, reapplied });
+    const tick = (t: number, measured: number | null, reapplied = false) => ({ controller: "h.p", offset_ns: t * 1e9, mode: "regulating", correction: 0, measured_value: measured, setpoint: 1, output_value: 2, expected: null, delivered_correction: null, reapplied });
     const ticks = vi.fn(async () => [tick(1, 10), tick(2, null, true), tick(3, null), tick(4, 11)]);
     const { rig, send } = fakeRig({ ticks, sessionSignals: async () => [], sessionControllers: async () => [{ name: "h.p", measured: "f.t" }] });
     const store = new TelemetryStore(rig);
     store.subscribeController(null, () => undefined, 0);
-    send("controllers", { controllers: [{ name: "h.p", measured_signal: "f.t", measured: null, reference: 1 } as unknown as ControllerOut] });
+    send("controllers", { controllers: [{ name: "h.p", measured_signal: "f.t", measured_value: null, reference: 1 } as unknown as ControllerOut] });
     store.playback(4, { id: 1, startS: 0, windowS: 60 });
     vi.advanceTimersByTime(PLAYBACK_DEBOUNCE_MS + 1);
     for (let i = 0; i < 8; i++) await Promise.resolve();

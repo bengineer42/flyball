@@ -196,8 +196,11 @@ export function ProgramStatus({ programmer, events, name, onCancel }: { programm
   );
 }
 
+/** A version's notes as one line: text as written, anything else as JSON; "" for none. */
+const notesText = (notes: unknown): string => (notes == null ? "" : typeof notes === "string" ? notes : JSON.stringify(notes));
+
 /** One row of the library: the whole row opens the program; check and step summary are fetched lazily. */
-function ProgramRow({ program: p, running, busy, onRun, onDelete }: { program: { name: string; id: number; format: ProgramFormat; body?: string; label?: string | null; created_ns: number; notes?: unknown }; running: boolean; busy: boolean; onRun(): void; onDelete(): void }) {
+function ProgramRow({ program: p, running, busy, onRun, onDelete }: { program: { name: string; id: number; format: ProgramFormat; body?: string; created_ns: number; notes?: unknown }; running: boolean; busy: boolean; onRun(): void; onDelete(): void }) {
   const { canOperate } = useAuth();
   const rig = useRig();
   const check = useQuery(() => rig.checkStoredProgram(p.name), [rig, p.name, p.id]);
@@ -229,7 +232,7 @@ function ProgramRow({ program: p, running, busy, onRun, onDelete }: { program: {
           <CheckChip check={check} />
         </TableCell>
         <TableCell sx={{ color: "text.secondary" }}>{normalised ? stepsSummary(normalised) : check.data && !check.data.ok ? check.data.error : "…"}</TableCell>
-        <TableCell sx={wideOnly}>{p.label ?? "—"}</TableCell>
+        <TableCell sx={wideOnly}>{notesText(p.notes) || "—"}</TableCell>
         <TableCell sx={[wideOnly, { whiteSpace: "nowrap" }]}>{when(p.created_ns)}</TableCell>
         <TableCell sx={[wideOnly, { color: "text.secondary" }]}>
           <NotesCell notes={p.notes} />
@@ -389,7 +392,7 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
                 <TableCell sx={wideOnly}>format</TableCell>
                 <TableCell>check</TableCell>
                 <TableCell>steps</TableCell>
-                <TableCell sx={wideOnly}>label</TableCell>
+                <TableCell sx={wideOnly}>notes</TableCell>
                 <TableCell sx={wideOnly}>saved</TableCell>
                 <TableCell sx={wideOnly}>notes</TableCell>
                 <TableCell padding="checkbox" />
@@ -565,7 +568,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
   const [revision, setRevision] = useState(0); // bumped when the tree was replaced from the text, so the builder re-reads it
   const [parseError, setParseError] = useState<string | null>(null);
   const [saved, setSaved] = useState(creating ? TEMPLATE : "");
-  const [label, setLabel] = useState("");
+  const [notes, setNotes] = useState("");
   const [check, setCheck] = useState<CheckState | null>(null);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -612,7 +615,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
     if (stored.data) {
       loadText(stored.data.body, stored.data.format);
       setSaved(stored.data.body);
-      setLabel(stored.data.label ?? "");
+      setNotes(notesText(stored.data.notes));
       loaded.current = true;
     }
   }, [stored.data, creating]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -730,7 +733,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
       setError(`The text does not parse: ${parseError}`);
       return;
     }
-    const ok = await act(() => rig.saveProgram(n, format, text, label.trim() || undefined));
+    const ok = await act(() => rig.saveProgram(n, format, text, notes.trim() || undefined));
     if (!ok) return;
     setSaved(text);
     if (creating) onSaved(n);
@@ -744,7 +747,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
     if (n === routeName) return "That is this program's name; Update adds a version to it.";
     setBusy(true);
     try {
-      await rig.saveProgram(n, format, text, label.trim() || undefined);
+      await rig.saveProgram(n, format, text, notes.trim() || undefined);
       setSaveAs(false);
       onSaved(n);
       return null;
@@ -921,7 +924,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
           </>
         )}
         <Stack direction="row" spacing={1.5} alignItems="flex-start" flexWrap="wrap" useFlexGap>
-          <TextField label="label" value={label} onChange={(e) => setLabel(e.target.value)} sx={{ minWidth: 200 }} />
+          <TextField label="notes" value={notes} onChange={(e) => setNotes(e.target.value)} sx={{ minWidth: 200 }} />
           {creating ? (
             <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || Boolean(parseError) || !programName || !canOperate} data-testid="create">
               Create {programName || "…"}
@@ -930,7 +933,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
             <>
               <Tooltip title="Adds a version; earlier versions stay under Versions and can be loaded or run.">
                 <span>
-                  <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || Boolean(parseError) || !canOperate || (!dirty && label === (stored.data?.label ?? ""))} data-testid="update">
+                  <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || Boolean(parseError) || !canOperate || (!dirty && notes === notesText(stored.data?.notes))} data-testid="update">
                     Update {routeName}
                     {versions !== undefined ? ` (version ${versions + 1})` : ""}
                   </Button>
@@ -975,7 +978,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
             <TableHead>
               <TableRow>
                 <TableCell>version</TableCell>
-                <TableCell>label</TableCell>
+                <TableCell>notes</TableCell>
                 <TableCell>saved</TableCell>
                 <TableCell>format</TableCell>
                 <TableCell>sha256</TableCell>
@@ -986,7 +989,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
               {(history.data ?? []).map((h) => (
                 <TableRow key={h.id} hover selected={h.id === stored.data?.id}>
                   <TableCell>{h.id}</TableCell>
-                  <TableCell>{h.label ?? "—"}</TableCell>
+                  <TableCell>{notesText(h.notes) || "—"}</TableCell>
                   <TableCell>{when(h.created_ns)}</TableCell>
                   <TableCell>{h.format}</TableCell>
                   <TableCell sx={{ fontFamily: "monospace" }}>{h.sha256.slice(0, 12)}</TableCell>

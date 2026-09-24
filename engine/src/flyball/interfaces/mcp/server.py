@@ -1,4 +1,4 @@
-"""The stdio server: `flyball-mcp --url http://pi:8000 --mode read|author|operate`."""
+"""The stdio server: `flyball-mcp --url http://pi:8000 --tier read|author|operate`."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 import flyball
 from flyball.interfaces.client import Rig, RigError, SchemaError
 
-from .tools import GUIDES, MODES, Tier, Tool, tools_for
+from .tools import GUIDES, TIERS, Tier, Tool, tools_for
 
 if TYPE_CHECKING:
     # Only for annotations (`from __future__ import annotations` keeps these
@@ -72,7 +72,7 @@ def _text(value: Any) -> str:
 
 
 class ToolCache:
-    """The tools for one rig and mode, built from the schema on first use.
+    """The tools for one rig and tier, built from the schema on first use.
 
     Lazy so a server mounted in the runner can be made before the runner
     listens, and so the stdio server does not need the rig up to start.
@@ -82,11 +82,11 @@ class ToolCache:
     install (see `require` in `main`).
     """
 
-    def __init__(self, rig: Rig, mode: str, host_code: bool = True) -> None:
+    def __init__(self, rig: Rig, tier: str, host_code: bool = True) -> None:
         import anyio
 
         self.rig = rig
-        self.mode = mode
+        self.tier = tier
         self.host_code = host_code
         self._tools: dict[str, Tool] | None = None
         self._lock = anyio.Lock()
@@ -102,7 +102,7 @@ class ToolCache:
                     from anyio import to_thread
 
                     built = await to_thread.run_sync(
-                        lambda: tools_for(self.rig, self.mode, host_code=self.host_code)
+                        lambda: tools_for(self.rig, self.tier, host_code=self.host_code)
                     )
                     self._tools = {tool.name: tool for tool in built}
         return self._tools
@@ -110,13 +110,13 @@ class ToolCache:
 
 def build(
     rig: Rig,
-    mode: str,
+    tier: str,
     name: str | None = None,
     *,
     caller: Callable[[Any], Rig] | None = None,
     host_code: bool = True,
 ) -> Server[Any]:
-    """The MCP server for `rig` in `mode`.
+    """The MCP server for `rig` in `tier`.
 
     `name` is the rig's own name, for `instructions`; give it when the caller already
     knows it (the runner mounting this in-process) rather than have `build` fetch it --
@@ -168,7 +168,7 @@ def build(
             content=[types.TextContent(type="text", text=message)], is_error=True
         )
 
-    registry = ToolCache(rig, mode, host_code)
+    registry = ToolCache(rig, tier, host_code)
 
     async def list_tools(ctx: Any, params: Any) -> types.ListToolsResult:
         return types.ListToolsResult(tools=[_wire(t) for t in (await registry.get()).values()])
@@ -225,7 +225,7 @@ def build(
     return _Server(
         "flyball",
         version=_version(),
-        instructions=f"{rig_desc}, mode `{mode}`. {INSTRUCTIONS[mode]}",
+        instructions=f"{rig_desc}, tier `{tier}`. {INSTRUCTIONS[tier]}",
         on_list_tools=list_tools,
         on_call_tool=call_tool,
         on_list_resources=list_resources,
@@ -247,8 +247,8 @@ def parser() -> argparse.ArgumentParser:
         help="bearer token the runner was started with (env FLYBALL_TOKEN)",
     )
     p.add_argument(
-        "--mode",
-        choices=list(MODES),
+        "--tier",
+        choices=list(TIERS),
         default="read",
         help="read: questions only; author: also save programs, dashboards, tunings; "
         "operate: also drive the rig (default: read)",
@@ -281,7 +281,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         name = rig.get("/api/health").get("rig")
     except RigError:  # cosmetic only: `instructions` falls back to "This rig"
         name = None
-    anyio.run(_serve, build(rig, args.mode, name))
+    anyio.run(_serve, build(rig, args.tier, name))
     return 0
 
 

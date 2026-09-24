@@ -381,7 +381,7 @@ function valueField(path: string, signal: SignalSchema): JsonSchema {
   const [low, high] = signal.limits ?? [undefined, undefined];
   const unit = describeUnit(signal.unit);
   return {
-    ...signal.value,
+    ...signal.value_schema,
     title: signalTitle(path, signal),
     ...(unit ? { unit } : {}),
     description: `${signal.address} [${signal.access.toUpperCase()}]${signal.limits ? ` · limits ${signal.limits[0]} – ${signal.limits[1]}${unit ? ` ${unit}` : ""}` : ""}`,

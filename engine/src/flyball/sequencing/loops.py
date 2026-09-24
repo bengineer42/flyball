@@ -32,7 +32,7 @@ def _missing_controllers(rig: Rig, which: ControllerNames) -> list[str]:
     out = []
     for name in names:
         if name is None:
-            if rig.controllers.default is None:
+            if rig.controllers.default_controller is None:
                 out.append("the rig has no default controller")
         elif name not in rig.controllers:
             out.append(f"controller {name!r} is not on the rig")

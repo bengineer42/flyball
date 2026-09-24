@@ -43,7 +43,7 @@ type Config struct {
 	// nil: the built-ins (store.DefaultLifetimes).
 	Tokens *TokensConfig `yaml:"tokens"`
 	// Reference-only keys.
-	Session        string   `yaml:"session"`         // idle session lifetime, "12h" / "2d"
+	Login          string   `yaml:"login"`           // idle login lifetime, "12h" / "2d"
 	TrustedProxies []string `yaml:"trusted_proxies"` // peers whose X-Forwarded-For names the client
 }
 
@@ -320,10 +320,10 @@ func ResolveWith(c Config, insecureOpen bool, proxy ProxyFactory) (Plan, Client)
 	default:
 		p.Warnings = append(p.Warnings, fmt.Sprintf("anonymous: %q is not none or read; using none", c.Anonymous))
 	}
-	if c.Session != "" {
-		d, err := store.ParseDuration(c.Session)
+	if c.Login != "" {
+		d, err := store.ParseDuration(c.Login)
 		if err != nil || d <= 0 {
-			p.Warnings = append(p.Warnings, fmt.Sprintf("session: %q is not a duration like 12h or 7d; using the default", c.Session))
+			p.Warnings = append(p.Warnings, fmt.Sprintf("login: %q is not a duration like 12h or 7d; using the default", c.Login))
 		} else {
 			p.SessionIdle = d
 		}

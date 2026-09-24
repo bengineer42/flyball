@@ -454,7 +454,7 @@ func TestRunPassword(t *testing.T) {
 			t.Fatalf("session cookie %+v, want flyball-<port>, HttpOnly, SameSite=Lax, Path=/, not Secure over plain HTTP", ck)
 		}
 		info := authInfo(t, hc, base, cookie())
-		if info.Scheme != "session" || info.User == nil || info.User.ID != "local:admin" || verbs(info) != "operate,read" {
+		if info.Scheme != "login" || info.User == nil || info.User.ID != "local:admin" || verbs(info) != "operate,read" {
 			t.Fatalf("/api/auth signed in = %+v", info)
 		}
 		// The session acts, and its sid is not derivable from the cookie.
@@ -528,7 +528,7 @@ func TestRunPassword(t *testing.T) {
 			t.Fatalf("read over MCP: %s", text)
 		}
 
-		// A read caller at the operate mode is refused by the runner, and
+		// A read caller at the operate tier is refused by the runner, and
 		// the refusal names the token.
 		up := &mcp{t: t, url: base + "/mcp/operate", hdr: bearer(readTok)}
 		if st := up.initialize(); st != 403 {
@@ -970,12 +970,12 @@ func TestRunFallbacks(t *testing.T) {
 	}
 }
 
-// A session idle past its lifetime (session: 2s, a reference key) ends,
+// A session idle past its lifetime (login: 2s, a reference key) ends,
 // and its open websocket is closed 4401 within 1 s of that.
 func TestRunSessionExpiry(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	rig := e.rig("sx", fmt.Sprintf("runner:\n  front:\n    auth: password\n    password: '%s'\n    session: 2s\n", passwordLine))
+	rig := e.rig("sx", fmt.Sprintf("runner:\n  front:\n    auth: password\n    password: '%s'\n    login: 2s\n", passwordLine))
 	_, base := e.flyballRun("front", rig, "--listen", "127.0.0.1:0")
 	addr := hostPort(base)
 	ck := login(t, hc, base)
@@ -1120,9 +1120,9 @@ func TestRunRigEditRestarts(t *testing.T) {
 		t.Fatalf("POST /api/devices: %v, want 202", r)
 	}
 	var out struct {
-		Version    int    `json:"version"`
-		Saved      string `json:"saved"`
-		Restarting bool   `json:"restarting"`
+		RigVersionID int    `json:"rig_version_id"`
+		Saved        string `json:"saved"`
+		Restarting   bool   `json:"restarting"`
 	}
 	r.json(t, &out)
 	if !out.Restarting || !strings.HasSuffix(out.Saved, "oven.yaml.d/added.yaml") || !fileExists(out.Saved) {
@@ -1147,7 +1147,7 @@ func TestRunRigEditRestarts(t *testing.T) {
 		Head bool `json:"head"`
 	}
 	do(t, hc, "GET", base+"/api/rig/versions", "", nil).json(t, &versions)
-	if len(versions) == 0 || versions[0].ID != out.Version || !versions[0].Head {
-		t.Errorf("versions after the restart: %+v, want the edit's %d at the head", versions, out.Version)
+	if len(versions) == 0 || versions[0].ID != out.RigVersionID || !versions[0].Head {
+		t.Errorf("versions after the restart: %+v, want the edit's %d at the head", versions, out.RigVersionID)
 	}
 }

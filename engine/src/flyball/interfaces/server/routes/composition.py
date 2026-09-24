@@ -86,7 +86,7 @@ def _validated[T](adapter: TypeAdapter[T], body: Any) -> T:
 class EditOut(BaseModel):
     """What a rig edit did: saved as a version, the rig stopped, the runner restarting."""
 
-    version: int
+    rig_version_id: int
     """The edit's rig version, now the head: what the runner starts again from."""
     previous: int | None
     """The head before it; what a start that cannot build the edit goes back to."""
@@ -182,7 +182,7 @@ def _edit(
         report = _stop(rig, request, f"rig edit: {reason}; restarting at version {row.id}")
         runner.restart_for_edit(row.id, previous, record=rig.recording is not None)
     return EditOut(
-        version=row.id,
+        rig_version_id=row.id,
         previous=previous,
         reason=reason,
         saved=None if plan.path is None else str(plan.path),

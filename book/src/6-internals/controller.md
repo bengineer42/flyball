@@ -312,7 +312,7 @@ heaters.heater2:
     type: table
     rate_gain: 3000
     points: [[20, 0], [100, 125.4], [200, 289.4], ...]
-  default: true
+  is_default: true
 ```
 
 Not on `setpoint`: it already hands the output the measured signal's own unit, so a

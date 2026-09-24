@@ -43,7 +43,7 @@ class Controllers:
     _controllers: dict[str, Controller]
     _measured: dict[Signal, Controller]
     _outputs: dict[Signal, Controller]
-    default: str | None = None
+    default_controller: str | None = None
 
     def __init__(self) -> None:
         self._controllers = {}
@@ -66,7 +66,7 @@ class Controllers:
     def __len__(self) -> int:
         return len(self._controllers)
 
-    def add(self, controller: Controller, default: bool = False) -> None:
+    def add(self, controller: Controller, is_default: bool = False) -> None:
         """Register `controller` under its output's address.
 
         Raises:
@@ -80,8 +80,8 @@ class Controllers:
         self._controllers[controller.name] = controller
         self._outputs[controller.output_signal] = controller
         self._measured[controller.measured_signal] = controller
-        if default or self.default is None:
-            self.default = controller.name
+        if is_default or self.default_controller is None:
+            self.default_controller = controller.name
 
     def remove(self, name: str) -> Controller:
         """Detach a controller; its output and measured signal are free for another."""
@@ -91,8 +91,8 @@ class Controllers:
             raise ControllerNotFoundError(name) from e
         self._outputs.pop(controller.output_signal, None)
         self._measured.pop(controller.measured_signal, None)
-        if self.default == name:
-            self.default = next(iter(self._controllers), None)
+        if self.default_controller == name:
+            self.default_controller = next(iter(self._controllers), None)
         return controller
 
     def find(self, measured: Signal) -> Controller | None:
@@ -105,7 +105,7 @@ class Controllers:
 
     def resolve(self, name: str | None = None) -> Controller:
         """By name, or the default. Raises rather than returning None."""
-        name = name or self.default
+        name = name or self.default_controller
         if name is None:
             raise NoDefaultControllerError()
         try:

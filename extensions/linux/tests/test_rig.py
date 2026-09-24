@@ -88,7 +88,7 @@ def bench_document() -> dict:
             "heater.drive": {
                 "measured": "air.temperature",
                 "law": {"type": "pi", "kp": 1.0, "ki": 0.0},
-                "default": True,
+                "is_default": True,
             }
         },
     }

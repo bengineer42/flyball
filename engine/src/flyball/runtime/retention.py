@@ -139,7 +139,7 @@ class Retention:
             controllers=recorder.controllers,
             kind="session",
             continues=previous.id,
-            version=previous.version,
+            flyball_version=previous.flyball_version,
             config=previous.config,
             hardware=previous.hardware,
             details=previous.details,

@@ -112,7 +112,7 @@ class Problem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     widget_id: str
-    ref: str
+    address: str
     reason: str
 
 
@@ -257,8 +257,10 @@ def problems_for(document: dict[str, Any], rig: Rig) -> list[Problem]:
     }
     problems: list[Problem] = []
 
-    def flag(widget_id: str, ref: str) -> None:
-        problems.append(Problem(widget_id=widget_id, ref=ref, reason=f"{ref} is not on this rig"))
+    def flag(widget_id: str, address: str) -> None:
+        problems.append(
+            Problem(widget_id=widget_id, address=address, reason=f"{address} is not on this rig")
+        )
 
     for widget in document.get("widgets") or []:
         if not isinstance(widget, dict):

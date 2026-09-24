@@ -142,10 +142,10 @@ type TokensOptions struct {
 	Lifetimes Lifetimes
 }
 
-// tokensFile is the file's shape. Version 1; any other is refused.
+// tokensFile is the file's shape. format_version 1; any other is refused.
 type tokensFile struct {
-	Version int      `json:"version"`
-	Tokens  []record `json:"tokens"`
+	FormatVersion int      `json:"format_version"`
+	Tokens        []record `json:"tokens"`
 }
 
 // record is a row on disk: a Token plus the SHA-256 (hex) of its secret.
@@ -438,7 +438,7 @@ func (t *Tokens) writeLocked(change func(*tokensFile) error) ([]string, error) {
 		fh.Close()
 	}
 	if f == nil {
-		f = &tokensFile{Version: 1}
+		f = &tokensFile{FormatVersion: 1}
 	}
 	for i := range f.Tokens {
 		r := &f.Tokens[i]
@@ -531,8 +531,8 @@ func readTokensFile(path string) (_ *tokensFile, _ *os.File, _ os.FileInfo, err 
 	if err := json.NewDecoder(fh).Decode(&f); err != nil {
 		return nil, nil, nil, fmt.Errorf("tokens file %s: %w", path, err)
 	}
-	if f.Version != 1 {
-		return nil, nil, nil, fmt.Errorf("tokens file %s: version %d, want 1", path, f.Version)
+	if f.FormatVersion != 1 {
+		return nil, nil, nil, fmt.Errorf("tokens file %s: format_version %d, want 1", path, f.FormatVersion)
 	}
 	ids := map[string]bool{}
 	for _, r := range f.Tokens {

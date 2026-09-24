@@ -24,7 +24,7 @@ import (
 const (
 	SchemeLocal     = "local"
 	SchemeAnonymous = "anonymous"
-	SchemeSession   = "session"
+	SchemeLogin     = "login"
 	SchemeToken     = "token"
 	SchemeProxy     = "proxy"
 )
@@ -103,7 +103,7 @@ func (f *Front) authenticate(r *http.Request, lenient bool) (Caller, error) {
 	if f.plan.Shape == ShapePassword {
 		if ck, err := r.Cookie(f.cookie); err == nil && ck.Value != "" {
 			if s, ok := f.sessions.Lookup(ck.Value); ok {
-				return Caller{Scheme: SchemeSession, Sub: s.Subject, Name: "admin", Kind: store.KindHuman,
+				return Caller{Scheme: SchemeLogin, Sub: s.Subject, Name: "admin", Kind: store.KindHuman,
 					Sid: s.Sid, Scopes: s.Scopes}, nil
 			}
 			if !lenient || presented {
@@ -492,13 +492,13 @@ type AuthLogin struct {
 // Exposure is the UI's Exposure (wire.ts): where the front serves against
 // where it was asked to, with the banner.
 type Exposure struct {
-	Requested   string  `json:"requested"`
-	Host        string  `json:"host"`
-	Port        int     `json:"port"`
-	Open        bool    `json:"open"`
-	Restricted  bool    `json:"restricted"`
-	OpenNetwork bool    `json:"open_network"`
-	Warning     *string `json:"warning"`
+	RequestedHost string  `json:"requested_host"`
+	Host          string  `json:"host"`
+	Port          int     `json:"port"`
+	Open          bool    `json:"open"`
+	Restricted    bool    `json:"restricted"`
+	OpenNetwork   bool    `json:"open_network"`
+	Warning       *string `json:"warning"`
 }
 
 // exposure is nil when there is nothing to say: loopback, as asked, with
@@ -511,7 +511,7 @@ func (f *Front) exposure() *Exposure {
 	}
 	host, port, _ := net.SplitHostPort(p.Listen)
 	n, _ := strconv.Atoi(port)
-	e := &Exposure{Requested: p.Requested, Host: host, Port: n, Open: p.Shape == ShapeLocal,
+	e := &Exposure{RequestedHost: p.Requested, Host: host, Port: n, Open: p.Shape == ShapeLocal,
 		Restricted: p.Listen != p.Requested || p.Refused != "", OpenNetwork: p.Shape == ShapeLocal && !loopbackListen(p.Listen)}
 	b := p.Banner()
 	if auditErr != nil {
@@ -699,7 +699,7 @@ func (f *Front) login(w http.ResponseWriter, r *http.Request, rig *Rig) {
 		}
 	}
 	f.setCookie(w, cookie, int(store.SessionAbsolute/time.Second))
-	writeJSON(w, http.StatusOK, f.info(Caller{Scheme: SchemeSession, Sub: SubAdmin, Name: "admin",
+	writeJSON(w, http.StatusOK, f.info(Caller{Scheme: SchemeLogin, Sub: SubAdmin, Name: "admin",
 		Kind: store.KindHuman, Sid: s.Sid, Scopes: s.Scopes}, rig))
 }
 
@@ -740,7 +740,7 @@ func (f *Front) tokensRoute(w http.ResponseWriter, r *http.Request, id string) {
 	case c.Scheme == SchemeAnonymous:
 		detail(w, http.StatusUnauthorized, "Sign in to manage tokens")
 		return
-	case c.Scheme != SchemeLocal && !(c.Scheme == SchemeSession && c.Sub == SubAdmin):
+	case c.Scheme != SchemeLocal && !(c.Scheme == SchemeLogin && c.Sub == SubAdmin):
 		detail(w, http.StatusForbidden, "Tokens are managed from the admin session or the local shape")
 		return
 	}
@@ -812,7 +812,7 @@ func (f *Front) createToken(w http.ResponseWriter, r *http.Request, c Caller) {
 	// config says -- the client already asks for that, but the server
 	// enforces it itself rather than trusting the request (merge
 	// requirement-style fail-closed; F2 of the wave-1 review).
-	elevatedSession := c.Scheme == SchemeSession && scopesAboveRead(scopes)
+	elevatedSession := c.Scheme == SchemeLogin && scopesAboveRead(scopes)
 	secret, tok, err := f.tokens.Create(store.NewToken{Name: body.Name, Scopes: scopes, Kind: body.Kind,
 		Issuer: c.Sub, ExpiresIn: life, Cleartext: cleartext, Elevated: elevatedSession})
 	if err != nil {

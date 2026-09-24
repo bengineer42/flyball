@@ -27,7 +27,7 @@ gain measured is the one the trim controller will see.
 from flyball.autotune import RelayTest, StepTest, imc
 from flyball.control import OpenLoop, ValueSource
 
-controller.regulate(50.0, tuning=OpenLoop.config())
+controller.regulate(50.0, tuning=OpenLoop.config_type())
 ```
 
 ## Step test

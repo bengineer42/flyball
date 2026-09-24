@@ -42,4 +42,4 @@ controllers:
   valve.drive:
     measured: level.volume
     law: { type: pi, kp: 0.05, ki: 0.01 }
-    default: true
+    is_default: true

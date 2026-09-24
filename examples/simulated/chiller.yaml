@@ -49,4 +49,4 @@ controllers:
   compressor.drive:
     measured: probe.temperature
     law: { type: pi, kp: 0.05, ki: 0.0015 }
-    default: true
+    is_default: true

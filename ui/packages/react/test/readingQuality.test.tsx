@@ -119,7 +119,7 @@ describe("panels show a reading with no value as a dash and why, never the value
       label: null,
       output_signal: "h.p",
       measured_signal: "f.t",
-      default: false,
+      is_default: false,
       mode: "regulating",
       law: null,
       feedforward: { type: "none" },
@@ -127,10 +127,10 @@ describe("panels show a reading with no value as a dash and why, never the value
       reference: 50,
       setpoint: 50,
       correction: 0,
-      output: 10,
+      output_value: 10,
       expected: 10,
       delivered_correction: 0,
-      measured: { signal: "f.t", time_ns: 1e9, value: null, quality: "invalid", reason: "open" },
+      measured_value: { signal: "f.t", time_ns: 1e9, value: null, quality: "invalid", reason: "open" },
     } as ControllerOut;
     render(wrap(createElement(ControllerPanel, { controller, source: SIGNAL, trends: false })));
     expect(screen.getByTestId("quality-badge").textContent).toBe("invalid: open");

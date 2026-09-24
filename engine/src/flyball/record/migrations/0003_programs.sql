@@ -12,8 +12,7 @@ CREATE TABLE program (
     format      TEXT    NOT NULL,           -- "yaml", "toml" or "json": what `body` is written in
     body        TEXT    NOT NULL,           -- the document, verbatim
     created_ns  INTEGER NOT NULL,           -- wall clock, ns since epoch
-    label       TEXT,                       -- a version label, if the author gave one
-    notes       TEXT,                       -- JSON: free-form
+    notes       TEXT,                       -- JSON: what the author said about this version
     sha256      TEXT    NOT NULL            -- of body; identical re-saves are cheap to spot
 );
 CREATE INDEX program_by_name ON program (name, created_ns DESC);

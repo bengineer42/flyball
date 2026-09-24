@@ -28,7 +28,7 @@ class SessionRow:
     """When the session started -- or, for a scratch session, the oldest row it still holds:
     trimming moves it forward. Offsets are from here either way."""
     end_ns: int | None
-    version: str | None
+    flyball_version: str | None
     config: Any
     hardware: Any
     details: Any
@@ -203,8 +203,8 @@ class ProgramRow:
     body: str
     created_ns: int
     sha256: str
-    label: str | None = None
     notes: Any = None
+    """What the author said about this version: free text, or any JSON."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,9 +345,9 @@ class Tick:
     mode: str
     correction: float | None
     """None when the law's output was not a number (a NaN integral)."""
-    measured: float | None = None
+    measured_value: float | None = None
     setpoint: float | None = None
-    output: float | None = None
+    output_value: float | None = None
     expected: float | None = None
     delivered_correction: float | None = None
     reapplied: bool = False

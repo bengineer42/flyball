@@ -107,9 +107,10 @@ class Gains:
         """
         if self.kd:
             return cast(
-                "ControlLawConfig", PID.config(kp=self.kp, ki=self.ki, kd=self.kd, tt_s=self.tt_s)
+                "ControlLawConfig",
+                PID.config_type(kp=self.kp, ki=self.ki, kd=self.kd, tt_s=self.tt_s),
             )
-        return cast("ControlLawConfig", PI.config(kp=self.kp, ki=self.ki, tt_s=self.tt_s))
+        return cast("ControlLawConfig", PI.config_type(kp=self.kp, ki=self.ki, tt_s=self.tt_s))
 
     def to_tuning(self, name: str) -> Tuning:
         """A tuning named `name` wrapping [config][flyball.autotune.types.Gains.config]."""

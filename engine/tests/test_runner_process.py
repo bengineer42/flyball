@@ -105,7 +105,7 @@ def test_an_open_runner_asked_for_the_network_runs_on_loopback(tmp_path, port):
         health = _get(f"http://127.0.0.1:{port}/api/health")
         assert health["exposure"]["restricted"] and health["exposure"]["host"] == "127.0.0.1"
         auth = _get(f"http://127.0.0.1:{port}/api/auth")
-        assert auth["exposure"]["requested"] == "0.0.0.0"
+        assert auth["exposure"]["requested_host"] == "0.0.0.0"
         lan = _lan_address()
         if lan is not None:  # not reachable on the machine's own network address
             with pytest.raises(OSError):
@@ -584,12 +584,14 @@ def test_an_edit_restarts_the_runner_from_the_head(tmp_path, port):
         controller = _get(f"{base}/api/controllers/drive.u")
         assert controller["mode"] == "manual", "passive after the restart"
         versions = _get(f"{base}/api/rig/versions")
-        assert versions[0]["id"] == out["version"] and versions[0]["head"], "nothing new at start"
+        assert versions[0]["id"] == out["rig_version_id"] and versions[0]["head"], (
+            "nothing new at start"
+        )
         assert (tmp_path / "lab.yaml.d" / "added.yaml").exists()
         # A refused edit changes nothing and restarts nothing.
         status, _ = _send("DELETE", f"{base}/api/devices/nowhere")
         assert status == 404
-        assert _get(f"{base}/api/rig/versions")[0]["id"] == out["version"]
+        assert _get(f"{base}/api/rig/versions")[0]["id"] == out["rig_version_id"]
         proc.send_signal(signal.SIGINT)
         proc.communicate(timeout=20)
     # A plain start from the same file: the edit is in the overlay it loads.

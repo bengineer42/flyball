@@ -60,7 +60,7 @@ export function RigEditProvider({ transport, onBack, children }: { transport: Tr
           back.current();
           setWatch(
             failed
-              ? { kind: "failed", edit, message: `Version ${edit.version} could not be built, so the rig went back to ${edit.previous === null ? "the one before" : `version ${edit.previous}`}. ${failed.message}` }
+              ? { kind: "failed", edit, message: `Version ${edit.rig_version_id} could not be built, so the rig went back to ${edit.previous === null ? "the one before" : `version ${edit.previous}`}. ${failed.message}` }
               : { kind: "back", edit },
           );
           return;
@@ -94,8 +94,8 @@ export function RigEditProvider({ transport, onBack, children }: { transport: Tr
             data-testid="rig-edit-status"
             sx={{ maxWidth: 640 }}
           >
-            {watch.kind === "restarting" && `Restarting the rig on version ${watch.edit.version} (${watch.edit.reason})…`}
-            {watch.kind === "back" && `The rig is back on version ${watch.edit.version}: controllers are in manual.`}
+            {watch.kind === "restarting" && `Restarting the rig on version ${watch.edit.rig_version_id} (${watch.edit.reason})…`}
+            {watch.kind === "back" && `The rig is back on version ${watch.edit.rig_version_id}: controllers are in manual.`}
             {watch.kind === "failed" && watch.message}
           </Alert>
         ) : undefined}

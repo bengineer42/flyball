@@ -33,7 +33,7 @@ const OPERATOR: AuthInfo = {
 const READ_ONLY: AuthInfo = {
   v: 2,
   shape: "password",
-  scheme: "session",
+  scheme: "login",
   user: { id: "local:viewer", name: "viewer", kind: "human" },
   verbs: ["read"],
   anonymous: "read",

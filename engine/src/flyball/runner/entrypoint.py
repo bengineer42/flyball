@@ -267,7 +267,7 @@ def _roll_back(edit: str, error: Exception, origin: Origin, store_path: Path) ->
     finally:
         store.close()
     os.environ[EDIT_FAILED_ENV] = json.dumps({
-        "version": int(version),
+        "rig_version_id": int(version),
         "previous": previous,
         "error": str(error),
     })
@@ -280,7 +280,7 @@ def _not_built(rig: Any, failed: str) -> None:
     try:
         details = json.loads(failed)
         message = (
-            f"edit to version {details['version']} did not build: {details['error']};"
+            f"edit to version {details['rig_version_id']} did not build: {details['error']};"
             f" running version {details['previous']}"
         )
     except (ValueError, KeyError, TypeError):

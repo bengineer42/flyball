@@ -202,7 +202,7 @@ def _renamed(value: Any) -> Any:
 
 _BUILT_IN = (LinearRampSetpoint, Dwell, Profile)
 _BUILT_IN_TYPES = frozenset(generator.type for generator in _BUILT_IN)
-_BUILT_IN_CONFIGS = tuple(generator.config for generator in _BUILT_IN)
+_BUILT_IN_CONFIGS = tuple(generator.config_type for generator in _BUILT_IN)
 
 
 def _registered(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
@@ -220,9 +220,9 @@ def _registered(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
     generator = catalog.generators.get(kind) if catalog and isinstance(kind, str) else None
     if generator is None:
         return handler(value)
-    if isinstance(value, generator.config):
+    if isinstance(value, generator.config_type):
         return value
-    return generator.config.model_validate(value)
+    return generator.config_type.model_validate(value)
 
 
 def _dumped(value: Any, handler: SerializerFunctionWrapHandler, info: SerializationInfo) -> Any:
@@ -233,7 +233,7 @@ def _dumped(value: Any, handler: SerializerFunctionWrapHandler, info: Serializat
 
 
 GeneratorConfig = Annotated[  # type: ignore[valid-type]
-    Union[LinearRampSetpoint.config, Dwell.config, Profile.config],  # ruff: ignore[non-pep604-annotation-union]
+    Union[LinearRampSetpoint.config_type, Dwell.config_type, Profile.config_type],  # ruff: ignore[non-pep604-annotation-union]
     Field(discriminator="type"),
     WrapValidator(_registered),
     BeforeValidator(_renamed),
@@ -265,4 +265,4 @@ def generator_union(catalog: Catalogs | None) -> Any:
     if not extra:
         return GeneratorConfig
     every = {generator.type: generator for generator in _BUILT_IN} | extra
-    return discriminated_union(every, "type", lambda generator: generator.config)
+    return discriminated_union(every, "type", lambda generator: generator.config_type)

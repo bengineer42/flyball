@@ -242,10 +242,10 @@
           "description": "Maps the measured signal's unit to the output's; the law adds to it. Omit for identity (the setpoint itself) when the units agree, else none.",
           "title": "Feedforward"
         },
-        "default": {
-          "type": "boolean",
+        "is_default": {
           "default": false,
-          "title": "Default"
+          "title": "Is Default",
+          "type": "boolean"
         },
         "min_period_s": {
           "anyOf": [
@@ -776,9 +776,9 @@
           "title": "Uv",
           "type": "boolean"
         },
-        "session": {
+        "login": {
           "default": "12h",
-          "title": "Session",
+          "title": "Login",
           "type": "string"
         },
         "trusted_proxies": {

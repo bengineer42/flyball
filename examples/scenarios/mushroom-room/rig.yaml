@@ -56,7 +56,7 @@ controllers:
   fogger.drive:
     measured: climate.chamber.humidity
     law: { type: pi, kp: 0.03, ki: 0.001 }
-    default: true
+    is_default: true
 
   fan.drive:
     # more CO2 -> more fan, so this is reverse-acting like chiller.yaml's drive

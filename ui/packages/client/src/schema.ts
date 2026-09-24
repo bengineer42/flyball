@@ -235,10 +235,10 @@ export function invertFeedforward(feedforward: FeedforwardConfig | null | undefi
  * feedforward on `output − correction`, which is exact for `setpoint` and
  * `affine` and for a monotone `table`, and null for `none`.
  */
-export function setpointOf(controller: Pick<ControllerOut, "reference" | "output" | "correction"> & { setpoint?: number | null; feedforward?: FeedforwardConfig | null }): number | null {
+export function setpointOf(controller: Pick<ControllerOut, "reference" | "output_value" | "correction"> & { setpoint?: number | null; feedforward?: FeedforwardConfig | null }): number | null {
   if (typeof controller.setpoint === "number") return controller.setpoint;
   if (typeof controller.reference === "number") return controller.reference;
-  if (controller.output != null && controller.correction != null) return invertFeedforward(controller.feedforward, controller.output - controller.correction);
+  if (controller.output_value != null && controller.correction != null) return invertFeedforward(controller.feedforward, controller.output_value - controller.correction);
   return null;
 }
 

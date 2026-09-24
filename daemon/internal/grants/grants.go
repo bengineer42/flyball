@@ -27,11 +27,11 @@ var vocabularyJSON []byte
 
 // Vocabulary is vocabulary.json.
 type Vocabulary struct {
-	Version    int                 `json:"version"`
-	Pending    string              `json:"pending"`
-	Vocabulary []string            `json:"vocabulary"`
-	Roles      map[string][]string `json:"roles"`
-	Management string              `json:"management"`
+	FormatVersion int                 `json:"format_version"`
+	Pending       string              `json:"pending"`
+	Vocabulary    []string            `json:"vocabulary"`
+	Roles         map[string][]string `json:"roles"`
+	Management    string              `json:"management"`
 }
 
 // Read is the read verb. Every candidate vocabulary has it, and it is what a
@@ -50,8 +50,8 @@ var vocab = func() Vocabulary {
 	if err := json.Unmarshal(vocabularyJSON, &v); err != nil {
 		panic("grants: vocabulary.json: " + err.Error())
 	}
-	if v.Version != 1 || v.Management == "" || !slices.Contains(v.Vocabulary, Read) || len(v.Roles[AllRole]) == 0 {
-		panic("grants: vocabulary.json lacks version 1, management, the read verb or the all role")
+	if v.FormatVersion != 1 || v.Management == "" || !slices.Contains(v.Vocabulary, Read) || len(v.Roles[AllRole]) == 0 {
+		panic("grants: vocabulary.json lacks format_version 1, management, the read verb or the all role")
 	}
 	slices.Sort(v.Vocabulary)
 	return v

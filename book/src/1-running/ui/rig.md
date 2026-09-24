@@ -52,8 +52,8 @@ What each box shows:
   source), each with a remove button behind a confirmation; an **Add** button opens the same
   dialog the Devices/Controllers pages used before this moved here — see [Devices](devices.md)
   and [Controllers](controllers.md) for what each dialog asks.
-- **Connect a model** — this runner's [MCP](../../4-server/mcp.md) server, one tier per
-  mode: each row is that tier's absolute URL, a ready-made
+- **Connect a model** — this runner's [MCP](../../4-server/mcp.md) server, one row per
+  tier: each row is that tier's absolute URL, a ready-made
   `claude mcp add --transport http …` line, and (below all three) a client
   config block naming all of them, one copy button each. The config's
   `headers` carry a `Bearer <token>` placeholder wherever the door is not

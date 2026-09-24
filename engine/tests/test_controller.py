@@ -106,7 +106,7 @@ def test_feedforward_defaults_follow_the_units(furnace):
         clock,
         furnace.signals["heater1"],
         furnace.signals["zone1"],
-        feedforward=Affine.config(gain=10.0, bias=0.0),
+        feedforward=Affine.config_type(gain=10.0, bias=0.0),
     )
     assert isinstance(built.feedforward, Affine)
 
@@ -129,7 +129,7 @@ def test_on_reading_ticks_and_writes(furnace):
     )
     zone1 = furnace.signals["zone1"]
     controller.on_reading(Reading(zone1, clock.now_ns(), 20.0))
-    assert controller.measured is not None and controller.measured.value == 20.0
+    assert controller.measured_value is not None and controller.measured_value.value == 20.0
     assert writes == [], "manual: nothing written"
     controller.regulate(50.0, transfer=Transfer.COLD)
     assert controller.setpoint == 50.0 and writes == [500.0]
@@ -138,7 +138,7 @@ def test_on_reading_ticks_and_writes(furnace):
     sample = Sample(furnace.root, clock.now_ns(), {zone1: 30.0})
     controller.on_reading(next(sample.readings()))
     assert writes == [500.0, 500.0 + 100.0 * 20.0]
-    assert controller.output == 2500.0 and controller.expected == 2500.0
+    assert controller.output_value == 2500.0 and controller.expected == 2500.0
     assert controller.delivered_correction == 2000.0
 
     with pytest.raises(AssertionError, match="is not"):
@@ -150,9 +150,9 @@ def test_unwired_records_the_demand_and_writes_nothing(furnace):
     controller = Controller(clock, furnace.signals["bath"], furnace.signals["zone1"], law=P(kp=2.0))
     controller.on_reading(Reading(furnace.signals["zone1"], 0, 40.0))
     controller.regulate(50.0, transfer=Transfer.COLD)
-    assert controller.output == 50.0, "the setpoint itself: same unit, correction reset"
+    assert controller.output_value == 50.0, "the setpoint itself: same unit, correction reset"
     controller.on_reading(Reading(furnace.signals["zone1"], 1_000_000_000, 40.0))
-    assert controller.output == 50.0 + 2.0 * 10.0
+    assert controller.output_value == 50.0 + 2.0 * 10.0
     assert controller.expected is None and controller.delivered_correction is None
 
 
@@ -169,7 +169,7 @@ def test_delivered_closes_a_deferred_write(furnace):
     controller.on_reading(Reading(furnace.signals["zone1"], 0, 30.0))
     controller.regulate(50.0, transfer=Transfer.COLD)
     controller.on_reading(Reading(furnace.signals["zone1"], 1_000_000_000, 30.0))
-    assert controller.output == 500.0 + 100.0 * 20.0
+    assert controller.output_value == 500.0 + 100.0 * 20.0
     assert controller.expected is None and controller.delivered_correction is None
 
     controller.delivered(WriteState(value=2500.0, requested=2500.0, at_limit="high"))
@@ -240,7 +240,7 @@ def test_min_period_caps_how_often_the_law_steps(furnace):
     for i in range(10):
         clock.advance(0.01)
         controller.on_reading(Reading(zone1, clock.now_ns(), float(i)))
-    assert controller.measured is not None and controller.measured.value == 9.0
+    assert controller.measured_value is not None and controller.measured_value.value == 9.0
     assert len(writes) == before + 1
 
     clock.advance(0.1)
@@ -267,7 +267,7 @@ def test_manual_holds_the_demand_and_regulate_resumes_bumplessly(furnace):
     assert result.bump == pytest.approx(0.0), "TRACK seeds the law to hold the output"
     assert writes[-1] == pytest.approx(held)
     reset = controller.regulate(50.0, transfer=Transfer.COLD)
-    assert reset.output == 50.0 and reset.bump == pytest.approx(50.0 - held)
+    assert reset.output_value == 50.0 and reset.bump == pytest.approx(50.0 - held)
 
 
 @pytest.mark.parametrize("aim", [float("nan"), float("inf"), float("-inf")])
@@ -334,7 +334,7 @@ def test_a_slower_but_steady_source_is_not_an_outage(furnace):
 
 def test_linear_ramp_setpoint_config_round_trips_and_builds():
     assert get_catalog().generators["linear_ramp_setpoint"] is LinearRampSetpoint
-    config = LinearRampSetpoint.config.model_validate({
+    config = LinearRampSetpoint.config_type.model_validate({
         "type": "linear_ramp_setpoint",
         "pace": {"per_minute": 10},
         "end": 30.0,
@@ -343,7 +343,7 @@ def test_linear_ramp_setpoint_config_round_trips_and_builds():
     assert ramp.pace == Speed(10.0, TimeUnit.MINUTE) and ramp.end == 30.0
 
     with pytest.raises(Exception, match="type"):
-        LinearRampSetpoint.config.model_validate({"type": "no_such_tag", "pace": 1, "end": 1})
+        LinearRampSetpoint.config_type.model_validate({"type": "no_such_tag", "pace": 1, "end": 1})
 
 
 def test_linear_ramp_setpoint_serialises_its_init_args_plus_end_time_once_started():
@@ -400,7 +400,7 @@ def test_a_negative_pace_is_refused():
     with pytest.raises(ValueError, match="rate must be positive"):
         Speed(-10.0, TimeUnit.MINUTE)
     with pytest.raises(Exception, match="greater than 0"):
-        LinearRampSetpoint.config.model_validate({
+        LinearRampSetpoint.config_type.model_validate({
             "type": "linear_ramp_setpoint",
             "pace": {"per_minute": -10},
             "end": 30.0,
@@ -428,7 +428,7 @@ def test_arrived_follows_the_reference(furnace):
 
 def test_dwell_is_a_fixed_setpoint_that_may_end():
     assert get_catalog().generators["dwell"] is Dwell
-    forever = Dwell.config.model_validate({"type": "dwell", "value": 30.0}).build()
+    forever = Dwell.config_type.model_validate({"type": "dwell", "value": 30.0}).build()
     assert isinstance(forever, Dwell) and forever.bounded is False
     forever.start(10.0, 20.0)
     assert forever.generate(10.0) == 30.0 and forever.generate(1e9) == 30.0
@@ -450,7 +450,7 @@ def test_dwell_is_a_fixed_setpoint_that_may_end():
 
 def test_profile_runs_its_segments_back_to_back():
     assert get_catalog().generators["profile"] is Profile
-    config = Profile.config.model_validate({
+    config = Profile.config_type.model_validate({
         "type": "profile",
         "segments": [
             {"type": "linear_ramp_setpoint", "pace": {"per_minute": 10}, "end": 30.0},
@@ -493,13 +493,13 @@ def test_profile_runs_its_segments_back_to_back():
 
 
 def test_a_bounded_profile_finishes_with_its_last_segment_and_nests():
-    inner = Profile.config(
+    inner = Profile.config_type(
         segments=[
-            LinearRampSetpoint.config(pace=Duration(10), end=10.0),
-            Dwell.config(value=10.0, duration=Duration(10)),
+            LinearRampSetpoint.config_type(pace=Duration(10), end=10.0),
+            Dwell.config_type(value=10.0, duration=Duration(10)),
         ]
     )
-    outer = Profile([inner, LinearRampSetpoint.config(pace=Duration(10), end=0.0)])
+    outer = Profile([inner, LinearRampSetpoint.config_type(pace=Duration(10), end=0.0)])
     assert outer.bounded is True
     outer.start(0.0, 0.0)
     assert outer.end_time == 30.0
@@ -517,7 +517,7 @@ def test_a_bounded_profile_finishes_with_its_last_segment_and_nests():
             {"type": "dwell", "value": 2.0},
         ],
     })
-    assert isinstance(nested, Profile.config) and isinstance(nested.build(), Profile)
+    assert isinstance(nested, Profile.config_type) and isinstance(nested.build(), Profile)
     assert set(union.json_schema()["$defs"]) >= {
         "DwellConfig",
         "LinearRampSetpointConfig",
@@ -530,11 +530,11 @@ def test_a_profile_refuses_an_endless_segment_before_the_last_and_no_segments():
         ValueError,
         match=r"profile segment 0 \(dwell\) never ends, so segment 1 would never start",
     ):
-        Profile([Dwell.config(value=1.0), Dwell.config(value=2.0, duration=Duration(1))])
+        Profile([Dwell.config_type(value=1.0), Dwell.config_type(value=2.0, duration=Duration(1))])
     with pytest.raises(ValueError, match="at least one segment"):
         Profile([])
     with pytest.raises(Exception, match="at least 1"):
-        Profile.config.model_validate({"type": "profile", "segments": []})
+        Profile.config_type.model_validate({"type": "profile", "segments": []})
 
 
 class Offset(SetpointGenerator, type="test_offset"):
@@ -565,7 +565,7 @@ def test_a_generator_defined_but_not_registered_is_refused():
     with pytest.raises(ValueError, match="test_offset"):
         TypeAdapter(GeneratorConfig).validate_python({"type": "test_offset", "value": 1.0})
     with pytest.raises(ValueError, match="test_offset"):
-        Profile.config.model_validate({
+        Profile.config_type.model_validate({
             "type": "profile",
             "segments": [{"type": "test_offset", "value": 1.0}],
         })
@@ -579,11 +579,11 @@ def test_a_registered_generator_is_a_reference_and_a_profile_segment(offset_regi
     """
     union = TypeAdapter(GeneratorConfig)
     top = union.validate_python({"type": "test_offset", "value": 5.0})
-    assert isinstance(top, Offset.config) and top.build().generate(0.0) == 5.0
+    assert isinstance(top, Offset.config_type) and top.build().generate(0.0) == 5.0
     with pytest.raises(ValueError):
         union.validate_python({"type": "test_offset", "value": float("nan")})
 
-    config = Profile.config.model_validate({
+    config = Profile.config_type.model_validate({
         "type": "profile",
         "segments": [
             {"type": "test_offset", "value": 1.0},

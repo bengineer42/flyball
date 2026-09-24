@@ -197,7 +197,7 @@ to; a token's are also cut to what its issuer holds now.
 An MCP tool calls the runner's own HTTP API. Each call carries a principal
 the runner mints for that one request, with its own key -- the front-dir's,
 or an in-memory one on a bare runner: the caller's `sub`, `sid`, `kind`,
-`cip` and `sch`, `scp` = the caller's verbs ∩ the mode's, and `via: mcp`.
+`cip` and `sch`, `scp` = the caller's verbs ∩ the tier's, and `via: mcp`.
 Listing tools and refreshing the schema use a `read` principal of the
 runner's own (`runner:mcp`). No standing credential exists for it.
 `check_driver` and `search_drivers`, which run a file named by the caller

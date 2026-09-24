@@ -122,14 +122,16 @@ class ControlLaw:
     - `view`: both flattened, round-tripping through
       [ControlLawView.build][flyball.model.law.ControlLawView.build].
 
-    Each is a [ModelOf][flyball.model.model.ModelOf]: `Law.config` is the model
-    class, `law.config` that law's values. A law that declares one itself keeps
-    it. The wire name is the class keyword `type`
+    Each is a [ModelOf][flyball.model.model.ModelOf]: `law.config` is that law's
+    values; the config model class is `Law.config_type`, the others' `Law.state` and
+    `Law.view`. A law that declares one itself keeps it. The wire name is the class keyword `type`
     (`class PI(ControlLaw, type="pi")`), required -- a subclass that omits it
     raises at class creation.
     """
 
     type: ClassVar[str] = None  # pyright: ignore[reportAssignmentType]
+    config_type: ClassVar[Any] = None
+    """The config model: what builds this law (`PI.config_type(kp=...)`)."""
     config: ClassVar[Any] = None
     state: ClassVar[Any] = None
     view: ClassVar[Any] = None
@@ -159,6 +161,7 @@ class ControlLaw:
             config_model.law = cls  # pyright: ignore[reportAttributeAccessIssue]
             config_model.init_names = tuple(signature(cls).parameters)  # pyright: ignore[reportAttributeAccessIssue]
             cls.config = ModelOf(config_model, tuple(config_model.model_fields))
+        cls.config_type = _resolved_model(cls, "config")
 
         # A stateless law gets an empty state model rather than none, so every
         # law answers `state` and `view` the same way.

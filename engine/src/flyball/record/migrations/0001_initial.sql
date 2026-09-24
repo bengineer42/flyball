@@ -20,7 +20,7 @@ CREATE TABLE session (
     id          INTEGER PRIMARY KEY,
     start_ns    INTEGER NOT NULL,           -- wall clock at session start, ns since epoch
     end_ns      INTEGER,                    -- NULL while open
-    version     TEXT,                       -- flyball version string
+    flyball_version TEXT,                   -- flyball version string
     config      TEXT,                       -- JSON: the rig config that was built
     hardware    TEXT,                       -- JSON: what was actually found on the bus
     details     TEXT                        -- JSON: anything else worth keeping

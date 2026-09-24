@@ -240,14 +240,14 @@ class TestParsing:
                 "heaters.heater2": {
                     "measured": "furnace.zone2",
                     "law": {"type": "pi", "kp": 100, "ki": 0.15, "tt_s": 30},
-                    "default": True,
+                    "is_default": True,
                 },
             },
         }
         config = RigConfig.model_validate(document)
         assert set(config.devices) == {"furnace", "heaters"}
         assert set(config.controllers) == {"heaters.heater1", "heaters.heater2"}
-        assert config.controllers["heaters.heater2"].default is True
+        assert config.controllers["heaters.heater2"].is_default is True
 
     def test_the_plan_s_humidity_example_parses(self, sensors_tag, blender_tag):
         document = {
@@ -267,7 +267,7 @@ class TestParsing:
                 "blender.humidity": {
                     "measured": "hum_sensors.chamber.humidity",
                     "law": {"type": "pi", "kp": 0.8, "ki": 0.02, "tt_s": 60},
-                    "default": True,
+                    "is_default": True,
                 }
             },
         }
@@ -305,8 +305,8 @@ class TestChecks:
         document = {
             "devices": {"f": {"driver": daq_tag}, "h": {"driver": heaters_tag}},
             "controllers": {
-                "h.heater1": {"measured": "f.zone1", "default": True},
-                "h.heater2": {"measured": "f.zone2", "default": True},
+                "h.heater1": {"measured": "f.zone1", "is_default": True},
+                "h.heater2": {"measured": "f.zone2", "is_default": True},
             },
         }
         with pytest.raises(ValueError, match="only one controller can be the default"):

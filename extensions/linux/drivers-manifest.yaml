@@ -10,7 +10,7 @@
 #   part_number, manufacturer
 #   category           temp | humidity | pressure | gas | liquid | weight | light | actuator | link
 #   interface          i2c_table | i2c_bespoke | uart | spi | analog_adc | gpio | pulse | 4-20ma | onewire | pwm
-#   tier               config_only | generic_link | bespoke_driver
+#   support            config_only | generic_link | bespoke_driver
 #   file               path from the repo root -- `extensions/linux/src/flyball_linux/...` or
 #                      `extensions/chips/src/flyball_chips/...` depending which package ships it
 #   loc_estimate, loc_actual
@@ -30,7 +30,7 @@ sensors:
     manufacturer: Sensirion
     category: humidity
     interface: i2c_bespoke
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/sht4x.py
     loc_actual: 274
     status: done
@@ -47,7 +47,7 @@ sensors:
     manufacturer: Sensirion
     category: humidity
     interface: i2c_bespoke
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/sht31.py
     loc_estimate: "200-250"
     loc_actual: 167
@@ -65,7 +65,7 @@ sensors:
     manufacturer: TE Connectivity / Silicon Labs
     category: humidity
     interface: i2c_bespoke
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/htu21d.py
     loc_estimate: "120-180"
     loc_actual: 201
@@ -83,7 +83,7 @@ sensors:
     manufacturer: TE Connectivity
     category: pressure
     interface: i2c_bespoke
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/ms5611.py
     loc_estimate: "100-150"
     loc_actual: 194
@@ -103,7 +103,7 @@ sensors:
     manufacturer: Bosch Sensortec
     category: temp
     interface: i2c_bespoke
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/bme280.py
     loc_estimate: "30-60 (compensation layer only; grew to a full driver once built)"
     loc_actual: 401
@@ -121,7 +121,7 @@ sensors:
     manufacturer: Sensirion
     category: gas
     interface: i2c_bespoke
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/scd30.py
     loc_estimate: "220-280"
     loc_actual: 202
@@ -141,7 +141,7 @@ sensors:
     manufacturer: Sensirion
     category: gas
     interface: i2c_bespoke
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/scd4x.py
     loc_estimate: "220-280"
     loc_actual: 213
@@ -161,7 +161,7 @@ sensors:
     manufacturer: Sensirion
     category: gas
     interface: i2c_bespoke
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/sgp30.py
     loc_estimate: "180-220"
     loc_actual: 217
@@ -179,7 +179,7 @@ sensors:
     manufacturer: Sensirion
     category: gas
     interface: i2c_bespoke
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/sgp40.py
     loc_estimate: "130-180"
     loc_actual: 204
@@ -197,7 +197,7 @@ sensors:
     manufacturer: ams / ScioSense
     category: gas
     interface: i2c_bespoke
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/ccs811.py
     loc_estimate: "80-120"
     loc_actual: 214
@@ -215,7 +215,7 @@ sensors:
     manufacturer: Winsen
     category: gas
     interface: uart
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/mhz19.py
     loc_actual: 106
     status: done
@@ -230,7 +230,7 @@ sensors:
     manufacturer: Atlas Scientific
     category: liquid
     interface: uart
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/ezo_ph.py
     loc_estimate: "150-250"
     loc_actual: 133
@@ -248,7 +248,7 @@ sensors:
     manufacturer: Atlas Scientific
     category: liquid
     interface: uart
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/ezo_ec.py
     loc_estimate: "30-50, once the shared EZO command layer exists"
     loc_actual: 169
@@ -266,7 +266,7 @@ sensors:
     manufacturer: Atlas Scientific
     category: liquid
     interface: uart
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/ezo_orp.py
     loc_estimate: "30-50, once the shared EZO command layer exists"
     loc_actual: 118
@@ -282,7 +282,7 @@ sensors:
     manufacturer: Atlas Scientific
     category: liquid
     interface: uart
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/ezo_do.py
     loc_estimate: "30-50, once the shared EZO command layer exists"
     loc_actual: 135
@@ -300,7 +300,7 @@ sensors:
     manufacturer: Avia Semiconductor
     category: weight
     interface: gpio
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/hx711.py
     loc_estimate: "150-250"
     loc_actual: 222
@@ -318,7 +318,7 @@ sensors:
     manufacturer: ams
     category: light
     interface: i2c_table
-    tier: config_only
+    support: config_only
     file: extensions/linux/examples/sensors/tsl2591.yaml
     status: done
     datasheet_checked: true
@@ -333,7 +333,7 @@ sensors:
     manufacturer: Vishay
     category: light
     interface: i2c_table
-    tier: config_only
+    support: config_only
     file: extensions/linux/examples/sensors/veml7700.yaml
     status: done
     datasheet_checked: true
@@ -348,7 +348,7 @@ sensors:
     manufacturer: STMicroelectronics
     category: pressure
     interface: i2c_table
-    tier: config_only
+    support: config_only
     file: extensions/linux/examples/sensors/lps22hb.yaml
     status: done
     datasheet_checked: true
@@ -363,7 +363,7 @@ sensors:
     manufacturer: "varies (DFRobot-style breakout)"
     category: liquid
     interface: analog_adc
-    tier: config_only
+    support: config_only
     file: extensions/linux/examples/sensors/ph_probe.yaml
     status: done
     datasheet_checked: true
@@ -378,7 +378,7 @@ sensors:
     manufacturer: "varies"
     category: liquid
     interface: analog_adc
-    tier: config_only
+    support: config_only
     file: extensions/linux/examples/sensors/turbidity.yaml
     status: done
     datasheet_checked: true
@@ -391,7 +391,7 @@ sensors:
     manufacturer: n/a
     category: actuator
     interface: gpio
-    tier: config_only
+    support: config_only
     file: extensions/linux/examples/sensors/solenoid_valve.yaml
     status: done
     datasheet_checked: true
@@ -404,7 +404,7 @@ sensors:
     manufacturer: n/a
     category: liquid
     interface: 4-20ma
-    tier: generic_link
+    support: generic_link
     file: extensions/linux/src/flyball_linux/devices/current_loop.py
     loc_actual: 193
     status: done
@@ -420,7 +420,7 @@ sensors:
     manufacturer: n/a
     category: liquid
     interface: pulse
-    tier: generic_link
+    support: generic_link
     file: extensions/linux/src/flyball_linux/devices/pulse_counter.py
     loc_actual: 129
     status: done
@@ -436,7 +436,7 @@ sensors:
     manufacturer: n/a
     category: actuator
     interface: pwm
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/linux/src/flyball_linux/devices/dosing_pump.py
     loc_actual: 183
     status: done
@@ -452,7 +452,7 @@ sensors:
     manufacturer: n/a
     category: actuator
     interface: pwm
-    tier: bespoke_driver
+    support: bespoke_driver
     file: "examples/humidity/src/humidity/blender.py -- its own nested repo, not tracked here"
     status: done
     datasheet_checked: true
