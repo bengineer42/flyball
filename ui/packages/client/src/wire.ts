@@ -72,8 +72,12 @@ export type Dtype = "float" | "int" | "bool" | "str" | "enum" | "json";
 /**
  * What a signal is to its device: `demand` (settable, with a readback; the
  * only thing a controller drives), `readout` (produced by the device, never
- * written from outside), `setting` (re-set by a command), `config`
- * (effective at build). Inputs are bindings, not signals.
+ * written from outside), `setting` (re-set by a command; an operator-entered
+ * value of a `driver: values` device is a setting with `rpw`). A number a
+ * device is built from is not a signal. Inputs are bindings, not signals.
+ *
+ * `config` is never sent since wave 2 stage 7 (`ConfigSignal` is gone); it stays in the
+ * union only until the panels stop testing for it.
  */
 export type Role = "demand" | "readout" | "setting" | "config";
 
@@ -325,14 +329,44 @@ export interface CommandRunOut {
   interrupted: Interrupted[];
 }
 
-/** An input a device declares: what it follows, and what the rig bound to that role. */
+/**
+ * One input of a device: what it follows -- an address, or a number -- and
+ * its quality now. Every input the device has: those its driver declares, and
+ * any other name the rig file's `inputs:` gives.
+ */
 export interface InputOut {
   name: string;
+  /** The declared input's label; `""` for a name only the rig file gives. */
   label: string;
+  /** The declared input's quantity, else the source's; `""` when neither says. */
   quantity: string;
+  /** The source's unit, else the declared input's; `""` when neither says. */
   unit: string;
-  /** The address bound to this role, or null. */
+  /** The address it follows; null for a number, or while unbound (its source was removed). */
   bound: Address | null;
+  /** The number, for an input bound to one (`inputs: {dry: 36.5}`); absent otherwise. */
+  constant?: number;
+  /** `ok`; `pending` before the source's first reading (or while unbound); else the source's quality. A number is always `ok`. */
+  quality: Quality;
+  /** The source's reason for having no value, when it gives one. */
+  reason?: string;
+  /** Seconds since the rig received the source's newest reading with a value. */
+  age_s?: number;
+}
+
+/**
+ * Where a `driver: values` signal's value in force came from, for the device
+ * page: `rig_file` ("rig file"), `restored` ("restored, written by `writer`
+ * at `written_ns`"), `written` (written in this run, by `writer` at
+ * `written_ns`).
+ */
+export interface ValueSourceOut {
+  origin: "rig_file" | "restored" | "written";
+  /** The rig file's `initial` in force. */
+  initial: number;
+  writer: string | null;
+  /** Wall time, ns since the epoch. */
+  written_ns: Nanoseconds | null;
 }
 
 /** How the runtime is polling a device; null on a `DeviceOut` when nothing on it is polled. */
@@ -372,8 +406,12 @@ export interface DeviceOut {
   poll_s: number | null;
   signals: TreeNode[];
   commands: CommandOut[];
-  /** What the device follows, by role. */
+  /** Each input by name: what it follows (an address or a number) and its quality now. */
   inputs: Record<string, InputOut>;
+  /** Who follows each signal of this device, by path: the inputs bound to it (`blender.inputs.dry`), or to a namespace above it. A signal nobody follows is left out. */
+  consumers: Record<string, string[]>;
+  /** A `driver: values` device's: where each value in force came from, by path; empty for any other device. */
+  sources: Record<string, ValueSourceOut>;
   /** Implements `read`: polled on a period. */
   readable: boolean;
   /** Implements `commit`: has demands. */
@@ -426,12 +464,15 @@ export interface SignalSchema {
   limits: Bounds | null;
 }
 
-/** An input as a `DeviceSchema` lists it. */
+/** An input as a `DeviceSchema` lists it: every input the device has. */
 export interface InputSchema {
   label: string;
   quantity: string;
   unit: string;
+  /** The address it follows; null for a number or while unbound. */
   bound: Address | null;
+  /** The number, for an input bound to one; null otherwise. */
+  constant: number | null;
 }
 
 /** `GET /api/devices/{name}/schema`: how a device is configured, its signals, inputs and commands. */
@@ -765,7 +806,8 @@ export interface NewDevice {
   driver: string;
   label?: string;
   poll_s?: number;
-  inputs?: Record<string, string>;
+  /** Input name -> an address on another device, or a number. Every input the driver declares must be given. */
+  inputs?: Record<string, string | number>;
   /** How long a value a failed write kept may wait to be sent again; omitted: 60 s. */
   retry_max_age_s?: number;
   [key: string]: unknown;
