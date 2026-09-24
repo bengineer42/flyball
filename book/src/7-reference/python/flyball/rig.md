@@ -18,3 +18,5 @@
 ::: flyball.rig.bands
 
 ::: flyball.rig.triggers
+
+::: flyball.rig.values

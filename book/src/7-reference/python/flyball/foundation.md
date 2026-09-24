@@ -13,6 +13,8 @@
 
 ::: flyball.foundation.device.descriptors
 
+::: flyball.foundation.device.binding
+
 ::: flyball.foundation.device.building
 
 ::: flyball.foundation.device.device
@@ -22,6 +24,8 @@
 ::: flyball.foundation.device.signal
 
 ::: flyball.foundation.device.novalue
+
+::: flyball.foundation.device.values
 
 ::: flyball.foundation.time.clock
 

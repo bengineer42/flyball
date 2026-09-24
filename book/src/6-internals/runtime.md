@@ -14,15 +14,21 @@ a fresh read may deliver several at once:
 
 1. **Every reading lands in `latest`**, whether or not it publishes, and the
    last `RECENT_READINGS` (60) per signal are kept for a stat on request.
-2. **Devices with a bound input are touched.** A device with an `Input`
-   bound to a signal (`inputs: { dry: hum_sensors.dry.humidity }`) is added
-   to the delivery's touched set for every reading on that exact signal; a
-   device bound to a whole node is touched by any sample carrying something
-   under it, but only once it is `published()` — a subscriber hears only
-   what publishes, never a fresh read of an `R`-only setting, which is for
-   whoever asked for it. There is no callback: a touched device reads the
-   value itself (`self.<input>.value`, from the router) when the rig calls
-   its `commit`, in step 4.
+2. **Bindings whose source got a reading are told.** The rig keeps every
+   [`InputBinding`][flyball.foundation.device.binding.InputBinding] by the
+   signal (or node) it follows. A binding to a signal lands with every
+   reading on that exact signal; one bound to a whole node with any sample
+   carrying something under it, but only once it is `published()` — a
+   subscriber hears only what publishes, never a fresh read of an `R`-only
+   setting, which is for whoever asked for it. Each binding that landed
+   calls its watchers (a program step's), and a device holding one is added
+   to the touched set and told, once per delivery with the bindings that
+   changed, through `inputs_changed` -- before the controllers step, so
+   what it pushes (an output computed from the input) is delivered next in
+   the same chain, and a controller measuring that output steps on it in
+   this chain rather than the next. A device with demands reads the value
+   itself (`self.<input>.value`, from the router) when the rig calls its
+   `commit`, in step 4.
 3. **Controllers whose measured signal is in the delivery tick.** For every reading
    whose signal a controller regulates (`self.controllers.find(signal)`),
    the reading is queued; after every sample in the batch has been walked,

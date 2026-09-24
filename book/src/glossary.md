@@ -64,8 +64,9 @@ feedforward in force are its `ControllerSpec`.
 **correction** — what the law produces: the offset added to the
 feedforward's output value.
 
-**delivery** — one call to `rig.on_samples`: bound inputs mark devices
-touched, then controllers tick, then one commit per device touched, then
+**delivery** — one call to `rig.on_samples`: the input bindings whose
+source got a reading are told (their devices' `inputs_changed`, and marked
+touched), then controllers tick, then one commit per device touched, then
 the recorder.
 
 **demand** — a signal whose writing takes control of the process
@@ -107,11 +108,20 @@ and `flyballd` start: it serves the dashboard, decides who a caller is
 runner it starts: the principal's key, the runner's audience and
 endpoint, its socket and its `runner.lock`.
 
-**inputs** — what a device follows on another device, by the input's name:
-`inputs: {dry: hum_sensors.dry.humidity}` in the rig file, an `Input`
-descriptor in the driver. When the source lands the rig commits the device,
-which reads it itself (`self.<input>.value`) in `commit` — there is no
-callback.
+**input binding** — an input once the rig has resolved it: an
+`InputBinding`, following a source signal (or namespace) or holding a
+number, with its value, quality, reason and age read through to the
+source. A device's inputs are its bindings; a program step or a
+controller may hold one too (`rig.follow`). `rig.consumers(signal)` lists
+the bindings that follow a signal.
+
+**inputs** — what a device follows, by the input's name: another device's
+signal or a number, `inputs: {dry: hum_sensors.dry.humidity, wet: 88.5}` in
+the rig file, an `Input` descriptor in the driver. No default: every
+declared input is given one, or the file does not load. An address is
+`pending` until its source's first reading. When the source lands the rig
+tells the device and commits it, and it reads the value itself
+(`self.<input>.value`) — there is no callback.
 
 **interrupted** — how a program ends when the engine ends it (a software
 stop, a shutdown), with the reason; outputs are kept. A controller put in
@@ -235,9 +245,10 @@ recorder. What the equipment *is*.
 **role** — what a signal is to its device, by what writing it does:
 `Role.DEMAND` (settable; takes control of the process; the only thing a
 controller drives), `Role.READOUT` (produced, never written from outside),
-`Role.SETTING` (re-set by a command; changes how the device behaves) or
-`Role.CONFIG` (set at build). Sets the signal's default access. An
-input is not a role: it is a binding to another device's signal.
+or `Role.SETTING` (re-set by a command; changes how the device behaves).
+Sets the signal's default access. A number a device is built from is not a
+signal, and an input is not a role: it is a binding to another device's
+signal, or a number.
 
 **sample** — every signal under one node at one instant, keyed by the
 bound signal objects.
@@ -249,7 +260,8 @@ the config and tuning in force.
 signal's unit; the faceplate's middle row (ISA's SP).
 
 **setting** — a signal re-set by a command while a device runs, shown but
-not driven by a controller (`Role.SETTING`, `RP`).
+not driven by a controller (`Role.SETTING`, `RP`); a `values` device's
+entries are settings an operator writes (`RPW`).
 
 **settle** — a program step: wait until the named controllers sit within a
 band of their setpoints for `count` consecutive readings, or time out.
@@ -257,7 +269,7 @@ Registers as an **activity** named `settle:<controllers>`.
 
 **signal metadata** — a signal's descriptive and limiting fields (label,
 range, precision, warning, alarm, limits, poll_s, stale_after_s, max_rate,
-tags), from the driver and then the rig file's `signals:` (`SignalMeta`,
+tags, record), from the driver and then the rig file's `signals:` (`SignalMeta`,
 `NamespaceMeta`); applied in place, without a rebuild.
 
 **shape** — which door a front has, set by `auth:`: `local` (no sign-in,
@@ -291,6 +303,12 @@ an address: `line: dry` on `flows.dry` and `efforts.dry`.
 a law, a feedforward or a setpoint generator entry is (`type: PI`,
 `type: sim_plant`). A device names its implementation with `driver:`
 instead; a program step has no discriminator (its key is the step).
+
+**values device** — a `driver: values` device: numbers an operator
+enters, each a setting (`rpw`) other devices' inputs may follow; published
+from build, never stale, left alone by a stop, and its last write kept in
+the store's `live_value` table and restored while the rig file's `initial`
+is unchanged.
 
 **verb** — what a caller may do on a rig, and what each route needs:
 `read` or `operate` for now (the vocabulary is pending D-034). A

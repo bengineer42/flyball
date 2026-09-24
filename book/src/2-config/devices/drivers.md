@@ -40,6 +40,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`dosing_pump`](#dosing_pump) | dispense a volume from a peristaltic pump | `pwm_channel`/`gpio_line` | `flyball-linux` | datasheet-checked |
 | [`mcp4725`](#mcp4725) | a 0-10 V-class analog control signal (a VFD, a dimmable ballast, a damper) | `i2c` | `flyball-chips` | — |
 | [`stepper`](#stepper) | a step/direction stepper motor: a motorized valve, damper or vent | two `gpio_line`s | `flyball-linux` | — |
+| [`values`](#values) | numbers an operator enters, for other devices' inputs to follow | none | `flyball` | — |
 | [`dual_pump_blender`](#dual_pump_blender) | [the humidity rig](https://bengineer42.github.io/humctrl/)'s split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` | hardware-tested |
 
 `—` means not in `drivers-manifest.yaml` (the generic/wrapped-library drivers
@@ -661,6 +662,57 @@ entry cannot widen this to `[RP]` unless the driver names it a
 purpose, so upgrading it needs a driver code change, not a config
 change.
 
+## Built in
+
+### `values`
+
+Numbers an operator enters, for other devices' [inputs](index.md#binding-one-device-to-another)
+to follow: a supply humidity measured by hand, a setpoint for a batch, a
+calibration factor. Each is a signal of the device -- a `setting`, `rpw` --
+published from build with its `initial`, so an input bound to it is never
+`pending`. An input that never changes binds to a plain number instead.
+
+```yaml
+devices:
+  bench:
+    driver: values
+    label: Bench values
+    values:
+      dry_supply: { initial: 36.5, unit: "%", label: Dry supply humidity, limits: [0, 100] }
+      wet_supply: { initial: 88.5, unit: "%", label: Wet supply humidity }
+  blender:
+    inputs: { dry: bench.dry_supply, wet: bench.wet_supply }
+```
+
+| field | | |
+| --- | --- | --- |
+| `values` | `{name: entry}` | one signal per entry |
+| `values.<name>.initial` | number | its value from build, finite |
+| `values.<name>.unit` | string | the unit symbol (`%`, `°C`, `L/min`); omit for none |
+| `values.<name>.quantity` | string | what it is (`humidity`); default: the entry's name |
+| `values.<name>.label` | string | the display text |
+| `values.<name>.limits` | `[lo, hi]` | what a write is clamped to |
+
+- **Written like any writable signal**: `PUT /api/signals/bench.dry_supply`
+  (`operate`), a program's `set` step, the device page. The rig clamps it to
+  its `limits`, logs each write as a `value_written` event naming who wrote
+  it and the value before, and records it when a recording is running.
+- **Never stale.** Nothing reads it from hardware, so nothing judges it
+  stale.
+- **A stop leaves it alone.** It has no demands; the stop report does not
+  list it, and an operator can correct a value while the rig is stopped.
+- **Kept across restarts.** The last written value, who wrote it and when,
+  its unit and the `initial` in force are kept in the store (the runner
+  always opens one, recording or not). On the next start it is restored --
+  a `value_restored` event -- as long as the rig file's `initial` for it is
+  what it was when the value was written; a changed `initial` means the file
+  was edited since, and the file wins. A changed `unit` also leaves the
+  file's `initial` in force, and raises `value_not_restored` on the signal
+  until it is written again.
+- **Where it came from**: the device page shows each value's source --
+  "rig file", "restored, written by X at T", or written in this run --
+  from `sources` on [`GET /api/devices/{name}`](../../4-server/api.md).
+
 ## From an application
 
 ### `dual_pump_blender`
@@ -668,7 +720,9 @@ change.
 The humidity rig's actuator: two pumps on one PWM chip, blended so that one
 `humidity` demand becomes a dry-line and a wet-line flow. The genuine driver
 runs on hardware (`pwm`) and on the simulated chamber alike. Its fields
-(`dry`, `wet`, `blend_flow`, `supply`, `frequency_hz`) and the physics are in
+(`dry`, `wet`, `blend_flow`, `frequency_hz`), its two inputs (`dry` and
+`wet`, the supply lines' humidity: a sensor's address or a number each) and
+the physics are in
 [the humidity book](https://bengineer42.github.io/humctrl/3-devices/blender/); the class is `examples/humidity/src/humidity/blender.py`,
 the worked example of a composite device in
 [Writing an actuator](../../3-extending/device/actuator.md).

@@ -120,7 +120,7 @@ independently.
 | `ReadingOut` | a `Reading` | `{signal, time_ns, value}` |
 | `CommandOut` | a `CommandSpec` | `{name, description, simulation, commit, mode, interrupts, writes, demand_of, links}` |
 | `CommandRunOut` | a `CommandRun` (`Rig.invoke`) | `{result, interrupted: [{controller, was}]}` |
-| `DeviceOut` | a `Device` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, readable, writable, conditions, run}` |
+| `DeviceOut` | a `Device` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, consumers, sources, readable, writable, conditions, run}`; `inputs` from each `InputBinding` on `device.bound`, `consumers` from `Rig.consumers`, `sources` from `Rig.values.source` |
 | `ControllerOut` | a `Controller`/`ControllerView` | identity, mode, law config and state, reference, setpoint, correction, demand, expected, reading |
 | `ClockOut` | a `Clock` | `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 

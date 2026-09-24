@@ -24,7 +24,7 @@ Writes are two-phase, the mirror of a sample:
 2. `commit(time_ns) -> None` — pushes everything recorded since the last
    commit to hardware **once**. The rig calls it at the end of every
    delivery that touched the device — a demand applied, or one of its
-   `Input` signals landing — and immediately after a manual demand. The
+   inputs' sources landing — and immediately after a manual demand. The
    default writes each staged value through `write_signal`; a composite
    device overrides `commit` itself to do arithmetic across everything
    staged and everything it reads from its inputs (`self.<input>.value`) —
@@ -57,9 +57,10 @@ signals on it changed.
 
 ## Limits and controllers
 
-A `W` signal's `limits` — numbers on the descriptor, or a reference to
-another signal of the same device (`limits=(0.0, max_flow_config)`,
-resolved live) — are enforced by the rig before `apply` is ever called: a
+A `W` signal's `limits` — numbers on the descriptor (or set on the instance
+in `__init__`, `self.dry_flow.set_meta(limits=(0.0, max_flow))`), or a
+reference to another signal or an input of the same device
+(`limits=(dry_supply, wet_supply)`, resolved live) — are enforced by the rig before `apply` is ever called: a
 demand outside them is clamped, and the committed state's `at_limit` says
 which rail it landed on. `signal.limits` always gives the
 numbers in force, whichever way they were declared, and `None` while a referenced
@@ -68,21 +69,69 @@ signal has no value yet or a non-finite one (NaN, inf). That case fails closed: 
 `NotReadyError`, 503 over HTTP) rather than let the demand through --
 even when the other end is a number, because the unknown end is usually
 the one that matters. A manual demand or a command's linked argument is
-refused whole; a controller's write is held (nothing applied) with a
-`limit_unknown` event, and `limit_known` once the bound reads a finite value. A driver
+refused whole, naming the bound and its quality (`its limit follows 'dry'
+(pending)`); a controller's write is held (nothing applied) with a
+`limit_unknown` condition -- `info` while what it follows is only
+`pending`, `warning` once it is `stale` or `invalid` -- cleared once the
+bound reads a finite value. A driver
 whose reference should never block a demand gives that signal an
 `initial` value. A controller drives at most one
 writable signal; the signal knows which one, so the committed state's
 `controller` names it and a manual demand against a controlled signal is
 refused.
 
+## Inputs
+
+What a device follows -- another device's signal, or a number -- is an
+`Input`, declared in the class body and bound in the rig file
+(`inputs: {dry: hum_sensors.dry.humidity, wet: 88.5}`). It has no default:
+the rig file gives every declared input an address or a number, or it does
+not load.
+
+```python
+class Blender(Committable):
+    humidities = Namespace("humidities", "Supply humidities")
+    dry_supply = humidities.input("dry", "Dry line humidity", HUMIDITY)
+    wet_supply = humidities.input("wet", "Wet line humidity", HUMIDITY)
+    humidity = Demand("humidity", "Humidity", HUMIDITY, limits=(dry_supply, wet_supply))
+    expected = Readout("expected_humidity", "Expected humidity", HUMIDITY)
+
+    def commit(self, time_ns: int) -> None:
+        try:
+            dry, wet = values_of(self.dry_supply, self.wet_supply)
+        except NoValueError as error:
+            self.expected.push(error.no_value, time_ns)  # the supply's quality, carried
+            return
+        except NotReadyError:
+            return  # pending: nothing to say yet
+        ...
+```
+
+- On an instance, `self.dry_supply` is its
+  [`InputBinding`](../model.md#inputs): `value` raises `NotReadyError` while
+  it is `pending` and `NoValueError` while its source has no value --
+  never a stand-in number. A limit may follow it.
+- **When it lands.** The rig calls `inputs_changed(time_ns, changed)` in the
+  delivery that brought the reading, before the controllers step; a device
+  with demands is then committed too, and reads it there. A device with no
+  demands that computes an output from an input (a curve, a sum) overrides
+  `inputs_changed` and pushes the output; it is delivered in the same chain,
+  so a controller measuring it does not lag.
+- **An output computed from an input carries its quality**: push the
+  `NoValueError`'s `no_value` on it, not a number. `values_of(a, b)` reads
+  several and raises the one that ranks first (`stale(device_offline)` over
+  `pending` over `invalid`).
+
 ## Demand, readout and setting
 
 A device declares what each of its signals is with a **role**: `Demand`
 (settable, `RPW`; the only thing a controller drives), `Readout` (produced
 by the device, never written from outside, `RP`), `Setting` (re-set by a
-command, `RP`) and `ConfigSignal` (set at build, `R`). On the class a
-descriptor is its spec; on an instance it is the bound signal. Checked on
+command, `RP`). A number the device is built from is not a signal: it is a
+config field, or metadata of the signal it bounds -- a pump's maximum flow
+is the top of that flow's `limits`, set in `__init__` with
+`signal.set_meta(limits=...)`. On the class a descriptor is its spec; on
+an instance it is the bound signal. Checked on
 subclassing: pydantic must be able to describe every `vtype`.
 
 ```python

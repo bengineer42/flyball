@@ -196,17 +196,27 @@ lists them all with their signal trees.
 | `GET` | `/api/devices/{name}/schema` | the `DeviceSchema` |
 | `POST` | `/api/devices/{name}/commands/{command}` | body: the command's arguments; returns `{result, interrupted}`: `result` what the method returned, `interrupted` `[{controller, was}]` for each controller an `interrupts` command put in manual once it had succeeded (empty otherwise); 409 while a controller drives the device and the command has a `mode`, a linked demand or `writes` but does not interrupt (the method is not run); 503 when a linked argument's demand has a limit not known yet (not run); a command that succeeds on an offline or stopped device restarts its polling (its next read one period later, not at the end of its backoff) |
 | `POST` | `/api/devices/{name}/restart` | poll a device again on its period, its next read one period later: one that is offline and backing off, or stopped (given up); clears nothing -- `offline` stays until a read succeeds; `DeviceOut`. 409 while a read of it is in flight (a device hung in its driver is not waited on), or when the old poll loop is still in a read 2 s after being stopped |
-| `PUT` | `/api/devices/{name}/write` | body `{name: value, ...}`, names relative to the device (dotted under a namespace: `position.x`), values in each signal's unit; one atomic write, committed at once; returns `{address: WriteOut}` for each signal set; 409 for a signal a controller drives, or a signal that is not writable; 503 `LimitNotKnownError` while a signal's limit follows another signal that has no value yet, or a non-finite one (NaN, inf) -- refused whole, never passed unclamped; 404 for a name not under the device |
+| `PUT` | `/api/devices/{name}/write` | body `{name: value, ...}`, names relative to the device (dotted under a namespace: `position.x`), values in each signal's unit; one atomic write, committed at once; returns `{address: WriteOut}` for each signal set; 409 for a signal a controller drives, or a signal that is not writable; 503 `LimitNotKnownError` while a signal's limit follows another signal that has no value yet, or a non-finite one (NaN, inf) -- refused whole, never passed unclamped, the detail naming the bound and its quality (`its limit follows 'dry' (pending)`); 404 for a name not under the device. A write of a [`values`](../2-config/devices/drivers.md#values) device's signal is logged as a `value_written` event under the caller's principal and kept across restarts |
 | `PUT` | `/api/signals/{address}` | body a number: the single-signal write; returns `{address: WriteOut}`; 409 if the address is a namespace; 503 while its limit is not known yet, as above |
 
 A `DeviceOut` is `{name, label, kind, driver, class_name, link, poll_s, signals,
-commands, inputs, readable, writable, conditions, run}`: `kind` is
+commands, inputs, consumers, sources, readable, writable, conditions, run}`: `kind` is
 `device`, or `simulation` for an application's own simulation device (see
 [Simulation](#simulation)), `driver` the rig file's `driver:` (null for a device
 built in code), `class_name` its Python class, `link` the rig file's name for the link
 it was built on (or null), `signals` the tree, `commands` `[CommandOut]`,
-`inputs` `{role: InputOut}` — what the device follows, and what is bound to
-it — `readable`/`writable` whether it implements `read`/`commit`,
+`inputs` `{name: InputOut}` — each input, declared or given only by the rig
+file: `{name, label, quantity, unit, bound, constant?, quality, reason?,
+age_s?}`, where `bound` is the address it follows (null for a number, or
+once its source was removed), `constant` the number for an input bound to
+one, and `quality`/`reason`/`age_s` the source's now (`pending` before its
+first reading; a number is `ok`) -- `consumers` `{path: [binding]}`, who
+follows each of this device's signals (`{"dry_supply": ["blender.inputs.dry"]}`;
+a signal nobody follows is left out) -- `sources` `{path: {origin, initial,
+writer, written_ns}}`, for a `values` device where each value in force came
+from: `rig_file`, `restored` (kept from an earlier run: "restored, written
+by `writer` at `written_ns`", wall time) or `written` (in this run) --
+`readable`/`writable` whether it implements `read`/`commit`,
 `conditions` what the rig's condition store holds on the device and its
 signals (`offline`, `hung`, `slow`, `write_failed`, and the
 driver's own, such as the sim's `broken`), and `run` `{period_s, running,
@@ -229,7 +239,7 @@ latest, last_usable, write}`: `stale_after_s` the liveness threshold the rig
 judges it by now (its own, else `max(3·poll_s, 5 s)` while its device is
 polled; null when it is not judged --
 [Liveness](../2-config/devices/index.md#liveness-a-signal-that-stops-arriving)), `access` is the set in force as letters (`rp`, `w`,
-`rw`, `rpw`), `role` one of `demand`, `readout`, `setting`, `config`,
+`rw`, `rpw`), `role` one of `demand`, `readout`, `setting`,
 `tags` the section as `{axis: name}` (empty without one), `limits` the
 numbers in force now, `quality` `pending` before the first reading and
 else the newest reading's ([no value](wire.md#a-reading-with-no-value)),
@@ -262,8 +272,8 @@ description, readable, writable, config, signals, inputs, commands}`:
 `config` a JSON Schema for the driver's config, `signals` `{path: {address,
 access, role, tags, label, quantity, unit, dimension, dtype, value, range,
 precision, limits}}` by path relative to the device (`value` a JSON Schema
-for the signal's own type), `inputs` `{role: {label, quantity, unit,
-bound}}`, and `commands` `{command: {description, arguments, simulation,
+for the signal's own type), `inputs` `{name: {label, quantity, unit,
+bound, constant}}`, and `commands` `{command: {description, arguments, simulation,
 commit, mode, interrupts, writes, demand_of}}` — `arguments` a JSON Schema whose
 properties linked to a demand also carry `x-signal`, `unit` and
 `minimum`/`maximum` from that signal's limits now.

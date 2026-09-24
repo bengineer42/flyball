@@ -88,7 +88,7 @@ field named like an envelope key). A nested `config:` is refused.
 | `label` | string, optional | shown instead of the name |
 | `poll_s` | number, optional | inherited down the tree; a namespace's or signal's own wins |
 | `signals` | `{name: SignalMeta \| NamespaceMeta}` | per-signal metadata and access restriction — never adds access the driver did not declare |
-| `inputs` | `{input: address}` | what this device follows on another device: an input's name from the driver's `Input` declarations, resolved to the address's `Signal`/`Node` and read as `self.<input>.value` in `commit` |
+| `inputs` | `{input: address \| number}` | what each input follows: an address on another device, resolved once at build to its `Signal` (which must publish) or `Node` (something under it must), or a finite number, a constant. The device reads it through its `InputBinding` (`self.<input>.value`). Every input the driver declares must be given one and no other name -- an input has no default; a cycle through `inputs:` is refused, the path named. [Devices: binding one device to another](../2-config/devices/index.md#binding-one-device-to-another) |
 | `reads` | `{fail_after?, backoff_s?, give_up_after_s?}`, optional | reads that raise in a row before the device is `offline` (integer ≥ 1), the waits between retries while offline (non-empty, each finite and > 0; the last repeats), and how long after going offline to stop retrying (finite, > 0; `null`: never). A key left out is `runner.reads`', then `3` / `[1, 2, 5, 15, 60]` / never. [Devices: `reads`](../2-config/devices/index.md#reads) |
 | `retry_max_age_s` | number, optional | how long a value a failed write kept may wait to be sent again (finite, > 0); older is dropped with a `write_dropped` event, not sent. Unset: 60 s. [Devices: a write that fails](../2-config/devices/index.md#a-write-that-fails) |
 
@@ -111,7 +111,9 @@ devices:
 file this became).
 
 A `SignalMeta` is `{label, range, precision, warning, alarm, on_no_value, poll_s,
-stale_after_s, limits, max_rate, tags, access, readable, published, writable}`:
+stale_after_s, limits, max_rate, tags, record, access, readable, published, writable}`
+(`record: false` leaves the signal out of a recording started with the
+default selection):
 the first group replaces metadata the driver declared (`tags` are added to the
 driver's: `{line: dry}`, a grouping across the tree the UI titles and
 filters by; `stale_after_s` is seconds without a reading after which the
@@ -163,6 +165,11 @@ why those fields and where else they appear: [Where a device's options come from
 Any device entry may say `pin: "LABEL"` instead
 of the link/line fields, when the file has a `board`: the board's fields
 for that label fill in, and anything the entry already gives wins.
+
+The engine's one built-in driver is `values`: `values: {name: {initial,
+unit?, quantity?, label?, limits?}}`, one `setting` `rpw` per entry,
+published from build, whose last write is kept in the store and restored
+while `initial` is unchanged -- [`values`](../2-config/devices/drivers.md#values).
 
 ## Controllers
 

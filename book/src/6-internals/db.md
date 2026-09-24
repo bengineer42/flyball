@@ -207,6 +207,28 @@ blocking device's failed write are the same condition), and added
 `tick.reapplied` (`INTEGER NOT NULL DEFAULT 0`, 0 or 1) for the ticks a
 controller records when it re-applies a moving setpoint between readings.
 
+Migration 0023 added `live_value` (C10(5)): one row per signal whose last
+written value a restart restores, keyed `(device, signal)`, with `kind`
+(`value` for a `driver: values` entry; `setting`, for a driver setting
+behind a config field, is reserved for live settings, C11), `value` and
+`initial` as JSON (a later setting may be a string, a bool or an enum
+member), `unit` (the symbol when it was written), `config_field` (a
+setting's; NULL for a value), `writer` (the principal's `sub`),
+`written_ns` (wall time) and `head_version` (the rig version in force). It
+does not depend on recording: the runner always opens the store. At start,
+`Rig.values.attach` restores a row while the rig file's `initial` still
+equals the row's and the unit is the same; a changed `initial` means the
+file was edited since, and the row is deleted; a changed unit leaves the
+file's `initial` in force and raises `value_not_restored` on the signal.
+`put_live_value` refuses a secret (`SecretStr`, `SecretBytes`).
+
+Migration 0024 bound a stored humidity blender's supply humidities as
+inputs: an input has no default any more (C12), so every
+`dual_pump_blender` entry in a `rig_version.document` gets `inputs.dry` and
+`inputs.wet` -- kept where bound already, else its `supply:` number, else
+the old built-in default (0 and 100 %RH) -- and loses `supply`, which would
+no longer load.
+
 The scratch record and retention (D-008) are migration 0010: `session.kind`,
 `origin_ns`, `pinned`, `continues`, `bytes`. Trimming a scratch session
 deletes rows and moves `start_ns` without rewriting offsets: they stay

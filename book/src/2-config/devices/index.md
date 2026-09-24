@@ -23,7 +23,7 @@ devices:
 | `label` | string | shown instead of the name |
 | `poll_s` | number | how often it is read; inherited down the tree, a signal's own winning. Unset: never polled (a pushed device) |
 | `signals` | `{name: metadata}` | per-signal metadata, [below](#signals) |
-| `inputs` | `{input: address}` | what this device follows on another, by the input's name: `{dry_humidity: hum_sensors.dry.humidity}` |
+| `inputs` | `{input: address or number}` | what each of this device's inputs follows: another device's signal, or a number. Every input the driver declares must be given one -- an input has no default, [below](#binding-one-device-to-another) |
 | `reads` | `{fail_after, backoff_s, give_up_after_s}` | when failed reads put it `offline`, and how it is retried, [below](#reads) |
 | `retry_max_age_s` | number (seconds) | how long a value a failed write kept may wait to be sent again; older is dropped, not sent, [below](#a-write-that-fails). Finite and above zero; unset: 60 s |
 | any other key | | the driver's own fields, listed per driver in [Supported drivers](drivers.md) and explained in [Where a device's options come from](generated.md); `link` names an entry under `links`, `pin: LABEL` resolves through the `board`. A nested `config:` is refused |
@@ -50,6 +50,7 @@ null`, which drops only the file's narrowing, never the driver's limits.
 | `poll_s` | number | this signal's own rate; finite and above zero |
 | `stale_after_s` | number (seconds) | how long the signal may go without a reading before the rig marks it `stale`, [below](#liveness-a-signal-that-stops-arriving). Finite and above zero. Unset: `max(3 × poll_s, 5 s)` from its own `poll_s` while its device is polled; a pushed signal is then not judged at all. A controller also holds (`stale_input`) on a reading that arrives already older than this |
 | `tags` | `{key: value}` | added to the driver's: `{line: dry}` groups signals across devices in the UI |
+| `record` | `false` | left out of a recording started with the default selection (`--record`, `recording: true`, or `POST /api/recording` with no signals): a raw value only the rig needs. Unset: recorded |
 | `access` | `"r"`, `"rp"`, … | keep only these of the flags the driver declared |
 | `readable`, `published`, `writable` | `false` | drop one flag each; only `false` is accepted |
 
@@ -160,16 +161,43 @@ returns, clears `hung`.
 
 ## Binding one device to another
 
-`inputs` makes a device follow signals on another -- each an input the
-driver declared, by its name, bound to an address at build. The humidity blender
-follows the supply humidities its own sensors read:
+`inputs` gives each of a device's inputs what it follows: another device's
+signal, by its address, or a number. The humidity blender follows the
+supply humidities its own sensors read, or takes them as numbers on a rig
+with no line sensors:
 
 ```yaml
 devices:
   blender:
     driver: dual_pump_blender
-    inputs: { dry_humidity: hum_sensors.dry.humidity, wet_humidity: hum_sensors.wet.humidity }
+    inputs: { dry: hum_sensors.dry.humidity, wet: hum_sensors.wet.humidity }
+# or, with no sensor on the lines:
+    inputs: { dry: 36.5, wet: 88.5 }
 ```
+
+- **No default.** Every input the driver declares must be given an address
+  or a number; one left out, or a name the driver does not declare, is
+  refused when the file loads, and `flyball rig check` says which
+  (`device 'blender': input 'dry' is neither bound nor a number`).
+- **A number** has its value from the start, and is always `ok`.
+- **An address** is resolved once, at build: to a signal that publishes, or
+  to a namespace with something published under it. Until the signal's
+  first reading the input is `pending`, and while its reading has no value
+  (`invalid`, `stale`) the input has none either -- nothing stands in for
+  it. A limit that follows the input is then not known, so a demand is
+  refused naming it (`its limit follows 'dry' (pending)`), and a controller
+  driving through it holds `limit_unknown` -- `info` while the input is only
+  `pending`, `warning` once it is `stale` or `invalid`.
+- **An output computed from an input carries its quality.** A value
+  computed from a `stale` input is `stale` with the same reason, not a
+  number from an old one.
+- **No cycles.** A device that follows itself through `inputs:` --
+  directly, or through other devices -- is refused at load, the path
+  named: `a cycle through inputs: a.inputs.x <- b.out; b.inputs.x <- a.out`.
+
+An operator-entered number that may change while the rig runs is a
+[`values`](drivers.md#values) device's signal, bound like any other:
+`inputs: { dry: bench.dry_supply }`.
 
 What a driver may declare as an input, and how it reads one, is in
 [Writing an actuator](../../3-extending/device/actuator.md).

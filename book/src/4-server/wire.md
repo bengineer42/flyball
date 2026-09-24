@@ -30,7 +30,7 @@ first; convert the small result second.
 | `Quantity` | not carried on its own; a signal's `unit` and `dimension` fields say what it is |
 | a signal in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warning, alarm, poll_s, stale_after_s, limits, initial, quality, readback, on_no_value, latest, last_usable, write}` — see [Devices](api.md#devices) |
 | `access` | the set in force as lowercase letters: `"rp"`, `"w"`, `"rpw"` |
-| `role` | `"demand"`, `"output"`, `"setting"` or `"config"` |
+| `role` | `"demand"`, `"readout"` or `"setting"` |
 | `Reading` | `{"signal": address, "time_ns": int, "value": float \| null, "quality": Quality, "reason"?: str, "caveats"?: Caveats, "last_usable"?: LatestOut, "age_s"?: float}` — the optional keys only when there is something to say; see [no value](#a-reading-with-no-value) |
 | `LatestOut` | `{"time_ns": int, "value": float \| null, "quality": Quality, "reason"?: str, "caveats"?: Caveats}` — a signal's `latest` and `last_usable` |
 | `Sample` | `{"node": address, "time_ns": int, "values": {relative-name: float \| null}, "quality"?: {relative-name: Quality}, "reason"?: {relative-name: str}, "caveats"?: {relative-name: Caveats}, "writes": {relative-name: WriteMetaOut}}` — `values` keyed by dotted paths relative to `node`, never nested; `quality`, `reason` and `caveats` likewise, sparse, and absent when nothing in the sample has one; `writes` present only for the demands the sample includes |
@@ -110,7 +110,9 @@ Kelvin against a °C signal converts before it reports.
 
 | type | JSON |
 | --- | --- |
-| `DeviceOut` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, readable, writable, conditions, run}` — see [Devices](api.md#devices) |
+| `DeviceOut` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, consumers, sources, readable, writable, conditions, run}` — see [Devices](api.md#devices) |
+| `InputOut` | `{name, label, quantity, unit, bound, constant?, quality, reason?, age_s?}`: what an input follows (an address, or a number) and its quality now |
+| `ValueSourceOut` | `{origin: rig_file \| restored \| written, initial, writer, written_ns}`: where a `values` device's value in force came from |
 | `CommandOut` | `{name, description, simulation, commit, mode, interrupts, writes, demand_of, links}` |
 | `CommandRunOut` (`POST .../commands/{command}`) | `{"result": any, "interrupted": [{"controller": str, "was": "regulating"}]}` — `result` what the method returned; `interrupted` the controllers an `interrupts` command put in manual once it had succeeded |
 | a device's `config` (`GET .../schema`'s `config`) | a JSON Schema; an instance is `{...fields}` |
