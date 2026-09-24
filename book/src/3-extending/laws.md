@@ -92,10 +92,11 @@ the catalog.
 
 A registered law is **not yet selectable by type** in a rig file, a
 controller request or a saved tuning. Those validate against a fixed list of
-the built-in laws, and feedforwards and setpoint generators work the same
-way. Devices and links, by contrast, are checked against whatever is
-registered when the file is read. Until laws get the same treatment, a law
-of your own is usable only from Python.
+the built-in laws, and feedforwards work the same way. Devices and links, by
+contrast, are checked against whatever is registered when the file is read,
+and so are setpoint generators: `catalog.register_generator(MyRamp)` makes
+`{type: my_ramp, ...}` a controller's `at` and a profile's segment. Until
+laws get the same treatment, a law of your own is usable only from Python.
 
 A law is stepped only on readings. A controller following a setpoint
 generator (a ramp, a profile) re-applies the feedforward of the moving

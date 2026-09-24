@@ -107,4 +107,8 @@ re-entering a module still mid-import through an extension's own import
 chain (`flyball_sim` imports `RigConfig` from `runtime/config.py`, for
 instance). A third-party law would need that static typing revisited, the
 same way `rig_model()` already rebuilds the `links` field dynamically per
-request for devices/links.
+request for devices/links. Generators no longer have the asymmetry:
+`GeneratorConfig` keeps the built-in union (its type and its schema) but
+consults the current `Catalogs` when a value is validated, so a registered
+generator is a controller's `at` and a profile's segment alike, and `GET
+/api/controllers/schema` lists it. Laws and feedforwards still have it.

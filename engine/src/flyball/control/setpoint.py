@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from typing import Annotated, Any, ClassVar, Literal, Union
 
-from pydantic import BeforeValidator, Field
+from pydantic import (
+    BeforeValidator,
+    Field,
+    SerializationInfo,
+    SerializerFunctionWrapHandler,
+    ValidatorFunctionWrapHandler,
+    WrapSerializer,
+    WrapValidator,
+)
 
 from flyball.foundation import Duration, Rate, Speed
+from flyball.model.catalog import Catalogs, current_catalog
 from flyball.model.generator import SetpointGenerator, SetpointGeneratorConfig
-from flyball.model.model import ModelOf
+from flyball.model.model import ModelOf, discriminated_union
 
 
 class LinearRampSetpoint(SetpointGenerator):
@@ -191,13 +200,69 @@ def _renamed(value: Any) -> Any:
     return value
 
 
+_BUILT_IN = (LinearRampSetpoint, Dwell, Profile)
+_BUILT_IN_TYPES = frozenset(generator.type for generator in _BUILT_IN)
+_BUILT_IN_CONFIGS = tuple(generator.config for generator in _BUILT_IN)
+
+
+def _registered(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
+    """A type the built-in union does not know, from the current `Catalogs` if it has one.
+
+    The union below is fixed at import (see D-014: building it from `get_catalog()` there
+    risks `discover()` re-entering a module mid-import); this reads the catalog when a value
+    is validated instead, so a generator registered with `catalog.register_generator` is a
+    reference and a profile segment alike. Anything else keeps the union's own error.
+    """
+    kind = value.get("type") if isinstance(value, dict) else getattr(value, "type", None)
+    if kind in _BUILT_IN_TYPES:
+        return handler(value)
+    catalog = current_catalog()
+    generator = catalog.generators.get(kind) if catalog and isinstance(kind, str) else None
+    if generator is None:
+        return handler(value)
+    if isinstance(value, generator.config):
+        return value
+    return generator.config.model_validate(value)
+
+
+def _dumped(value: Any, handler: SerializerFunctionWrapHandler, info: SerializationInfo) -> Any:
+    """A registered generator's config dumps as itself; the union only knows the built-ins."""
+    if isinstance(value, _BUILT_IN_CONFIGS):
+        return handler(value)
+    return value.model_dump(mode=info.mode)
+
+
 GeneratorConfig = Annotated[  # type: ignore[valid-type]
     Union[LinearRampSetpoint.config, Dwell.config, Profile.config],  # ruff: ignore[non-pep604-annotation-union]
     Field(discriminator="type"),
+    WrapValidator(_registered),
     BeforeValidator(_renamed),
+    WrapSerializer(_dumped),
 ]
-"""Every built-in generator's config, discriminated by `type`; a profile's segments are these."""
+"""Every built-in generator's config, discriminated by `type`, and any other the current
+`Catalogs` has registered; a profile's segments are these."""
 
 # A profile holds generators, so its config refers back to the union above:
 # the forward reference can only be resolved now the union exists.
 ProfileConfig.model_rebuild(_types_namespace={"GeneratorConfig": GeneratorConfig})
+
+
+def generator_union(catalog: Catalogs | None) -> Any:
+    """The union `catalog` admits, for a JSON schema: the built-ins, then what it registered.
+
+    What `GET /api/controllers/schema` offers. Validation needs no such rebuild --
+    `GeneratorConfig` consults the current catalog itself -- so this is for the schema only.
+    """
+    extra = (
+        {}
+        if catalog is None
+        else {
+            name: generator
+            for name, generator in catalog.generators.items()
+            if name not in _BUILT_IN_TYPES
+        }
+    )
+    if not extra:
+        return GeneratorConfig
+    every = {generator.type: generator for generator in _BUILT_IN} | extra
+    return discriminated_union(every, "type", lambda generator: generator.config)

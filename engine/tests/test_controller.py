@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import pytest
 from flyball_sim.clock import SteppedClock
 from flyball_sim.plant import Lag
@@ -30,7 +32,7 @@ from flyball.foundation.errors import ConflictError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.foundation.time import Duration, Speed, TimeUnit
-from flyball.model.catalog import get_catalog
+from flyball.model.catalog import Catalogs, current_catalog, get_catalog, set_catalog
 from flyball.model.controller import Controller, ControllerMode
 from flyball.model.feedforward import Identity, NoFeedforward
 from flyball.model.law import Transfer
@@ -533,3 +535,69 @@ def test_a_profile_refuses_an_endless_segment_before_the_last_and_no_segments():
         Profile([])
     with pytest.raises(Exception, match="at least 1"):
         Profile.config.model_validate({"type": "profile", "segments": []})
+
+
+class Offset(SetpointGenerator, type="test_offset"):
+    """A generator defined outside `control/setpoint.py`: registered only where a test says."""
+
+    def __init__(self, value: float) -> None:
+        self.value = value
+
+    def generate(self, time: float) -> float:
+        return self.value
+
+
+@pytest.fixture
+def offset_registered():
+    """A catalog with `Offset` registered, current for this test only; the session's is kept."""
+    session = current_catalog()
+    catalog = Catalogs()
+    catalog.discover()
+    catalog.register_generator(Offset)
+    set_catalog(catalog)
+    yield catalog
+    set_catalog(session)
+
+
+def test_a_generator_defined_but_not_registered_is_refused():
+    """Defining a subclass registers nothing (D-014): only the `Catalogs` says what exists."""
+    assert "test_offset" not in get_catalog().generators
+    with pytest.raises(ValueError, match="test_offset"):
+        TypeAdapter(GeneratorConfig).validate_python({"type": "test_offset", "value": 1.0})
+    with pytest.raises(ValueError, match="test_offset"):
+        Profile.config.model_validate({
+            "type": "profile",
+            "segments": [{"type": "test_offset", "value": 1.0}],
+        })
+
+
+def test_a_registered_generator_is_a_reference_and_a_profile_segment(offset_registered):
+    """A generator registered outside `control/setpoint.py` validates wherever a built-in does.
+
+    At the top (what `Regulate.at` and `NewSetpoint.at` are) and as a profile's segment,
+    nested or not; its config dumps as itself, without the union's serializer warning.
+    """
+    union = TypeAdapter(GeneratorConfig)
+    top = union.validate_python({"type": "test_offset", "value": 5.0})
+    assert isinstance(top, Offset.config) and top.build().generate(0.0) == 5.0
+    with pytest.raises(ValueError):
+        union.validate_python({"type": "test_offset", "value": float("nan")})
+
+    config = Profile.config.model_validate({
+        "type": "profile",
+        "segments": [
+            {"type": "test_offset", "value": 1.0},
+            {"type": "profile", "segments": [{"type": "test_offset", "value": 3.0}]},
+        ],
+    })
+    profile = config.build()
+    assert isinstance(profile.generators[0], Offset)
+    profile.start(0.0, 0.0)
+    assert profile.generate(0.0) == 1.0
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        wire = profile.wire()
+        assert union.dump_python(top) == {"type": "test_offset", "value": 5.0}
+    assert wire["segments"][0] == {"type": "test_offset", "value": 1.0}
+    assert wire["segments"][1]["segments"] == [{"type": "test_offset", "value": 3.0}]

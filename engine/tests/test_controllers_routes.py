@@ -10,6 +10,8 @@ from flyball.foundation.device import Access, Device, Role, SignalSpec
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius
 from flyball.interfaces.server import create_app, set_rig
+from flyball.model.catalog import Catalogs, current_catalog, set_catalog
+from flyball.model.generator import SetpointGenerator
 from flyball.model.law import Transfer
 from test_server import Daq, Drive, deliver
 
@@ -435,3 +437,68 @@ def test_a_generator_may_say_where_it_starts(client, rig, daq, drive, clock):
         ).status_code
         == 422
     )
+
+
+class Step(SetpointGenerator, type="test_step"):
+    """A generator from outside `control/setpoint.py`, registered only in `step_registered`."""
+
+    def __init__(self, value: float) -> None:
+        self.value = value
+
+    def generate(self, time: float) -> float:
+        return self.value
+
+
+@pytest.fixture
+def step_registered():
+    session = current_catalog()
+    catalog = Catalogs()
+    catalog.discover()
+    catalog.register_generator(Step)
+    set_catalog(catalog)
+    yield catalog
+    set_catalog(session)
+
+
+def test_a_registered_generator_is_offered_and_accepted_over_http(
+    step_registered, client, rig, daq, drive, clock
+):
+    """`Regulate.at`, `NewSetpoint.at` and a profile's segments all take a registered generator."""
+    target, source = f"{drive.name}.heater1", f"{daq.name}.zone1"
+    schema = client.get("/api/controllers/schema").json()
+    offered = {
+        d["properties"]["type"]["const"]
+        for d in schema["generators"]["$defs"].values()
+        if "type" in d.get("properties", {})
+    }
+    assert offered == {"linear_ramp_setpoint", "dwell", "profile", "test_step"}
+
+    client.post(
+        "/api/controllers",
+        json={"output": target, "measured": source, "law": {"type": "P", "kp": 10.0}},
+    )
+    deliver(rig, daq)  # a generator starts from a reading, once the controller can see one
+    reg = client.post(
+        f"/api/controllers/{target}/regulate",
+        json={"at": {"type": "test_step", "value": 40.0}, "transfer": "cold"},
+    )
+    assert reg.status_code == 200, reg.text
+    assert reg.json()["reference"] == {"type": "test_step", "value": 40.0}
+
+    profile = client.put(
+        f"/api/controllers/{target}/setpoint",
+        json={
+            "at": {
+                "type": "profile",
+                "segments": [
+                    {"type": "dwell", "value": 30.0, "duration": {"minutes": 1}},
+                    {"type": "test_step", "value": 35.0},
+                ],
+            }
+        },
+    )
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["reference"]["segments"][1] == {"type": "test_step", "value": 35.0}
+    clock.advance(61.0)
+    deliver(rig, daq)
+    assert client.get(f"/api/controllers/{target}").json()["setpoint"] == 35.0

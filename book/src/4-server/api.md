@@ -365,7 +365,9 @@ optional `rate_gain` for a ramp's rate of change) maps the setpoint into;
 time_ns, value}`. The faceplate reads Measured / Setpoint / Output from
 `measured`, `setpoint` and `output`.
 
-The generators, by `type`:
+The built-in generators, by `type` (a package's own, registered with
+`catalog.register_generator`, is offered in `generators` and accepted in `at`
+and in a profile's `segments` alike):
 
 | type | arguments | on the wire once started |
 |---|---|---|
