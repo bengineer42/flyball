@@ -39,7 +39,7 @@ from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.foundation.time import Timers, TimeUnit
 from flyball.interfaces.server import create_app, set_rig
-from flyball.model.controller import ControllerMode
+from flyball.model.controller import ControllerMode, FaultAction, OnFault
 from flyball.record import Flag
 from flyball.record.sqlite import SqliteStore
 from flyball.rig import Rig
@@ -503,7 +503,12 @@ def loop(rig: Rig, clock: SteppedClock, probe: Probe):
     """A regulating P controller on `probe.a` through `probe.out`, polled every second."""
     released: list[Outage] = []
     rig.faults.on_fault.append(released.append)
-    controller = rig.attach_controller(probe.signals["out"], probe.signals["a"], law=P(kp=1.0))
+    controller = rig.attach_controller(
+        probe.signals["out"],
+        probe.signals["a"],
+        law=P(kp=1.0),
+        on_fault=OnFault(FaultAction.MANUAL),  # plain freeze is never released
+    )
     rig.start_polling(probe)
     clock.advance(1.0)
     controller.regulate(25.0)

@@ -20,6 +20,7 @@ past `retry_max_age_s` ([drop_older_than][flyball.runtime.writer.Writer.drop_old
 from __future__ import annotations
 
 import logging
+from threading import Condition as Waiting
 from threading import Event, Lock, Thread
 from typing import TYPE_CHECKING
 
@@ -42,6 +43,10 @@ class Writer:
         self._restaged: set[Signal] = set()
         """Signals whose queued value a failed write kept: sending one is a re-send."""
         self._commit_ns: int | None = None
+        self._asked = 0
+        """Commits asked for so far; `_done` catches up with it as each write completes."""
+        self._done = 0
+        self._outcome = Waiting()
         self._lock = Lock()
         self._wake = Event()
         self._stop = Event()
@@ -54,11 +59,34 @@ class Writer:
             self._queued[signal] = (time_ns, value)
             self._restaged.discard(signal)  # a newer value: not a re-send
 
-    def request(self, time_ns: int) -> None:
-        """Ask for a commit at `time_ns`; a store and a wake, no I/O."""
+    def request(self, time_ns: int) -> int:
+        """Ask for a commit at `time_ns`; a store and a wake, no I/O. Returns its ticket."""
         with self._lock:
             self._commit_ns = time_ns
+            self._asked += 1
+            ticket = self._asked
         self._wake.set()
+        return ticket
+
+    def clear(self) -> list[Signal]:
+        """Drop everything queued, kept failed values too: a stop or a latch replaces them (A6)."""
+        with self._lock:
+            dropped = list(self._queued)
+            self._queued.clear()
+            self._restaged.clear()
+        return dropped
+
+    def discard(self, signals: set[Signal]) -> None:
+        """Drop what is queued for `signals` only: a latch on those signals replaces it."""
+        with self._lock:
+            for signal in signals:
+                self._queued.pop(signal, None)
+                self._restaged.discard(signal)
+
+    def wait(self, ticket: int, timeout: float) -> bool:
+        """Wait up to `timeout` s for the write that carries `ticket` to complete (or fail)."""
+        with self._outcome:
+            return self._outcome.wait_for(lambda: self._done >= ticket, timeout)
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -66,6 +94,7 @@ class Writer:
             with self._lock:
                 queued, self._queued = self._queued, {}
                 time_ns, self._commit_ns = self._commit_ns, None
+                ticket = self._asked
                 self._wake.clear()
             if time_ns is None:
                 continue
@@ -73,6 +102,10 @@ class Writer:
                 self._write(queued, time_ns)
             except Exception:  # the thread outlives anything, or the device is never written again
                 log.exception("%s: writer", self.device.name)
+            finally:
+                with self._outcome:
+                    self._done = max(self._done, ticket)
+                    self._outcome.notify_all()
 
     def retry(self, time_ns: int) -> bool:
         """Commit what failed writes kept, now; False when nothing is kept."""

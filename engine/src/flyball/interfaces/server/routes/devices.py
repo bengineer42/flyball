@@ -32,6 +32,7 @@ from flyball.interfaces.server.schemas import (
 )
 from flyball.interfaces.server.wire import ArgumentsBase, wire_fields
 from flyball.rig import CommandRun, DeviceRun, Rig
+from flyball.rig.stopping import Actor
 
 _ARGUMENTS: dict[tuple[type[Device], str], type[ArgumentsBase]] = {}
 
@@ -185,14 +186,20 @@ def _naming_signals(arguments: dict[str, Any], device: Device) -> dict[str, Any]
     }
 
 
-def run(rig: Rig, device: Device, command: str, body: dict[str, Any] | None) -> CommandRun:
+def run(
+    rig: Rig,
+    device: Device,
+    command: str,
+    body: dict[str, Any] | None,
+    by: Actor | None = None,
+) -> CommandRun:
     """Run the command with the validated body, through the rig: its `CommandRun`."""
     spec = command_for(device, command)
     arguments = arguments_for(type(device), spec).model_validate(body or {}).arguments()
     left_out = [n for n, p in spec.params.items() if p.link is not None and arguments[n] is None]
     for name in left_out:
         del arguments[name]  # the rig fills it from the demand's current value
-    return rig.invoke(device, command, arguments)
+    return rig.invoke(device, command, arguments, actor=by)
 
 
 def device_of(rig: Rig, name: str) -> Device:
@@ -272,7 +279,7 @@ def write(rig: RigDep, request: Request, name: str, body: dict[str, float]) -> d
     """
     device = device_of(rig, name)
     values: dict[str | Signal, float] = {name: value for name, value in body.items()}
-    return writes_out(rig.write(device.root, values, writer=actor(request).sub))
+    return writes_out(rig.write(device.root, values, actor=actor(request)))
 
 
 @router.put("/signals/{address}")
@@ -283,14 +290,18 @@ def set_signal(
     target = rig.resolve(address)
     if isinstance(target, Node):
         raise ConflictError(f"'{address}' is a namespace, not a signal: demand on its device")
-    return writes_out(rig.write(target.node, {target: body}, writer=actor(request).sub))
+    return writes_out(rig.write(target.node, {target: body}, actor=actor(request)))
 
 
 # Plain `def`: FastAPI runs it in the threadpool, so a command that touches
 # hardware never blocks the event loop.
 @router.post("/devices/{name}/commands/{command}")
 def run_command(
-    rig: RigDep, name: str, command: str, body: Annotated[dict[str, Any] | None, Body()] = None
+    rig: RigDep,
+    request: Request,
+    name: str,
+    command: str,
+    body: Annotated[dict[str, Any] | None, Body()] = None,
 ) -> CommandRunOut:
     """Call the marked method with the validated body: `{result, interrupted}`.
 
@@ -302,7 +313,7 @@ def run_command(
     offline again with a fresh event.
     """
     device = device_of(rig, name)
-    ran = run(rig, device, command, body)
+    ran = run(rig, device, command, body, actor(request))
     rig.polling.revive(name)
     return CommandRunOut(
         result=ran.result,

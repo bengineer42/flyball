@@ -252,6 +252,8 @@ class Device:
     command's [wait][flyball.foundation.device.device.Device.wait]; the rig clears it when
     it starts one."""
     config_type: ClassVar[type[DriverConfig[Any]]]
+    stop_command: ClassVar[str | None] = None
+    """The command marked `stops=True`, if the driver has one: the device's stop."""
     commands: dict[str, CommandSpec] = {}  # ruff: ignore[mutable-class-default]  the class's; an instance copies and extends
     """Every command, by name: the class's, plus a synthesised `set_<path>` for each demand of a
     tree computed at construction (a class's demands get theirs at definition)."""
@@ -561,6 +563,13 @@ class Device:
                 spec = CommandSpec(name, value, params, **value.__command_options__)
                 _check_command_signature(cls, spec)
                 cls.commands[name] = spec
+        stops = [c.name for c in cls.commands.values() if c.stops]
+        if len(stops) > 1:
+            raise TypeError(
+                f"{cls.__name__}: {' and '.join(map(repr, stops))} are both marked stops=True;"
+                " a device has one stop"
+            )
+        cls.stop_command = stops[0] if stops else None
         linked = {p.link for c in cls.commands.values() for p in c.params.values() if p.link}
         for leaf in _leaves(cls.TREE):
             if leaf.role is Role.DEMAND and leaf.path not in linked:
@@ -645,6 +654,9 @@ ENVELOPE_KEYS = frozenset({
     "inputs",
     "reads",
     "retry_max_age_s",
+    "stop",
+    "on_shutdown",
+    "permissive",
     "config",
 })
 """The keys of a device entry that are flyball's, the same for every driver; `config` is

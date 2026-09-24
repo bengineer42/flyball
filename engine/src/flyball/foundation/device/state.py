@@ -113,6 +113,33 @@ class Code(StrEnum):
     `warning`. Cleared after 3 readings in a row with a value. `details`: `{quality, reason,
     side}`."""
     INTERRUPTED = "interrupted"
+    NOT_PERMITTED = "not_permitted"
+    """A condition on a regulating controller: its output's `permissive` does not hold (or its
+    signal has no value); held, as for `limit_unknown`. `details`: `{signal, permissive,
+    value}`."""
+    ON_FAULT = "on_fault"
+    """An event on a controller: its source's outage was released and its `on_fault` action
+    ran (`manual`, `stop`, `stop_device`; a law error takes at least `manual`). `details`:
+    `{action, reason, accrued_s, was, stop}`."""
+    RESEEDED = "reseeded"
+    """An event on a controller: resuming after a hold, the trajectory it follows walks on
+    from the reading at its own rate. `details`: `{end_was_s, end_s}` (rig time)."""
+    # Stops and latches.
+    STOPPED = "stopped"
+    """A condition on the rig while its stop's latch holds: raised by the software stop,
+    cleared by its Reset. `details`: `{by, at_ns, reason}`."""
+    LATCHED = "latched"
+    """A condition on each controller, signal and device a fault action latched; cleared by
+    its Reset. `details`: `{cause, action, by, at_ns, reason}`."""
+    STOP_APPLIED = "stop_applied"
+    """An event on the rig: what a stop, a shutdown or a re-applied latch did, device by device,
+    and every output it left energised (kept) with its value. `details`: `{why, devices,
+    kept}`."""
+    RESET = "reset"
+    """An event: a person reset a latch (`details.cause`); nothing resumes."""
+    WRITTEN_WHILE_STOPPED = "written_while_stopped"
+    """An event on a signal: a person wrote it under the rig stop's latch, which holds on.
+    `details`: `{value, by}`."""
     # A value an operator entered (`driver: values`).
     VALUE_WRITTEN = "value_written"
     """An event on the signal: an operator wrote a value. `details`: `{value, was, writer}`."""

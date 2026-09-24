@@ -386,11 +386,30 @@ class TestProgrammerLocks:
         ends = [e.code for e in rig.recent if e.scope == "program"]
         assert ends[-1] == "interrupted", ends
 
+    def test_cancel_ends_the_long_command_its_step_runs(self, fresh, monkeypatch):
+        """A program's end cancels the dose its step is waiting in (`Device.cancel`)."""
+        monkeypatch.setattr("flyball.sequencing.programmer.END_JOIN_S", 2.0)
+        rig = Rig()
+        doser = Doser(fresh("doser"))
+        rig.add_device(doser)
+        programmer = Programmer(rig)
+        dose = RunCommand(device_command="dose", device=doser.name, args={"seconds": 30.0})
+        programmer.start(Program([Wait(Duration(0.01)), dose]))
+        assert doser.started.wait(2.0)
+        began = time.monotonic()
+        assert programmer.cancel() is True, "the worker unwound: its dose was cancelled"
+        assert time.monotonic() - began < 1.0, "not after the 30 s dose"
+        assert doser.stopped_early is True
+        assert not [e for e in rig.recent if e.code == "step_still_running"]
+        assert not programmer.running
+
     def test_cancel_waits_a_bounded_time_and_reports_a_step_still_running(self, fresh, monkeypatch):
+        """A step stuck where `cancel` cannot reach (a command in its driver): bounded."""
         monkeypatch.setattr("flyball.sequencing.programmer.END_JOIN_S", 0.2)
         rig = Rig()
         doser = Doser(fresh("doser"))
         rig.add_device(doser)
+        monkeypatch.setattr(doser, "cancel", lambda: None)  # a driver that does not listen
         programmer = Programmer(rig)
         dose = RunCommand(device_command="dose", device=doser.name, args={"seconds": 3.0})
         programmer.start(Program([Wait(Duration(0.01)), dose]))
@@ -400,7 +419,7 @@ class TestProgrammerLocks:
         assert time.monotonic() - began < 1.0, "the cancel returned, not after the 3 s dose"
         still = [e for e in rig.recent if e.code == "step_still_running"]
         assert len(still) == 1 and still[0].details["command"] == "command"
-        rig.run_command(doser, "stop")
+        doser.cancelling.set()
         programmer.join(2.0)
         assert not programmer.running
 

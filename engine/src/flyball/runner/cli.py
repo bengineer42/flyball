@@ -119,6 +119,14 @@ def parser() -> argparse.ArgumentParser:
         const=True,
         help="let the API stop or restart the runner (/api/runner/shutdown, /restart); default: no",
     )
+    p.add_argument(
+        "--on-shutdown",
+        choices=("stop", "keep"),
+        default=os.environ.get("FLYBALL_ON_SHUTDOWN") or None,
+        help="what shutting down does to outputs: stop (each device's resolved stop; default) or"
+        " keep (writes nothing: outputs stay energised with no process watching them)"
+        " (env FLYBALL_ON_SHUTDOWN)",
+    )
     p.add_argument("--port", type=int, help="TCP port (default 8000)")
     p.add_argument(
         "--keep",

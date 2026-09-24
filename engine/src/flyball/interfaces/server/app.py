@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 from collections.abc import AsyncIterator
 from importlib import resources
 from pathlib import Path
@@ -25,7 +26,12 @@ from flyball.foundation.errors import (
 )
 from flyball.interfaces.server.audit import Audit
 from flyball.interfaces.server.auth import Door, Fronted
-from flyball.interfaces.server.deps import current_retention, current_rig
+from flyball.interfaces.server.deps import (
+    current_retention,
+    current_rig,
+    current_runner,
+    rig_stopper,
+)
 from flyball.interfaces.server.redact import redact_access_logs
 from flyball.interfaces.server.routes import (
     activities_router,
@@ -49,6 +55,7 @@ from flyball.interfaces.server.routes import (
 )
 from flyball.interfaces.server.routes.auth import router as auth_router
 from flyball.interfaces.server.routes.stop import router as stop_router
+from flyball.rig.stopping import Actor
 from flyball.runtime.config import AuthConfig
 
 # The UI is served from its own dev server during development.
@@ -87,6 +94,8 @@ DASHBOARD_DIST = _find_dashboard_dist()
 # bundle's third-party notices are beside them.
 SWAGGER = Path(__file__).parent / "swagger"
 
+log = logging.getLogger("flyball.stop")
+
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -101,6 +110,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def _stop() -> None:
     rig = current_rig()
     if rig is not None:
+        _shutdown_stop()
         with contextlib.suppress(Exception):
             rig.polling.stop_all()
         # Close the session so it does not stay "open" forever in the store;
@@ -110,6 +120,33 @@ def _stop() -> None:
                 retention.stop()
         with contextlib.suppress(Exception):
             rig.stop_recording()
+
+
+SHUTDOWN_ACTOR = Actor(sub="local:shutdown", sid="", kind="service", via="signal")
+
+
+def _shutdown_stop() -> None:
+    """The runner's shutdown: each device's resolved stop, unless `on_shutdown: keep` says not.
+
+    Only for a runner serving (`current_runner()`), not a test's app on a rig of its
+    own. Best-effort within the supervisor's window; its report is logged, and a
+    `stop_applied` event says what it did. Not latched: the next start is passive.
+    """
+    runner = current_runner()
+    stopper = rig_stopper()
+    if runner is None or stopper is None:
+        return
+    keep = runner.settings.on_shutdown == "keep"
+    try:
+        report = stopper.shutdown(SHUTDOWN_ACTOR, keep=keep)
+    except Exception:
+        log.exception("shutdown: the stop failed")
+        return
+    log.info(
+        "shutdown %s: %s",
+        "kept every output (on_shutdown: keep)" if keep else "stopped the rig",
+        ", ".join(f"{n} {d['state']}" for n, d in report.devices.items()) or "no devices",
+    )
 
 
 class _Installed:

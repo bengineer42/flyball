@@ -38,11 +38,13 @@ from flyball.foundation.device import Code, Scope, Severity
 from flyball.foundation.resource import Operator
 
 from .activities import Prompted
+from .devices import RunCommand
 from .errors import ProgramAlreadyRunningError, StepRuntimeError
 from .program import Program
 
 if TYPE_CHECKING:
     from flyball.rig import Rig
+    from flyball.rig.latches import Latch
     from flyball.sequencing.step import Activity, Step
 
 log = logging.getLogger("flyball.programmer")
@@ -94,6 +96,19 @@ class Programmer:
         self.operator = Operator(
             "program", on_revoke=lambda: self.interrupt("its claim on the rig was revoked")
         )
+        rig.stopping.latches.on_change.append(self._latched)
+
+    def _latched(self, latch: Latch, held: bool) -> None:
+        """A controller's `on_fault` latched something: the running program ends, `fault:<name>`.
+
+        On a thread of its own: the latch is set under the rig's lock, and ending a
+        program waits for its worker, which takes that lock on its way out. A rig stop
+        interrupts the program itself.
+        """
+        if not held or not latch.cause.startswith("on_fault:") or not self.running:
+            return
+        reason = f"fault:{latch.cause.removeprefix('on_fault:')}"
+        Thread(target=self.interrupt, args=(reason,), daemon=True, name="fault-interrupt").start()
 
     # region Status
 
@@ -231,6 +246,13 @@ class Programmer:
                 self._activity.interrupt()
             thread = self._thread
             program, step = self._program, self._step
+        # A device command the step is running and waiting in (a dose, a move) ends too:
+        # the program that asked for it has ended, so its wait is cancelled
+        # (`Device.cancel`), and its own `finally` leaves the hardware as it would at its end.
+        current = None if program is None or step >= len(program) else program[step]
+        device = self.rig.devices.get(current.device) if isinstance(current, RunCommand) else None
+        if device is not None and device in self.rig.running_commands():
+            device.cancel()
         # Never join under the lock: the worker takes it on the way out, and
         # an RLock held by another thread does not help us here.
         if thread is None or thread is current_thread():

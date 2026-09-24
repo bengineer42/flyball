@@ -90,15 +90,24 @@ async def read_health() -> dict[str, Any]:
     """One look: is anything offline, slow or pending. What a watchdog or a status line polls.
 
     `ok` is false with any fault condition at `error`; a band alarm is not a
-    fault, and is counted in `alarms` instead.
+    fault, and is counted in `alarms` instead. `stopped` is the rig stop's latch
+    (`{by, at_ns, reason}`, null when not stopped); `latches` every latch cause held,
+    one row per subject (`{scope, subject, cause}`).
 
     Lock-free: on the event loop, a watchdog must be answered while a delivery holds the
     rig's lock, so it reads C-level `list(...)` snapshots of the rig's dicts instead.
     """
     rig = current_rig()
     if rig is None:
-        return {"ok": False, "rig": None, "exposure": current_exposure()}
+        return {
+            "ok": False,
+            "rig": None,
+            "stopped": None,
+            "latches": [],
+            "exposure": current_exposure(),
+        }
     conditions = _conditions(rig)
+    stopped = rig.stopping.latches.rig_stop
     return {
         "ok": not any(
             c["severity"] == Severity.ERROR and c["code"] not in BANDS for c in conditions
@@ -114,6 +123,10 @@ async def read_health() -> dict[str, Any]:
         "alarms": _alarm_summary(conditions),
         "activities": sorted(rig.triggers.states()),
         "recording": rig.recording is not None,
+        "stopped": None
+        if stopped is None
+        else {"by": stopped.by, "at_ns": stopped.at_ns, "reason": stopped.reason},
+        "latches": rig.stopping.latches.rows(),
         "exposure": current_exposure(),  # served on loopback though asked for more, or open
     }
 

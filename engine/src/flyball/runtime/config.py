@@ -73,9 +73,11 @@ from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, load_document
 from flyball.foundation.time import Clock
 from flyball.model.catalog import Catalogs, ensure_discovered, get_catalog
+from flyball.model.controller import OnFault
 from flyball.model.feedforward import Identity, NoFeedforward
 from flyball.rig import Rig
 from flyball.rig.polling import BACKOFF_S, FAIL_AFTER, ReadPolicy
+from flyball.rig.stopping import stop_plan
 
 log = logging.getLogger(__name__)
 
@@ -129,6 +131,21 @@ def registered(role: Role, catalogs: Catalogs | None = None) -> tuple[type[Confi
 # region The models
 
 
+class FreezeThen(BaseModel):
+    """`on_fault: {freeze_s: <s>, then: <action>}`: frozen `freeze_s` of fault time, then act."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    freeze_s: float = Field(
+        ge=0,
+        description="Seconds of fault time (accrued across flicker) to stay frozen before `then`.",
+    )
+    then: Literal["manual", "stop", "stop_device"]
+
+
+type OnFaultEntry = Literal["freeze", "manual", "stop", "stop_device"] | FreezeThen
+
+
 class ControllerEntry(BaseModel):
     """A controller and how it regulates its output; keyed by the output's address in the file."""
 
@@ -154,6 +171,19 @@ class ControllerEntry(BaseModel):
         " feedforward this often between readings; the law steps only on readings. Omit for"
         " max(0.1 s, poll_s / 4) from the measured signal's poll_s.",
     )
+    on_fault: OnFaultEntry = Field(
+        default="freeze",
+        description="What it does once its source has been faulty (stale, invalid, offline) for"
+        " its wait, or at once when its law raises: freeze (default: stays frozen, resumes by"
+        " itself), manual, stop (its output's stop), stop_device (its output's device's stop),"
+        " or {freeze_s: <s>, then: manual|stop|stop_device}. Each but freeze latches until a"
+        " person resets it; a law error takes at least manual.",
+    )
+
+    def fault_policy(self) -> OnFault:
+        """`on_fault` as the controller holds it."""
+        value = self.on_fault
+        return OnFault.parse(value.model_dump() if isinstance(value, FreezeThen) else value)
 
 
 class ClockEntry(BaseModel):
@@ -588,6 +618,12 @@ class RunnerConfig(BaseModel):
     allow_shutdown: bool = Field(
         default=False, description="Let the API stop or restart the runner."
     )
+    on_shutdown: Literal["stop", "keep"] = Field(
+        default="stop",
+        description="What the runner's shutdown does to outputs: stop (each device's resolved"
+        " stop, best-effort, not latched) or keep (writes nothing: outputs stay energised with"
+        " no process watching them). A device's own `on_shutdown: keep` wins over stop.",
+    )
     reads: RunnerReads = Field(
         default_factory=RunnerReads,
         description="When failed reads put a device offline, and how it retries; a device's"
@@ -917,6 +953,9 @@ class RigConfig(BaseModel):
                 built_devices.append(device)
             for name, entry in self.devices.items():
                 rig.bind_inputs(rig.devices[name], entry.inputs)
+            for name, entry in self.devices.items():
+                for path, permissive in (entry.permissive or {}).items():
+                    rig.permit(rig.devices[name].signals[path], permissive)
             for output_address, controller in self.controllers.items():
                 output = rig.resolve(output_address)
                 if not isinstance(output, Signal):
@@ -935,6 +974,7 @@ class RigConfig(BaseModel):
                     default=controller.default,
                     min_period_s=controller.min_period_s,
                     setpoint_period_s=controller.setpoint_period_s,
+                    on_fault=controller.fault_policy(),
                 )
         except Exception:
             for device in built_devices:
@@ -950,6 +990,10 @@ class RigConfig(BaseModel):
                 rig.start_polling(device)
         rig.loaded = rig.document()
         rig.saved_overlay = _saved_overlay(rig.files)
+        said = logging.getLogger("flyball.rig")  # the rig's own: what `rig check` cannot see
+        for row in stop_plan(rig):
+            for warning in row["warnings"]:
+                said.warning("stop: %s: %s", row["address"], warning)
         return rig
 
 

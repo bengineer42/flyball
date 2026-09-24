@@ -70,8 +70,16 @@ class LiveValues:
     def attach(self, store: Store) -> None:
         """Keep writes in `store` from now on, and restore what it kept for this rig's values.
 
-        The runner's, once the store is open and the rig built.
+        The runner's, once the store is open and the rig built, before it serves. The
+        rig's latches attach here too (the runner's one store attach point): a latch an
+        earlier run left re-applies its stop now.
         """
+        try:
+            self._attach(store)
+        finally:
+            self._rig.stopping.attach(store)
+
+    def _attach(self, store: Store) -> None:
         self.store = store
         try:
             rows = {(r.device, r.signal): r for r in store.live_values() if r.kind == "value"}

@@ -614,7 +614,13 @@ def test_health_alarms_never_count_a_device_condition(client, rig, daq):
 def test_health_without_a_rig_says_so():
     set_rig(None)
     with TestClient(create_app()) as c:
-        assert c.get("/api/health").json() == {"ok": False, "rig": None, "exposure": None}
+        assert c.get("/api/health").json() == {
+            "ok": False,
+            "rig": None,
+            "stopped": None,
+            "latches": [],
+            "exposure": None,
+        }
 
 
 def test_events_are_kept_and_streamed(client, rig):

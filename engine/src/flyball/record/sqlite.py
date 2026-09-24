@@ -54,6 +54,7 @@ from .types import (
     Downsample,
     Event,
     Flag,
+    LatchRow,
     LiveValueRow,
     Point,
     ProgramFormat,
@@ -1392,6 +1393,42 @@ class SqliteStore:
             connection.execute(
                 "DELETE FROM live_value WHERE device = ? AND signal = ?", (device, signal)
             )
+
+    def latches(self) -> list[LatchRow]:
+        rows = self._query("SELECT * FROM latch ORDER BY at_ns, cause")
+        return [
+            LatchRow(
+                cause=r["cause"],
+                subjects=json.loads(r["subjects"]),
+                by=r["by"],
+                at_ns=r["at_ns"],
+                reason=r["reason"],
+                action=r["action"],
+            )
+            for r in rows
+        ]
+
+    def put_latch(self, row: LatchRow) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT INTO latch (cause, subjects, by, at_ns, reason, action)"
+                " VALUES (?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT (cause) DO UPDATE SET subjects = excluded.subjects,"
+                " by = excluded.by, at_ns = excluded.at_ns, reason = excluded.reason,"
+                " action = excluded.action",
+                (
+                    row.cause,
+                    json.dumps(row.subjects, separators=(",", ":")),
+                    row.by,
+                    row.at_ns,
+                    row.reason,
+                    row.action,
+                ),
+            )
+
+    def delete_latch(self, cause: str) -> None:
+        with self._transaction() as connection:
+            connection.execute("DELETE FROM latch WHERE cause = ?", (cause,))
 
     def set_rig_head(self, version_id: int) -> RigVersionRow:
         row = self.rig_version(version_id)  # 404 before anything moves

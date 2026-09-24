@@ -102,6 +102,12 @@ class CommandSpec:
     [Device.wait][flyball.foundation.device.device.Device.wait], which the device's `stop`
     ends early through [Device.cancel][flyball.foundation.device.device.Device.cancel]. One
     long command at a time per device."""
+    stops: bool = False
+    """This command is the device's stop: what a rig stop, a shutdown and `on_fault: stop_device`
+    run on it instead of writing per-signal values (a blender's pumps off, a DAC's power-down).
+    It must return promptly -- it cuts, it does not sequence -- since it runs under the rig's
+    lock; never `long`. At most one per driver; a rig file's `stop:` values are refused on
+    its device. The rig runs it whatever holds the device (a controller, a latch)."""
     demand_of: str | None = None
     """For a synthesised `set_<name>`: the path of the demand it sets; the rig routes it through
     its demand path."""
@@ -123,6 +129,7 @@ def command[F: Callable[..., Any]](
     interrupts: bool = False,
     long: bool = False,
     writes: Iterable[Any] = (),
+    stops: bool = False,
 ) -> Callable[[F], F]: ...
 def command(
     fn: Any = None,
@@ -135,6 +142,7 @@ def command(
     interrupts: bool = False,
     long: bool = False,
     writes: Iterable[Any] = (),
+    stops: bool = False,
 ) -> Any:
     """Mark a device method as a command, under the method's name or `name`.
 
@@ -155,7 +163,9 @@ def command(
     interrupt (the controller would fight it while it waits). `simulation=True` marks one that only
     makes sense on a simulated device (a scripted fault, a disturbance): it
     is served like any other, but the schema says so, so a UI can keep it
-    off the device's page.
+    off the device's page. `stops=True` makes it the device's stop (at
+    most one per driver): a rig stop runs it instead of writing values; it
+    must return promptly, so it cannot be `long`.
     """
     paths = tuple(w if isinstance(w, str) else w.path for w in writes)
 
@@ -165,6 +175,11 @@ def command(
                 f"{f.__qualname__}: a long command cannot interrupt a controller -- it would"
                 " fight the command while it waits"
             )
+        if long and stops:
+            raise TypeError(
+                f"{f.__qualname__}: a stop cannot be long -- it runs under the rig's lock and"
+                " must return promptly"
+            )
         f.__command__ = name or f.__name__
         f.__command_options__ = {
             "simulation": simulation,
@@ -173,6 +188,7 @@ def command(
             "interrupts": interrupts,
             "long": long,
             "writes": paths,
+            "stops": stops,
         }
         return f
 

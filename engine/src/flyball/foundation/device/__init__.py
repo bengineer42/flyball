@@ -10,7 +10,7 @@ from .descriptors import (
     Setting,
 )
 from .device import Committable, Device, DriverConfig, Readable, Staged
-from .entry import DeviceEntry
+from .entry import DeviceEntry, OnShutdown, Permissive
 from .novalue import (
     NoValue,
     NoValueError,
@@ -25,9 +25,11 @@ from .novalue import (
     stale,
 )
 from .signal import (
+    KEEP,
     Access,
     AddressNotFoundError,
     Bounds,
+    Keep,
     Limit,
     LimitNotKnownError,
     LimitsInvertedError,
@@ -48,6 +50,7 @@ from .signal import (
 from .state import Code, Condition, Edge, Event, Scope, Severity
 
 __all__ = [
+    "KEEP",
     "RESERVED_NAMES",
     "Access",
     "AddressNotFoundError",
@@ -68,6 +71,7 @@ __all__ = [
     "Input",
     "InputBinding",
     "InputState",
+    "Keep",
     "Limit",
     "LimitNotKnownError",
     "LimitsInvertedError",
@@ -77,7 +81,9 @@ __all__ = [
     "Node",
     "NodeSpec",
     "OnNoValue",
+    "OnShutdown",
     "Path",
+    "Permissive",
     "Quality",
     "Railed",
     "Readable",

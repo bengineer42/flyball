@@ -190,6 +190,9 @@ TABLE: Final[tuple[Rule, ...]] = (  # TODO(D-034): the verbs; the rows are fixed
     Rule("POST", "/api/auth/link", None),
     Rule("GET", "/api/auth/front", None),
     Rule("POST", "/api/rig/stop", OPERATE),
+    Rule("GET", "/api/rig/stop", READ),
+    Rule("GET", "/api/rig/latches", READ),
+    Rule("POST", "/api/rig/reset", OPERATE),
 )
 
 

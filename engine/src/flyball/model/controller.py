@@ -79,6 +79,77 @@ class ControllerMode(Enum):
         return self is ControllerMode.REGULATING
 
 
+class FaultAction(Enum):
+    """What a controller does once its source's outage is released (`on_fault`)."""
+
+    FREEZE = "freeze"
+    """Nothing more: the law stays frozen, the output where it was; it resumes by itself."""
+    MANUAL = "manual"
+    """To manual, latched: the output keeps its last value; a person decides."""
+    STOP = "stop"
+    """To manual, and the target signal's resolved stop written; the signal latched."""
+    STOP_DEVICE = "stop_device"
+    """To manual, and the target's whole device stopped; the device latched."""
+
+    @property
+    def rank(self) -> int:
+        """How far it goes: a law error takes the stricter of `manual` and the configured one."""
+        return _FAULT_RANKS[self]
+
+
+_FAULT_RANKS = {
+    FaultAction.FREEZE: 0,
+    FaultAction.MANUAL: 1,
+    FaultAction.STOP: 2,
+    FaultAction.STOP_DEVICE: 3,
+}
+
+
+@dataclass(frozen=True)
+class OnFault:
+    """A controller's `on_fault`: an action, and how long a fault is frozen before it.
+
+    `freeze_s` None: the action waits the rig's default for the fault's reason (A5);
+    set: that much fault time accrued, measured across flicker (`{freeze_s: d, then: a}`).
+    Plain `freeze` (the default) never acts.
+    """
+
+    action: FaultAction = FaultAction.FREEZE
+    freeze_s: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.freeze_s is not None and not (math.isfinite(self.freeze_s) and self.freeze_s >= 0):
+            raise ValueError(f"on_fault freeze_s {self.freeze_s!r}: a finite number of seconds")
+        if self.freeze_s is not None and self.action is FaultAction.FREEZE:
+            raise ValueError("on_fault: `then` must be manual, stop or stop_device, not freeze")
+
+    @classmethod
+    def parse(cls, value: object) -> OnFault:
+        """From the rig file's form: an action's name, or `{freeze_s: <s>, then: <action>}`."""
+        if isinstance(value, OnFault):
+            return value
+        if value is None:
+            return cls()
+        if isinstance(value, str):
+            return cls(FaultAction(value))
+        if isinstance(value, dict) and set(value) == {"freeze_s", "then"}:
+            return cls(FaultAction(value["then"]), float(value["freeze_s"]))
+        raise ValueError(
+            f"on_fault {value!r}: freeze, manual, stop, stop_device, or {{freeze_s: <s>, then:"
+            " <action>}"
+        )
+
+    def document(self) -> str | dict[str, object]:
+        """The rig file's form: the action's name, or `{freeze_s, then}`."""
+        if self.freeze_s is None:
+            return self.action.value
+        return {"freeze_s": self.freeze_s, "then": self.action.value}
+
+    def escalated(self) -> FaultAction:
+        """The action a law error takes: this one, or `manual` if this one is milder."""
+        return max(self.action, FaultAction.MANUAL, key=lambda a: a.rank)
+
+
 class ValueSource(Labelled):
     """Where a ramp begins."""
 
@@ -124,6 +195,8 @@ class ControllerSpec:
     setpoint_period_s: float | None = None
     """Re-apply a moving setpoint's feedforward this often between readings. None: the rig's
     default, `max(0.1 s, poll_s / 4)` from the measured signal's `poll_s`."""
+    on_fault: OnFault = OnFault()
+    """What it does once its source's outage is released."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -160,6 +233,7 @@ class ControllerView(ControllerSpec, ControllerState):
             offset_ns=spec.offset_ns,
             min_period_s=spec.min_period_s,
             setpoint_period_s=spec.setpoint_period_s,
+            on_fault=spec.on_fault,
             correction=state.correction,
             reference=state.reference,
             setpoint=state.setpoint,
@@ -208,6 +282,7 @@ class Controller:
         setpoint_period_s: float | None = None,
         write: Callable[[float], float | None] | None = None,
         hold: Callable[[], Code | None] | None = None,
+        on_fault: OnFault | None = None,
     ) -> None:
         if output_signal.role is not Role.DEMAND:
             raise ConflictError(
@@ -242,6 +317,11 @@ class Controller:
         """Why the rig would refuse a write now, or None: asked before the law steps."""
         self.on_reference: Callable[[], None] = self._nothing
         """Called after the reference or the mode changes: the rig arms `reapply`."""
+        self.guard: Callable[[], str | None] = self._never_refused
+        """Why `regulate` is refused now (a latch held on it or its output), or None."""
+        self.on_reseed: Callable[[float | None, float | None], None] = self._reseeded
+        """Called with a trajectory's old and new end times when a resume re-seeds it."""
+        self.on_fault: OnFault = OnFault() if on_fault is None else on_fault
         self.setpoint_period_s: float | None = setpoint_period_s
         self.law = None
         if law is not None:
@@ -265,6 +345,15 @@ class Controller:
     @staticmethod
     def _nothing() -> None:
         """No rig to tell of a new reference."""
+
+    @staticmethod
+    def _never_refused() -> str | None:
+        """No rig to hold a latch: `regulate` is never refused."""
+        return None
+
+    @staticmethod
+    def _reseeded(was: float | None, now: float | None) -> None:
+        """No rig to tell of a re-seeded trajectory."""
 
     @property
     def name(self) -> str:
@@ -302,6 +391,7 @@ class Controller:
             offset_ns=self.offset_ns,
             min_period_s=self.min_period_s,
             setpoint_period_s=self.setpoint_period_s,
+            on_fault=self.on_fault,
         )
 
     @property
@@ -406,8 +496,15 @@ class Controller:
         Returns:
             What was applied, and the step the handover put through the
             output; zero when the seed held it.
+
+        Raises:
+            ConflictError: A latch is held on the controller or its output (a
+                stop, an `on_fault` action): only a person's Reset clears it,
+                and this changes nothing until then.
         """
         with self.lock:
+            if (refused := self.guard()) is not None:
+                raise ConflictError(refused)
             time_ns = self.get_time_ns(time_ns)
             held = self.expected if self.expected is not None else self.output
             setpoint = _finite_aim(self.resolve_value(at, time_ns), at)
@@ -516,6 +613,8 @@ class Controller:
                 self.held = reason
                 return
             resumed, self.held = self.held is not None, None
+            if resumed and reading is not None:
+                self._reseed(time_ns, reading.value)
             setpoint = self.setpoint_at(time_ns)
             if reading is not None:
                 self._skip_outage(time_ns, resumed=resumed)
@@ -524,6 +623,24 @@ class Controller:
                     self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
                 )
             self._apply_output(setpoint, self.rate_at(time_ns))
+
+    def _reseed(self, time_ns: int, value: float) -> None:
+        """Resuming after a hold on a trajectory: start what is left of it from `value`.
+
+        The trajectory's clock ran on through the hold, so the setpoint moved away while
+        nothing was written; stepped at once, the law would chase the whole jump. Instead
+        the segment in force walks on from the reading at its own rate (a ramp's), never
+        faster, and so ends later if it has further to go (answer 4).
+        """
+        reference = self.reference
+        if not isinstance(reference, SetpointGenerator):
+            return
+        now_s = self.clock.from_start_s(time_ns)
+        if reference.finished(now_s):
+            return
+        was = reference.end_time
+        if reference.reseed(now_s, float(value)):
+            self.on_reseed(was, reference.end_time)
 
     def follows(self, time_ns: int) -> bool:
         """Whether a moving setpoint is being followed now (E25).

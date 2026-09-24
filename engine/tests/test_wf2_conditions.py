@@ -12,6 +12,7 @@ from flyball.control.laws import P
 from flyball.foundation.device import Code, Committable, Demand, Sample, Scope, Severity
 from flyball.record.migrate import available
 from flyball.record.sqlite import SqliteStore
+from flyball.rig.stopping import Actor
 from test_rig_devices import POWER, Furnace
 
 # region Migration
@@ -346,6 +347,9 @@ class TestProducers:
             clock.advance(1.0)
             rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: value})])
         broken["on"] = False
+        assert controller.mode.value == "manual", "a law error takes at least on_fault: manual"
+        rig.stopping.reset(f"on_fault:{controller.name}", Actor("ben", "", "human", "http"))
+        controller.regulate(30.0)
         clock.advance(1.0)
         rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 22.0})])
         assert _edges(rig, Code.STEP_FAILED) == [

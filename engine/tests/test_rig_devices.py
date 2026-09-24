@@ -37,6 +37,7 @@ from flyball.foundation.time import Rate, TimeUnit
 from flyball.model.feedforward import NoFeedforward
 from flyball.model.law import Transfer
 from flyball.rig import Rig, SignalClaimedError
+from flyball.rig.stopping import Actor
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -606,10 +607,15 @@ class TestOneControllerFailing:
         assert furnace.commits >= 3
         failed = [e for e in rig.recent if e.code == "step_failed"]
         assert len(failed) == 1 and failed[0].subject == bad.name, "one event per outage"
-        assert bad.mode.value == "regulating", "its mode is left alone"
+        assert bad.mode.value == "manual", "a law error takes at least on_fault: manual"
+        assert good.mode.value == "regulating", "the others are left alone"
         assert rig.latest[zone1].value == 20.0, "the delivery's readings landed"
+        with pytest.raises(ConflictError, match="reset it first"):
+            bad.regulate(30.0)
 
         bad.set_law(P(kp=1.0))
+        rig.stopping.reset(f"on_fault:{bad.name}", Actor("ben", "", "human", "http"))
+        bad.regulate(30.0)
         clock.advance(1.0)
         rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 20.0, zone2: 20.0})])
         last = rig.recent[-1]

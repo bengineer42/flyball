@@ -117,6 +117,22 @@ class ControllerRow:
 
 
 @dataclass(frozen=True, slots=True)
+class LatchRow:
+    """A latch kept across restarts: a stop's or a fault action's, until a person resets it.
+
+    Keyed by `cause` (`stop`, `on_fault:<controller>`). `subjects` is `[{scope, subject}]`.
+    """
+
+    cause: str
+    subjects: list[dict[str, str]]
+    by: str
+    at_ns: int
+    """When it was set, wall time in ns since the epoch."""
+    reason: str = ""
+    action: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class LiveValueRow:
     """A live value kept across restarts: a `driver: values` entry's last write (C10(5)).
 

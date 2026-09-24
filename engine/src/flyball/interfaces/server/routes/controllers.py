@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, TypeAdapter
 
 from flyball.control import Affine, GeneratorConfig, Table
@@ -23,11 +23,14 @@ from flyball.foundation.device import Access, Role, Signal
 from flyball.foundation.errors import NotFoundError
 from flyball.foundation.typing import Positive
 from flyball.interfaces.server.deps import RigDep
+from flyball.interfaces.server.routes.stop import actor
 from flyball.interfaces.server.schemas import ControllerOut, LawConfig
-from flyball.model.controller import Controller, ValueSource
+from flyball.model.controller import Controller, FaultAction, ValueSource
 from flyball.model.feedforward import Identity, NoFeedforward
 from flyball.model.law import Transfer
 from flyball.rig import Rig
+from flyball.rig.latches import fault_cause
+from flyball.runtime.config import ControllerEntry, OnFaultEntry
 
 router = APIRouter(prefix="/api/controllers", tags=["controllers"])
 
@@ -59,6 +62,8 @@ class NewController(BaseModel):
     setpoint_period_s: Positive | None = None
     """Re-apply a moving setpoint's feedforward this often between readings; omitted:
     `max(0.1 s, poll_s / 4)`."""
+    on_fault: OnFaultEntry = "freeze"
+    """What it does once its source has been faulty for its wait (the rig file's `on_fault`)."""
 
 
 class Regulate(BaseModel):
@@ -143,7 +148,11 @@ def drivable(signal: Signal) -> bool:
 
 def _out(rig: Rig, name: str | None = None) -> ControllerOut:
     controller = rig.controllers.resolve(name)
-    return ControllerOut.of(controller, controller.name == rig.controllers.default)
+    return ControllerOut.of(
+        controller,
+        controller.name == rig.controllers.default,
+        latched=[latch.cause for latch in rig.stopping.latches.of_controller(controller)],
+    )
 
 
 def _signal(rig: Rig, address: str) -> Signal:
@@ -186,7 +195,11 @@ def _generator_start(controller: Controller) -> float:
 @router.get("")
 async def read_controllers(rig: RigDep) -> list[ControllerOut]:
     default = rig.controllers.default
-    return [ControllerOut.of(c, name == default) for name, c in list(rig.controllers.items())]
+    latches = rig.stopping.latches
+    return [
+        ControllerOut.of(c, name == default, latched=[x.cause for x in latches.of_controller(c)])
+        for name, c in list(rig.controllers.items())
+    ]
 
 
 @router.get("/schema")
@@ -235,6 +248,7 @@ def make_controller(rig: RigDep, body: NewController) -> ControllerOut:
             default=body.default,
             min_period_s=body.min_period_s,
             setpoint_period_s=body.setpoint_period_s,
+            on_fault=ControllerEntry(measured=body.measured, on_fault=body.on_fault).fault_policy(),
         )
     return _out(rig, controller.name)
 
@@ -248,14 +262,28 @@ def remove_controller(rig: RigDep, address: str) -> None:
 
 
 @router.post("/{address}/regulate")
-def regulate(rig: RigDep, address: str, body: Regulate) -> ControllerOut:
+def regulate(rig: RigDep, request: Request, address: str, body: Regulate) -> ControllerOut:
     """Aim at ``at`` and let the law drive.
 
     ``at`` is a value, ``measured``/``setpoint``/``output``, or a generator
     spec, which starts from the controller's current setpoint or reading.
     The handover's output is committed to the output's device at once.
+
+    409 while a latch holds the controller or its output (a stop, an `on_fault`
+    action): a person resets it first. The one a person's `regulate` clears itself
+    is the controller's own `on_fault: manual` latch, which holds nothing else.
     """
     controller = rig.controllers.resolve(address)
+    who = actor(request)
+    cause = fault_cause(controller.name)
+    latch = rig.stopping.latches.get(cause)
+    if (
+        who.person
+        and latch is not None
+        and latch.action == FaultAction.MANUAL.value
+        and len(rig.stopping.latches.of_controller(controller)) == 1
+    ):
+        rig.stopping.reset(cause, who)
     tuning = body.tuning.build() if isinstance(body.tuning, BaseModel) else body.tuning  # type: ignore[union-attr]
     if isinstance(tuning, str) and (tuning := rig.tunings.get(tuning)) is None:
         raise NotFoundError(f"Tuning {body.tuning!r} not found")

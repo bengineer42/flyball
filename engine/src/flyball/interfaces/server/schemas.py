@@ -742,6 +742,11 @@ class ControllerOut(BaseModel):
     expected: float | None
     delivered_correction: float | None
     measured: ReadingOut | None
+    on_fault: str | dict[str, Any] = "freeze"
+    """What it does once its source has been faulty for its wait: `freeze`, `manual`, `stop`,
+    `stop_device`, or `{freeze_s, then}`."""
+    latched: list[str] = []
+    """The causes of every latch that refuses its `regulate` now (`stop`, `on_fault:<name>`)."""
 
     @model_serializer(mode="wrap")
     def _finite(self, handler: SerializerFunctionWrapHandler):
@@ -754,9 +759,17 @@ class ControllerOut(BaseModel):
 
     @classmethod
     def of(
-        cls, controller: Controller, default: bool, state: ControllerState | None = None
+        cls,
+        controller: Controller,
+        default: bool,
+        state: ControllerState | None = None,
+        latched: list[str] | None = None,
     ) -> ControllerOut:
-        """From the controller now, or from `state` (a tick's snapshot) joined to its settings."""
+        """From the controller now, or from `state` (a tick's snapshot) joined to its settings.
+
+        `latched`: the causes of the latches that refuse its `regulate`, where the caller
+        knows them (the rig's routes); none on a tick's snapshot.
+        """
         view = controller.view if state is None else ControllerView.of(controller.spec, state)
         reference = view.reference
         return cls(
@@ -779,6 +792,8 @@ class ControllerOut(BaseModel):
             expected=view.expected,
             delivered_correction=view.delivered_correction,
             measured=None if view.measured is None else ReadingOut.of(view.measured),
+            on_fault=controller.on_fault.document(),
+            latched=list(latched or []),
         )
 
 

@@ -19,7 +19,7 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum, Flag, StrEnum, auto
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..errors import NotFoundError, NotReadyError, UnachievableError
 from ..quantities import Unit
@@ -278,9 +278,17 @@ class SignalSpec:
     record: bool = True
     """Whether a recording started with the default selection keeps it. False for a raw
     value only the rig needs (what a derived signal is computed from)."""
+    off: float | None = None
+    """A demand's inactive level, in its unit: what a stop writes when the rig file says
+    nothing for it (a PWM duty's 0). A fact the driver declares only where it cannot be
+    wrong -- never on an inverted output, never on a span that straddles 0 -- and a logical
+    value, before any `invert`. Written even outside `limits`: limits bound regulation, not
+    de-energising. None (default): a stop leaves the output as it is (`keep`)."""
 
     def __post_init__(self) -> None:
         _check_segment(self.name)
+        if self.off is not None and not math.isfinite(self.off):
+            raise ValueError(f"signal {self.name!r}: off {self.off!r} is not finite")
         Access.check(self.access)
         if self.ceiling is not None:
             Access.check(self.ceiling)
@@ -617,6 +625,11 @@ class LimitsInvertedError(UnachievableError):
         )
 
 
+type Keep = Literal["keep"]
+KEEP: Keep = "keep"
+"""The stop value that means "leave the output as it is"."""
+
+
 @dataclass(eq=False, slots=True)
 class Signal:
     """A bound signal: the spec, the node it hangs off, and its address.
@@ -639,6 +652,9 @@ class Signal:
     narrowed: Bounds | None = None
     """The rig file's `limits`: a band a demand is held inside as well as the driver's, never
     instead of them. Set through [narrow][flyball.foundation.device.signal.Signal.narrow]."""
+    stop: float | Keep | None = None
+    """The rig file's `stop:` for this demand: a number, or `"keep"` (leave it as it is).
+    None: it said nothing, and a stop writes the driver's `off`, else keeps it."""
     _bounds: tuple[Followed, Followed] | None = field(default=None, repr=False)
     """`spec.limits` with each `SignalRef` resolved to what it follows; see `bind_limits`."""
     _bounds_for: SignalSpec | None = field(default=None, repr=False)

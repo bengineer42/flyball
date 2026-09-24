@@ -26,8 +26,11 @@ so no delivery could release it.
   rig's lock and checks the quality and the accrued time again before it
   releases.
 
-What a release does is the rig's `on_fault` hook: nothing, until the `on_fault`
-actions exist. The hook is where they plug in.
+What a release does is the rig's `on_fault` hook: the controller's `on_fault`
+action ([Stopping.on_fault][flyball.rig.stopping.Stopping.on_fault]). A controller
+on plain `freeze` (the default) is never released: it stays frozen, and resumes by
+itself. `{freeze_s: d, then: a}` waits `d` of accrued fault time instead of the
+reason's default; a law that raises is released at once, whatever the action.
 
 [Accrual][flyball.rig.faults.Accrual] is the arithmetic alone, shared with
 [Bands][flyball.rig.bands.Bands] for A4's `invalid` grace.
@@ -41,6 +44,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from flyball.foundation.device import NoValue, Quality, Reading, Reason, Signal
+from flyball.model.controller import FaultAction
 
 if TYPE_CHECKING:
     from flyball.foundation.time import Timer
@@ -182,8 +186,14 @@ class Faults:
             outage = self.outages[controller] = Outage(controller, Accrual(), started_ns=now)
         outage.accrual.fault(now)
         outage.reason = _describe(fault)
+        freeze_s = controller.on_fault.freeze_s
         outage.wait_ns = round(
-            wait_s(controller.measured_signal, fault, controller.min_period_s) * 1e9
+            (
+                wait_s(controller.measured_signal, fault, controller.min_period_s)
+                if freeze_s is None
+                else freeze_s
+            )
+            * 1e9
         )
         self._evaluate(outage, now)
 
@@ -219,6 +229,10 @@ class Faults:
         accrual = outage.accrual
         if accrual.released or not accrual.faulty:
             return
+        if outage.controller.on_fault.action is FaultAction.FREEZE and not outage.reason.startswith(
+            LAW_ERROR
+        ):
+            return  # plain freeze: nothing to release; it resumes by itself
         left = accrual.remaining_ns(now_ns, outage.wait_ns)
         if left <= 0:
             if outage.controller.mode.active():
@@ -267,6 +281,7 @@ def _describe(fault: NoValue) -> str:
 
 __all__ = [
     "EPISODE_ENDS_AFTER",
+    "LAW_ERROR",
     "Accrual",
     "Faults",
     "Outage",

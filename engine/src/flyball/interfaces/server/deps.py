@@ -25,7 +25,7 @@ from flyball.model.catalog import Catalogs, current_catalog
 from flyball.model.catalog import set_catalog as set_catalog
 from flyball.record import Store
 from flyball.rig import Rig
-from flyball.rig.stopping import InterimStopper
+from flyball.rig.stopping import RigStopper
 
 from .dialect import Dialect
 
@@ -258,29 +258,38 @@ def current_exposure() -> dict[str, Any] | None:
 
 
 _stopper: Stopper | None = None
-_interim: InterimStopper | None = None
+_rig_stopper: RigStopper | None = None
 
 
 def set_stopper(stopper: Stopper | None) -> None:
-    """What `POST /api/rig/stop` and the break-glass signal call, in place of the interim one."""
+    """What `POST /api/rig/stop` and the break-glass signal call, in place of the rig's own."""
     global _stopper
     _stopper = stopper
 
 
 def current_stopper() -> Stopper | None:
-    """The stopper set, else the interim one over the attached rig and programmer.
+    """The stopper set, else the software stop over the attached rig and programmer.
 
-    None with no rig attached: nothing to stop. The interim one is kept while the rig
-    and programmer are the same, so its stops stay serialised.
+    None with no rig attached: nothing to stop. It is kept while the rig and programmer
+    are the same, so its stops stay serialised.
     """
-    global _interim
     if _stopper is not None:
         return _stopper
+    return rig_stopper()
+
+
+def rig_stopper() -> RigStopper | None:
+    """The software stop over the attached rig and programmer; None with no rig."""
+    global _rig_stopper
     if _rig is None:
         return None
-    if _interim is None or _interim.rig is not _rig or _interim.program is not _programmer:
-        _interim = InterimStopper(_rig, _programmer)
-    return _interim
+    if (
+        _rig_stopper is None
+        or _rig_stopper.rig is not _rig
+        or _rig_stopper.program is not _programmer
+    ):
+        _rig_stopper = RigStopper(_rig, _programmer)
+    return _rig_stopper
 
 
 def save_allowed() -> bool:

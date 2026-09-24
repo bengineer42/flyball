@@ -19,6 +19,7 @@ from .types import (
     DeviceRow,
     Downsample,
     Event,
+    LatchRow,
     LiveValueRow,
     ProgramFormat,
     ProgramRow,
@@ -393,6 +394,22 @@ class Store(Protocol):
 
     def delete_live_value(self, device: str, signal: str) -> None:
         """Forget what was kept for `(device, signal)`; nothing if there was none."""
+        ...
+
+    # endregion
+
+    # region Latches
+
+    def latches(self) -> list[LatchRow]:
+        """Every latch kept across restarts, oldest first."""
+        ...
+
+    def put_latch(self, row: LatchRow) -> None:
+        """Keep `row`, replacing what was kept for its `cause`."""
+        ...
+
+    def delete_latch(self, cause: str) -> None:
+        """Forget the latch kept for `cause`; nothing if there was none."""
         ...
 
     # endregion
