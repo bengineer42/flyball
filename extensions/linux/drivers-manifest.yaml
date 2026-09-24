@@ -367,6 +367,23 @@ sensors:
       - label: caveat
         url: "Register map and fault bits confirmed against the Adafruit MAX31856 library's constants; one-shot conversion time (~143ms/60Hz, ~169ms/50Hz for averaging=1) is [Unverified] beyond one sample -- this driver's own linear-with-averaging approximation, not a datasheet table"
 
+  - type: max31865
+    part_number: MAX31865
+    manufacturer: Maxim Integrated / Analog Devices
+    category: temp
+    interface: spi
+    tier: bespoke_driver
+    file: extensions/chips/src/flyball_chips/max31865.py
+    loc_estimate: "150-250"
+    loc_actual: 229
+    status: done
+    datasheet_checked: partial
+    hardware_tested: false
+    price_approx: "~$10-15 module [Unverified]"
+    domains: [cryostat, uhv, industrial_process]
+    links:
+      - label: caveat
+        url: "Register map confirmed against the Adafruit MAX31865 library's constants. Callendar-Van Dusen coefficients (A=3.9083e-3, B=-5.775e-7, C=-4.183e-12) are the standard IEC 60751 platinum values; the below-0degC solve is Newton's method (8 iterations) from the T>=0 closed-form quadratic, the two-region approach Maxim's/TI's RTD app notes describe -- round-tripped at 0/100/-50degC in the tests, not checked against real hardware"
 
   - type: tsl2591
     part_number: TSL2591

@@ -26,6 +26,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`max6675`](#max6675) | Maxim K-type thermocouple | `spi` | `flyball-chips` | — |
 | [`max31855`](#max31855) | Maxim thermocouple + cold junction | `spi` | `flyball-chips` | — |
 | [`max31856`](#max31856) | Maxim precision thermocouple | `spi` | `flyball-chips` | — |
+| [`max31865`](#max31865) | Maxim PT100/PT1000 RTD | `spi` | `flyball-chips` | — |
 | [`gpio_line`](#gpio_line) | a relay, a switch | `gpio` | `flyball-linux` | datasheet-checked |
 | [`pwm_channel`](#pwm_channel) | a PWM output | `pwm` | `flyball-linux` | — |
 | [`ds18b20`](#ds18b20) | 1-Wire thermometers | `onewire` | `flyball-linux` | — |
@@ -90,6 +91,7 @@ driver here follows it:
 | `max6675` | an open thermocouple → `invalid("open_circuit")` | the bus |
 | `max31855` | a fault (open circuit, or a short to VCC/GND) → `temperature` `invalid`, naming every fault bit set; `cold_junction` always reads | the bus |
 | `max31856` | a fault bit in the status register → that signal's own `invalid(reason)` | the bus |
+| `max31865` | an RTD/reference fault → both signals `invalid(reason)` | the bus |
 | `sht4x`, `sht4x_set`, `sht31`, `htu21d`, `scd30`, `scd40`, `sgp40`, `mhz19`, `ms5611` | none (humidity is cropped to 0-100 %, as the datasheets say) | a CRC failure, a short frame, a sensor not ready in time; in an `sht4x_set` one sensor's failure fails that read of the set |
 | `bme280` | a BMP280 has no `humidity` signal at all | the bus |
 | `ezo_*` | none | a `*` status reply, a malformed one |
@@ -404,6 +406,26 @@ answered.
 **Stop:** both signals are read-only, so a rig stop does nothing to this
 device; `stop:` values are refused on it.
 
+### `max31865`
+
+Maxim single-channel RTD (PT100/PT1000) to digital, SPI, register-addressed:
+`resistance [RP]` (Ω) and `temperature [RP]` (°C, by the Callendar-Van
+Dusen equation). Continuous automatic conversion, VBIAS always on.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `spi` link |
+| `rtd_type` | `pt100` | `pt100` or `pt1000` |
+| `ref_resistor` | `430.0` | the precision bias resistor in Ω (`430` for a PT100 board, `4300` for a PT1000 one) |
+| `wires` | `2` | `2`, `3` or `4` -- only `3` changes the chip's own config bit |
+| `filter_hz` | `60` | mains frequency to reject: `50` or `60` |
+
+A fault (an open or shorted RTD, an out-of-range reference) reads both
+signals `invalid(reason)`, never a raise: the chip answered. The fault
+latch is cleared on the next read.
+
+**Stop:** both signals are read-only, so a rig stop does nothing to this
+device; `stop:` values are refused on it.
 
 ### `gpio_line`
 
