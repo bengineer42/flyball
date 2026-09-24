@@ -150,6 +150,13 @@ class TestUnitLookup:
             ("m/s²", "Acceleration", 1.0),
             ("N·m", "Energy", 1.0),
             ("µL/h", "Volume flow", 1e-9 / 3600),
+            ("mbar", "Pressure", 100.0),
+            ("Torr", "Pressure", 101325 / 760),
+            ("mTorr", "Pressure", 101325 / 760 / 1000),
+            ("sccm", "Volume flow", 1e-6 / 60),
+            ("slm", "Volume flow", 1e-3 / 60),
+            ("rpm", "Frequency", 1 / 60),
+            ("Å", "Length", 1e-10),
         ],
     )
     def test_get_resolves_symbols_prefixes_quotients_products_and_powers(
