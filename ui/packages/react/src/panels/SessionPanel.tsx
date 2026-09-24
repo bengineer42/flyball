@@ -67,10 +67,10 @@ function lawSummary(config: unknown): { type: string | null; gains: string } {
   return { type: typeof type === "string" ? type : null, gains: gains_ };
 }
 
-/** `recorder.py`'s `event()` wraps the severity, scope and message around the emitter's own `details`. */
-function storedEvent(detail: unknown): { severity?: string; message?: string; details: unknown } {
-  if (!detail || typeof detail !== "object" || !("message" in detail)) return { details: detail };
-  const { severity, message, details } = detail as { severity?: string; message?: string; details?: unknown };
+/** `recorder.py`'s `event()` wraps the severity, subject kind and message around the emitter's own `details`. */
+function storedEvent(stored: unknown): { severity?: string; message?: string; details: unknown } {
+  if (!stored || typeof stored !== "object" || !("message" in stored)) return { details: stored };
+  const { severity, message, details } = stored as { severity?: string; message?: string; details?: unknown };
   return { severity: typeof severity === "string" ? severity : undefined, message, details };
 }
 
@@ -507,7 +507,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
           <table className="fb-table">
             <tbody>
               {events.map((e, i) => {
-                const { severity, message, details } = storedEvent(e.detail);
+                const { severity, message, details } = storedEvent(e.details);
                 return (
                 <tr key={e.id ?? i}>
                   <td className="fb-muted">+{duration(e.offset_ns / 1e9)}</td>
@@ -515,7 +515,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                     {severity && <span className={`fb-badge fb-event-${severity}`}>{severity}</span>} <span className="fb-tag">{describeEventCode(e.code)}</span>
                     {e.edge && <span className={`fb-event-edge fb-event-${e.edge}`}>{describeEdge(e.edge, details)}</span>}
                   </td>
-                  <td>{e.source ? describeSubject(e.source) : ""}</td>
+                  <td>{e.subject ? describeSubject(e.subject) : ""}</td>
                   <td>
                     {message}
                     {details !== undefined && details !== null && (

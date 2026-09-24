@@ -120,7 +120,7 @@ class ControllerRow:
 class LatchRow:
     """A latch kept across restarts: a stop's or a fault action's, until a person resets it.
 
-    Keyed by `cause` (`stop`, `on_fault:<controller>`). `subjects` is `[{scope, subject}]`.
+    Keyed by `cause` (`stop`, `on_fault:<controller>`). `subjects` is `[{subject_kind, subject}]`.
     """
 
     cause: str
@@ -372,8 +372,9 @@ class Event:
 
     offset_ns: int
     code: str
-    source: str | None = None
-    detail: Any = None
+    subject: str | None = None
+    """What it is about: a device, a signal, a controller, a program step, the rig."""
+    details: Any = None
     id: int | None = None
     edge: str | None = None
     """`raised` or `cleared` for a condition's start or end; None for a point event."""

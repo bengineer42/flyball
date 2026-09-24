@@ -537,7 +537,9 @@ class TestOnFault:
         while programmer.running and time.monotonic() < deadline:
             time.sleep(0.01)
         assert not programmer.running
-        ended = [e for e in rig.recent if e.code == Code.INTERRUPTED and e.scope == "program"]
+        ended = [
+            e for e in rig.recent if e.code == Code.INTERRUPTED and e.subject_kind == "program"
+        ]
         assert ended and f"fault:{controller.name}" in ended[-1].message
 
     def test_the_ramp_goes_on_from_the_reading(self, rig: Rig, oven: Oven, clock: SteppedClock):
@@ -614,7 +616,7 @@ class TestRoutes:
             assert report["devices"][oven.name]["state"] == "stopped"
             health = http.get("/api/health").json()
             assert health["stopped"]["reason"] == "lid"
-            assert {"scope": "rig", "subject": "rig", "cause": "stop"} in health["latches"]
+            assert {"subject_kind": "rig", "subject": "rig", "cause": "stop"} in health["latches"]
             plan = http.get("/api/rig/stop").json()
             assert plan["stopped"]["cause"] == "stop"
             assert {r["address"] for r in plan["outputs"]} == {

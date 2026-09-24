@@ -38,14 +38,14 @@ describe("the faceplate's latch line", () => {
   });
 
   it("shows a permissive holding it, and no Reset to a viewer", () => {
-    const held: Condition = { code: "not_permitted", severity: "warning", message: "door open: held", since_ns: 0, scope: "controller", subject: "heater.demand" };
+    const held: Condition = { code: "not_permitted", severity: "warning", message: "door open: held", since_ns: 0, subject_kind: "controller", subject: "heater.demand" };
     panel({ ...BASE, latched: ["on_fault:heater.demand"] }, { conditions: [held], onReset: () => undefined, canOperate: false });
     expect(screen.getByTestId("controller-latch").textContent).toContain("Held: door open: held");
     expect(screen.queryByTestId("controller-reset")).toBeNull();
   });
 
   it("reads its own fault latch from its conditions when the snapshot carries none", () => {
-    const latched: Condition = { code: "latched", severity: "error", message: "on_fault: manual", since_ns: 0, scope: "controller", subject: "heater.demand" };
+    const latched: Condition = { code: "latched", severity: "error", message: "on_fault: manual", since_ns: 0, subject_kind: "controller", subject: "heater.demand" };
     panel({ ...BASE }, { conditions: [latched], onReset: () => undefined });
     expect(screen.getByTestId("controller-latch").textContent).toContain("Latched by its fault action");
     expect(screen.getAllByTestId("controller-reset")).toHaveLength(1);

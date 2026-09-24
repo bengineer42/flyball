@@ -88,7 +88,7 @@ limits only colour a widget:
   clears the condition at once.
 
 Each raise and clear is an event (`raised`, `cleared`) like any other
-condition's, and the device's `conditions` carry it with `scope: signal`
+condition's, and the device's `conditions` carry it with `subject_kind: signal`
 and the signal's address as `subject`. `/api/health` counts the signals
 holding each in `alarms` ([API](../../4-server/api.md)). A band alarm is not
 a fault: it does not make the rig unhealthy.

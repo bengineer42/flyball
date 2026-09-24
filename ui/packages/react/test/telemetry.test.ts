@@ -369,7 +369,7 @@ describe("TelemetryStore", () => {
     const { rig, send } = fakeRig();
     const store = new TelemetryStore(rig);
     store.subscribeEvents(() => undefined);
-    const ev = (t: number) => ({ time_ns: t, severity: "info", scope: "rig", subject: "s", code: "k", message: "m", details: null });
+    const ev = (t: number) => ({ time_ns: t, severity: "info", subject_kind: "rig", subject: "s", code: "k", message: "m", details: null });
     send("events", { events: [ev(1), ev(2)] });
     const held = store.events();
     send("events", { events: [ev(1), ev(2)] });

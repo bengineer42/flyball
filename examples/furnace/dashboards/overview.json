@@ -155,7 +155,7 @@
       "config": {
         "level": "INFO",
         "limit": 20,
-        "scope": ""
+        "subject_kind": ""
       }
     }
   ]

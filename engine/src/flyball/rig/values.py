@@ -22,7 +22,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from flyball.foundation.device import Code, Sample, Scope, Severity, Signal
+from flyball.foundation.device import Code, Sample, Severity, Signal, SubjectKind
 from flyball.foundation.device.values import Values
 
 if TYPE_CHECKING:
@@ -133,7 +133,7 @@ class LiveValues:
         self._rig.on_samples([Sample(signal.node, now, {signal: float(value)})])
         self._rig.event(
             Severity.INFO,
-            Scope.SIGNAL,
+            SubjectKind.SIGNAL,
             signal.address,
             Code.VALUE_RESTORED,
             f"restored {value:g}, written by {row.writer or 'someone'}",
@@ -156,7 +156,7 @@ class LiveValues:
         unit = signal.unit.symbol or None
         self._rig.event(
             Severity.INFO,
-            Scope.SIGNAL,
+            SubjectKind.SIGNAL,
             signal.address,
             Code.VALUE_WRITTEN,
             f"set to {value:g}{' ' + unit if unit else ''} by {writer or 'someone'}"

@@ -1111,7 +1111,7 @@ def test_an_edit_that_does_not_build_is_rolled_back_and_said(tmp_path, monkeypat
     try:
         assert EDIT_FAILED_ENV not in os.environ, "said once"
         held = [c for c in rig.conditions.all() if c.code == "edit_not_built"]
-        assert len(held) == 1 and held[0].scope == "rig"
+        assert len(held) == 1 and held[0].subject_kind == "rig"
         assert held[0].message.startswith(f"edit to version {edited.id} did not build: ")
         assert held[0].message.endswith(f"; running version {started.id}")
         assert "drive.nope" not in rig.controllers

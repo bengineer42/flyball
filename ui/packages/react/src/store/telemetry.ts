@@ -928,7 +928,7 @@ export class TelemetryStore {
     if (!e.edge) return;
     if (e.edge === "raised") {
       const codes = this.held.get(e.subject) ?? this.held.set(e.subject, new Map()).get(e.subject)!;
-      codes.set(e.code, { code: e.code, severity: e.severity, message: e.message, since_ns: e.time_ns, scope: e.scope, subject: e.subject, details: e.details });
+      codes.set(e.code, { code: e.code, severity: e.severity, message: e.message, since_ns: e.time_ns, subject_kind: e.subject_kind, subject: e.subject, details: e.details });
     } else {
       const codes = this.held.get(e.subject);
       if (!codes?.delete(e.code)) return;

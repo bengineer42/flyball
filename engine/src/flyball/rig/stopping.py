@@ -47,9 +47,9 @@ from flyball.foundation.device import (
     Code,
     Device,
     Role,
-    Scope,
     Severity,
     Signal,
+    SubjectKind,
 )
 from flyball.foundation.errors import NotFoundError
 from flyball.model.controller import Controller, ControllerMode, FaultAction
@@ -337,7 +337,7 @@ class Stopping:
                 controller.clear_law()
         rig.event(
             Severity.INFO,
-            Scope.RIG,
+            SubjectKind.RIG,
             rig.name or "rig",
             Code.RESET,
             message,
@@ -350,11 +350,11 @@ class Stopping:
         rig = self.rig
         found: list[object] = []
         for subject in latch.subjects:
-            if subject.scope == "controller":
+            if subject.subject_kind == "controller":
                 owner: object | None = rig.controllers.get(subject.subject)
-            elif subject.scope == "device":
+            elif subject.subject_kind == "device":
                 owner = rig.devices.get(subject.subject)
-            elif subject.scope == "signal":
+            elif subject.subject_kind == "signal":
                 try:
                     owner = rig.resolve(subject.subject)
                 except NotFoundError:
@@ -372,13 +372,13 @@ class Stopping:
         return [
             device
             for s in latch.subjects
-            if s.scope == "device" and (device := rig.devices.get(s.subject)) is not None
+            if s.subject_kind == "device" and (device := rig.devices.get(s.subject)) is not None
         ]
 
     def _held_signals(self, latch: Latch) -> list[Signal]:
         found: list[Signal] = []
         for subject in latch.subjects:
-            if subject.scope == "signal":
+            if subject.subject_kind == "signal":
                 try:
                     signal = self.rig.resolve(subject.subject)
                 except NotFoundError:
@@ -430,7 +430,7 @@ class Stopping:
         accrued_s = outage.accrual.total_ns(rig.clock.now_ns()) / 1e9
         rig.event(
             Severity.ERROR,
-            Scope.CONTROLLER,
+            SubjectKind.CONTROLLER,
             controller.name,
             Code.ON_FAULT,
             f"source faulty for {accrued_s:.3f} s ({outage.reason}): {action.value}"
@@ -760,7 +760,7 @@ def _applied(rig: Rig, why: str, devices: Mapping[str, DeviceStop]) -> None:
     }
     rig.event(
         Severity.ERROR if counts["failed"] else Severity.WARNING,
-        Scope.RIG,
+        SubjectKind.RIG,
         rig.name or "rig",
         Code.STOP_APPLIED,
         f"{why}: {counts['stopped']} stopped, {counts['unchanged']} unchanged,"
@@ -795,7 +795,7 @@ def _manual(rig: Rig, why: str | None) -> dict[str, str]:
         if why is not None and was is ControllerMode.REGULATING:
             rig.event(
                 Severity.INFO,
-                Scope.CONTROLLER,
+                SubjectKind.CONTROLLER,
                 name,
                 Code.INTERRUPTED,
                 f"put in manual by the {why}",

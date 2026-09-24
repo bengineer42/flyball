@@ -28,7 +28,7 @@ class Severity(StrEnum):
 _RANKS = {Severity.DEBUG: 10, Severity.INFO: 20, Severity.WARNING: 30, Severity.ERROR: 40}
 
 
-class Scope(StrEnum):
+class SubjectKind(StrEnum):
     """Which part of the rig an event or a condition concerns; its `subject` names which one."""
 
     DEVICE = "device"
@@ -195,8 +195,8 @@ class Condition:
     message: str
     since_ns: int
     """When it was raised; a repeated `set` keeps it."""
-    scope: str
-    """The owner's kind: a [Scope][flyball.foundation.device.state.Scope] -- `device`,
+    subject_kind: str
+    """The owner's kind: a [SubjectKind][flyball.foundation.device.state.SubjectKind] -- `device`,
     `signal`, `controller`, `rig`."""
     subject: str
     """The owner's name: a device's or controller's name, a signal's address, the rig's."""
@@ -215,9 +215,9 @@ class Event:
 
     time_ns: int
     severity: Severity
-    scope: str
-    """Which part: a [Scope][flyball.foundation.device.state.Scope] -- `device`, `signal`,
-    `controller`, `program`, `rig`."""
+    subject_kind: str
+    """Which part: a [SubjectKind][flyball.foundation.device.state.SubjectKind] -- `device`,
+    `signal`, `controller`, `program`, `rig`."""
     subject: str
     """The device, signal, controller, program step or rig it concerns."""
     code: str

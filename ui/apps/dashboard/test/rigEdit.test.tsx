@@ -32,7 +32,7 @@ function runner(edit: (r: Request) => Response) {
     asked,
     restarted(failed = false) {
       start = 2;
-      if (failed) conditions = [{ code: "edit_not_built", severity: "error", message: "probe: no such link", since_ns: 0, scope: "rig", subject: "furnace" }];
+      if (failed) conditions = [{ code: "edit_not_built", severity: "error", message: "probe: no such link", since_ns: 0, subject_kind: "rig", subject: "furnace" }];
     },
   };
 }

@@ -31,7 +31,7 @@ from queue import Queue
 from threading import Lock, Thread
 from typing import Any
 
-from .state import Condition, Edge, Event, Scope, Severity
+from .state import Condition, Edge, Event, Severity, SubjectKind
 
 log = logging.getLogger("flyball.conditions")
 
@@ -45,22 +45,23 @@ class ConditionEdge:
     condition: Condition
     """The condition as it was raised, or as it stood when it cleared."""
     event: Event
-    """The event recorded for it: `edge`, `code`, `severity`, `scope`, `subject`, `time_ns`."""
+    """The event recorded for it: `edge`, `code`, `severity`, `subject_kind`, `subject`,
+    `time_ns`."""
 
 
 type Describe = Callable[[object], tuple[str, str]]
-"""An owner's `(scope, subject)`: `("device", "furnace")`."""
+"""An owner's `(subject_kind, subject)`: `("device", "furnace")`."""
 
 
 def describe(owner: object) -> tuple[str, str]:
-    """A device's or a signal's scope and name, without importing either (no cycle)."""
+    """A device's or a signal's kind and name, without importing either (no cycle)."""
     from .device import Device
     from .signal import Signal
 
     if isinstance(owner, Device):
-        return Scope.DEVICE, owner.name
+        return SubjectKind.DEVICE, owner.name
     if isinstance(owner, Signal):
-        return Scope.SIGNAL, owner.address
+        return SubjectKind.SIGNAL, owner.address
     raise TypeError(f"{type(owner).__name__} cannot own a condition here")
 
 
@@ -113,11 +114,11 @@ class Conditions:
                 held = replace(entry[1], severity=severity, message=message, details=details)
                 self._held[key] = (owner, held)
                 return False
-            scope, subject = self._describe(owner)
+            subject_kind, subject = self._describe(owner)
             now = self.now_ns()
-            condition = Condition(code, severity, message, now, scope, subject, details)
+            condition = Condition(code, severity, message, now, subject_kind, subject, details)
             self._held[key] = (owner, condition)
-            event = Event(now, severity, scope, subject, code, message, details, Edge.RAISED)
+            event = Event(now, severity, subject_kind, subject, code, message, details, Edge.RAISED)
             self._transition(owner, condition, event)
             return True
 
@@ -145,7 +146,7 @@ class Conditions:
             event = Event(
                 now,
                 Severity.INFO,
-                condition.scope,
+                condition.subject_kind,
                 condition.subject,
                 condition.code,
                 message or f"cleared: {condition.message}",
@@ -168,8 +169,8 @@ class Conditions:
         What happened once rather than what is true now: a blend flow resolved,
         a request clamped.
         """
-        scope, subject = self._describe(owner)
-        event = Event(self.now_ns(), severity, scope, subject, str(code), message, details)
+        subject_kind, subject = self._describe(owner)
+        event = Event(self.now_ns(), severity, subject_kind, subject, str(code), message, details)
         if self._emit is not None:
             try:
                 self._emit(event)

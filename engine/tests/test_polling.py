@@ -91,7 +91,9 @@ def test_offline_after_the_budget_with_a_condition_and_an_event(rig, clock, furn
     assert offline.code == "offline" and offline.severity is Severity.ERROR
     assert "modbus timeout" in offline.message
     event = rig.recent[-1]
-    assert event.code == "offline" and event.scope == "device" and event.subject == furnace.name
+    assert (
+        event.code == "offline" and event.subject_kind == "device" and event.subject == furnace.name
+    )
     assert event.edge == "raised"
     clock.advance(5.0)
     assert furnace.reads == 6, "retried after 1 s, then 2 s: backing off"
@@ -120,7 +122,7 @@ def test_a_failure_downstream_of_a_read_is_the_rig_s(rig, clock, furnace, fresh)
     assert rig.conditions.of(furnace) == [], "the device read fine"
     assert run.last_read_ns == clock.now_ns()
     event = rig.recent[-1]
-    assert event.code == "write_failed" and event.scope == "device"
+    assert event.code == "write_failed" and event.subject_kind == "device"
     assert event.subject == broken.name, "the committing device's, not the polled one's"
     assert "a bug in a driver's commit" in event.message
     assert run.running is True
@@ -136,7 +138,7 @@ def test_a_failure_in_the_delivery_itself_is_delivery_failed(rig, clock, furnace
     run = rig.polling.run(furnace.name)
     assert rig.conditions.of(furnace) == [] and run.running is True
     event = rig.recent[-1]
-    assert event.code == "delivery_failed" and event.scope == "rig"
+    assert event.code == "delivery_failed" and event.subject_kind == "rig"
     assert "a bug downstream" in event.message
 
 

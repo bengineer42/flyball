@@ -40,8 +40,8 @@ const HEALTH = {
   recording: false,
   stopped: { by: "local:console", at_ns: 1_790_000_000_000_000_000, reason: "operator" },
   latches: [
-    { scope: "rig", subject: "furnace", cause: "stop" },
-    { scope: "controller", subject: "heaters.heater1", cause: "on_fault:heaters.heater1" },
+    { subject_kind: "rig", subject: "furnace", cause: "stop" },
+    { subject_kind: "controller", subject: "heaters.heater1", cause: "on_fault:heaters.heater1" },
   ],
 };
 

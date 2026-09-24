@@ -28,14 +28,14 @@ const EventsWidget = memo(function EventsWidget({ config, widget }: WidgetCompon
   const { rowHeight } = useRigData();
   const from = SEVERITIES.indexOf(String(config.severity ?? "info").toLowerCase() as Severity);
   const allowed = new Set(SEVERITIES.slice(Math.max(0, from)));
-  const scope = String(config.scope ?? "").trim();
+  const subjectKind = String(config.subject_kind ?? "").trim();
   const limit = Math.min(Math.max(1, Number(config.limit ?? 20)), rowsThatFit(widget.h, rowHeight, true, MORE_PX, ROW_PX));
   const shown: typeof events = [];
   let matching = 0;
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i]!;
     if (!allowed.has(e.severity)) continue;
-    if (scope && e.scope !== scope) continue;
+    if (subjectKind && e.subject_kind !== subjectKind) continue;
     matching++;
     if (shown.length < limit) shown.push(e);
   }
@@ -49,7 +49,7 @@ const EventsWidget = memo(function EventsWidget({ config, widget }: WidgetCompon
       <table>
         <tbody>
           {shown.map((e, i) => (
-            <tr key={`${e.time_ns}-${i}`} title={`${e.scope} · ${humaniseSubject(e.subject)} · ${e.code}\n${new Date(e.time_ns / 1e6).toLocaleString()}`}>
+            <tr key={`${e.time_ns}-${i}`} title={`${e.subject_kind} · ${humaniseSubject(e.subject)} · ${e.code}\n${new Date(e.time_ns / 1e6).toLocaleString()}`}>
               <td className="dash-events-time">{TIME.format(new Date(e.time_ns / 1e6))}</td>
               <Box component="td" className="dash-events-kind" sx={{ color: SEVERITY_COLOUR[e.severity], fontWeight: atLeast(e.severity, "warning") ? 600 : 400 }}>
                 {humanise(e.code)}
@@ -72,7 +72,7 @@ const EventsWidget = memo(function EventsWidget({ config, widget }: WidgetCompon
 export const events: WidgetKind = {
   kind: "events",
   label: "Events",
-  description: "The rig's latest events, newest first, from a severity up; optionally one scope only.",
+  description: "The rig's latest events, newest first, from a severity up; optionally one kind of subject only.",
   category: "status",
   // 12×6: a 150px body shows 5 rows and the "all events" line; 6×3 shows one row (DESIGN-SPEC.md §10).
   defaultSize: { w: 12, h: 6 },
@@ -83,10 +83,10 @@ export const events: WidgetKind = {
     properties: {
       severity: { type: "string", title: "From severity", default: "info", enum: [...SEVERITIES], description: "This severity and above." },
       limit: { type: "integer", title: "Rows", default: 20, minimum: 1, maximum: 200, description: "At most; the widget shows as many as its height holds." },
-      scope: { type: "string", title: "Scope", default: "", description: "Only this scope (`program`, `controller`, `device`, …); blank for all." },
+      subject_kind: { type: "string", title: "Subject kind", default: "", description: "Only events about this kind of subject (`program`, `controller`, `device`, …); blank for all." },
     },
   }),
-  defaultConfig: () => ({ severity: "info", limit: 20, scope: "" }),
-  titleFor: (config) => (config.scope ? `${String(config.scope)} events` : "Events"),
+  defaultConfig: () => ({ severity: "info", limit: 20, subject_kind: "" }),
+  titleFor: (config) => (config.subject_kind ? `${String(config.subject_kind)} events` : "Events"),
   Component: EventsWidget,
 };

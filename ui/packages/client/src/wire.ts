@@ -209,7 +209,7 @@ export interface Condition {
   /** When it was raised. */
   since_ns: Nanoseconds;
   /** The owner's kind: `device`, `signal`, `controller`, `rig`. */
-  scope: string;
+  subject_kind: string;
   /** The owner: a device's or controller's name, a signal's address, the rig's name. */
   subject: string;
   details?: unknown;
@@ -750,7 +750,7 @@ export interface Health {
   devices: Record<string, { running: boolean; last_read_ns: Nanoseconds | null }>;
   /** Each controller's mode, by name. */
   controllers: Record<Address, ControllerMode>;
-  /** Every condition held now, on any device, signal, controller or the rig (`scope`, `subject`). */
+  /** Every condition held now, on any device, signal, controller or the rig (`subject_kind`, `subject`). */
   conditions: Condition[];
   /**
    * Signals holding the rig's `band_warning` (warn), `band_alarm` (alarm) or
@@ -771,7 +771,7 @@ export interface Health {
 
 /** One subject a latch holds (`/api/health` `latches`). */
 export interface LatchRow {
-  scope: "rig" | "device" | "signal" | "controller";
+  subject_kind: "rig" | "device" | "signal" | "controller";
   subject: string;
   /** `stop` (the rig stop), or `on_fault:<controller>`: what a Reset names. */
   cause: string;
@@ -785,7 +785,7 @@ export interface ErrorDetail {
 export interface Event {
   time_ns: Nanoseconds;
   severity: Severity;
-  scope: string;
+  subject_kind: string;
   subject: string;
   code: string;
   message: string;
@@ -1000,7 +1000,7 @@ export interface ResetRequest {
 /** A latch held: `GET /api/rig/latches`, and what `POST /api/rig/reset` answers. */
 export interface LatchOut {
   cause: string;
-  subjects: { scope: LatchRow["scope"]; subject: string }[];
+  subjects: { subject_kind: LatchRow["subject_kind"]; subject: string }[];
   by: string;
   at_ns: Nanoseconds;
   reason: string;
@@ -1262,8 +1262,10 @@ export interface WriteStateRow extends WriteOut {
 export interface SessionEvent {
   offset_ns: Nanoseconds;
   code: string;
-  source: string | null;
-  detail: unknown;
+  /** What it is about: a device, a signal, a controller, a program step, the rig. */
+  subject: string | null;
+  /** `{severity, subject_kind, message, details}` as the rig recorded it. */
+  details: unknown;
   id: number | null;
   /** `raised` or `cleared` for a condition's start or end; `null` for a point event. */
   edge: Edge | null;

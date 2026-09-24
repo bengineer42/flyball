@@ -44,10 +44,10 @@ from flyball.foundation.device import (
     Reason,
     Role,
     Sample,
-    Scope,
     Severity,
     Signal,
     Staged,
+    SubjectKind,
     WriteState,
     normalised,
     stale,
@@ -484,7 +484,7 @@ class Rig:
     def event(
         self,
         severity: Severity,
-        scope: Scope,
+        subject_kind: SubjectKind,
         subject: str,
         code: Code,
         message: str,
@@ -495,7 +495,7 @@ class Rig:
         A point event. What starts and ends -- a condition -- goes through
         [conditions][flyball.rig.rig.Rig.conditions], whose edges come here too.
         """
-        event = Event(self.clock.now_ns(), severity, scope, subject, code, message, details)
+        event = Event(self.clock.now_ns(), severity, subject_kind, subject, code, message, details)
         self._publish(event)
         return event
 
@@ -510,7 +510,7 @@ class Rig:
         log.log(
             Severity(event.severity).rank,
             "%s %s %s%s: %s",
-            event.scope,
+            event.subject_kind,
             event.subject,
             event.code,
             edge,
@@ -520,21 +520,21 @@ class Rig:
         self.events.publish(event)
         if (recorder := self.recorder) is not None:
             recorder.event(event)
-        if event.edge is not None and event.scope == Scope.DEVICE:
+        if event.edge is not None and event.subject_kind == SubjectKind.DEVICE:
             self.polling.touch(event.subject)
-        elif event.edge is not None and event.scope == Scope.SIGNAL:
+        elif event.edge is not None and event.subject_kind == SubjectKind.SIGNAL:
             self.polling.touch(event.subject.partition(".")[0])  # its device's run carries it
 
     def _describe(self, owner: object) -> tuple[str, str]:
-        """A condition owner's scope and name: a device, a signal, a controller, or this rig."""
+        """A condition owner's kind and name: a device, a signal, a controller, or this rig."""
         if owner is self:
-            return Scope.RIG, self.name or "rig"
+            return SubjectKind.RIG, self.name or "rig"
         if isinstance(owner, Device):
-            return Scope.DEVICE, owner.name
+            return SubjectKind.DEVICE, owner.name
         if isinstance(owner, Signal):
-            return Scope.SIGNAL, owner.address
+            return SubjectKind.SIGNAL, owner.address
         if isinstance(owner, Controller):
-            return Scope.CONTROLLER, owner.name
+            return SubjectKind.CONTROLLER, owner.name
         raise TypeError(f"{type(owner).__name__} cannot own a condition")
 
     def close(self) -> None:
@@ -1101,7 +1101,7 @@ class Rig:
                 for signal, value in clamped.items():
                     self.event(
                         Severity.WARNING,
-                        Scope.SIGNAL,
+                        SubjectKind.SIGNAL,
                         signal.address,
                         Code.WRITTEN_WHILE_STOPPED,
                         f"written {value:g} by {writer} while the rig is stopped; still stopped",
@@ -1559,7 +1559,7 @@ class Rig:
             )
             self.event(
                 Severity.INFO,
-                Scope.DEVICE,
+                SubjectKind.DEVICE,
                 device.name,
                 Code.RESENT,
                 f"re-sent {signal.address}={value:g}{at}",
@@ -1651,7 +1651,7 @@ class Rig:
             age_s = (self.clock.now_ns() - staged_ns) / 1e9
             self.event(
                 Severity.WARNING,
-                Scope.DEVICE,
+                SubjectKind.DEVICE,
                 device.name,
                 Code.WRITE_DROPPED,
                 f"dropped {signal.address}={value:g}: not sent in {age_s:.0f} s, past"
@@ -1855,7 +1855,7 @@ class Rig:
         self._ignored.add(signal)
         self.event(
             Severity.WARNING,
-            Scope.DEVICE,
+            SubjectKind.DEVICE,
             device.name,
             Code.DEMAND_IGNORED,
             f"'{signal.address}': {value} was not read by the driver's commit; nothing was set",
@@ -2253,7 +2253,7 @@ class Rig:
         assert actor is not None
         self.event(
             Severity.WARNING,
-            Scope.DEVICE,
+            SubjectKind.DEVICE,
             device.name,
             Code.WRITTEN_WHILE_STOPPED,
             f"{spec.name} run by {actor.sub} while the rig is stopped; still stopped",
@@ -2313,7 +2313,7 @@ class Rig:
             interrupted.append(Interrupted(holder.name, was))
             self.event(
                 Severity.INFO,
-                Scope.CONTROLLER,
+                SubjectKind.CONTROLLER,
                 holder.name,
                 Code.INTERRUPTED,
                 f"put in manual by {device.name}.{command}",
@@ -2487,7 +2487,7 @@ class Rig:
         later = "" if was is None or now is None or now <= was else f", {now - was:.3f} s later"
         self.event(
             Severity.INFO,
-            Scope.CONTROLLER,
+            SubjectKind.CONTROLLER,
             controller.name,
             Code.RESEEDED,
             f"resumed after a hold: its trajectory goes on from the reading at its own rate{later}",

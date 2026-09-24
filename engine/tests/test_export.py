@@ -87,7 +87,7 @@ def client(tmp_path, fresh):
         2_000_000_000,
         {drive: WriteState(value=5.0, requested=None, at_limit=None, controller=controller.name)},
     )
-    writer.write_event(Event(1_500_000_000, "note", detail={"x": 1}))
+    writer.write_event(Event(1_500_000_000, "note", details={"x": 1}))
     session_id = writer.session.id
     writer.end(START_NS + 3_000_000_000)
     rig = Rig()
@@ -196,8 +196,8 @@ def test_signal_controller_write_and_events(client):
             "time_s": 1.5,
             "time": "2023-11-14T22:13:21.500Z",
             "code": "note",
-            "source": "",
-            "detail": '{"x": 1}',
+            "subject": "",
+            "details": '{"x": 1}',
         }
     ]
 

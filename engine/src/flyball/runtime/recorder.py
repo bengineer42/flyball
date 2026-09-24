@@ -194,7 +194,7 @@ class Recorder:
             event.subject,
             {
                 "severity": str(event.severity),
-                "scope": event.scope,
+                "subject_kind": event.subject_kind,
                 "message": event.message,
                 "details": event.details,
             },

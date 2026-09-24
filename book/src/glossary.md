@@ -91,7 +91,7 @@ equivalent of the program step **wait**.
 
 **event** — something that *happened*: a step failed, a device went
 offline, an activity timed out. A point in time with a `code`, a `severity`
-(`debug`, `info`, `warning`, `error`), a scope, a subject and, for a
+(`debug`, `info`, `warning`, `error`), a subject and its kind (`subject_kind`) and, for a
 condition's start or end, an **edge**; streamed on `/ws/events` and written to the session when
 recording.
 

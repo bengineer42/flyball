@@ -408,7 +408,7 @@
     {
       "kind": "events",
       "label": "Events",
-      "description": "The rig's latest events, newest first, from a severity up; optionally one scope only.",
+      "description": "The rig's latest events, newest first, from a severity up; optionally one kind of subject only.",
       "category": "status",
       "default_size": {
         "w": 12,
@@ -443,11 +443,11 @@
             "maximum": 200,
             "description": "At most; the widget shows as many as its height holds."
           },
-          "scope": {
+          "subject_kind": {
             "type": "string",
-            "title": "Scope",
+            "title": "Subject kind",
             "default": "",
-            "description": "Only this scope (`program`, `controller`, `device`, …); blank for all."
+            "description": "Only events about this kind of subject (`program`, `controller`, `device`, …); blank for all."
           }
         }
       }

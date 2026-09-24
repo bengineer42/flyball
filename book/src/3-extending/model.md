@@ -274,7 +274,7 @@ slow, a sensor failed, a controller held. It is not a signal. It lives in
 the rig's condition store, `rig.conditions`, keyed by the object it is
 true of -- a `Device`, a `Signal`, a `Controller`, or the rig itself --
 and its `code`, and it carries a `severity` (`debug`, `info`, `warning`,
-`error`), a message, `since_ns`, and its owner's `scope` and `subject`.
+`error`), a message, `since_ns`, and its owner's `subject_kind` and `subject`.
 Keyed by the object, not a name: a device removed and another added under
 the same name start clean, and removing a device (or detaching a
 controller) clears what it held.

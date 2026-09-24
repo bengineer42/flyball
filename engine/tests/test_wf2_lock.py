@@ -383,7 +383,7 @@ class TestProgrammerLocks:
         b.join(2.0)
         assert not a.is_alive() and not b.is_alive()
         assert not programmer.running
-        ends = [e.code for e in rig.recent if e.scope == "program"]
+        ends = [e.code for e in rig.recent if e.subject_kind == "program"]
         assert ends[-1] == "interrupted", ends
 
     def test_cancel_ends_the_long_command_its_step_runs(self, fresh, monkeypatch):

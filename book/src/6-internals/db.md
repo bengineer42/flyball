@@ -166,7 +166,7 @@ migration `tick.reading`/`tick.demand` became `measured`/`output` and
 `controller.source` became `measured`. A session's `config` keeps the
 spelling it was recorded with: it is never loaded again. Migration 0019
 renamed `event.kind` to `code` and rewrote the severity each event's JSON
-`detail` carries from `logging`'s number (`level`: 10-40) to the lowercase
+`details` carries from `logging`'s number (`level`: 10-40) to the lowercase
 string the wire uses (`severity`: `debug`, `info`, `warning`, `error`).
 Migration 0020 added `event.edge`: `raised`, `cleared` or NULL for a point
 event. Codes the runtime raised as conditions before it had edges
@@ -175,7 +175,7 @@ event. Codes the runtime raised as conditions before it had edges
 `raised`; the codes that said one had ended became the `cleared` edge of
 their pair (`write_recovered`, `commit_recovered`, `step_recovered`,
 `limit_known`, and a device's `restarted`, which is `offline` cleared).
-The severity stays in the JSON `detail` as its string; the `edge` is a
+The severity stays in the JSON `details` as its string; the `edge` is a
 column, so a session's condition history is one indexed query.
 
 Migration 0021 made `reading.value` nullable and added `reading.flag`
@@ -237,7 +237,7 @@ no longer load.
 
 Migration 0025 added `latch`: one row per latch cause held -- the rig
 stop (`stop`) or a controller's `on_fault` action (`on_fault:<controller>`)
--- with `subjects` as JSON `[{scope, subject}]` (`rig`, `device`, `signal`,
+-- with `subjects` as JSON `[{subject_kind, subject}]` (`rig`, `device`, `signal`,
 `controller`), `by` (the principal's `sub`, or `on_fault`), `at_ns` (wall
 time), `reason` and `action` (a fault's). A row is written when the latch
 is set and deleted by its Reset. At start, before serving,

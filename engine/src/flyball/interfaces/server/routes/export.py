@@ -168,12 +168,12 @@ def events_table(store: Store, session_id: int) -> tuple[list[str], list[list]]:
         [
             *_stamp(session.start_ns, e.offset_ns),
             e.code,
-            e.source or "",
-            json.dumps(e.detail) if e.detail is not None else "",
+            e.subject or "",
+            json.dumps(e.details) if e.details is not None else "",
         ]
         for e in store.events(session_id)
     ]
-    return [*TIME_COLUMNS, "code", "source", "detail"], rows
+    return [*TIME_COLUMNS, "code", "subject", "details"], rows
 
 
 # endregion

@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import SerializeAsAny, TypeAdapter, ValidationError
 
 from flyball.control.errors import TuningNotRegisteredError
-from flyball.foundation.device import Code, Condition, Scope, Severity
+from flyball.foundation.device import Code, Condition, Severity, SubjectKind
 from flyball.interfaces.server.deps import (
     RigDep,
     current_exposure,
@@ -54,7 +54,7 @@ def _alarm_summary(conditions: list[dict[str, Any]]) -> dict[str, int]:
     """
     held: dict[str, str] = {}
     for c in conditions:
-        if c["scope"] != Scope.SIGNAL or c["code"] not in BANDS:
+        if c["subject_kind"] != SubjectKind.SIGNAL or c["code"] not in BANDS:
             continue
         if _RANK[c["code"]] > _RANK.get(held.get(c["subject"], ""), 0):
             held[c["subject"]] = c["code"]
@@ -75,7 +75,7 @@ CONDITION = TypeAdapter(Condition)
 def _conditions(rig: Rig) -> list[dict[str, Any]]:
     """Every condition held now, from the rig's store: the runtime's and the drivers' alike.
 
-    Each carries its `scope` and `subject`. A snapshot of the store under its
+    Each carries its `subject_kind` and `subject`. A snapshot of the store under its
     own lock, never the rig's: the health route runs on the event loop, which
     must not wait on a delivery.
     """
@@ -92,7 +92,7 @@ async def read_health() -> dict[str, Any]:
     `ok` is false with any fault condition at `error`; a band alarm is not a
     fault, and is counted in `alarms` instead. `stopped` is the rig stop's latch
     (`{by, at_ns, reason}`, null when not stopped); `latches` every latch cause held,
-    one row per subject (`{scope, subject, cause}`).
+    one row per subject (`{subject_kind, subject, cause}`).
 
     Lock-free: on the event loop, a watchdog must be answered while a delivery holds the
     rig's lock, so it reads C-level `list(...)` snapshots of the rig's dicts instead.

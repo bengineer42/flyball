@@ -544,15 +544,15 @@ class SqliteSessionWriter:
         self._open()
         with self._store._transaction() as connection:
             cursor = connection.execute(
-                "INSERT INTO event (session_id, offset_ns, source, code, edge, detail)"
+                "INSERT INTO event (session_id, offset_ns, subject, code, edge, details)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     self._session.id,
                     event.offset_ns,
-                    event.source,
+                    event.subject,
                     event.code,
                     event.edge,
-                    _dumps(event.detail),
+                    _dumps(event.details),
                 ),
             )
             return int(cursor.lastrowid or 0)
@@ -1033,8 +1033,8 @@ class SqliteStore:
             (target_id, delta, *([target_id] if mapped else []), source.id, lo, hi),
         )
         connection.execute(
-            "INSERT INTO event (session_id, offset_ns, source, code, edge, detail)"
-            " SELECT ?, offset_ns + ?, source, code, edge, detail FROM event"
+            "INSERT INTO event (session_id, offset_ns, subject, code, edge, details)"
+            " SELECT ?, offset_ns + ?, subject, code, edge, details FROM event"
             " WHERE session_id = ? AND offset_ns >= ? AND offset_ns < ? ORDER BY offset_ns, id",
             (target_id, delta, source.id, lo, hi),
         )
@@ -1287,8 +1287,8 @@ class SqliteStore:
             Event(
                 r["offset_ns"] - shift,
                 r["code"],
-                r["source"],
-                _loads(r["detail"]),
+                r["subject"],
+                _loads(r["details"]),
                 r["id"],
                 r["edge"],
             )

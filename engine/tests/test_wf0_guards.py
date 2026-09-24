@@ -23,8 +23,8 @@ from flyball.foundation.device import (
     Readable,
     Readout,
     Sample,
-    Scope,
     Severity,
+    SubjectKind,
     WriteState,
 )
 from flyball.interfaces.server import create_app, set_rig
@@ -99,7 +99,7 @@ class TestCommitFailure:
         assert good.commits == 1, "the other device still committed"
         assert len(recorder.records) == 1, "the recorder still got the delivery"
         (event,) = _events(rig, Code.WRITE_FAILED)
-        assert event.scope == Scope.DEVICE and event.subject == flaky.name
+        assert event.subject_kind == SubjectKind.DEVICE and event.subject == flaky.name
         assert event.severity is Severity.ERROR and "bus gone" in event.message
         assert not _events(rig, Code.DELIVERY_FAILED)
 
@@ -229,7 +229,7 @@ def test_a_demand_the_driver_did_not_read_is_reported_not_echoed(rig, fresh):
     a, b = picky.signals["a"], picky.signals["b"]
     states = rig.write(picky.root, {b: 5.0})
     (event,) = _events(rig, Code.DEMAND_IGNORED)
-    assert event.scope == Scope.DEVICE and event.subject == picky.name
+    assert event.subject_kind == SubjectKind.DEVICE and event.subject == picky.name
     assert event.severity is Severity.WARNING and event.details["signal"] == b.address
     assert rig.latest.get(b) is None, "not echoed as a readback"
     assert states[b] == WriteState(value=None, requested=5.0)
@@ -344,7 +344,7 @@ def test_a_nan_reading_crosses_as_null_on_the_samples_stream(rig, furnace, serve
 
 
 def test_a_nan_in_an_event_crosses_as_null(rig, served):
-    rig.event(Severity.INFO, Scope.RIG, "x", Code.RESTORED, "odd", {"value": math.nan})
+    rig.event(Severity.INFO, SubjectKind.RIG, "x", Code.RESTORED, "odd", {"value": math.nan})
     with served.websocket_connect("/ws/events") as ws:
         frame = _strict(ws.receive_text())
         assert frame["events"][-1]["details"] == {"value": None}  # type: ignore[index]

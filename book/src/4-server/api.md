@@ -148,7 +148,7 @@ transaction begun inside another under the same error; `detail` says which.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, activities, recording, stopped, latches}`; `stopped` is `{by, at_ns, reason}` while the rig is latched by a stop, else `null`; `latches` is `[{scope, subject, cause}]`, every subject a latch holds; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every [`Condition`](wire.md#devices) held now, from the rig's condition store, on any device, signal, controller or the rig itself (`[{code, severity, message, since_ns, scope, subject, details}]`: `offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path, `stale_input`/`limit_unknown`/`step_failed`/`not_permitted` on a controller, `stopped` on the rig and `latched` on what an `on_fault` action holds, `band_warning`/`band_alarm`/`band_unknown` on a signal, `frozen` on a controller, `recording_failed` on the rig, and each driver's own on its device or signals); `alarms` is `{warn, alarm, unknown, max_level}`, counted from the rig's band conditions: `warn` is the signals holding `band_warning` (outside their `warning` band), `alarm` those holding `band_alarm` (outside `alarm`), `unknown` those holding `band_unknown` (a banded signal with no value because of a fault, past its grace, whose `on_no_value` is `fire`), each signal once, `unknown` first; these keep the rig's hysteresis ([Bands](../2-config/devices/index.md#bands)). Fault conditions are never alarms: one offline device is one condition and zero alarms. `max_level` is `40`/`30`/`0` from `alarm`/`warn`; `unknown` does not raise it. `ok` is false while any condition at `error` is held other than a band condition -- a band alarm is not a fault; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
+| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, activities, recording, stopped, latches}`; `stopped` is `{by, at_ns, reason}` while the rig is latched by a stop, else `null`; `latches` is `[{subject_kind, subject, cause}]`, every subject a latch holds; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every [`Condition`](wire.md#devices) held now, from the rig's condition store, on any device, signal, controller or the rig itself (`[{code, severity, message, since_ns, subject_kind, subject, details}]`: `offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path, `stale_input`/`limit_unknown`/`step_failed`/`not_permitted` on a controller, `stopped` on the rig and `latched` on what an `on_fault` action holds, `band_warning`/`band_alarm`/`band_unknown` on a signal, `frozen` on a controller, `recording_failed` on the rig, and each driver's own on its device or signals); `alarms` is `{warn, alarm, unknown, max_level}`, counted from the rig's band conditions: `warn` is the signals holding `band_warning` (outside their `warning` band), `alarm` those holding `band_alarm` (outside `alarm`), `unknown` those holding `band_unknown` (a banded signal with no value because of a fault, past its grace, whose `on_no_value` is `fire`), each signal once, `unknown` first; these keep the rig's hysteresis ([Bands](../2-config/devices/index.md#bands)). Fault conditions are never alarms: one offline device is one condition and zero alarms. `max_level` is `40`/`30`/`0` from `alarm`/`warn`; `unknown` does not raise it. `ok` is false while any condition at `error` is held other than a band condition -- a band alarm is not a fault; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
 | `GET` | `/api/schema` | `{devices: {name: DeviceSchema}}` |
 | `GET` | `/api/clock` | `ClockOut`: `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 | `GET` | `/api/tunings` | `{name: LawConfig}` |
@@ -421,13 +421,13 @@ Reads the store, never the rig.
 | `GET` | `/api/history/sessions/{id}/series/{address}` | `Series {signal: SignalRow, points, downsample}`, a point `{offset_ns, value, flag}`: `value` `null` where the reading had none, with `flag` its code (1 `invalid`, 2 `not_applicable`, 3 `stale`, 4 `stale` with the device offline), else `flag` the value's mark (16/17 `at_limit` low/high) or `null` ([no value](wire.md#a-reading-with-no-value)); query `start_ns`, `end_ns`, and one of `every` (every nth, and every reading with no value), `bucket_ns`, `max_points` (averaged: a bucket with any reading with no value is `null`, with the lowest code in it) |
 | `GET` | `/api/history/sessions/{id}/writes/{address}` | `[WriteStateRow {offset_ns, value, requested, at_limit, controller}]`; query `start_ns`, `end_ns` |
 | `GET` | `/api/history/sessions/{id}/ticks/{controller}` | `[Tick {controller, offset_ns, mode, correction, measured, setpoint, output, expected, delivered_correction, reapplied}]`; query `start_ns`, `end_ns`. A tick's `correction` is `null` when the law's output was not a number (a NaN integral); `reapplied` is true on a re-apply of a moving setpoint's feedforward between readings, which has no reading (`measured` null) and did not step the law |
-| `GET` | `/api/history/sessions/{id}/events` | `[Event]`; query `start_ns`, `end_ns`, `code` |
+| `GET` | `/api/history/sessions/{id}/events` | `[{offset_ns, code, subject, details, id, edge}]`, the events as recorded: `subject` what it is about, `details` `{severity, subject_kind, message, details}`; query `start_ns`, `end_ns`, `code` |
 | `GET` | `/api/history/sessions/{id}/spans` | `[Span]`, in start order; nest by `parent_id` |
 | `GET` | `/api/history/sessions/{id}/export?format=csv\|json\|zip&layout=wide\|long&step_s=` | the session as a file: `wide` one column per signal (each row holds every signal's last value; `step_s` resamples onto a grid), `long` one row per value (`device, signal, unit, value`), `zip` both (`signals-wide.csv`, `signals-long.csv`) plus each controller's ticks (`controller-{name}.csv`), each write's states (`write-{address}.csv`), `events.csv` and `session.json` (`devices`, `signals`, `controllers`) |
 | `GET` | `/api/history/sessions/{id}/series/{address}/export?format=` | one signal as csv/json |
 | `GET` | `/api/history/sessions/{id}/writes/{address}/export?format=` | one signal's write states as csv/json |
 | `GET` | `/api/history/sessions/{id}/ticks/{controller}/export?format=` | one controller's ticks as csv/json |
-| `GET` | `/api/history/sessions/{id}/events/export?format=` | the events as csv/json |
+| `GET` | `/api/history/sessions/{id}/events/export?format=` | the events as csv/json: `time_s`, `time`, `code`, `subject`, `details` |
 | `GET` | `/api/history/tunings` | `[TuningRow]`, newest version of every name |
 | `GET` | `/api/history/tunings/{name}` | `TuningRow` |
 | `GET` | `/api/history/tunings/{name}/history` | `[TuningRow]`, newest first |
@@ -528,9 +528,9 @@ Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answe
 | --- | --- | --- |
 | `GET` | `/api/events?limit=&severity=` | the last few hundred `Event`s, oldest first; `severity` keeps that severity and above |
 
-An `Event` is `{time_ns, severity, scope, subject, code, message, details, edge}`;
+An `Event` is `{time_ns, severity, subject_kind, subject, code, message, details, edge}`;
 `severity` is `debug`, `info`, `warning` or `error` (the same lowercase
-string a condition carries). `scope` is `device`, `signal`,
+string a condition carries). `subject_kind` is `device`, `signal`,
 `controller`, `program` or `rig`, and `subject` names which one. `code` is
 one of a fixed set. Most are **point events** (`edge: null`): something
 happened. The codes marked *condition* below are held in the rig's
@@ -540,7 +540,7 @@ condition store while they last, and their events are **edges**: `edge:
 held). A condition that is set again while it holds only updates its
 message: one `raised` per outage, never one per poll or per step.
 
-| scope | conditions (raised / cleared) | point events |
+| subject_kind | conditions (raised / cleared) | point events |
 | --- | --- | --- |
 | `device` | `latched` (held by an `on_fault: stop_device`, or a `stop` on a device a command stops), `offline` (after `reads.fail_after` failed reads in a row; cleared by the first read that succeeds), `hung` (`error`: a poll's read in flight past `max(3·poll_s, 5 s)`; cleared when it returns; `details: {reading_s, bound_s}`), `slow`, `write_failed`, and a driver's own | `delivery_failed`, `demand_ignored`, `not_revived` (a command succeeded but its hung poll was not restarted), `gave_up` (retries ran past `reads.give_up_after_s`; polling stopped), `resent` (a commit set a value a failed write had kept), `write_dropped` (a kept value waited past `retry_max_age_s`: not sent) |
 | `signal` | `band_warning`, `band_alarm`, `band_unknown` ([Bands](../2-config/devices/index.md#bands)), `latched` (held by an `on_fault: stop`), a driver's own (the sim's `broken`) | `written_while_stopped` (a person's write under the rig stop: `{value, by}`) |
@@ -556,7 +556,7 @@ now, in the store too. `restarted` is kept for the
 runner's own restart (not raised yet). Removing a device or detaching a
 controller clears what it held, one `cleared` edge each (`details.reason`
 `removed` or `detached`). A [`Condition`](wire.md#devices) carries the same
-code, its `scope` and `subject`, and `since_ns`; a driver's own may use any
+code, its `subject_kind` and `subject`, and `since_ns`; a driver's own may use any
 string.
 
 `write_failed` (`error`) is a device's `commit` that raised -- on the

@@ -116,8 +116,8 @@ Kelvin against a °C signal converts before it reports.
 | `CommandOut` | `{name, description, simulation, commit, mode, interrupts, writes, demand_of, links}` |
 | `CommandRunOut` (`POST .../commands/{command}`) | `{"result": any, "interrupted": [{"controller": str, "was": "regulating"}]}` — `result` what the method returned; `interrupted` the controllers an `interrupts` command put in manual once it had succeeded |
 | a device's `config` (`GET .../schema`'s `config`) | a JSON Schema; an instance is `{...fields}` |
-| `Condition` | `{"code": str, "severity": "debug" \| "info" \| "warning" \| "error", "message": str, "since_ns": int, "scope": "device" \| "signal" \| "controller" \| "rig", "subject": str, "details": any}` — `subject` is the owner's name (a signal's address) |
-| `Event` | `{"time_ns": int, "severity": …, "scope": str, "subject": str, "code": str, "message": str, "details": any, "edge": "raised" \| "cleared" \| null}` — see [Events](api.md#events) |
+| `Condition` | `{"code": str, "severity": "debug" \| "info" \| "warning" \| "error", "message": str, "since_ns": int, "subject_kind": "device" \| "signal" \| "controller" \| "rig", "subject": str, "details": any}` — `subject` is the owner's name (a signal's address) |
+| `Event` | `{"time_ns": int, "severity": …, "subject_kind": str, "subject": str, "code": str, "message": str, "details": any, "edge": "raised" \| "cleared" \| null}` — see [Events](api.md#events) |
 | `DeviceSchema` (`GET .../schema`) | `{name, label, class_name, driver, description, readable, writable, config, signals, inputs, commands: {command: {description, arguments, simulation, commit, mode, interrupts, writes, demand_of}}}` |
 | a command request | one property per method parameter after `self`, from the method's signature; an argument linked to a demand also carries `x-signal`, `unit`, `minimum`/`maximum` |
 
@@ -148,9 +148,9 @@ config or the name of a stored tuning instead.
 | --- | --- |
 | `StopReport` (`POST /api/rig/stop`) | `{at_ns, actor, reason, devices, program_interrupted, controllers_manual, interim, latched}` -- `at_ns` wall-clock ns; `actor` `{sub, sid, kind, via, detail}` (`via` `http`, `mcp` or `signal`); `devices` `{name: DeviceStop}`; `interim` `false` (`true` only from the earlier stop that wrote nothing); `latched` whether the rig is latched stopped now |
 | `DeviceStop` | `{state, detail, written, kept}` -- `state` `stopped`, `unchanged` or `failed`; `written` `{address: value}` what it wrote (a driver's readback where it gave one); `kept` `{address: value \| null}` what it left as it was, with the value it holds (`null`: not known) |
-| `LatchOut` (`GET /api/rig/latches`, `POST /api/rig/reset`) | `{cause, subjects, by, at_ns, reason, action}` -- `cause` `stop` or `on_fault:<controller>`; `subjects` `[{scope, subject}]` (`scope` `rig`, `device`, `signal` or `controller`); `by` the principal's `sub` for a stop, `on_fault` for a fault; `action` the fault's `manual`, `stop` or `stop_device`, `""` for a stop |
+| `LatchOut` (`GET /api/rig/latches`, `POST /api/rig/reset`) | `{cause, subjects, by, at_ns, reason, action}` -- `cause` `stop` or `on_fault:<controller>`; `subjects` `[{subject_kind, subject}]` (`subject_kind` `rig`, `device`, `signal` or `controller`); `by` the principal's `sub` for a stop, `on_fault` for a fault; `action` the fault's `manual`, `stop` or `stop_device`, `""` for a stop |
 | `StopPlan` (`GET /api/rig/stop`) | `{stopped, outputs}` -- `stopped` the rig stop's `LatchOut` or `null`; `outputs` `[{address, device, stop, source, command, controller, covered_if_flyball_dies, warnings}]`: `stop` a number, `"keep"`, or `null` when `command` runs; `source` `off`, `you said`, `nobody said` or `command`; `covered_if_flyball_dies` always `false`; `warnings` `[str]` |
-| `Health.stopped`, `Health.latches` (`GET /api/health`) | `stopped` `{by, at_ns, reason}` or `null`; `latches` `[{scope, subject, cause}]`, one row per subject a latch holds |
+| `Health.stopped`, `Health.latches` (`GET /api/health`) | `stopped` `{by, at_ns, reason}` or `null`; `latches` `[{subject_kind, subject, cause}]`, one row per subject a latch holds |
 
 ## Sessions
 
