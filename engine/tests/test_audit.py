@@ -149,7 +149,7 @@ def test_audit_rows(http, store):
     }
     assert (no.sub, no.sid) == ("local:viewer", "s-2")
     assert (stop.kind, stop.via) == ("agent", "mcp")
-    assert stop.detail == {"reason": "smoke"}
+    assert stop.details == {"reason": "smoke"}
     # One boot, a sequence with no gaps, wall-clock time.
     assert {r.boot for r in rows} == {server_audit.AUDITOR.boot}
     assert [r.seq for r in rows] == list(range(rows[0].seq, rows[0].seq + 5))
@@ -239,7 +239,7 @@ def test_break_glass_stop_is_recorded(store, oven):
         "SIGUSR1",
     )
     assert row.outcome == "done" and row.status is None
-    assert row.detail is not None and row.detail["reason"] == "SIGUSR1"
+    assert row.details is not None and row.details["reason"] == "SIGUSR1"
     assert abs(row.time_ns - time.time_ns()) < 60e9
 
 

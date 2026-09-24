@@ -88,11 +88,11 @@ def reset(rig: RigDep, request: Request, body: ResetBody | None = None) -> dict[
 
 @router.get("/stop")
 async def read_stop(rig: RigDep) -> dict[str, Any]:
-    """What a stop would do to each writable output, sorted `off`, `you said`, `keep`.
+    """What a stop would do to each writable output, sorted `off`, `you_said`, `keep`.
 
     `stop` is the value it writes (`keep`: left as it is; null: the device's stop
-    command runs), `source` who said so (`off`: the driver's inactive level; `you said`:
-    the rig file's `stop:`; `nobody said`; `command`). `warnings` flags a controller's
+    command runs), `origin` who said so (`off`: the driver's inactive level; `you_said`:
+    the rig file's `stop:`; `nobody_said`; `command`). `warnings` flags a controller's
     output left energised, and an unbounded freeze on an output whose stop is `off`.
     `covered_if_flyball_dies` is false for every output: nothing here acts if flyball
     is not running. `stopped` is the rig stop's latch, if it holds.

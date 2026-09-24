@@ -127,12 +127,12 @@ def _list_devices(rig: Rig, a: dict[str, Any]) -> Any:
     """Project `GET /api/devices` down to what the tool's description promises.
 
     The route is the tree with live values, commands and conditions -- tens of kB even on a
-    one-device rig, and the obvious second call after `status`. `detail` asks for the rest.
+    one-device rig, and the obvious second call after `status`. `verbose` asks for the rest.
     The description comes from `/api/schema`, which the client caches after its first fetch,
     so no extra request reaches the model for it.
     """
     devices = rig.get("/api/devices")
-    if a.get("detail"):
+    if a.get("verbose"):
         return {"devices": devices}
     described = rig.schema["devices"]
     return {
@@ -160,9 +160,9 @@ READ: tuple[Tool, ...] = (
     Tool(
         "list_devices",
         "Every device: name, type, label and a one-line description. `describe_device` for "
-        "one; `detail` here for every device's full tree (signals, commands, inputs).",
+        "one; `verbose` here for every device's full tree (signals, commands, inputs).",
         _object({
-            "detail": _bool("The full tree per device, not just name/type/label/description.")
+            "verbose": _bool("The full tree per device, not just name/type/label/description.")
         }),
         Tier.READ,
         _list_devices,

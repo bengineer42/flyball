@@ -113,7 +113,7 @@ Every tool call is recorded like any other request that needs more than
   controller drives the device.
 - `list_devices` is name, type, label and a one-line description -- not the
   full tree `GET /api/devices` answers (signals, commands, conditions),
-  which is tens of kB even on a one-device rig; its `detail` argument asks
+  which is tens of kB even on a one-device rig; its `verbose` argument asks
   for that instead. `describe_device` for one device's full schema either
   way. A tool that answers a list wraps it in a named key (`{"devices":
   [...]}`, `{"controllers": [...]}`, and so on), not a bare array, and

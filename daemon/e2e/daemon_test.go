@@ -162,7 +162,7 @@ func TestDaemonTwoRigs(t *testing.T) {
 		if r := do(t, hc, "POST", base+"/a/api/rig/stop", `{"reason":"e2e-daemon"}`, bearer(opA)); r.Status != 200 {
 			t.Errorf("op-a stops a: %v", r)
 		}
-		waitAudit(t, storeA, map[string]string{"route": "/api/rig/stop", "sub": "token:op-a", "detail": "e2e-daemon"})
+		waitAudit(t, storeA, map[string]string{"route": "/api/rig/stop", "sub": "token:op-a", "details": "e2e-daemon"})
 	})
 
 	t.Run("a principal for a is refused at b", func(t *testing.T) {

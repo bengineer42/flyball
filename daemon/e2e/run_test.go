@@ -284,7 +284,7 @@ func TestRunLocal(t *testing.T) {
 		}
 		fr.waitOutput(`software stop by local:console via http \(e2e-http\)`, 5*time.Second)
 		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "local:console", "via": "http",
-			"status": "200", "detail": "e2e-http"})
+			"status": "200", "details": "e2e-http"})
 		for _, sql := range []string{"update audit set sub = 'x'", "delete from audit"} {
 			out, err := execPython(store, sql)
 			if err == nil || !strings.Contains(out, "append-only") {
@@ -306,7 +306,7 @@ func TestRunLocal(t *testing.T) {
 		if code != 0 || !strings.Contains(out, "software stop: e2e-cli by local:console") || !strings.Contains(out, "program interrupted") {
 			t.Fatalf("flyball stop: %d\n%s%s", code, out, errOut)
 		}
-		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "local:console", "detail": "e2e-cli"})
+		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "local:console", "details": "e2e-cli"})
 		// The runner's access log drops query strings (it shows `?…`).
 		if strings.Contains(fr.output(), "interrupt=true") {
 			t.Error("a query string is in the runner's access log")
@@ -549,7 +549,7 @@ func TestRunPassword(t *testing.T) {
 		}
 		// The tool's inner call carries the caller, re-minted, via mcp.
 		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "token:e2e-op", "via": "mcp",
-			"status": "200", "detail": "e2e-mcp"})
+			"status": "200", "details": "e2e-mcp"})
 	})
 
 	t.Run("token revoked: its websocket closes 4401 within 1 s", func(t *testing.T) {
@@ -609,7 +609,7 @@ func TestRunPassword(t *testing.T) {
 		if code != 0 || !strings.Contains(out, "software stop: e2e-token by token:cli-op") || !strings.Contains(out, "program interrupted") {
 			t.Fatalf("flyball stop with a token: %d\n%s%s", code, out, errOut)
 		}
-		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "token:cli-op", "kind": "service", "detail": "e2e-token"})
+		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "token:cli-op", "kind": "service", "details": "e2e-token"})
 
 		w, res := dialWS(t, tcpDial(addr), addr, "/ws/samples", bearer(secret))
 		if res.StatusCode != 101 {
@@ -885,7 +885,7 @@ func TestRunProxy(t *testing.T) {
 	if r := do(t, hc, "POST", px+"/api/rig/stop", `{"reason":"e2e-proxy"}`, cat(as("ben"), origin(px))); r.Status != 200 {
 		t.Fatalf("ben stops: %v", r)
 	}
-	waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": ben.User.ID, "detail": "e2e-proxy"})
+	waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": ben.User.ID, "details": "e2e-proxy"})
 	// The email is display only: it never names the subject, and a grant
 	// listing an email grants nothing through it.
 	if info := authInfo(t, hc, px, h{"X-Test-Email", "ben@lab.example"}); info.Scheme != "anonymous" {

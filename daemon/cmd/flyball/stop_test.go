@@ -154,7 +154,7 @@ func (fr *fakeStopRunner) serve(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{
 		"at_ns":  time.Now().UnixNano(),
 		"actor":  map[string]string{"sub": claims.Sub, "sid": claims.Sid, "kind": claims.Kind, "via": "http"},
-		"reason": "flyball stop", "devices": map[string]any{"pump": map[string]string{"state": "unchanged", "detail": "manual"}},
+		"reason": "flyball stop", "devices": map[string]any{"pump": map[string]string{"state": "unchanged", "message": "manual"}},
 		"program_interrupted": true, "controllers_manual": []string{"loop"}, "interim": true,
 	})
 }

@@ -587,7 +587,7 @@ func waitAudit(t *testing.T, store string, want map[string]string) auditRow {
 		for _, r := range rows {
 			for k, v := range want {
 				got := fmt.Sprint(r[k])
-				if k == "detail" {
+				if k == "details" {
 					if !strings.Contains(got, v) {
 						continue next
 					}

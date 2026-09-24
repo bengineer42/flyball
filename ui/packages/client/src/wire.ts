@@ -872,7 +872,8 @@ export interface RigEditOut {
   restarting: boolean;
   /** The stop's report, as `POST /api/rig/stop` answers; null if the stop failed. */
   stop: StopReport | null;
-  detail: string;
+  /** What the edit did, as a sentence. */
+  message: string;
 }
 
 /**
@@ -963,12 +964,12 @@ export interface StopActor {
 
 /**
  * One device's outcome of a stop: `stopped` (its stop command ran, or its stop values
- * were written), `unchanged` (every output kept as it was), `failed` (`detail` says why;
+ * were written), `unchanged` (every output kept as it was), `failed` (`message` says why;
  * "may still act" when the time ran out).
  */
 export interface DeviceStopOut {
   state: "stopped" | "unchanged" | "failed";
-  detail: string;
+  message: string;
   /** What it wrote, by address. */
   written?: Record<Address, number>;
   /** What it left as it was, by address, with the value it holds (null: not known): energised if it was. */
@@ -1014,8 +1015,8 @@ export interface OutputStopOut {
   device: string;
   /** What a stop writes: a number, or `keep`; null where the device's stop command runs. */
   stop: number | "keep" | null;
-  /** `off` (the driver's inactive level), `you said` (the rig file's `stop:`), `nobody said`, `command`. */
-  source: "off" | "you said" | "nobody said" | "command";
+  /** `off` (the driver's inactive level), `you_said` (the rig file's `stop:`), `nobody_said`, `command`. */
+  origin: "off" | "you_said" | "nobody_said" | "command";
   command: string | null;
   /** The controller driving it, if any. */
   controller: Address | null;

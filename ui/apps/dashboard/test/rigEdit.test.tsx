@@ -9,7 +9,7 @@ import { Confirm } from "../src/Confirm.js";
 
 afterEach(cleanup);
 
-const EDIT = { version: 8, previous: 7, reason: "edited: removed device probe", saved: null, restarting: true, stop: null, detail: "" };
+const EDIT = { version: 8, previous: 7, reason: "edited: removed device probe", saved: null, restarting: true, stop: null, message: "" };
 
 /** A runner that answers the old clock until `restarted()` is called, then a new one; a device DELETE per `edit`. */
 function runner(edit: (r: Request) => Response) {

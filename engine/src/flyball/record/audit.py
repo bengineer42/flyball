@@ -81,7 +81,7 @@ class Action:
     request_id: str = ""
     writes: Mapping[str, Write] | None = None
     """For a demand, by signal address."""
-    detail: Mapping[str, Any] | None = None
+    details: Mapping[str, Any] | None = None
     """Anything more: a stop's reason."""
 
     def as_dict(self) -> dict[str, Any]:
@@ -117,7 +117,7 @@ _COLUMNS: Final = (
     "outcome",
     "request_id",
     "writes",
-    "detail",
+    "details",
 )
 
 
@@ -154,7 +154,7 @@ def append(store: Store, actions: Sequence[tuple[str, int, Action]]) -> None:
             a.outcome,
             a.request_id,
             _dumps(a.writes),
-            _dumps(a.detail),
+            _dumps(a.details),
         )
         for boot, seq, a in actions
     ]
@@ -173,9 +173,9 @@ def actions(store: Store, *, after: int = 0, limit: int | None = None) -> list[A
     )
     return [
         AuditRow(
-            **{c: r[c] for c in _COLUMNS if c not in ("writes", "detail")},
+            **{c: r[c] for c in _COLUMNS if c not in ("writes", "details")},
             writes=None if r["writes"] is None else json.loads(r["writes"]),
-            detail=None if r["detail"] is None else json.loads(r["detail"]),
+            details=None if r["details"] is None else json.loads(r["details"]),
             id=r["id"],
         )
         for r in rows

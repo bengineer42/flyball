@@ -172,11 +172,11 @@ def _events(rig: Rig, code: str) -> list[Any]:
 class TestResolution:
     def test_you_said_then_off_then_keep(self, oven: Oven):
         h1, h2, h3 = (oven.signals[n] for n in ("h1", "h2", "h3"))
-        assert resolve_output(h1).value == 0.0 and resolve_output(h1).source == "off"
+        assert resolve_output(h1).value == 0.0 and resolve_output(h1).origin == "off"
         _set_stops(oven, {"h1": KEEP, "h2": 5.0})
-        assert (resolve_output(h1).value, resolve_output(h1).source) == (None, "you said")
-        assert (resolve_output(h2).value, resolve_output(h2).source) == (5.0, "you said")
-        assert (resolve_output(h3).value, resolve_output(h3).source) == (None, "nobody said")
+        assert (resolve_output(h1).value, resolve_output(h1).origin) == (None, "you_said")
+        assert (resolve_output(h2).value, resolve_output(h2).origin) == (5.0, "you_said")
+        assert (resolve_output(h3).value, resolve_output(h3).origin) == (None, "nobody_said")
 
     def test_a_stop_value_is_checked_at_load(self, oven: Oven):
         with pytest.raises(ValueError, match="outside"):
@@ -211,7 +211,7 @@ class TestResolution:
         rig.attach_controller(oven.signals["h3"], oven.signals["zone1"], law=P(kp=1.0))
         rig.attach_controller(oven.signals["h1"], oven.signals["zone2"], law=P(kp=1.0))
         rows = {r["address"]: r for r in stop_plan(rig)}
-        assert [r["source"] for r in stop_plan(rig)] == ["off", "off", "nobody said"]
+        assert [r["origin"] for r in stop_plan(rig)] == ["off", "off", "nobody_said"]
         assert rows[f"{oven.name}.h3"]["stop"] == KEEP
         assert "stays where it was" in rows[f"{oven.name}.h3"]["warnings"][0]
         assert "freeze holds this output" in rows[f"{oven.name}.h1"]["warnings"][0]
@@ -345,7 +345,7 @@ class TestTheStop:
         report = _stop(rig)
         stop = report.devices[pumps.name]
         assert stop["state"] == "failed"
-        assert "pump bus down" in stop["detail"] and "fallback" in stop["detail"]
+        assert "pump bus down" in stop["message"] and "fallback" in stop["message"]
 
     def test_a_stuck_lock_does_not_hold_the_stop(self, rig: Rig, oven: Oven, monkeypatch):
         monkeypatch.setattr(stopping_mod, "DEVICE_STOP_S", 0.3)
@@ -735,7 +735,7 @@ def test_the_rig_file_keys_load_and_render_back():
     rig = RigConfig.model_validate(SIM).build(start=False)
     power = rig.devices["drive"].signals["power"]
     assert power.spec.off == 0.0, "a linear sim port declares off at limits[0]"
-    assert resolve_output(power).source == "you said" and resolve_output(power).value is None
+    assert resolve_output(power).origin == "you_said" and resolve_output(power).value is None
     assert rig.entries["drive"].on_shutdown == "keep"
     assert power in rig.permissives
     controller = rig.controllers["drive.power"]

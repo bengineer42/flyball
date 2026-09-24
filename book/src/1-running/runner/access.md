@@ -456,7 +456,7 @@ declared off", or "fallback: none effective").
 
 It is never rate-limited, and it answers with a report: for each device
 its `state` (`stopped`, `unchanged` -- every output kept -- or `failed`),
-a `detail`, what it `written` and what it `kept`, by address, with the
+a `message`, what it `written` and what it `kept`, by address, with the
 value each holds; whether a program was interrupted; which controllers are
 in manual; and `latched: true`. A `stop_applied` event lists every output
 left energised with its value. A second stop latches nothing new and writes
@@ -464,7 +464,7 @@ the stops again.
 
 `GET /api/rig/stop` says, before you need it, what a stop would do to each
 output: its stop value (a number, `keep`, or the device's stop command),
-where that came from (`off`, `you said`, `nobody said`, `command`), the
+where that came from (`origin`: `off`, `you_said`, `nobody_said`, `command`), the
 controller that drives it, and warnings -- a controller's output nobody
 gave a stop, which a stop leaves energised with its controller in manual,
 and an unbounded `on_fault: freeze` on an output whose stop is its driver's

@@ -112,7 +112,7 @@ def test_report(oven, monkeypatch):
     # Every writable device, and only those: the thermocouple has nothing to stop.
     assert set(report["devices"]) == {"heater"}
     assert report["devices"]["heater"]["state"] == "unchanged"
-    assert "no stop declared" in report["devices"]["heater"]["detail"]
+    assert "no stop declared" in report["devices"]["heater"]["message"]
     assert report["devices"]["heater"]["kept"] == {"heater.drive": 50.0}
     assert "safe" not in json.dumps(report).lower()
     assert report["actor"]["via"] == "http"
@@ -310,7 +310,7 @@ def test_a_failing_controller_is_reported_not_raised(oven, monkeypatch):
     monkeypatch.setattr(controller, "manual", broken)
     report = RigStopper(rig, programmer).stop(Actor("t", "", "human", "http"), "")
     assert report.controllers_manual == []
-    assert "stuck" in report.devices["heater"]["detail"]
+    assert "stuck" in report.devices["heater"]["message"]
 
 
 def test_no_stopper_until_a_rig_is_set(oven):
@@ -334,7 +334,7 @@ def test_actor_and_report_are_frozen():
         at_ns=1,
         actor=actor,
         reason="SIGUSR1",
-        devices={"pump": {"state": "unchanged", "detail": ""}},
+        devices={"pump": {"state": "unchanged", "message": ""}},
         program_interrupted=True,
         controllers_manual=["pump.flow"],
         interim=True,

@@ -7,7 +7,7 @@
 -- `seq` counts its actions from 1, so a gap is an action the store never took (the
 -- runner logged it instead). Rows are never changed or deleted: the triggers refuse.
 --
--- `writes` is JSON, for a demand: {address: {old, requested, applied}}. `detail` is
+-- `writes` is JSON, for a demand: {address: {old, requested, applied}}. `details` is
 -- JSON too: a stop's reason. `status` is NULL for an action that was no request.
 
 CREATE TABLE audit (
@@ -29,7 +29,7 @@ CREATE TABLE audit (
     outcome    TEXT    NOT NULL,
     request_id TEXT    NOT NULL DEFAULT '',
     writes     TEXT,
-    detail     TEXT,
+    details    TEXT,
     UNIQUE (boot, seq)
 );
 

@@ -266,7 +266,7 @@ the `SIGUSR1` break-glass included. A row is the verified principal (`sub`,
 `outcome` (`done`, `denied` by the door, `refused` by the rig, `failed`), the
 `request_id` (the front's `X-Request-Id`, or one the runner makes), and as
 JSON a demand's `writes` (`{address: {old, requested, applied}}`) and a
-stop's `detail` (its reason). It is in wall time (`time_ns`), not the rig's
+stop's `details` (its reason). It is in wall time (`time_ns`), not the rig's
 clock; it names no session, so retention and deleting a session never reach
 it; and triggers refuse any `UPDATE` or `DELETE` on it. `boot` is one runner
 process and `seq` counts its actions from 1.

@@ -197,7 +197,7 @@ class Audit:
                 }
                 for address, (_, value) in asked.items()
             }
-        detail = {"reason": _reason(body)} if route == _STOP else None
+        details = {"reason": _reason(body)} if route == _STOP else None
         self.auditor.record(
             Action(
                 time_ns=started,
@@ -215,7 +215,7 @@ class Audit:
                 outcome=outcome(status),
                 request_id=_request_id(scope),
                 writes=writes,
-                detail=detail,
+                details=details,
             )
         )
 
@@ -397,7 +397,7 @@ def record_stop(
                 path="",
                 status=None,
                 outcome="done" if done else "failed",
-                detail={"reason": reason, "detail": actor.detail},
+                details={"reason": reason, "detail": actor.detail},
             )
         )
     except Exception:
