@@ -115,9 +115,9 @@ class TestRigFile:
 
     def test_a_values_entry_and_a_link_are_keys(self):
         bench = {"driver": "values", "values": {"Dry supply": {"initial": 1}}}
-        config = RigConfig.model_validate({"devices": {"bench": bench}})
         with pytest.raises(ValueError, match="value 'Dry supply' is not a key"):
-            config.build(start=False)  # the driver's own fields are validated as it is built
+            # driver fields are checked as the rig is validated
+            RigConfig.model_validate({"devices": {"bench": bench}})
         with pytest.raises(ValueError, match="link 'Chamber' is not a key"):
             RigConfig.model_validate({"links": {"Chamber": {"type": "sim_plant"}}})
 
