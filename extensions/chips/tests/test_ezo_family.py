@@ -61,9 +61,14 @@ class TestEzoEc:
             "total_dissolved_solids": "rp",
             "salinity": "rp",
             "specific_gravity": "rp",
+            "last.calibrate_dry": "rp",
+            "last.calibrate_low": "rp",
+            "last.calibrate_high": "rp",
+            "last.calibrate_clear": "rp",
+            "last.set_cell_constant": "rp",
         }
         assert probe.signals["conductivity"].unit.symbol == "µS/cm"
-        assert probe.nodes == {}
+        assert set(probe.nodes) == {"last"}
 
     def test_read_collects_one_sample(self):
         uart = FakeUart([b"1413.000,706.500,0.700,1.000\r"])
@@ -124,9 +129,11 @@ class TestEzoOrp:
         probe = ezo_orp.EzoOrp("water", FakeUart(), sleep=False)
         assert {p: str(s.access) for p, s in probe.signals.items()} == {
             "orp": "rp",
+            "last.calibrate": "rp",
+            "last.calibrate_clear": "rp",
         }
         assert probe.signals["orp"].unit.symbol == "mV"
-        assert probe.nodes == {}
+        assert set(probe.nodes) == {"last"}
 
     def test_read_collects_one_sample(self):
         uart = FakeUart([b"209.6\r"])
@@ -183,9 +190,12 @@ class TestEzoDo:
         probe = ezo_do.EzoDo("water", FakeUart(), sleep=False)
         assert {p: str(s.access) for p, s in probe.signals.items()} == {
             "dissolved_oxygen": "rp",
+            "last.calibrate": "rp",
+            "last.calibrate_zero": "rp",
+            "last.calibrate_clear": "rp",
         }
         assert probe.signals["dissolved_oxygen"].unit.symbol == "mg/L"
-        assert probe.nodes == {}
+        assert set(probe.nodes) == {"last"}
 
     def test_read_collects_one_sample(self):
         uart = FakeUart([b"7.82\r"])
