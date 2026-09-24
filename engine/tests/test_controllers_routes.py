@@ -66,9 +66,7 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
         for d in schema["generators"]["$defs"].values()
         if "type" in d.get("properties", {})
     }
-    # `>=`, not `==`: any test process may by now have defined its own generator (a profile
-    # segment union built lazily sees every one ever registered, not just these three built-ins).
-    assert generators >= {"linear_ramp_setpoint", "dwell", "profile"}
+    assert generators == {"linear_ramp_setpoint", "dwell", "profile"}
     assert schema["generators"]["discriminator"]["propertyName"] == "type"
     assert schema["regulated"] == {} and schema["driven"] == {}
 
