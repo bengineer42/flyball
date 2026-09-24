@@ -55,6 +55,17 @@ type stopReport struct {
 	ProgramInterrupted bool                       `json:"program_interrupted"`
 	ControllersManual  []string                   `json:"controllers_manual"`
 	Interim            bool                       `json:"interim"`
+	Latched            bool                       `json:"latched"`
+}
+
+// reset lets the rig stop's latch go, as a person (hdr must carry one): a stop is
+// latched until reset, and a latched rig refuses a program's regulate. Nothing held
+// (404) is fine too.
+func reset(t *testing.T, c *http.Client, base string, hdr h) {
+	t.Helper()
+	if r := do(t, c, "POST", base+"/api/rig/reset", `{"cause":"stop"}`, hdr); r.Status != 200 && r.Status != 404 {
+		t.Fatalf("reset: %v", r)
+	}
 }
 
 // startProgram starts the ten-hour program through the front.
@@ -265,9 +276,10 @@ func TestRunLocal(t *testing.T) {
 		}
 		var rep stopReport
 		r.json(t, &rep)
-		if !rep.Interim || !rep.ProgramInterrupted || rep.Actor.Sub != "local:console" || rep.Actor.Via != "http" ||
+		// The oven's heater is a setpoint port: it declares no off, so the stop keeps it.
+		if rep.Interim || !rep.Latched || !rep.ProgramInterrupted || rep.Actor.Sub != "local:console" || rep.Actor.Via != "http" ||
 			len(rep.ControllersManual) == 0 || !strings.Contains(string(rep.Devices["heater"]), `"state":"unchanged"`) ||
-			!strings.Contains(string(rep.Devices["heater"]), "nothing written") {
+			!strings.Contains(string(rep.Devices["heater"]), "no stop declared") {
 			t.Fatalf("report: %s", r.Body)
 		}
 		fr.waitOutput(`software stop by local:console via http \(e2e-http\)`, 5*time.Second)
@@ -288,6 +300,7 @@ func TestRunLocal(t *testing.T) {
 	})
 
 	t.Run("flyball stop through the front", func(t *testing.T) {
+		reset(t, hc, base, same)
 		startProgram(t, hc, base, same)
 		out, errOut, code := e.run([]string{"FLYBALL_URL=" + base}, "flyball", "stop", "--reason", "e2e-cli")
 		if code != 0 || !strings.Contains(out, "software stop: e2e-cli by local:console") || !strings.Contains(out, "program interrupted") {
@@ -326,6 +339,7 @@ func TestRunLocal(t *testing.T) {
 	})
 
 	t.Run("SIGUSR1 with the front down", func(t *testing.T) {
+		reset(t, hc, base, same)
 		startProgram(t, hc, base, same)
 		pid := lockPid(t, dir)
 		syscall.Kill(fr.pid(), syscall.SIGKILL) // the front alone; the runner lives on
@@ -565,6 +579,7 @@ func TestRunPassword(t *testing.T) {
 	})
 
 	t.Run("revoking a principal leaves the program running", func(t *testing.T) {
+		reset(t, hc, base, cat(same, cookie())) // a token may not reset: a person does
 		startProgram(t, hc, base, bearer(opTok))
 		waitAudit(t, store, map[string]string{"route": "/api/programs/run", "sub": "token:e2e-op", "status": "200"})
 		before := do(t, hc, "GET", base+"/api/programs/running", "", nil)
@@ -588,6 +603,7 @@ func TestRunPassword(t *testing.T) {
 		if code != 0 || !strings.HasPrefix(secret, "fbt1_") || m == nil {
 			t.Fatalf("flyball token create: %d %q %s", code, secret, errOut)
 		}
+		reset(t, hc, base, cat(same, cookie()))
 		startProgram(t, hc, base, bearer(secret))
 		out, errOut, code := e.run([]string{"FLYBALL_URL=" + base}, "flyball", "--token", secret, "stop", "--reason", "e2e-token")
 		if code != 0 || !strings.Contains(out, "software stop: e2e-token by token:cli-op") || !strings.Contains(out, "program interrupted") {
