@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -512,6 +513,104 @@ def test_the_printed_link_signs_in_once(tmp_path, port):
                 assert answer.getheader("Location") == "/"
                 assert answer.getheader("Set-Cookie", "").startswith(f"flyball-bare-{port}=")
             conn.close()
+
+
+# endregion
+
+
+# region A rig edit restarts the runner (D-051)
+
+EDITED = """\
+name: lab
+links:
+  t1: {type: sim_plant, model: lag, tau_s: 1.0}
+devices:
+  probe:
+    driver: sim_daq
+    link: t1
+    poll_s: 0.1
+    ports: {signal: {port: output, quantity: x, unit: "1"}}
+  drive: {driver: sim_drive, link: t1, ports: {u: input}}
+controllers:
+  drive.u: {measured: probe.signal, law: {type: P, kp: 0.5}}
+"""
+
+
+def _send(method: str, url: str, body: object = None) -> tuple[int, dict]:
+    data = None if body is None else json.dumps(body).encode()
+    request = urllib.request.Request(url, data=data, method=method)
+    request.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=10) as r:
+            return r.status, json.load(r)
+    except urllib.error.HTTPError as e:
+        return e.code, json.load(e)
+
+
+def _wait_for(check: Callable[[], bool], deadline_s: float = 30.0) -> None:
+    end = time.monotonic() + deadline_s
+    while time.monotonic() < end:
+        try:
+            if check():
+                return
+        except OSError:
+            pass
+        time.sleep(0.2)
+    raise AssertionError("never came to pass")
+
+
+def test_an_edit_restarts_the_runner_from_the_head(tmp_path, port):
+    """No flyballd, no front, no --allow-shutdown: the runner saves, stops and execs itself."""
+    (tmp_path / "lab.yaml").write_text(EDITED)
+    base = f"http://127.0.0.1:{port}"
+    argv = ["lab.yaml", "--port", str(port), "--store", str(tmp_path / "s.sqlite"), "--no-mcp"]
+    with runner(tmp_path, *argv) as proc:
+        _wait_up(proc, port)
+        status, _ = _send("POST", f"{base}/api/controllers/drive.u/regulate", {"at": 1.0})
+        assert status == 200
+        before = _get(f"{base}/api/rig/versions")[0]["id"]
+        probe2 = {
+            "name": "probe2",
+            "driver": "sim_daq",
+            "link": "t1",
+            "ports": {"signal": {"port": "output", "quantity": "x", "unit": "1"}},
+        }
+        status, out = _send("POST", f"{base}/api/devices", probe2)
+        assert status == 202, out
+        assert out["previous"] == before and out["saved"].endswith("lab.yaml.d/added.yaml")
+        assert out["stop"]["controllers_manual"] == ["drive.u"]
+        _wait_for(lambda: "probe2" in _get(f"{base}/api/rig/document")["devices"])
+        assert proc.poll() is None, "the same process: execv"
+        controller = _get(f"{base}/api/controllers/drive.u")
+        assert controller["mode"] == "manual", "passive after the restart"
+        versions = _get(f"{base}/api/rig/versions")
+        assert versions[0]["id"] == out["version"] and versions[0]["head"], "nothing new at start"
+        assert (tmp_path / "lab.yaml.d" / "added.yaml").exists()
+        # A refused edit changes nothing and restarts nothing.
+        status, _ = _send("DELETE", f"{base}/api/devices/nowhere")
+        assert status == 404
+        assert _get(f"{base}/api/rig/versions")[0]["id"] == out["version"]
+        proc.send_signal(signal.SIGINT)
+        proc.communicate(timeout=20)
+    # A plain start from the same file: the edit is in the overlay it loads.
+    with runner(tmp_path, *argv) as proc:
+        _wait_up(proc, port)
+        assert "probe2" in _get(f"{base}/api/rig/document")["devices"]
+
+
+def test_an_edit_of_a_bare_runner_restarts_it_resumed(tmp_path, port):
+    base = f"http://127.0.0.1:{port}"
+    argv = ["--port", str(port), "--store", str(tmp_path / "s.sqlite"), "--no-mcp"]
+    link = {"name": "t1", "type": "sim_plant", "model": "lag", "tau_s": 1.0}
+    with runner(tmp_path, *argv) as proc:
+        _wait_up(proc, port)
+        status, out = _send("POST", f"{base}/api/links", link)
+        assert status == 202 and out["saved"] is None, out
+        _wait_for(lambda: "t1" in _get(f"{base}/api/rig/document")["links"])
+        assert proc.poll() is None
+        status, out = _send("DELETE", f"{base}/api/links/t1")
+        assert status == 202, out
+        _wait_for(lambda: _get(f"{base}/api/rig/document")["links"] == {})
 
 
 # endregion

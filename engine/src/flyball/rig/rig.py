@@ -1828,7 +1828,7 @@ class Rig:
         controller is wired now, in the file's canonical form; links and
         devices built in code rather than from an entry are left out.
         """
-        from flyball.runtime.config import ControllerEntry, RigConfig
+        from flyball.runtime.config import ControllerEntry, render_document
 
         with self.lock:  # a consistent view: nothing added or removed while it is read
             controllers = {
@@ -1859,20 +1859,9 @@ class Rig:
                 "devices": dict(self.entries),
                 "controllers": controllers,
             }
-        config = RigConfig.model_validate(loaded)
         # Defaults left out, as a hand-written file leaves them: a saved rig
         # says what was chosen, not everything a driver could take.
-        document = config.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
-        document["links"] = links
-        for key in ("devices", "controllers"):
-            document.setdefault(key, {})
-        for name, entry in controllers.items():  # a type is a default too; the file needs it
-            rendered = document["controllers"][name]
-            if entry.law is not None:
-                rendered.setdefault("law", {})["type"] = entry.law.type
-            if entry.feedforward is not None:
-                rendered.setdefault("feedforward", {})["type"] = entry.feedforward.type
-        return document
+        return render_document(loaded)
 
     # endregion
 

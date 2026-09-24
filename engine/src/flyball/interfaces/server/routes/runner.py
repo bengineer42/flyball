@@ -106,8 +106,10 @@ def shutdown() -> dict[str, Any]:
 def restart() -> dict[str, Any]:
     """Stop as `shutdown` does, then start again with the same command line and files.
 
-    What was changed over the API and not saved is gone unless the runner
-    was started with `--resume`. 409 unless started with `--allow-shutdown`.
+    A rig edit saved itself (to the overlay the next start loads, or, for a runner with no
+    rig file, to the store, restarting with `--resume`), so it comes back; a controller
+    attached since the start and not saved (`POST /api/rig/save`) does not. 409 unless
+    started with `--allow-shutdown`; a rig edit's own restart does not need it.
     """
     _may_stop().restart()
     return {"detail": "restarting"}
