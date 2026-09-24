@@ -268,7 +268,9 @@ front's config:
 
 - a rig file: the tokens of `flyball run PATH`,
   `$XDG_STATE_HOME/flyball/front-<id>/tokens.json`;
-- a `flyballd.yaml`: `<data_dir>/front/tokens.json`. It is recognised by
+- a `flyballd.yaml`: `<data_dir>/front/tokens.json`, `data_dir` resolved
+  as [`flyballd`](#the-daemon) resolves it (`/var/lib/flyball` when the
+  file sets none and `STATE_DIRECTORY` is unset). It is recognised by
   its name (`flyballd.yaml` or `flyballd.yml`), or by having one of
   `manifests_dir`, `data_dir`, `default_server` or `log_max_size` at its
   top level. A daemon config under another name that sets none of them
@@ -322,10 +324,19 @@ and serves the `local` shape on a fresh loopback port, named on the
 | key | default | |
 | --- | --- | --- |
 | `listen` | `127.0.0.1:9000` | where the front serves. A client has 10 s to send its request headers, in at most 64 KiB, and an idle keep-alive connection is closed after 120 s; a response has no time limit, so log streaming and websockets stay open |
-| `manifests_dir` | `manifests` | one `NAME.yaml` per rig (below) |
-| `data_dir` | `data` | captured runner logs under `logs/` (`NAME.log`, and `NAME.log.1` once it has been capped; `logs/` is `0700` and each file `0600`), and the front's `front/tokens.json` and `front/audit.jsonl` |
+| `manifests_dir` | `<state>/manifests` | one `NAME.yaml` per rig (below) |
+| `data_dir` | `<state>` | captured runner logs under `logs/` (`NAME.log`, and `NAME.log.1` once it has been capped; `logs/` is `0700` and each file `0600`), and the front's `front/tokens.json` and `front/audit.jsonl` |
 | `log_max_size` | 10 MiB (`10485760`, in bytes) | per-runner captured-log cap; `0` for none. Checked every 2 s: past it, `NAME.log` is copied to `NAME.log.1` (replacing the last one) and emptied, so a runner's logs take at most about twice the cap. The runner keeps writing to the same file, so a daemon crash does not cut its output; a line written at the moment of the copy can be lost |
 | `default_server` | none | read, not yet used |
+
+`<state>` is `$STATE_DIRECTORY` when it is set -- systemd sets it from the
+unit's `StateDirectory=` (`/var/lib/flyball` in the example unit below) --
+and `/var/lib/flyball` otherwise. A relative `manifests_dir` or `data_dir`
+is under the directory holding `flyballd.yaml`, not the directory
+`flyballd` was started from, so the same file finds the same state however
+`flyballd` is started. To keep a development `flyballd` out of
+`/var/lib/flyball`, set `data_dir` and `manifests_dir` (relative ones are
+fine), or `STATE_DIRECTORY`.
 
 `auth: {token, insecure_open}` from before is refused as a whole: the front
 falls back to the `local` shape on loopback and says why. Management now
@@ -390,6 +401,15 @@ unit's cgroup, runners included, on `stop` or `restart`), and
 `RuntimeDirectory=flyball` with `RuntimeDirectoryMode=0700` and
 `RuntimeDirectoryPreserve=yes` (systemd would otherwise delete
 `/run/flyball` when `flyballd` stops, from under the runners using it).
+`StateDirectory=flyball` with `StateDirectoryMode=0700` makes
+`/var/lib/flyball` for `User=` and hands it to `flyballd` as
+`$STATE_DIRECTORY`: with no `data_dir` or `manifests_dir` in
+`flyballd.yaml`, the logs, tokens and audit go there and the manifests in
+`/var/lib/flyball/manifests/`. The unit sets no `WorkingDirectory=`; none is
+needed. `flyball token create --config /etc/flyball/flyballd.yaml`, run
+outside the unit, finds the same tokens file (`/var/lib/flyball` is also
+the default without `$STATE_DIRECTORY`); run it as the unit's user
+(`sudo -u flyball`).
 
 ```
 sudo cp daemon/deploy/flyballd.service /etc/systemd/system/   # then edit User=, the paths, PATH

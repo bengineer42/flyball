@@ -23,6 +23,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	daemonconfig "flyballd/internal/config"
 	"flyballd/internal/endpoint/frontdir"
 	"flyballd/internal/front"
 	"flyballd/internal/front/store"
@@ -422,11 +423,12 @@ func tokensConfigFor(configs, sets []string, forceDaemon bool) (*front.TokensCon
 // always agree on the file:
 //
 //   - PATH is flyballd.yaml (--daemon, the file's name, or one of its own
-//     top-level keys -- see isDaemonConfig) -> its data_dir
-//     ("data" by default, matching config.DefaultDaemonConfig) ->
-//     frontwire.DaemonDir(dataDir), the same absolute directory
+//     top-level keys -- see isDaemonConfig) -> its data_dir as
+//     config.LoadDaemonConfig resolves it (a relative one under the
+//     file's directory; $STATE_DIRECTORY or /var/lib/flyball when unset)
+//     -> frontwire.DaemonDir(dataDir), the same absolute directory
 //     `flyballd --config flyballd.yaml` opens its tokens file in,
-//     whatever the process's cwd is;
+//     whatever either process's cwd is;
 //   - otherwise PATH is a rig file -> frontwire.RunDir(id), id =
 //     frontdir.FrontID(the absolute rig path), the same id and
 //     $XDG_STATE_HOME-relative directory `flyball run` uses for its
@@ -442,16 +444,12 @@ func tokensPathFor(config string, forceDaemon bool) (string, error) {
 		return "", err
 	}
 	if daemon {
-		data, err := os.ReadFile(config)
-		if err != nil {
+		if _, err := os.Stat(config); err != nil {
 			return "", fmt.Errorf("reading %s: %w", config, err)
 		}
-		var cfg struct {
-			DataDir string `yaml:"data_dir"`
-		}
-		cfg.DataDir = "data"
-		if err := yaml.Unmarshal(data, &cfg); err != nil {
-			return "", fmt.Errorf("parsing %s: %w", config, err)
+		cfg, err := daemonconfig.LoadDaemonConfig(config)
+		if err != nil {
+			return "", err
 		}
 		return filepath.Join(frontwire.DaemonDir(cfg.DataDir), frontwire.TokensFile), nil
 	}
