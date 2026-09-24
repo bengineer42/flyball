@@ -47,7 +47,7 @@ import { useAuth } from "../auth.js";
 import { AddWidgetDrawer } from "../dashboard/AddWidgetDrawer.js";
 import { ConfigureDialog } from "../dashboard/ConfigureDialog.js";
 import { ControllersContext, EventsContext, RigDataContext, makeBindings, type RigData } from "../dashboard/context.js";
-import { DEFAULT_GRID, bottomOf, duplicateWidget, emptyDocument, exportJson, newId, normalise, sameDocument } from "../dashboard/document.js";
+import { DEFAULT_GRID, bottomOf, duplicateWidget, emptyDocument, exportJson, labelFor, labelOf, nameFor, newId, normalise, sameDocument } from "../dashboard/document.js";
 import { GENERATED_NAME, generateOverview } from "../dashboard/generate.js";
 import { DashboardEditGrid, DashboardViewGrid, type Placement } from "../dashboard/Grid.js";
 import "../dashboard/dashboard.css";
@@ -56,7 +56,7 @@ import { readHome, writeHome } from "../dashboard/home.js";
 import { useStableControllers, useThrottled } from "../dashboard/throttle.js";
 import { validateAgainst } from "../dashboard/validate.js";
 import { WidgetFrame, type WidgetAction } from "../dashboard/WidgetFrame.js";
-import { widgetKind, type WidgetKind } from "../widgets/registry.js";
+import { widgetType, type WidgetType } from "../widgets/registry.js";
 
 export interface DashboardsProps extends ChartSettings {
   /** The dashboard's name from the route; null for the generated overview (or the home dashboard, when the route is bare). */
@@ -75,14 +75,27 @@ const BEAT_MS = 100;
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-/** A dialog asking for a name: save as, rename. */
-function NameDialog({ open, title, action, initial, taken, busy, error, onClose, onSubmit }: { open: boolean; title: string; action: string; initial: string; taken: string[]; busy: boolean; error: string | null; onClose(): void; onSubmit(name: string): void }) {
+/**
+ * A dialog asking what a dashboard is called. Save as (`current` given, `keyed`): the key it is
+ * saved under follows from what is typed (`nameFor`), and an existing one is replaced by a new
+ * version. Rename (not `keyed`): only the label changes; the key, and so its link, stay.
+ */
+function NameDialog({ open, title, action, initial, taken, keyed, current, busy, error, onClose, onSubmit }: { open: boolean; title: string; action: string; initial: string; taken: string[]; keyed: boolean; current: string | null; busy: boolean; error: string | null; onClose(): void; onSubmit(label: string): void }) {
   const [name, setName] = useState(initial);
   useEffect(() => {
     if (open) setName(initial);
   }, [open, initial]);
   const trimmed = name.trim();
-  const exists = taken.includes(trimmed) && trimmed !== initial;
+  const key = keyed ? nameFor(trimmed) : current ?? "";
+  const exists = keyed && taken.includes(key) && key !== current;
+  const ready = Boolean(trimmed && key);
+  const hint = !keyed
+    ? `What its tab shows; its link stays “${current ?? ""}”.`
+    : exists
+      ? `“${key}” exists; ${action.toLowerCase()} replaces it with a new version.`
+      : key
+        ? `Saved as “${key}”, its link and file name.`
+        : "How this dashboard is listed and linked.";
   return (
     <Dialog open={open} onClose={() => (busy ? undefined : onClose())} fullWidth maxWidth="xs">
       <DialogTitle>{title}</DialogTitle>
@@ -94,9 +107,9 @@ function NameDialog({ open, title, action, initial, taken, busy, error, onClose,
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && trimmed) onSubmit(trimmed);
+            if (e.key === "Enter" && ready) onSubmit(trimmed);
           }}
-          helperText={exists ? `“${trimmed}” exists; ${action.toLowerCase()} replaces it with a new version.` : "How this dashboard is listed and linked."}
+          helperText={hint}
           inputProps={{ "aria-label": "dashboard name" }}
           sx={{ mt: 1.5 }}
         />
@@ -110,7 +123,7 @@ function NameDialog({ open, title, action, initial, taken, busy, error, onClose,
         <Button onClick={onClose} disabled={busy}>
           Cancel
         </Button>
-        <Button variant="contained" onClick={() => onSubmit(trimmed)} disabled={busy || !trimmed} color={exists ? "warning" : "primary"}>
+        <Button variant="contained" onClick={() => onSubmit(trimmed)} disabled={busy || !ready} color={exists ? "warning" : "primary"}>
           {action}
         </Button>
       </DialogActions>
@@ -293,10 +306,10 @@ export function Dashboards({ name, generated, devices, events, recording: record
     },
     [doc, patch],
   );
-  const add = (kind: WidgetKind) =>
+  const add = (type: WidgetType) =>
     patch((d) => ({
       ...d,
-      widgets: [...d.widgets, { id: newId(kind.kind), kind: kind.kind, title: null, x: 0, y: bottomOf(d.widgets), w: kind.defaultSize.w, h: kind.defaultSize.h, config: kind.defaultConfig?.(bindings) ?? {} }],
+      widgets: [...d.widgets, { id: newId(type.type), type: type.type, label: null, x: 0, y: bottomOf(d.widgets), w: type.defaultSize.w, h: type.defaultSize.h, config: type.defaultConfig?.(bindings) ?? {} }],
     }));
   const renderWidget = useCallback((w: DashboardWidget) => <WidgetFrame widget={w} editing={editing} onAction={onAction} />, [editing, onAction]);
 
@@ -328,6 +341,8 @@ export function Dashboards({ name, generated, devices, events, recording: record
   const [notice, setNotice] = useState<string | null>(null);
   const isGenerated = wanted === null;
   const names = (list.data ?? []).map((d) => d.name);
+  /** What this dashboard is called where a person reads it: its label, else its key. */
+  const shown = labelOf(baseline ?? doc, wanted ?? "");
 
   const act = async (op: () => Promise<unknown>): Promise<boolean> => {
     setBusy(true);
@@ -348,12 +363,13 @@ export function Dashboards({ name, generated, devices, events, recording: record
   // on the server only: keep that, not the stale copy, so saving an edit does not move the tab back.
   // A copy under a new name (Save as) starts unordered, after the ordered ones.
   const serverOrder = (as: string) => (list.data ?? []).find((d) => d.name === as)?.body.order;
-  const documentFor = (as: string): DashboardDocument => {
+  const documentFor = (as: string, label?: string | null): DashboardDocument => {
     const base = doc ?? emptyDocument(as, rigName);
-    return normalise({ ...base, name: as, rig: doc?.rig || rigName, order: serverOrder(as) ?? (as === wanted ? base.order ?? null : null) });
+    return normalise({ ...base, name: as, label: label === undefined ? base.label ?? null : label, rig: doc?.rig || rigName, order: serverOrder(as) ?? (as === wanted ? base.order ?? null : null) });
   };
-  const save = async (as: string) => {
-    const body = documentFor(as);
+  /** Save the working copy under `as`; `label` replaces its label (Save as), undefined keeps it. */
+  const save = async (as: string, label?: string | null) => {
+    const body = documentFor(as, label);
     const ok = await act(async () => {
       const row = await rig.saveDashboard(as, body);
       const saved = normalise(row.body);
@@ -361,7 +377,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
       setBaseline(saved);
       setProblems(row.problems);
       invalidateDashboards();
-      setNotice(`Saved “${as}”.`);
+      setNotice(`Saved “${labelOf(saved, as)}”.`);
     });
     if (ok) {
       setSaveAs(false);
@@ -371,24 +387,23 @@ export function Dashboards({ name, generated, devices, events, recording: record
       }
     }
   };
+  /**
+   * Renaming edits the label: a new version of what is saved with the new label, under the same
+   * key, so its link, its place and home are unchanged. The working copy takes the label too;
+   * anything else unsaved stays unsaved.
+   */
   const rename = async (to: string) => {
-    if (wanted === null) return;
-    const ok = await act(() => rig.renameDashboard(wanted, to));
-    if (ok) {
-      setRenaming(false);
+    if (wanted === null || !baseline) return;
+    const label = labelFor(to, wanted);
+    const ok = await act(async () => {
+      const row = await rig.saveDashboard(wanted, normalise({ ...baseline, label, order: serverOrder(wanted) ?? baseline.order ?? null }));
+      const saved = normalise(row.body);
+      setBaseline(saved);
+      if (dirty) patch((d) => ({ ...d, label }));
+      else hist.reset(saved);
       invalidateDashboards();
-      if (homeName === wanted) {
-        writeHome(to);
-        setHomeName(to);
-      }
-      // The working copy carries over: same document, new name; anything unsaved stays unsaved.
-      if (doc) {
-        imports.current.set(to, { ...doc, name: to });
-        if (!dirty) imports.current.delete(to);
-      }
-      leaveFreely();
-      onOpen(to);
-    }
+    });
+    if (ok) setRenaming(false);
   };
   const remove = async () => {
     if (wanted === null) return;
@@ -429,12 +444,12 @@ export function Dashboards({ name, generated, devices, events, recording: record
       const candidate = normalise({ ...emptyDocument(stem, rigName), ...parsed, name: typeof parsed.name === "string" && parsed.name ? parsed.name : stem, rig: rigName || (typeof parsed.rig === "string" ? parsed.rig : "") });
       const shape: JsonSchema = await rig.dashboardSchema();
       const problems = validateAgainst(shape, candidate);
-      const unknown = candidate.widgets.filter((w) => !widgetKind(w.kind)).map((w) => `${w.id}: unknown widget kind “${w.kind}”`);
+      const unknown = candidate.widgets.filter((w) => !widgetType(w.type)).map((w) => `${w.id}: unknown widget type “${w.type}”`);
       if (problems.length) {
         setImportErrors(problems);
         return;
       }
-      if (unknown.length) setNotice(`Imported with ${unknown.length} widget${unknown.length === 1 ? "" : "s"} of a kind this app does not have (shown as missing).`);
+      if (unknown.length) setNotice(`Imported with ${unknown.length} widget${unknown.length === 1 ? "" : "s"} of a type this app does not have (shown as missing).`);
       imports.current.set(candidate.name, candidate);
       setImportErrors(null);
       if (candidate.name === wanted) {
@@ -688,33 +703,40 @@ export function Dashboards({ name, generated, devices, events, recording: record
                 open={saveAs}
                 title="Save dashboard as"
                 action="Save"
-                initial={isGenerated ? "" : (wanted ?? "")}
+                initial={isGenerated ? "" : shown}
                 taken={names}
+                keyed
+                current={wanted}
                 busy={busy}
                 error={dialogError}
                 onClose={() => {
                   setSaveAs(false);
                   setDialogError(null);
                 }}
-                onSubmit={(n) => void save(n)}
+                onSubmit={(typed) => {
+                  const as = nameFor(typed);
+                  void save(as, labelFor(typed, as));
+                }}
               />
               <NameDialog
                 open={renaming}
-                title={`Rename “${wanted ?? ""}”`}
+                title={`Rename “${shown}”`}
                 action="Rename"
-                initial={wanted ?? ""}
+                initial={shown}
                 taken={names}
+                keyed={false}
+                current={wanted}
                 busy={busy}
                 error={dialogError}
                 onClose={() => {
                   setRenaming(false);
                   setDialogError(null);
                 }}
-                onSubmit={(n) => void rename(n)}
+                onSubmit={(typed) => void rename(typed)}
               />
               <Confirm
                 open={deleting}
-                title={`Delete “${wanted ?? ""}”?`}
+                title={`Delete “${shown}”?`}
                 text="Every saved version of this dashboard is removed. This cannot be undone."
                 action="Delete"
                 busy={busy}

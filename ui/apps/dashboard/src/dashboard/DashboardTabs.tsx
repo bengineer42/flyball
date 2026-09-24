@@ -14,7 +14,7 @@ import HomeIcon from "@mui/icons-material/Home";
 import { invalidateDashboards, useDashboards, useRig } from "@flyball/react";
 import { useAuth } from "../auth.js";
 import { hashFor } from "../router.js";
-import { emptyDocument } from "./document.js";
+import { emptyDocument, labelFor, labelOf, nameFor } from "./document.js";
 import { reorder, saveOrder } from "./order.js";
 import { GENERATED_NAME } from "./generate.js";
 import { readHome } from "./home.js";
@@ -27,7 +27,7 @@ export interface DashboardTabsProps {
   onOpen(name: string | null, generated?: boolean): void;
 }
 
-/** The value MUI's `Tabs` holds for the generated overview (a saved dashboard cannot be named this: names come from the user, and this has no characters one could type in a name field by accident). */
+/** The value MUI's `Tabs` holds for the generated overview (a saved dashboard cannot be named this: a name is `nameFor` a label, lower-case letters, digits and `-`). */
 const GENERATED = "\u0000generated";
 
 export function DashboardTabs({ name, generated, onOpen }: DashboardTabsProps) {
@@ -42,7 +42,10 @@ export function DashboardTabs({ name, generated, onOpen }: DashboardTabsProps) {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const taken = saved.some((d) => d.name === newName.trim());
+  // What is typed is the label; the key it is saved under follows from it.
+  const typed = newName.trim();
+  const key = nameFor(typed);
+  const taken = saved.some((d) => d.name === key);
   const [dragging, setDragging] = useState<number | null>(null);
   const drop = async (to: number) => {
     const from = dragging;
@@ -56,10 +59,10 @@ export function DashboardTabs({ name, generated, onOpen }: DashboardTabsProps) {
   };
 
   const create = async () => {
-    const as = newName.trim();
+    const as = key;
     if (!as || taken) return;
     try {
-      await rig.saveDashboard(as, emptyDocument(as, ""));
+      await rig.saveDashboard(as, emptyDocument(as, "", labelFor(typed, as)));
       invalidateDashboards();
       setAdding(false);
       setNewName("");
@@ -98,7 +101,7 @@ export function DashboardTabs({ name, generated, onOpen }: DashboardTabsProps) {
             }}
             onDragEnd={() => setDragging(null)}
             value={d.name}
-            label={d.name}
+            label={labelOf(d.body, d.name)}
             icon={home === d.name ? <HomeIcon sx={{ fontSize: 16 }} /> : undefined}
             iconPosition="end"
             component="a"
@@ -127,13 +130,13 @@ export function DashboardTabs({ name, generated, onOpen }: DashboardTabsProps) {
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && void create()}
             error={taken || error !== null}
-            helperText={taken ? "A dashboard already has this name." : error ?? "Empty; add widgets with Edit."}
+            helperText={taken ? `A dashboard is already saved as “${key}”.` : error ?? (key ? `Saved as “${key}”, empty; add widgets with Edit.` : "Empty; add widgets with Edit.")}
             inputProps={{ "data-testid": "dashboard-new-name" }}
           />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setAdding(false)}>Cancel</Button>
-          <Button variant="contained" onClick={() => void create()} disabled={!newName.trim() || taken} data-testid="dashboard-new-create">
+          <Button variant="contained" onClick={() => void create()} disabled={!key || taken} data-testid="dashboard-new-create">
             Create
           </Button>
         </DialogActions>

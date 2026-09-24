@@ -6,7 +6,7 @@ import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
 import { signalSchema, SELECTS } from "./schema.js";
 import { isNumeric, useValueReadout } from "../valueReadout.js";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 /**
  * One signal's value and sparkline, read from the telemetry store: the value
@@ -52,8 +52,8 @@ const ReadoutWidget = memo(function ReadoutWidget({ config, widget }: WidgetComp
   return <Readout bare signal={signal} source={source} sparkline={config.sparkline !== false && widget.h >= 5} showDevice={showDevice} windowS={charts.windowS} exportHref={exports.series(address)} />;
 });
 
-export const readout: WidgetKind = {
-  kind: "readout",
+export const readout: WidgetType = {
+  type: "readout",
   label: "Readout",
   description: "One signal: its value, unit, position in range and a sparkline.",
   category: "readings",
@@ -73,7 +73,7 @@ export const readout: WidgetKind = {
   }),
   uiSchema: SELECTS,
   defaultConfig: (bindings) => ({ address: bindings.signals[0]?.address ?? "", sparkline: true, showDevice: true }),
-  titleFor: (config, bindings) => {
+  labelFor: (config, bindings) => {
     const address = String(config.address ?? "");
     const s = bindings.signalAt(address);
     return s ? signalTitle(s, bindings.devices) : address;

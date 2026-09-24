@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Box, Chip, Drawer, IconButton, List, ListItemButton, ListItemText, ListSubheader, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
-import { CATEGORIES, WIDGET_KINDS, type WidgetCost, type WidgetKind } from "../widgets/registry.js";
+import { CATEGORIES, WIDGET_TYPES, type WidgetCost, type WidgetType } from "../widgets/registry.js";
 
 const COST: Record<WidgetCost, { label: string; colour: "default" | "info" | "warning"; hint: string }> = {
   cheap: { label: "cheap", colour: "default", hint: "Text and numbers: costs nothing to keep live." },
@@ -9,16 +9,16 @@ const COST: Record<WidgetCost, { label: string; colour: "default" | "info" | "wa
   heavy: { label: "heavy", colour: "warning", hint: "Several charts or a form-heavy panel: a few of these is plenty." },
 };
 
-/** The catalogue: every kind by category, searchable, with what each costs; click one to add it. Stays open so several can be added. */
-export function AddWidgetDrawer({ open, onClose, onAdd }: { open: boolean; onClose(): void; onAdd(kind: WidgetKind): void }) {
+/** The catalogue: every type by category, searchable, with what each costs; click one to add it. Stays open so several can be added. */
+export function AddWidgetDrawer({ open, onClose, onAdd }: { open: boolean; onClose(): void; onAdd(type: WidgetType): void }) {
   const [search, setSearch] = useState("");
   const needle = search.trim().toLowerCase();
   const groups = useMemo(
     () =>
       CATEGORIES.map((c) => ({
         ...c,
-        kinds: WIDGET_KINDS.filter((k) => k.category === c.id && (!needle || `${k.label} ${k.description} ${k.kind}`.toLowerCase().includes(needle))),
-      })).filter((g) => g.kinds.length),
+        types: WIDGET_TYPES.filter((t) => t.category === c.id && (!needle || `${t.label} ${t.description} ${t.type}`.toLowerCase().includes(needle))),
+      })).filter((g) => g.types.length),
     [needle],
   );
   return (
@@ -41,8 +41,8 @@ export function AddWidgetDrawer({ open, onClose, onAdd }: { open: boolean; onClo
               <ListSubheader disableSticky sx={{ lineHeight: "28px" }}>
                 {g.label}
               </ListSubheader>
-              {g.kinds.map((k) => (
-                <ListItemButton key={k.kind} onClick={() => onAdd(k)} data-testid={`add-${k.kind}`} sx={{ alignItems: "flex-start" }}>
+              {g.types.map((k) => (
+                <ListItemButton key={k.type} onClick={() => onAdd(k)} data-testid={`add-${k.type}`} sx={{ alignItems: "flex-start" }}>
                   <ListItemText
                     primary={
                       <Stack direction="row" alignItems="center" spacing={1.5}>

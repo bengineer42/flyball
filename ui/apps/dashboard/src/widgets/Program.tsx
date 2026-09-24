@@ -8,7 +8,7 @@ import { hashFor } from "../router.js";
 import { useEventsData, useRigData } from "../dashboard/context.js";
 import { humaniseSubject, TIME } from "./Events.js";
 import { rowsThatFit } from "./size.js";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 /** The status row (28px), the progress bar (4px) and the two gaps between them and the list (dashboard.css `.dash-program`). */
 const HEAD_PX = 28 + 8 + 4 + 8;
@@ -87,8 +87,8 @@ const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComp
   );
 });
 
-export const program: WidgetKind = {
-  kind: "program",
+export const program: WidgetType = {
+  type: "program",
   label: "Program",
   description: "What the programmer is running: the program, its step, progress, and the last few program events.",
   category: "control",
@@ -104,6 +104,6 @@ export const program: WidgetKind = {
     },
   }),
   defaultConfig: () => ({ events: 5, cancel: true }),
-  titleFor: () => "Program",
+  labelFor: () => "Program",
   Component: ProgramWidget,
 };

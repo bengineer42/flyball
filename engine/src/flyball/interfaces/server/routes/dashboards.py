@@ -4,7 +4,8 @@ A dashboard is a document the UI owns -- a grid of widgets, each bound to a
 signal address, a controller, a device or nothing -- validated here only in
 outline, so the widget catalogue can grow without a server release. The
 server keeps every version under a name, like programs; the newest is what
-`GET` returns. A rig can ship dashboards as ``dashboards/*.toml``,
+`GET` returns. The name is the key; what a person sees is the document's
+`label`, and renaming one in the UI edits that. A rig can ship dashboards as ``dashboards/*.toml``,
 ``dashboards/*.yaml`` or ``dashboards/*.json`` beside its file (whichever
 format the author prefers, per [flyball.foundation.files][]): they are imported
 on start, and an edited file becomes a new version.
@@ -38,20 +39,23 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dashboards", tags=["dashboards"])
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 """The document shape this server writes: bindings are addresses and controller names (2); a
 document says whether it is read-only and where its tab sits (3); a program widget's button
-cancels, `cancel` (4)."""
+cancels, `cancel` (4); an events widget filters by `severity` (5); a widget says which it is
+by `type` and names itself by `label`, and the document has a `label` of its own (6)."""
 
 
 class Widget(BaseModel):
-    """One tile on the grid. `config` is the widget kind's own business."""
+    """One tile on the grid. `config` is the widget type's own business."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    kind: str = Field(description="Which widget: `readout`, `chart`, `loop`, `device`, ...")
-    title: str | None = None
+    type: str = Field(description="Which widget: `readout`, `chart`, `loop`, `device`, ...")
+    label: str | None = Field(
+        default=None, description="The tile's heading; none: the widget names itself."
+    )
     x: int = Field(ge=0)
     y: int = Field(ge=0)
     w: int = Field(ge=1)
@@ -69,12 +73,20 @@ class Grid(BaseModel):
 
 
 class Dashboard(BaseModel):
-    """The document. `name` is the key it is saved under; `rig` which rig it was made for."""
+    """The document, saved under `name` for the rig `rig` names.
+
+    `name` is the key (its URL, its file); `label` is what a person sees (its tab, its row in a
+    list). `rig` is the rig it was made for.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     schema_version: int = SCHEMA_VERSION
     name: str = Field(min_length=1)
+    label: str | None = Field(
+        default=None,
+        description="What its tab and its row in a list show; none: the name. Renaming edits it.",
+    )
     rig: str
     description: str | None = None
     grid: Grid = Field(default_factory=Grid)
@@ -169,7 +181,9 @@ def migrate(document: dict[str, Any]) -> dict[str, Any]:
     longer resolves. Version 2 had no `readonly` or `order`: it is writable
     and unordered. Up to version 3 a `program` widget's `interrupt` was what
     is now its `cancel` button. Up to version 4 an `events` widget's `level`
-    (`"WARNING"`) was what is now its `severity` (`"warning"`).
+    (`"WARNING"`) was what is now its `severity` (`"warning"`). Up to version 5
+    a widget's `type` was its `kind` and its `label` its `title`, and the
+    document had no `label`: it shows its name.
     """
     version = document.get("schema_version", 1)
     if not isinstance(version, int) or version >= SCHEMA_VERSION:
@@ -180,7 +194,14 @@ def migrate(document: dict[str, Any]) -> dict[str, Any]:
         document = _program_cancel(document)
     if version < 5:
         document = _events_severity(document)
-    return {"readonly": False, "order": None, **document, "schema_version": SCHEMA_VERSION}
+    document = _type_and_label(document)
+    return {
+        "readonly": False,
+        "order": None,
+        "label": None,
+        **document,
+        "schema_version": SCHEMA_VERSION,
+    }
 
 
 def _bindings_by_address(document: dict[str, Any]) -> dict[str, Any]:
@@ -241,10 +262,20 @@ def _events_severity(document: dict[str, Any]) -> dict[str, Any]:
     return {**document, "widgets": widgets}
 
 
+def _type_and_label(document: dict[str, Any]) -> dict[str, Any]:
+    """Version 5 → 6: a widget's `kind` is its `type`, its `title` its `label`."""
+    names = {"kind": "type", "title": "label"}
+    widgets = [
+        {names.get(k, k): v for k, v in widget.items()} if isinstance(widget, dict) else widget
+        for widget in document.get("widgets") or []
+    ]
+    return {**document, "widgets": widgets}
+
+
 def problems_for(document: dict[str, Any], rig: Rig) -> list[Problem]:
     """Every widget whose binding names a signal, controller or device `rig` lacks.
 
-    Bindings live in each widget kind's own `config`; only the kinds that
+    Bindings live in each widget type's own `config`; only the types that
     reference the rig by name are checked, matching the widget catalogue
     (readout/gauge: one address; chart: several; loop: a controller;
     device: a device). A readout binds to what publishes.
@@ -264,22 +295,22 @@ def problems_for(document: dict[str, Any], rig: Rig) -> list[Problem]:
         if not isinstance(widget, dict):
             continue
         widget_id = str(widget.get("id", ""))
-        kind = widget.get("kind")
+        type_ = widget.get("type")
         config = widget.get("config") or {}
         if not isinstance(config, dict):
             continue
         refs: list[str] = []
-        if kind in ("readout", "gauge"):
+        if type_ in ("readout", "gauge"):
             if isinstance(address := config.get("address"), str) and address:
                 refs.append(address)
-        elif kind == "chart":
+        elif type_ == "chart":
             candidates = config.get("addresses") or []
             refs.extend(a for a in candidates if isinstance(a, str) and a)
         for ref in refs:
             if ref not in published:
                 flag(widget_id, ref)
-        name = config.get("controller") if kind == "loop" else config.get("device")
-        known = rig.controllers if kind == "loop" else rig.devices
+        name = config.get("controller") if type_ == "loop" else config.get("device")
+        known = rig.controllers if type_ == "loop" else rig.devices
         if isinstance(name, str) and name and name not in known:
             flag(widget_id, name)
     return problems
@@ -330,9 +361,9 @@ async def read_dashboard_schema() -> dict[str, Any]:
 
 @router.get("/widgets")
 async def read_widget_catalogue() -> dict[str, Any]:
-    """Every widget kind and its `config` schema, for a client writing a document by hand.
+    """Every widget type and its `config` schema, for a client writing a document by hand.
 
-    The UI owns the kinds; `widgets.json` beside the server package is a copy
+    The UI owns the types; `widgets.json` beside the server package is a copy
     of its registry with the rig-dependent pickers reduced to `x-binding`.
     """
     path = Path(__file__).parent.parent / "widgets.json"
@@ -374,7 +405,11 @@ def save_dashboard(
 
 @router.post("/{name}/rename")
 def rename_dashboard(store: StoreDep, name: str, body: Rename) -> list[DashboardRow]:
-    """Move every version under a new name. 409 if taken."""
+    """Move every version under a new name: the key, in URLs and files. 409 if taken.
+
+    What a person sees is the document's `label`; renaming a dashboard in the UI saves a
+    version with a new `label` and leaves the name alone. This is the rarer act.
+    """
     rows = store.rename_dashboard(name, body.name)
     # The document names itself too: keep the newest in step with its key.
     newest = rows[0]

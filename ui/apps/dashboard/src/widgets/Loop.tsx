@@ -6,7 +6,7 @@ import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
 import { controllerSchema, SELECTS } from "./schema.js";
 import { useFrozen } from "./size.js";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 const EMPTY: ControllerTrace = { t: [], reference: [], measured: [], output: [], expected: [], correction: [] };
 
@@ -56,7 +56,7 @@ function useBox(ref: React.RefObject<HTMLElement | null>): { w: number; h: numbe
  * scrolls. Law and feedforward never show here; that stays behind the L3
  * Controllers page's `detail` toggle. No controls: a dashboard widget is a
  * read view. Body only (`bare`): the frame is `WidgetFrame`'s, fed the
- * name/source/mode through `useWidgetChrome`. The document's kind stays
+ * name/source/mode through `useWidgetChrome`. The document's type stays
  * `loop` (the wire's name for the widget); its binding is `controller`.
  */
 const ControllerWidget = memo(function ControllerWidget({ config }: WidgetComponentProps) {
@@ -96,8 +96,8 @@ const ControllerWidget = memo(function ControllerWidget({ config }: WidgetCompon
   );
 });
 
-export const loop: WidgetKind = {
-  kind: "loop",
+export const loop: WidgetType = {
+  type: "loop",
   label: "Controller",
   description: "A controller's faceplate: measured, setpoint and output rows, with the Process/Drive trends beside them.",
   category: "control",
@@ -123,7 +123,7 @@ export const loop: WidgetKind = {
   uiSchema: { ...SELECTS, view: { "ui:widget": "select" } },
   defaultConfig: (bindings) => ({ controller: bindings.controllers[0]?.name ?? "", view: "full" }),
   // Fallback title before `useWidgetChrome`'s richer one (a `Ref` link) lands, and while editing.
-  titleFor: (config, bindings) => {
+  labelFor: (config, bindings) => {
     const name = String(config.controller ?? "");
     if (!name) return undefined;
     const c = bindings.controllers.find((l) => l.name === name);

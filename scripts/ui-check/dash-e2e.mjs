@@ -45,7 +45,7 @@ function check(name, ok, detail) {
 }
 
 async function cleanup() {
-  for (const name of ['e2e-test', 'e2e-import', 'e2e-test-renamed']) {
+  for (const name of ['e2e-test', 'e2e-import']) {
     await fetch(`${apiUrl}/api/dashboards/${name}`, { method: 'DELETE' }).catch(() => {});
   }
 }
@@ -170,22 +170,23 @@ const savedDoc = await (await fetch(`${apiUrl}/api/dashboards/e2e-test`)).json()
 await goto('/dashboards/e2e-test');
 await page.waitForTimeout(1500);
 const reloadedDoc = await (await fetch(`${apiUrl}/api/dashboards/e2e-test`)).json();
-const layoutOf = (doc) => (doc.body.widgets || []).map((w) => `${w.id}:${w.kind}:${w.x},${w.y},${w.w},${w.h}`).sort();
+const layoutOf = (doc) => (doc.body.widgets || []).map((w) => `${w.id}:${w.type}:${w.x},${w.y},${w.w},${w.h}`).sort();
 check(
   'reload: GET /api/dashboards/e2e-test has the same widget layout',
   JSON.stringify(layoutOf(savedDoc)) === JSON.stringify(layoutOf(reloadedDoc)),
   `${layoutOf(savedDoc).length} widgets`,
 );
 
-// 9. Rename it.
+// 9. Rename it: the label changes, the name (and so the URL) stays.
 await page.click('[data-testid=edit-toggle]');
 await page.waitForTimeout(300);
 await page.click('[data-testid=more]');
 await page.click('[data-testid=menu-rename]');
-await page.getByRole('textbox', { name: 'dashboard name' }).fill('e2e-test-renamed');
+await page.getByRole('textbox', { name: 'dashboard name' }).fill('E2E test, renamed');
 await page.getByRole('button', { name: 'Rename', exact: true }).last().click();
 await page.waitForTimeout(800);
-check('renames the dashboard', page.url().includes('/dashboards/e2e-test-renamed'), page.url());
+const renamed = await (await fetch(`${apiUrl}/api/dashboards/e2e-test`)).json();
+check('renames the dashboard: a new label, the same name', page.url().includes('/dashboards/e2e-test') && renamed.body?.label === 'E2E test, renamed', `${page.url()} label=${renamed.body?.label}`);
 
 // 10. Export JSON.
 const downloadPromise = page.waitForEvent('download');
@@ -198,7 +199,7 @@ const exported = JSON.parse(fs.readFileSync(exportPath, 'utf8'));
 check('exports JSON', Array.isArray(exported.widgets) && exported.widgets.length > 0, `${exported.widgets?.length} widgets`);
 
 // 11. Import it as "e2e-import". The exported file names itself after the dashboard it came
-// from (e2e-test-renamed); give it the name a genuinely different file would carry.
+// from (e2e-test); give it the name a genuinely different file would carry.
 const importDoc = { ...exported, name: 'e2e-import' };
 fs.writeFileSync(path.join(os.tmpdir(), 'e2e-import.json'), JSON.stringify(importDoc));
 await page.click('[data-testid=more]');
@@ -223,8 +224,8 @@ await page.goto(uiUrl, { waitUntil: 'networkidle', timeout: 60000 });
 await page.waitForTimeout(1500);
 check('#/ opens the home dashboard', page.url().includes('/dashboards/e2e-import') || page.url().endsWith('#/dashboards'), page.url());
 
-// 13. Delete both e2e-test-renamed and e2e-import.
-for (const name of ['e2e-test-renamed', 'e2e-import']) {
+// 13. Delete both e2e-test and e2e-import.
+for (const name of ['e2e-test', 'e2e-import']) {
   await goto(`/dashboards/${name}`);
   await page.waitForTimeout(800);
   await page.click('[data-testid=more]');

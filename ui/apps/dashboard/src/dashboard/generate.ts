@@ -27,7 +27,7 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
 
   // Sizes below follow the widget catalogue's defaults (DESIGN-SPEC.md §3) on a 24-column grid:
   // health 24×2, readout 6×5, chart 12×8, loop 8×8, device 6×4, program 8×6, events 12×6.
-  row([{ id: "health", kind: "health", title: null, config: { tiles: ["rig", "recording", "devices", "controllers", "conditions"] } }], cols, 2);
+  row([{ id: "health", type: "health", label: null, config: { tiles: ["rig", "recording", "devices", "controllers", "conditions"] } }], cols, 2);
 
   // A device's own housekeeping (its `conditions` list, anything under `last.`) is shown on its own tiles
   // elsewhere (health, device cards), never as a readout or chart signal here.
@@ -35,7 +35,7 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
   // Ids carry the address with its dots turned to dashes, so an id stays a plain token.
   const slug = (address: string) => address.replace(/\./g, "-");
   row(
-    signals.map((s) => ({ id: `readout-${slug(s.address)}`, kind: "readout", title: null, config: { address: s.address, sparkline: true, showDevice: true } })),
+    signals.map((s) => ({ id: `readout-${slug(s.address)}`, type: "readout", label: null, config: { address: s.address, sparkline: true, showDevice: true } })),
     6,
     5,
   );
@@ -48,7 +48,7 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
   const charts = units.flatMap(({ unit, signals: ss }, i) => {
     const parts: (typeof ss)[] = [];
     for (let k = 0; k < ss.length; k += 8) parts.push(ss.slice(k, k + 8));
-    return parts.map((part, j) => ({ id: `chart-${i}${parts.length > 1 ? `-${j + 1}` : ""}-${unit.replace(/[^a-z0-9]+/gi, "")}`, kind: "chart", title: null as string | null, config: { addresses: part.map((s) => s.address), window_s: 0, every: 0, y: "page" }, n: part.length }));
+    return parts.map((part, j) => ({ id: `chart-${i}${parts.length > 1 ? `-${j + 1}` : ""}-${unit.replace(/[^a-z0-9]+/gi, "")}`, type: "chart", label: null as string | null, config: { addresses: part.map((s) => s.address), window_s: 0, every: 0, y: "page" }, n: part.length }));
   });
   // Half-width charts (12 of 24) sit two abreast; a chart with more than four signals takes the full row so its legend
   // stays on one or two lines and leaves the plot its height (measured on `plant` at 1440: 12 signals in a 12-column
@@ -62,7 +62,7 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
 
   row(
     // 8x8 is the "trends on" size (DESIGN-SPEC.md §3.4); "compact" (no trends) wants 6x5.
-    bindings.controllers.map((c) => ({ id: `loop-${slug(c.name)}`, kind: "loop", title: null, config: { controller: c.name, view: "full" } })),
+    bindings.controllers.map((c) => ({ id: `loop-${slug(c.name)}`, type: "loop", label: null, config: { controller: c.name, view: "full" } })),
     8,
     8,
   );
@@ -70,14 +70,14 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
   row(
     bindings.devices
       .filter((d) => d.kind !== "simulation" && signalsOf(d.signals).some(writable))
-      .map((d) => ({ id: `device-${d.name}`, kind: "device", title: null, config: { device: d.name, commands: [], showConfig: false } })),
+      .map((d) => ({ id: `device-${d.name}`, type: "device", label: null, config: { device: d.name, commands: [], showConfig: false } })),
     6,
     4,
   );
 
   const programY = y;
-  widgets.push({ id: "program", kind: "program", title: null, x: 0, y: programY, w: 8, h: 6, config: { events: 5, cancel: true } });
-  widgets.push({ id: "events", kind: "events", title: null, x: 8, y: programY, w: 12, h: 6, config: { level: "INFO", limit: 20, scope: "" } });
+  widgets.push({ id: "program", type: "program", label: null, x: 0, y: programY, w: 8, h: 6, config: { events: 5, cancel: true } });
+  widgets.push({ id: "events", type: "events", label: null, x: 8, y: programY, w: 12, h: 6, config: { level: "INFO", limit: 20, scope: "" } });
   y += 6;
 
   return { schema_version: SCHEMA_VERSION, name: GENERATED_NAME, rig, description: "Made from the rig's devices: everything it has, in the order it declares it.", grid: { ...DEFAULT_GRID }, widgets };

@@ -148,8 +148,8 @@ class TestTools:
         assert "signals" in detailed[0], "`detail` asked for the rest"
         schema = self.tool(client, "describe_device").run(client, {"name": "heaters"})
         assert "set_duty" in schema["commands"]
-        kinds = self.tool(client, "widget_schema").run(client, {})["kinds"]
-        assert [k["kind"] for k in kinds][:3] == ["readout", "gauge", "chart"]
+        types = self.tool(client, "widget_schema").run(client, {})["types"]
+        assert [t["type"] for t in types][:3] == ["readout", "gauge", "chart"]
 
     @pytest.mark.parametrize("name", ["..", ".", "", "../health", "heaters/../../health"])
     def test_a_name_cannot_climb_to_another_route(self, client, name):
@@ -197,7 +197,7 @@ class TestTools:
             "widgets": [
                 {
                     "id": "a",
-                    "kind": "readout",
+                    "type": "readout",
                     "x": 0,
                     "y": 0,
                     "w": 6,
@@ -214,11 +214,13 @@ class TestTools:
                 "changes": [
                     {"op": "move_widget", "id": "a", "x": 6},
                     {"op": "set_widget_config", "id": "a", "config": {"sparkline": False}},
+                    {"op": "set_widget_label", "id": "a", "label": "Zone 1"},
+                    {"op": "set_label", "label": "Furnace"},
                     {
                         "op": "add_widget",
                         "widget": {
                             "id": "b",
-                            "kind": "gauge",
+                            "type": "gauge",
                             "x": 0,
                             "y": 5,
                             "w": 6,
@@ -234,6 +236,7 @@ class TestTools:
             "address": "furnace.zone1",
             "sparkline": False,
         }
+        assert widgets["a"]["label"] == "Zone 1" and result["body"]["label"] == "Furnace"
         assert [p["widget_id"] for p in result["problems"]] == ["b"]
         assert len(client.get("/api/dashboards/d/history")) == 2
 

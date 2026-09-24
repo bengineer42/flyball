@@ -1,6 +1,7 @@
 {
-  "schema_version": 2,
+  "schema_version": 6,
   "name": "overview",
+  "label": "Overview",
   "rig": "furnace",
   "description": "Health, every reading, and the controllers driving the heaters.",
   "grid": {
@@ -10,7 +11,7 @@
   "widgets": [
     {
       "id": "w1",
-      "kind": "health",
+      "type": "health",
       "x": 0,
       "y": 0,
       "w": 24,
@@ -27,7 +28,7 @@
     },
     {
       "id": "w2",
-      "kind": "readout",
+      "type": "readout",
       "x": 0,
       "y": 2,
       "w": 6,
@@ -40,7 +41,7 @@
     },
     {
       "id": "w3",
-      "kind": "readout",
+      "type": "readout",
       "x": 6,
       "y": 2,
       "w": 6,
@@ -53,7 +54,7 @@
     },
     {
       "id": "w4",
-      "kind": "readout",
+      "type": "readout",
       "x": 12,
       "y": 2,
       "w": 6,
@@ -66,7 +67,7 @@
     },
     {
       "id": "w5",
-      "kind": "readout",
+      "type": "readout",
       "x": 18,
       "y": 2,
       "w": 6,
@@ -79,8 +80,8 @@
     },
     {
       "id": "w6",
-      "kind": "chart",
-      "title": "Zones",
+      "type": "chart",
+      "label": "Zones",
       "x": 0,
       "y": 7,
       "w": 24,
@@ -99,7 +100,7 @@
     },
     {
       "id": "w7",
-      "kind": "loop",
+      "type": "loop",
       "x": 0,
       "y": 15,
       "w": 8,
@@ -111,7 +112,7 @@
     },
     {
       "id": "w8",
-      "kind": "loop",
+      "type": "loop",
       "x": 8,
       "y": 15,
       "w": 8,
@@ -123,7 +124,7 @@
     },
     {
       "id": "w9",
-      "kind": "loop",
+      "type": "loop",
       "x": 16,
       "y": 15,
       "w": 8,
@@ -135,25 +136,25 @@
     },
     {
       "id": "w10",
-      "kind": "program",
+      "type": "program",
       "x": 0,
       "y": 23,
       "w": 12,
       "h": 6,
       "config": {
         "events": 5,
-        "interrupt": true
+        "cancel": true
       }
     },
     {
       "id": "w11",
-      "kind": "events",
+      "type": "events",
       "x": 12,
       "y": 23,
       "w": 12,
       "h": 6,
       "config": {
-        "level": "INFO",
+        "severity": "info",
         "limit": 20,
         "scope": ""
       }
