@@ -38,6 +38,7 @@ def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 _yaml_loaders: dict[str, type[Any]] = {}
 
 _YAML_BOOL = "tag:yaml.org,2002:bool"
+_YAML_MERGE = "tag:yaml.org,2002:merge"
 
 
 def yaml_loader() -> type[Any]:
@@ -73,6 +74,10 @@ def _yaml_loader() -> type[Any]:
     PyYAML's own `construct_mapping` keeps the last value silently; this
     overrides it to check for a repeat first, naming the key and the line
     it reappears on, before deferring to the original for the real work.
+
+    Merge keys (`<<: *defaults`, or `<<: [*a, *b]`) are flattened first, as
+    `SafeConstructor` does, and only the keys written in the mapping itself
+    are checked: one that overrides a merged-in key is ordinary YAML.
     """
     if (loader := _yaml_loaders.get("strict")) is None:
         import yaml
@@ -81,8 +86,10 @@ def _yaml_loader() -> type[Any]:
             def construct_mapping(
                 self, node: yaml.MappingNode, deep: bool = False
             ) -> dict[Hashable, Any]:
+                written = [key for key, _ in node.value if key.tag != _YAML_MERGE]
+                self.flatten_mapping(node)
                 seen: set[Any] = set()
-                for key_node, _ in node.value:
+                for key_node in written:
                     key = self.construct_object(key_node, deep=deep)
                     if key in seen:
                         raise ValueError(
