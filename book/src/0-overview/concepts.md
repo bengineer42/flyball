@@ -21,6 +21,10 @@ written on every readout and is the same everywhere: the chart legend, the
 export's column, the program step, the CLI. Some signals are only read;
 some can be **written** (a box on the card); a **demand** -- a signal whose
 writing takes control of the process -- is what a controller drives.
+A signal may have **no value** -- a sensor with nothing valid to give, a
+blend's humidity with no flow, a device gone offline -- and then it shows
+"—" and why (its **quality**: `invalid`, `n/a`, `stale`), never a number
+standing in; its chart breaks there.
 
 **A controller** -- a control loop, not a device -- holds one **measured**
 signal at a **setpoint** by writing an **output**, a demand on a device: the

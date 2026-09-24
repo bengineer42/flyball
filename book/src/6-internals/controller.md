@@ -65,7 +65,10 @@ def tick(self, reading):
         return                                # too soon: reading recorded, nothing else runs this tick
 
     if self.mode.active():                                  # regulating
-        if (reason := self.hold()) is not None:           # the rig would refuse the write
+        reason = self.hold()                              # the rig would refuse the write
+        if reason is None and reading is not None and not reading.usable:
+            reason = Code.FROZEN                          # no value: never stepped on, rig or not
+        if reason is not None:
             self.held = reason                            # frozen: no step, no write
             return
         resumed, self.held = self.held is not None, None
@@ -149,8 +152,10 @@ Seven things to note:
    asks `self.hold()` -- the rig's
    [`hold_reason`][flyball.rig.rig.Rig.hold_reason], injected like `write`
    -- whether the rig would refuse its write: `stale_input` (the measured signal is
-   older than `stale_after_s`) or `limit_unknown` (a limit on the output
-   follows a signal with no finite value, D-030). If so the tick returns
+   older than `stale_after_s`), `limit_unknown` (a limit on the output
+   follows a signal with no finite value, D-030) or `frozen` (the measured
+   signal's newest reading is a `NoValue`; the controller holds `frozen`
+   on such a reading by itself too, with no rig in front of it). If so the tick returns
    there: the law does not step, `correction`, `output`, `expected` and
    `delivered_correction` keep their last values, and `held` records the
    reason. Stepping anyway would integrate the error against a write that
@@ -162,10 +167,14 @@ Seven things to note:
    yet), so the law's `dt` is at most one ordinary interval and the result
    is what it would have been had the held ticks never happened. The rig
    holds each reason as a condition on the controller in `rig.conditions`
-   (`stale_input`, `limit_unknown`): set on every held call, which raises
+   (`stale_input`, `limit_unknown`, `frozen`): set on every held call, which raises
    it once, and cleared on the first call that is not held, and `demand(by=controller)` asks `hold_reason`
-   again for the write itself. Unattached, `hold` is
-   `Controller._never_held`.
+   again for the write itself. `frozen` clears only once `RESUME_AFTER` (3)
+   readings in a row have had a value: the rig counts them per controller as
+   it steps it, and until then `hold_reason` keeps answering `frozen`.
+   Unattached, `hold` is `Controller._never_held`. `last_value` is None
+   while the newest reading has no value, so `regulate(ValueSource.MEASURED)`
+   refuses, and a `TRACK`/`CARRY` handover seeds as if nothing had been read.
 
 ## The feedforward
 

@@ -57,6 +57,40 @@ or the MCP `search_drivers` tool, the same catalogue over a running server.
 these plus anything from a `drivers/` directory or another installed
 package.
 
+## When a driver has no value
+
+What a driver yields for a value it has not got is its contract with the
+rig ([no value](../../3-extending/model.md#no-value)): a signal left out
+of a sample was not read this time; `invalid(reason)` is a good read of a
+value that is not one (a no-value, which never counts toward
+[`reads.fail_after`](index.md#reads)); `not_applicable(reason)` is a
+quantity undefined now; a raise is the transport failing, which does. A
+`None`, NaN or infinity in a sample is made `invalid` by the rig. Every
+driver here follows it:
+
+| driver | a value it has not got | a raise |
+| --- | --- | --- |
+| `scpi` | `9.91E37` → `invalid("not_a_number")`; `±9.9E37` → `invalid("overrange")`, low or high | no reply, a reply that is not a number |
+| `modbus` | none: a register is always a number | a bus error |
+| `qcodes`, `pymeasure` | a `None` or NaN from the instrument → `invalid` | the getter raising |
+| `sim_daq` | `fail(signal)` → `invalid("sensor_failed")` on that channel | `fail(signal, raises=true)`: every read of it |
+| `sim_drive`, `pwm_channel`, `mcp4725`, `dosing_pump`, `stepper` | n/a: write-only, or internal state | the bus |
+| `i2c_table`, `ads1115`, `mcp3008`, `gpio_line`, `pulse_counter`, `hx711` | none: every read is a number | the bus; `hx711` a conversion not ready |
+| `sht4x`, `sht4x_set`, `sht31`, `htu21d`, `scd30`, `scd40`, `sgp40`, `mhz19`, `ms5611` | none (humidity is cropped to 0-100 %, as the datasheets say) | a CRC failure, a short frame, a sensor not ready in time; in an `sht4x_set` one sensor's failure fails that read of the set |
+| `bme280` | a BMP280 has no `humidity` signal at all | the bus |
+| `ezo_*` | none | a `*` status reply, a malformed one |
+| `ccs811` | no new result yet (`DATA_READY` clear) → nothing read | an error status, not in app mode |
+| `sgp30` | its 15 s warm-up placeholders → nothing read (`pending`) | a CRC failure |
+| `ds18b20` | none: the kernel's CRC line decides [Unverified: whether the kernel reports the 85 °C power-on value as a reading] | a failed CRC |
+| `current_loop` | a NAMUR fault current → `invalid("ne43_low"/"ne43_high")`, low or high; 3.6-3.8 / 20.5-21 mA → the value, `at_limit` | the ADC's own failure |
+| `dual_pump_blender` | `expected_humidity`: `not_applicable("no_flow")` with no flow, `invalid("supply")` while a supply has no value | the PWM bus |
+
+A demand's reading is the value the rig committed (`readback: echo`)
+unless the driver reads it back: `scpi` with a `query`, and `qcodes` /
+`pymeasure` with a getter, declare theirs `sensed`. A driver that pushes a
+quantised value back (`pwm_channel`, `mcp4725`, `gpio_line`, `i2c_table`,
+`modbus`) computes it rather than reads it, so stays `echo`.
+
 ## Generic instruments
 
 ### `scpi`
@@ -86,7 +120,10 @@ Adds two commands for bring-up, `write` and `query`, that send any text
 outside the declared tree. An instrument that stops answering marks the
 device `offline` after [`reads.fail_after`](index.md#reads) timeouts in a
 row (default 3); polling goes on, retrying with backoff, and the next good
-read clears it. Replies that
+read clears it. SCPI's stand-ins for no number are no-values, not
+numbers: `9.91E37` is `invalid("not_a_number")` and `±9.9E37`
+`invalid("overrange")` on that side. A signal with both `query` and
+`write` is read back from the instrument (`readback: sensed`). Replies that
 are not a number need a `parse=` in Python: [Writing a sensor](../../3-extending/device/sensor.md#talking-to-an-instrument).
 
 ### `modbus`
@@ -135,7 +172,9 @@ smu:
 ```
 
 A gettable numeric parameter is a signal; a settable one is writable too,
-and a demand unless it says `role: setting`.
+and a demand unless it says `role: setting` (`readback: sensed` when it
+also has a getter). A `None` from a getter is a reading with no value
+(`invalid`), not an error.
 
 ### `pymeasure`
 
@@ -163,7 +202,11 @@ smu:
 
 Reads chosen outputs of a [simulated plant](../links.md#simulated-plants) as
 `[RP]` signals. Commands `fail(signal)` / `restore(signal)` make a reading
-go bad and come back -- simulation only.
+go bad and come back -- simulation only. A failed sensor reads
+`invalid("sensor_failed")` (an open thermocouple the DAQ reports: the other
+channels read on, and a controller on it freezes); `fail(signal, raises:
+true)` instead makes every read of it raise, a dead bus, which takes the
+device `offline` after its failure budget.
 
 | field | default | |
 | --- | --- | --- |
@@ -406,7 +449,10 @@ periodic baseline (get/set) for long-term accuracy. The driver class has
 `get_baseline`/`set_baseline`; a baseline read back earlier can be restored
 at startup with the `baseline` field, so the chip need not settle from
 scratch on every power cycle. The `baseline` command reads the current
-baseline back out, to save for that field.
+baseline back out, to save for that field. For its first 15 s its outputs
+are fixed placeholders (400 ppm, 0 ppb): the chip is measured every poll,
+as the algorithm needs, but nothing is read until they are over -- the
+signals stay `pending`.
 
 | field | default | |
 | --- | --- | --- |
@@ -432,7 +478,8 @@ falls back to the datasheet's fixed default (50 %RH, 25 °C) for that input.
 ### `ccs811`
 
 ams/ScioSense CCS811: `co2eq` (ppm), `tvoc` (ppb), both `[RP]`. Runs a
-mandatory boot/app-start sequence before its first read.
+mandatory boot/app-start sequence before its first read. A poll while no
+new result is ready (`STATUS` without `DATA_READY`) reads nothing.
 
 | field | default | |
 | --- | --- | --- |
@@ -512,8 +559,16 @@ tested.
 A 4-20 mA instrument (an industrial O₂/DO analyser, a pressure
 transmitter) read over an existing `ads1115` or `mcp3008` channel, not a
 new bus -- it composes one, converting mA through a sense resistor into
-engineering units. Below ~3.6 mA or above ~21 mA is treated as a wiring
-fault, not a real reading (the NAMUR NE43 convention).
+engineering units. Below ~3.6 mA or above ~21 mA is a wiring fault, not a
+real reading (the NAMUR NE43 convention): that channel reads `invalid`
+(`ne43_low` or `ne43_high`, with its side), never a clamped value and never
+a raise -- the ADC was read, so its other channels read on and the device
+stays online. Between 3.6 and 3.8 mA, or 20.5 and 21 mA, the transmitter is
+pinned at an end of its range: the value is reported with the caveat
+`at_limit`. An `alarm` band on the signal raises `band_unknown` on the
+fault ([Bands](index.md#a-banded-signal-with-no-value)). [Unverified: the
+NE43 thresholds are the commonly quoted ones; the NAMUR text was not
+consulted.]
 
 | field | default | |
 | --- | --- | --- |

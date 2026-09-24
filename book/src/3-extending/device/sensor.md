@@ -126,6 +126,24 @@ config class with a type -- [Config and build](config.md) -- after which it
 appears in [Supported drivers](../../2-config/devices/drivers.md)' terms: its own
 fields, a `link`, the envelope around it.
 
+## A value it has not got
+
+A raise says the transport failed: nothing was read. A sensor that answers
+but has no valid measurement -- a "no measurement" status, a fault current,
+one bad channel of several -- yields a no-value for that signal instead,
+and the rest of the sample reads on:
+
+```python
+from flyball.foundation.device import invalid, not_applicable, railed
+
+yield self.sample(time_ns, oxygen=invalid("ne43_low", side="low"))   # read, not a valid value
+yield self.sample(time_ns, blend=not_applicable("no_flow"))           # undefined now
+yield self.sample(time_ns, pressure=railed(110000.0, "high"))         # usable, pinned at an end
+```
+
+A signal left out was not read this time. The whole contract, and what
+the rig does with each, is in [the device model](../model.md#no-value).
+
 ## What the runtime adds
 
 The rig keeps a run record beside each polled device: its period, when it

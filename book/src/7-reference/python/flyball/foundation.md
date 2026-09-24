@@ -21,6 +21,8 @@
 
 ::: flyball.foundation.device.signal
 
+::: flyball.foundation.device.novalue
+
 ::: flyball.foundation.time.clock
 
 ::: flyball.foundation.time.loop

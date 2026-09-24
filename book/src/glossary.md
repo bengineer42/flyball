@@ -19,14 +19,19 @@ with the signed handshake and routes to it again, with no restart
 
 **alarm** — a signal's reading outside one of its **bands**, held by the
 rig as a condition on the signal: `band_warning` (outside `warning`) or
-`band_alarm` (outside `alarm`), never both. An alarm is not a fault:
-`/api/health` counts it in `alarms`, never in `ok`. A widget's limits only
-colour what it draws.
+`band_alarm` (outside `alarm`), never both; or `band_unknown`, a banded
+signal with no value because of a fault, per its `on_no_value`. An alarm is
+not a fault: `/api/health` counts it in `alarms`, never in `ok`. A widget's
+limits only colour what it draws.
 
 **band** — a signal's `warning` or `alarm` range, `[lo, hi]`, set by the
 driver or the rig file. The rig raises its **alarm** on the first reading
 beyond it and clears it only after readings have been back inside for
 `max(2·poll_s, 1 s)`.
+
+**caveat** — what annotates a usable (`ok`) value and gates nothing:
+`at_limit` (the sensor railed, or the rig clamped a demand, at that end),
+`out_of_range` (outside the signal's `range`).
 
 **cancelled** — how a program ends when a person ends it: the cancel
 button, `POST /api/programs/cancel`, a new program started with `cancel`,
@@ -164,9 +169,31 @@ the same thing as an MCP prompt.
 and a unit, nothing else.
 
 **readback** — a demand's reported current value: what the device says it
-holds, beside what was last written. Not a role; compare **readout**.
+holds, beside what was last written. Not a role; compare **readout**. A
+demand's `readback` is `echo` (the value the rig committed, pushed back;
+`stale(write_failed)` while its device's writes fail) or `sensed` (read
+back from the hardware).
 
-**reading** — one value on one signal at one instant.
+**reading** — one value on one signal at one instant; the value may be
+absent (**no value**), with its **quality**.
+
+**no value** — what a reading carries when it has no number: `null` on the
+wire, `NoValue` in code, a NULL with a **flag** in the store. Never a
+number standing in; a chart breaks there.
+
+**quality** — what a signal's value is worth now: `ok`, `pending` (nothing
+read yet), `not_applicable` (undefined now; shown "n/a"), `invalid` (read,
+not a valid measurement) or `stale` (the last value is no longer trusted,
+with a reason: `device_offline`, `write_failed`, …). `pending` and
+`not_applicable` are benign; `invalid` and `stale` are faults.
+
+**frozen** — a condition on a regulating controller whose measured signal
+has no value: the law does not step, nothing is written, until 3 readings
+in a row have one. Not a mode.
+
+**flag** — a stored reading's code: 1-4 a no-value's quality (invalid,
+not_applicable, stale, stale with the device offline), 16/17 the mark
+`at_limit` low/high on a value.
 
 **readout** — a signal the device produces and nothing outside writes: a
 measurement, a derived value, a mode (`Role.READOUT`, `RP`, the `Readout`

@@ -43,7 +43,7 @@ flyball program run programs/firing.yaml      # cd daemon && go build ./cmd/flyb
 flyball program status
 flyball sim show                              # the tube's parameters
 flyball sim set tube coupling_w_per_k=20      # couple the zones harder, live
-flyball invoke furnace fail signal=zone3      # open-circuit a thermocouple
+flyball invoke furnace fail signal=zone3      # open-circuit a thermocouple: it reads invalid, zone 3's loop freezes
 flyball watch controllers
 ```
 

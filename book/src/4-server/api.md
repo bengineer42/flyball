@@ -145,7 +145,7 @@ transaction begun inside another under the same error; `detail` says which.
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, activities, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every [`Condition`](wire.md#devices) held now, from the rig's condition store, on any device, signal, controller or the rig itself (`[{code, severity, message, since_ns, scope, subject, details}]`: `offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path, `stale_input`/`limit_unknown`/`step_failed` on a controller, `band_warning`/`band_alarm` on a signal, `recording_failed` on the rig, and each driver's own on its device or signals); `alarms` is `{warn, alarm, unknown, max_level}`, counted from the rig's band conditions: `warn` is the signals holding `band_warning` (outside their `warning` band), `alarm` those holding `band_alarm` (outside `alarm`), each signal once; these keep the rig's hysteresis ([Bands](../2-config/devices/index.md#bands)). Fault conditions are never alarms: one offline device is one condition and zero alarms. `unknown` (a banded signal with no value) is always `0` for now; `max_level` is `40`/`30`/`0`. `ok` is false while any condition at `error` is held other than `band_alarm` -- a band alarm is not a fault; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
+| `GET` | `/api/health` | `{ok, rig, uptime_s, devices, controllers, conditions, alarms, activities, recording}`; `devices` is `{name: {running, last_read_ns}}` for each polled device, `controllers` is `{name: mode}`; `conditions` is every [`Condition`](wire.md#devices) held now, from the rig's condition store, on any device, signal, controller or the rig itself (`[{code, severity, message, since_ns, scope, subject, details}]`: `offline`, `slow` from polling, `write_failed` from a blocking writer, `commit_failed` from a commit on the delivery path, `stale_input`/`limit_unknown`/`step_failed` on a controller, `band_warning`/`band_alarm`/`band_unknown` on a signal, `frozen` on a controller, `recording_failed` on the rig, and each driver's own on its device or signals); `alarms` is `{warn, alarm, unknown, max_level}`, counted from the rig's band conditions: `warn` is the signals holding `band_warning` (outside their `warning` band), `alarm` those holding `band_alarm` (outside `alarm`), `unknown` those holding `band_unknown` (a banded signal with no value because of a fault, past its grace, whose `on_no_value` is `fire`), each signal once, `unknown` first; these keep the rig's hysteresis ([Bands](../2-config/devices/index.md#bands)). Fault conditions are never alarms: one offline device is one condition and zero alarms. `max_level` is `40`/`30`/`0` from `alarm`/`warn`; `unknown` does not raise it. `ok` is false while any condition at `error` is held other than a band condition -- a band alarm is not a fault; `exposure` is the runner's own, as in a bare runner's `GET /api/auth` (behind a front: `fronted: true`, its socket's `endpoint`, and `notes` on the settings it ignores); `{ok: false, rig: null, exposure}` with no rig |
 | `GET` | `/api/schema` | `{devices: {name: DeviceSchema}}` |
 | `GET` | `/api/clock` | `ClockOut`: `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 | `GET` | `/api/tunings` | `{name: LawConfig}` |
@@ -224,12 +224,19 @@ stopped, or that gave up (`reads.give_up_after_s`).
 
 A signal in the tree is `{name, address, access, role, tags, label,
 quantity, unit, dimension, dtype, shape, range, precision, warning, alarm,
-poll_s, limits, initial, latest, write}`: `access` is the set in force as
-letters (`rp`, `w`, `rw`, `rpw`), `role` one of `demand`, `readout`,
-`setting`, `config`, `tags` the section as `{axis: name}` (empty without
-one), `limits` the numbers in force now, `latest` `{time_ns, value}` once
-it has been read (null before), `write` a `WriteOut` for a writable signal
-once it has been set. A namespace is `{name, address, atomic, label,
+poll_s, limits, initial, quality, readback, on_no_value, latest,
+last_usable, write}`: `access` is the set in force as letters (`rp`, `w`,
+`rw`, `rpw`), `role` one of `demand`, `readout`, `setting`, `config`,
+`tags` the section as `{axis: name}` (empty without one), `limits` the
+numbers in force now, `quality` `pending` before the first reading and
+else the newest reading's ([no value](wire.md#a-reading-with-no-value)),
+`readback` a demand's `echo` or `sensed` (null otherwise), `on_no_value` a
+banded signal's `fire` or `ignore` with the default resolved (null
+unbanded), `latest` `{time_ns, value, quality, reason?, caveats?}` once it
+has been read (null before; `value` null when the reading has none),
+`last_usable` the newest reading that had a value while `latest` has none
+(null otherwise), `write` a `WriteOut` for a writable signal once it has
+been set. A namespace is `{name, address, atomic, label,
 poll_s, signals: [...]}`, nesting the same shapes.
 
 A `WriteOut` is `{value, requested, at_limit, controller}`: what was last
@@ -260,7 +267,7 @@ properties linked to a demand also carry `x-signal`, `unit` and
 
 | | | |
 | --- | --- | --- |
-| `GET` | `/api/read/{address}?fresh=` | what the address names: a signal → `{reading: {signal, time_ns, value}}`; an atomic namespace → `{sample: {node, time_ns, values}}`, `values` keyed relative to the node; a device or a namespace read over several transactions → `{samples: [...]}`; `fresh=true` reads the hardware first, which is how a setting (`rw`, never published) is read; 409 when another read of the device (a poll, a fresh read) has been in flight for 5 s; 503 until the first read, 404 for an unknown address |
+| `GET` | `/api/read/{address}?fresh=` | what the address names: a signal → `{reading: {signal, time_ns, value, quality}}`, and with no value `value: null` plus `reason`, `last_usable` and `age_s` (not an error; [no value](wire.md#a-reading-with-no-value)); an atomic namespace → `{sample: {node, time_ns, values}}`, `values` keyed relative to the node, `null` for one with no value beside its `quality`/`reason`; a device or a namespace read over several transactions → `{samples: [...]}`; `fresh=true` reads the hardware first, which is how a setting (`rw`, never published) is read; 409 when another read of the device (a poll, a fresh read) has been in flight for 5 s; 503 until the first read, 404 for an unknown address |
 | `GET` | `/api/read?at=a,b,c&fresh=` | several addresses at once, a list in the order given; a fresh read costs each device one read |
 
 ## Controllers
@@ -349,7 +356,7 @@ Reads the store, never the rig.
 | `GET` | `/api/history/sessions/{id}/signals` | `[SignalRow {id, device_id, address, quantity, unit, access, dtype, shape, label, range, precision, warning, alarm, limits}]` |
 | `GET` | `/api/history/sessions/{id}/writes` | `[WriteRow {signal: SignalRow, driver, limits}]` |
 | `GET` | `/api/history/sessions/{id}/controllers` | `[ControllerRow {name, measured, law, feedforward}]` |
-| `GET` | `/api/history/sessions/{id}/series/{address}` | `Series {signal: SignalRow, points, downsample}`; query `start_ns`, `end_ns`, and one of `every`, `bucket_ns`, `max_points` |
+| `GET` | `/api/history/sessions/{id}/series/{address}` | `Series {signal: SignalRow, points, downsample}`, a point `{offset_ns, value, flag}`: `value` `null` where the reading had none, with `flag` its code (1 `invalid`, 2 `not_applicable`, 3 `stale`, 4 `stale` with the device offline), else `flag` the value's mark (16/17 `at_limit` low/high) or `null` ([no value](wire.md#a-reading-with-no-value)); query `start_ns`, `end_ns`, and one of `every` (every nth, and every reading with no value), `bucket_ns`, `max_points` (averaged: a bucket with any reading with no value is `null`, with the lowest code in it) |
 | `GET` | `/api/history/sessions/{id}/writes/{address}` | `[WriteStateRow {offset_ns, value, requested, at_limit, controller}]`; query `start_ns`, `end_ns` |
 | `GET` | `/api/history/sessions/{id}/ticks/{controller}` | `[Tick {controller, offset_ns, mode, correction, measured, setpoint, output, expected, delivered_correction}]`; query `start_ns`, `end_ns`. A tick's `correction` is `null` when the law's output was not a number (a NaN integral) |
 | `GET` | `/api/history/sessions/{id}/events` | `[Event]`; query `start_ns`, `end_ns`, `code` |
@@ -474,8 +481,8 @@ message: one `raised` per outage, never one per poll or per step.
 | scope | conditions (raised / cleared) | point events |
 | --- | --- | --- |
 | `device` | `offline` (after `reads.fail_after` failed reads in a row; cleared by the first read that succeeds), `slow`, `write_failed`, `commit_failed`, and a driver's own | `delivery_failed`, `demand_ignored`, `not_revived` (a command succeeded but its hung poll was not restarted), `gave_up` (retries ran past `reads.give_up_after_s`; polling stopped) |
-| `signal` | a driver's own (the sim's `broken`) | |
-| `controller` | `step_failed` (a law that raised), `stale_input`, `limit_unknown` | `interrupted` |
+| `signal` | `band_warning`, `band_alarm`, `band_unknown` ([Bands](../2-config/devices/index.md#bands)), a driver's own (the sim's `broken`) | |
+| `controller` | `step_failed` (a law that raised), `stale_input`, `limit_unknown`, `frozen` (its measured signal has no value: `info` for `not_applicable`, `warning` for a fault; cleared after 3 readings with a value) | `interrupted` |
 | `program` | | `started`, `step`, `step_timed_out`, `step_still_running` (a cancel or a stop gave up waiting for the step, which may still act), `step_failed`, `succeeded`, `failed`, `cancelled` (a person), `interrupted` (the engine, with `details.reason`), `run_from_library` |
 | `rig` | `recording_failed` (cleared by the next recording) | `delivery_failed`, `restored` |
 
@@ -500,6 +507,18 @@ manual demand or a command whose commit raises also gets the error back.
 writer thread; a write that reached the device but whose report to the rig
 raised is a `write_failed` too (logged; the thread goes on writing).
 
+While either is held, every **echo demand** on the device (`readback:
+echo`, the default: its reading is what the rig committed) reads
+`stale`, reason `write_failed`: what the device holds is not known, so a
+limit or a settle wait that follows it fails closed and a chart breaks,
+its last value kept as `last_usable`. A demand never set yet stays
+`pending`. The first commit that succeeds gives every one of them its
+last value back, except a demand whose own write was lost in the failure:
+it stays stale until a demand of its own commits. A device whose reads go
+`offline` gives what its polled reads delivered (readouts, `sensed`
+demands) `stale`, reason `device_offline`, at once; each is `ok` again
+with its next read.
+
 `demand_ignored` (`warning`) is a demand the driver's `commit` never read
 (`details: {signal, demand}`): nothing was set, so the demand is not
 echoed as the signal's reading. Its write record keeps the reading as it
@@ -515,7 +534,7 @@ flush sends nothing.
 
 | socket | on connect | then |
 | --- | --- | --- |
-| `/ws/samples` | the newest published sample per node, and every polled device's run | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, read_s, missed, reading_since_ns, consecutive_failures, next_retry_ns, conditions}]}`, either key present only when something in it changed; at most one sample per node, and one run per device, per flush. A run's `conditions` are what the rig holds on the device now; a condition raised or cleared on it sends the run again |
+| `/ws/samples` | the newest published sample per node, and every polled device's run | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, read_s, missed, reading_since_ns, consecutive_failures, next_retry_ns, conditions}]}`, either key present only when something in it changed; at most one sample per node, and one run per device, per flush. A value with none is `null`, its `quality` and `reason` in the sample's sparse maps ([no value](wire.md#a-reading-with-no-value)); a flush keeps the newest per signal, so a no-value followed within the flush by a value arrives as the value (history keeps both). A run's `conditions` are what the rig holds on the device now; a condition raised or cleared on it sends the run again |
 | `/ws/controllers` | every controller | `{controllers: [ControllerOut]}` of those that ticked |
 | `/ws/activities` | every registered activity | `{activities: [ActivityOut]}` as each registers or settles |
 | `/ws/events` | the recent events | `{events: [Event]}` as each happens |

@@ -43,6 +43,7 @@ null`, which drops only the file's narrowing, never the driver's limits.
 | `range` | `[lo, hi]` | the axis and gauge extent |
 | `precision` | int | decimal places shown |
 | `warning`, `alarm` | `[lo, hi]` | bands outside which the rig raises a condition on the signal, [below](#bands) |
+| `on_no_value` | `fire` \| `ignore` | what a banded signal does while it has no value because of a fault: `fire` raises `band_unknown` after its grace, `ignore` raises nothing, [below](#a-banded-signal-with-no-value). Unset: `fire` with an `alarm` band, `ignore` with only `warning` |
 | `limits` | `[lo, hi]` | narrows what a writable signal may be commanded to; it never widens the driver's. A demand is clamped to the intersection of the driver's limits and these, worked out at each demand; a signal the driver left unlimited takes these as they are. An end reaching past a driver end that is a number is refused at load (`limits (0, 5000) reach outside the driver's (0, 2500)`). A driver may declare an end that follows another of the device's signals (a supply's humidity, a max flow read from the device): it is intersected with that signal's value at each demand, and until that signal has a finite value (none yet, or NaN or infinite, counts as not known), a demand is refused (503, "limit not known yet") and a controller's write is held -- never passed unclamped, nor clamped to the other end. If the limits come out inverted at a demand (a dry supply read wetter than the wet one, or these clear of the driver's live band), the demand is refused (`LimitsInvertedError`, 422) and a controller's write is held. `null`: no narrowing -- the driver's limits stay |
 | `max_rate` | `{per_second: N}` | how fast a demand may move; a faster one is clamped to the largest step the elapsed time allows, not refused. The elapsed time counts up to one update period -- the signal's `poll_s`, else the driving controller's `min_period_s`, else 1 s -- so a demand after a hold or a quiet spell moves one period's worth, not everything banked meanwhile. Unset: unlimited |
 | `poll_s` | number | this signal's own rate; finite and above zero |
@@ -72,8 +73,12 @@ limits only colour a widget:
   at the edge raises once and stays raised; it does not flap.
 - **Details**: `{side: "low" | "high", value, bounds: [lo, hi]}`, the reading
   that raised it and the band it crossed.
-- **Only finite numbers** are judged. A reading that is `null`, NaN, an
-  infinity or not a number leaves the condition and the hold as they were.
+- **Only numbers** are judged. A reading with no value (a NaN or an
+  infinity is one: [no value](../../4-server/wire.md#a-reading-with-no-value))
+  or a non-number leaves the condition as it was, and breaks the time back
+  inside: it starts again at the next reading. A reading railed at one end
+  (`at_limit`) past which a band edge lies is unknown to that band, and
+  leaves it as it was too.
 - **Removing** the band (`warning: null`, `alarm: null`) or the device
   clears the condition at once.
 
@@ -88,6 +93,34 @@ devices:
   thermocouple:
     signals:
       temperature: { warning: [30, 90], alarm: [10, 110], poll_s: 1.0 }   # clears after 2 s inside
+```
+
+#### A banded signal with no value
+
+A band cannot say whether a reading with no value is inside it: the band
+is unknown. What happens depends on why there is no value and on
+`on_no_value`:
+
+| the signal is | with `on_no_value: fire` | with `ignore` |
+| --- | --- | --- |
+| `invalid` (a NAMUR fault current, a failed sensor, a NaN) | `band_unknown` once it has lasted `max(2 × poll_s, 1 s)` | nothing |
+| `not_applicable`, `pending` | nothing: benign | nothing |
+| `stale` because its device is offline or its writes fail | nothing: the device's own `offline` / `write_failed` already counts | nothing |
+
+`band_unknown` is `error` with an `alarm` band and `warning` with only a
+`warning` band; its details are `{quality, reason, side}` (`side` when the
+driver said which way it failed, as a NAMUR current does). It is counted in
+`/api/health`'s `alarms.unknown`, never in `alarm`, and whatever band the
+signal held before stays held meanwhile. It clears once 3 readings in a row
+have a value; the band is judged again from the first of them. A single
+bad reading therefore raises nothing: it would need to last the grace.
+
+```yaml
+devices:
+  oxygen:
+    signals:
+      o2: { alarm: [18, 23] }                         # fire: a broken loop is an alarm
+      trend: { warning: [0, 5], on_no_value: fire }   # a warning band that fires too
 ```
 
 ## Binding one device to another

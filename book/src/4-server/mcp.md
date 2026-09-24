@@ -133,6 +133,10 @@ Every tool call is recorded like any other request that needs more than
   model polls. On `read` and `author` they answer from the latest poll only;
   `operate` has the same two tools with a `fresh` argument for a live device
   read, so the read tier's "nothing here changes the rig" stays true.
+  A reading with no value comes back as `value: null` with its `quality`
+  (`invalid`, `stale`, `not_applicable`), `reason`, `last_usable` and
+  `age_s` ([no value](wire.md#a-reading-with-no-value)): a model never
+  sees a number that is not one.
   `session_series` is one recorded signal over a session; `session_ticks`
   is a recorded controller's steps over one -- mode, correction and, when
   logged, setpoint, output and measured, the data behind a ramp's setpoint

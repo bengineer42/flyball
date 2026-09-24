@@ -73,6 +73,17 @@ or `limit_unknown`: one `raised` event on entering the hold, one
 the first step after the hold counts as one ordinary interval, so the
 time spent held is not integrated either.
 
+A measured reading with **no value** (`invalid`, `stale`,
+`not_applicable`: [no value](../4-server/wire.md#a-reading-with-no-value))
+holds it the same way, with the condition `frozen` (`info` for a benign
+`not_applicable`, `warning` for a fault; `details: {signal, quality,
+reason}`). The law is never called with a missing value, and no number
+stands in for one. It steps again, bumplessly, once 3 readings in a row
+have a value. `regulate` from `measured` is refused while the newest
+reading has none; any other `at` still regulates, and the law is seeded
+as if nothing had been read (`cold`). What the controller does beyond
+freezing when the fault lasts (`on_fault`) is not here yet.
+
 Then:
 
 1. **Resolve the setpoint** for this instant. The reference is either a
@@ -128,8 +139,9 @@ the feedforward's own mapping of the setpoint. Two things follow:
 | `MANUAL` | nothing; the output is driven by demands directly |
 | `REGULATING` | update the law, then write (under `open_loop` the law's correction is zero) |
 
-A frozen controller (a stale measured signal, a limit not known) is still
-`REGULATING`: frozen is a condition, not a mode.
+A frozen controller (a stale measured signal, a limit not known, a
+measured reading with no value) is still `REGULATING`: frozen is a
+condition, not a mode.
 
 Mode says what the controller is *doing*. Who is *allowed* to change it —
 a program step, an operator, the API — is a separate question, answered

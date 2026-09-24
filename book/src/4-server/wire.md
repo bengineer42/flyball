@@ -4,10 +4,11 @@ How flyball's values cross the wire. Everything is JSON; times are integers;
 everything else is named by **address** — see
 [HTTP and websocket API](api.md).
 
-JSON has no NaN or infinity. A non-finite number -- a reading off its
-range, a law's state gone wrong -- is `null` on every websocket frame and
-in a controller (`ControllerOut`) over HTTP, never a bare `NaN` that
-`JSON.parse` refuses.
+JSON has no NaN or infinity. A reading never carries one: the rig makes a
+NaN or an infinity from a driver a reading with no value, `null` with its
+[quality](#a-reading-with-no-value). A law's state gone wrong is `null` on
+every websocket frame and in a controller (`ControllerOut`) over HTTP,
+never a bare `NaN` that `JSON.parse` refuses.
 
 ## Time
 
@@ -27,13 +28,53 @@ first; convert the small result second.
 | type | JSON |
 | --- | --- |
 | `Quantity` | not carried on its own; a signal's `unit` and `dimension` fields say what it is |
-| a signal in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warning, alarm, poll_s, limits, initial, latest, write}` — see [Devices](api.md#devices) |
+| a signal in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warning, alarm, poll_s, limits, initial, quality, readback, on_no_value, latest, last_usable, write}` — see [Devices](api.md#devices) |
 | `access` | the set in force as lowercase letters: `"rp"`, `"w"`, `"rpw"` |
 | `role` | `"demand"`, `"output"`, `"setting"` or `"config"` |
-| `Reading` | `{"signal": address, "time_ns": int, "value": float}` |
-| `Sample` | `{"node": address, "time_ns": int, "values": {relative-name: float}, "writes": {relative-name: WriteMetaOut}}` — `values` keyed by dotted paths relative to `node`, never nested; `writes` likewise, present only for the demands the sample includes |
+| `Reading` | `{"signal": address, "time_ns": int, "value": float \| null, "quality": Quality, "reason"?: str, "caveats"?: Caveats, "last_usable"?: LatestOut, "age_s"?: float}` — the optional keys only when there is something to say; see [no value](#a-reading-with-no-value) |
+| `LatestOut` | `{"time_ns": int, "value": float \| null, "quality": Quality, "reason"?: str, "caveats"?: Caveats}` — a signal's `latest` and `last_usable` |
+| `Sample` | `{"node": address, "time_ns": int, "values": {relative-name: float \| null}, "quality"?: {relative-name: Quality}, "reason"?: {relative-name: str}, "caveats"?: {relative-name: Caveats}, "writes": {relative-name: WriteMetaOut}}` — `values` keyed by dotted paths relative to `node`, never nested; `quality`, `reason` and `caveats` likewise, sparse, and absent when nothing in the sample has one; `writes` present only for the demands the sample includes |
 | `WriteMetaOut` | `{requested, at_limit: "low" \| "high" \| null, controller}` — a demand's write record, riding with its reading in a `Sample`; no `value`, already in `values` |
 | `WriteOut` | `{value, requested, at_limit: "low" \| "high" \| null, controller}` — `WriteMetaOut` plus the committed value; a signal's `write` (`GET /api/devices`) only, now. For a demand the driver never read (`demand_ignored`) `value` is the reading as it was (`null` with none) and `requested` the demand |
+
+## A reading with no value
+
+A reading's value may be absent: `null`, never a number standing in for
+one. Its **quality** says why, and every surface carries it:
+
+| `Quality` | meaning | a fault? |
+| --- | --- | --- |
+| `ok` | a value | — |
+| `pending` | nothing read yet (a signal's `quality` only: no reading carries it) | no |
+| `not_applicable` | undefined now (a blend's humidity with no flow); shown as "n/a" | no |
+| `invalid` | read, but not a valid measurement (a NAMUR fault current, a sensor's "no measurement", a NaN) | yes |
+| `stale` | the rig no longer trusts the last value; `reason` says why | yes |
+
+`reason` is what the driver gave (`ne43_low`, `sensor_failed`, `not
+finite`) or, on `stale`, the rig's: `device_offline` (the device's reads
+fail) or `write_failed` (an echo demand whose device's writes fail).
+First match wins when more than one applies: `stale` (`device_offline`) >
+`pending` > `stale` (other reasons) > `invalid` / `not_applicable` > `ok`.
+
+**Caveats** annotate a usable value and gate nothing: `{"at_limit": "low"
+| "high"}` when the sensor railed (or the rig clamped a demand) at that
+end, so the true value may lie beyond it; `{"out_of_range": "low" |
+"high"}` when the value lies outside the signal's own `range`.
+
+On `/ws/samples` a sample's `values` carry the `null`, with the sparse
+`quality`/`reason` maps beside them; a chart breaks there. `GET
+/api/read/{address}` answers a reading with no value with `value: null`,
+its `quality` and `reason`, `last_usable` (the newest reading that had a
+value) and `age_s` (how long ago that was, on the rig's clock). A signal
+in `GET /api/devices` carries its `quality` (`pending` before its first
+reading) and, with no value now, its `last_usable`.
+
+In a recorded session a reading with no value is kept, as `null` with a
+**flag** ([`Point.flag`](api.md#history)): 1 `invalid`, 2
+`not_applicable`, 3 `stale`, 4 `stale` because the device was offline. A
+value's flag is its mark: 16 `at_limit: low`, 17 `at_limit: high`; `null`
+for a plain value. Which stale reason (other than `device_offline`) was
+not kept; a device's `write_failed` edges say when its writes failed.
 
 An address that does not resolve on the running rig is a 404, named in the
 error's message; there is no separate decode-by-registry step the way a

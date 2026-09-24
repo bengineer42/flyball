@@ -115,6 +115,47 @@ Addresses are parsed **once**, at `rig.resolve`; everything below that
 carries the bound objects — a `Reading.signal`, a `Sample.node` are
 references, not strings.
 
+## No value
+
+A reading's value may be absent: a
+[`NoValue`][flyball.foundation.device.novalue.NoValue], carrying its
+**quality** (`invalid`, `not_applicable`, or the rig's `stale`) and a
+reason. It is never `None` (which a push reads as "nothing to push") and
+never a number standing in for one; `reading.usable` says which it is,
+`reading.quality` and `reading.reason` why. Nothing downstream substitutes
+a value: `signal.value` (and an input's `value`, and `router.value`)
+raises `NoValueError` -- a `NotReadyError`, never the input's default --
+a limit that follows it is unknown (a demand is refused, a controller
+held), a controller regulating on it freezes, a settle wait is not met,
+and the chart breaks. `router.last_usable[signal]` keeps the newest
+reading that had a value.
+
+**The driver contract.** What a driver yields for a value it has not got
+decides what the rig does:
+
+| the driver | means | the rig |
+| --- | --- | --- |
+| leaves a signal out of a sample, or pushes `None` | not read this time | nothing: the last value stands |
+| yields `invalid("reason", side=None)` | read, but not a valid measurement: a sensor's "no measurement", a NAMUR fault current (with its `side`), a CRC failure on one value of several | a reading of quality `invalid`: a fault |
+| yields `not_applicable("reason")` | the quantity is undefined now (a blend's humidity with no flow) | quality `not_applicable`: benign, never an alarm |
+| yields `None`, NaN or an infinity inside a sample | a value it could not produce | `invalid("no value")` / `invalid("not finite")` |
+| yields `railed(value, "high")` | a usable value at the end of what the sensor can report | the value, with the caveat `at_limit: high` |
+| raises `HardwareError` | the transport failed: nothing was read | counts toward `reads.fail_after`; at it, the device is `offline` |
+
+A no-value is a good read of an absent value: it never counts toward the
+failure budget, and one bad channel does not take the device's other
+channels offline with it. A value a controller must not act on (a
+warm-up placeholder) is left out -- the signal stays `pending` -- or is
+`invalid`, never passed on as a number. `stale` is the rig's alone.
+
+**Readback.** A demand declares where its reading comes from:
+`readback=Readback.ECHO` (the default) when the rig pushes back the value
+it committed, `Readback.SENSED` when the driver reads it back from the
+hardware. While a device's writes fail (`commit_failed`, `write_failed`)
+its echo demands read `stale`, reason `write_failed`; when its reads fail
+(`offline`) what its polled reads delivered -- readouts and sensed demands
+-- reads `stale`, reason `device_offline`.
+
 ## Demands are a sample in reverse
 
 A **demand** puts one or more values on `W` signals under one node, at one
@@ -197,9 +238,10 @@ self.clear_condition("railed")                                        # when it 
 `set_condition` returns whether it raised the condition (it was not held
 before). The code is any stable string the driver chooses; the runtime's
 own are `Code` members (`offline`, `slow`, `write_failed`, `commit_failed`,
-`stale_input`, `limit_unknown`, `step_failed`, `recording_failed`, and
+`stale_input`, `limit_unknown`, `frozen`, `step_failed`, `recording_failed`, and
 `band_warning`/`band_alarm` on a signal whose reading is outside its
-`warning`/`alarm` band -- [Bands](../2-config/devices/index.md#bands)). Both
+`warning`/`alarm` band, `band_unknown` on one with no value --
+[Bands](../2-config/devices/index.md#bands)). Both
 calls are safe from any thread, `read` and `commit` included. Before the
 device is on a rig they go to a store of its own; adding it to a rig
 raises what it holds there, on the rig's clock. `device.held_conditions()`

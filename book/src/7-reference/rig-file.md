@@ -109,13 +109,17 @@ devices:
 (from the plan's worked example — `examples/humidity/rig-multi-sensor.yaml` is the real
 file this became).
 
-A `SignalMeta` is `{label, range, precision, warning, alarm, poll_s,
+A `SignalMeta` is `{label, range, precision, warning, alarm, on_no_value, poll_s,
 stale_after_s, limits, max_rate, tags, access, readable, published, writable}`:
 the first group replaces metadata the driver declared (`tags` are added to the
 driver's: `{line: dry}`, a grouping across the tree the UI titles and
 filters by; `stale_after_s` is seconds since the last reading beyond which a
 controller regulated from the signal is held -- its law does not step and
-its demand is not applied;
+its demand is not applied; `on_no_value` is `fire` or `ignore`, what a
+banded signal does while it has no value because of a fault (`fire`:
+`band_unknown` after `max(2·poll_s, 1 s)`; unset: `fire` with an `alarm`
+band, `ignore` with only `warning` --
+[Bands](../2-config/devices/index.md#a-banded-signal-with-no-value));
 `max_rate` is `{per_second: N}` (or `per_minute`, `per_hour`, ...), the
 fastest a demand may move -- a faster one is clamped to the largest step the
 elapsed time allows, up to one update period (`poll_s`, else the controller's

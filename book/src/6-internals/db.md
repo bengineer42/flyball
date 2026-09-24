@@ -18,7 +18,7 @@ another, and either can be replaced without the other noticing.
 | `session` | start, end, version, config, hardware, details |
 | `device`, `signal` | what was declared: a device's driver and config, a signal's quantity, unit, access and bands |
 | `write` | the signals whose writes this session records, with the driver behind them |
-| `sample` | every reading, by signal, under one node's instant |
+| `sample` | every reading, by signal, under one node's instant: `reading.value` and its `flag` (below) |
 | `write_state` | what a writable signal was set to: one row per commit that touched it |
 | `controller` | what was driven, named by its output's address, with its `measured` signal, law and feedforward |
 | `tick` | one controller step: `measured` (the reading it stepped on), setpoint, correction, `output`, expected. `correction` is NULL when the law's output was not a number (a NaN integral), so the tick is kept rather than ending the recording |
@@ -171,6 +171,35 @@ their pair (`write_recovered`, `commit_recovered`, `step_recovered`,
 `limit_known`, and a device's `restarted`, which is `offline` cleared).
 The severity stays in the JSON `detail` as its string; the `edge` is a
 column, so a session's condition history is one indexed query.
+
+Migration 0021 made `reading.value` nullable and added `reading.flag`
+(D-048, A2): a reading with no value is kept, as NULL with the code of its
+quality, and a value may carry a mark. The codes never meet on one row:
+
+| `flag` | with | means |
+| --- | --- | --- |
+| NULL | a value | a plain reading |
+| 1 | NULL | `invalid` |
+| 2 | NULL | `not_applicable` |
+| 3 | NULL | `stale`, any reason but the next |
+| 4 | NULL | `stale`: the device was offline |
+| 5-15 | NULL | free |
+| 16, 17 | a value | `at_limit`: low, high |
+| 18-31 | a value | free |
+
+Two CHECKs hold it: a NULL value has a code in 1-15, a value has none or
+one in 16-31, and the flag is an integer. The writer never relies on them
+-- a NaN or an infinity that reached it is stored NULL with code 1, not
+refused -- so a CHECK failing is a bug, and a `ConstraintError` that ends
+the batch. `pending` writes no row. The table was rebuilt (a CHECK cannot
+be added in place), rows carried over with `flag` NULL, and
+`reading_by_signal` is `(session_id, signal_id, offset_ns, value, flag)`, so
+a series with its breaks and marks is still one range scan. Reading back,
+`series` gives each point its `flag`; `every=n` keeps every NULL row
+besides every nth, so thinning never hides a break; an averaged bucket
+with any NULL in it is NULL, with the lowest code in it; `samples` gives
+each row its `flags`. Which stale reason (other than an offline device)
+is not kept; the device's `write_failed` edges say when its writes failed.
 
 The scratch record and retention (D-008) are migration 0010: `session.kind`,
 `origin_ns`, `pinned`, `continues`, `bytes`. Trimming a scratch session

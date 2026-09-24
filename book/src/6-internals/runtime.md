@@ -145,7 +145,12 @@ same; the raise then goes to `Polling._failed`, which counts it in
 key over `Polling.defaults` (`runner.reads`, set by `RigConfig.build`),
 resolved when its polling starts. Below `fail_after` it is a log line. At
 `fail_after` it sets `offline` (raised once; each later failure only
-updates its message) and the loop keeps running: `PeriodicLoop.defer(wait)`
+updates its message) and, on that raise, `Rig.device_offline` delivers a
+`stale(device_offline)` no-value on the device's read path -- the readouts
+and `sensed` demands its polled reads have delivered (`Rig.note_read` keeps
+the set as `Polling.delivered` hands samples over), never its settings,
+configs or echo demands -- so what follows them fails closed at once. The
+loop keeps running: `PeriodicLoop.defer(wait)`
 puts its next run `backoff_s[n]` from now, `n` counting retries and the
 last wait repeating, and `DeviceRun.next_retry_ns` says when. `defer`
 moves one run: on a thread it resets `_next_loop_time`, on a stepped clock
@@ -179,7 +184,18 @@ reading and the recorder carry on. A device whose `commit` raises is
 likewise kept to itself: its demands are dropped rather than left staged,
 and a `commit_failed` condition names it, raised once per outage and
 cleared when a commit succeeds again; the other commits and the recorder
-carry on. Any other failure *downstream* of the
+carry on. Meanwhile `Rig._writes_failing` gives every echo demand on the
+device (with a reading) a `stale(write_failed)` no-value and remembers the
+demands of the failed commit in `_write_lost`; the commit that clears the
+condition calls `_writes_recovered`, which pushes each still-stale echo
+demand's `router.last_usable` value back, except those in `_write_lost`
+(a demand of theirs has to commit first). A blocking device's `Writer`
+does the same through `Rig.writes_failed` / `writes_recovered`, which take
+the rig lock from the writer thread. A sample from any source goes through
+the value gate first (`normalised`, in `on_samples`): `None`, NaN and
+infinities become `invalid` no-values and a `railed` value its number plus
+a `Sample.marks` entry; `router.last_usable` keeps each signal's newest
+reading that had a value. Any other failure *downstream* of the
 read — an observer, the recorder — is the rig's, not the read's: a
 `delivery_failed` event, and the device's samples are still noted as read. After a gap in its readings
 longer than three usual intervals (an outage), a controller's next step
