@@ -42,7 +42,15 @@ class Activity(Trigger):
         """Hook in. Default: nothing -- fired only from outside, as a prompt is."""
 
     def detach(self, rig: Rig) -> None:
-        """Undo attach. Default: nothing."""
+        """Undo attach, and let go of what the step's `run` took. Default: nothing."""
+
+    def release(self, rig: Rig) -> None:
+        """Let go of what the step's `run` took, for an activity ended before it was attached.
+
+        A program ended between a step's start and its wait never attaches the
+        activity, so never detaches it: a binding the step holds (a `settle`
+        on a signal) is released here instead. Default: nothing.
+        """
 
     def fail(self, error: Exception) -> bool:
         self.error = error

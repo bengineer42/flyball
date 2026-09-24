@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from threading import Thread
 
 from flyball.foundation import Operator, Positive, Reading
+from flyball.foundation.device import InputBinding, OnNoValue
 from flyball.foundation.time import Clock, Duration
 from flyball.model.controller import Controller
 from flyball.rig import Rig
 
+from .criterion import Criterion
 from .step import Activity, Step
 
 
@@ -135,6 +137,100 @@ class Settled(Activity):
     def detach(self, rig: Rig) -> None:
         for controller in self._controllers:
             controller.detach_on_tick(self._on_tick)
+
+
+class CriterionMet(Activity):
+    """Fires once a signal's readings have met a criterion `count` times running.
+
+    The signal is followed through an input binding the rig resolved at the
+    step's start ([Rig.follow][flyball.rig.rig.Rig.follow]); each reading it
+    brings is judged, on the delivery thread. One that does not meet the
+    criterion resets the count, and so does one at a limit (the true value
+    may lie beyond it). A reading with no value because of a fault meets it
+    only under `on_no_value: fire`; otherwise it is not met, and the step's
+    `timeout` decides. `pending` and `not_applicable` never meet it.
+
+    With `from_start`, the base is the signal's value at the step's start; with
+    none then (or one at a limit), the first reading that has one sets it and
+    is not judged itself.
+
+    It watches from when it is made, under the rig's lock with the step, so no
+    reading between the step's start and its wait is missed: one that meets
+    the criterion then fires it before it is attached. `detach` (the wait's
+    end) and `release` (an activity ended before its wait) stop watching and
+    unbind.
+    """
+
+    __slots__ = ("_base", "_binding", "_met", "_unwatch", "count", "criterion")
+
+    name: str  # pyright: ignore[reportIncompatibleVariableOverride]
+
+    def __init__(
+        self,
+        binding: InputBinding,
+        criterion: Criterion,
+        count: int = 3,
+        timeout: Positive | None = None,
+        name: str | None = None,
+        message: str | None = None,
+        clock: Clock | None = None,
+    ) -> None:
+        super().__init__(
+            timeout,
+            name=name or f"settle:{criterion.signal}",
+            message=message or f"{criterion.describe()} for {count} readings",
+            clock=clock,
+        )
+        self._binding = binding
+        self.criterion = criterion
+        self.count = count
+        self._met = 0
+        self._base = self._base_from(binding.reading) if criterion.from_start else None
+        self._unwatch: Callable[[], None] | None = binding.watch(self._on_reading)
+
+    @staticmethod
+    def _base_from(reading: Reading | None) -> float | None:
+        """A reading's value, if it can be a base: a number with no caveat `at_limit`."""
+        if reading is None or not reading.usable or reading.at_limit is not None:
+            return None
+        value = reading.value
+        return float(value) if isinstance(value, (int, float)) else None
+
+    @property
+    def binding(self) -> InputBinding:
+        return self._binding
+
+    @property
+    def base(self) -> float | None:
+        """The signal's value at the start, with `from_start`; None until there is one."""
+        return self._base
+
+    def _on_reading(self, binding: InputBinding) -> None:
+        reading = binding.reading
+        if reading is None:
+            return
+        if reading.usable and reading.at_limit is not None:
+            self._met = 0
+            return
+        if self.criterion.from_start and self._base is None and reading.usable:
+            self._base = self._base_from(reading)
+            return
+        base = 0.0 if self._base is None else self._base
+        if self.criterion.met(reading, base, default=OnNoValue.IGNORE):
+            self._met += 1
+        else:
+            self._met = 0
+        if self._met >= self.count:
+            self.fire()
+
+    def detach(self, rig: Rig) -> None:
+        self.release(rig)
+
+    def release(self, rig: Rig) -> None:
+        if self._unwatch is not None:
+            self._unwatch()
+            self._unwatch = None
+        rig.unbind(self._binding)
 
 
 class Timed(Activity):
