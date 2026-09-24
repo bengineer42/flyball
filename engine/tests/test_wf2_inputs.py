@@ -147,10 +147,10 @@ class TestNumbersAndNoDefaults:
         derived = rig.devices["d"]
         assert isinstance(derived, Derived)
         binding = derived.bound["x"]
-        assert binding.constant == 21.0 and binding.source is None and binding.bound
+        assert binding.constant == 21.0 and binding.follows is None and binding.bound
         assert binding.value == 21.0 and binding.quality is Quality.OK
         state = binding.state()
-        assert (state.value, state.constant, state.source, state.age_s) == (21.0, 21.0, None, None)
+        assert (state.value, state.constant, state.follows, state.age_s) == (21.0, 21.0, None, None)
         assert state.unit == "%", "a number's unit is the declared input's"
         assert rig.latest[derived.signals["out"]].value == 42.0, "told once, at bind"
         assert rig.document()["devices"]["d"]["inputs"] == {"x": 21.0}
@@ -204,7 +204,7 @@ class TestAddressBindings:
         clock.advance(2.0)
         state = binding.state()
         assert (state.value, state.quality) == (10.0, Quality.OK)
-        assert state.source == f"{source.name}.level"
+        assert state.follows == f"{source.name}.level"
         assert state.age_s == pytest.approx(2.0), "on the rig's clock, from when it arrived"
 
     def test_a_limit_following_an_input_fails_closed_and_names_its_quality(
@@ -347,7 +347,7 @@ class TestTheBinding:
         rig.bind_inputs(derived, {"x": f"{source.name}.level"})
         _push(rig, source.signals["level"], 5.0)
         rig.remove_device(source.name)
-        assert derived.x.quality is Quality.PENDING and derived.x.source is None
+        assert derived.x.quality is Quality.PENDING and derived.x.follows is None
         assert "x" in derived.bound, "a declared input keeps its binding, unbound"
 
 

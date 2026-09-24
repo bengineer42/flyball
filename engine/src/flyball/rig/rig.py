@@ -762,19 +762,19 @@ class Rig:
     def unbind(self, binding: InputBinding) -> None:
         """Stop `binding` following what it follows: it is unbound (`pending`) until bound again."""
         with self.lock:
-            source = binding.source
-            if isinstance(source, Signal):
-                followers = self._followers.get(source)
+            followed = binding.follows
+            if isinstance(followed, Signal):
+                followers = self._followers.get(followed)
                 if followers is not None:
                     followers.pop(binding, None)
                     if not followers:
-                        del self._followers[source]
-            elif isinstance(source, Node):
-                followers = self._node_followers.get(source)
+                        del self._followers[followed]
+            elif isinstance(followed, Node):
+                followers = self._node_followers.get(followed)
                 if followers is not None:
                     followers.pop(binding, None)
                     if not followers:
-                        del self._node_followers[source]
+                        del self._node_followers[followed]
             binding.detach()
 
     def consumers(self, signal: Signal) -> list[InputBinding]:
@@ -798,9 +798,9 @@ class Rig:
         while stack:
             device, path = stack.pop()
             for binding in device.bound.values():
-                if (source := binding.source) is None:
+                if (followed := binding.follows) is None:
                     continue
-                follows = source.device
+                follows = followed.device
                 if follows is start:
                     return [*path, binding]
                 if follows not in seen:
