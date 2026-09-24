@@ -29,7 +29,8 @@ There is no sidebar: the app bar at the top of every page is how you move.
   one is set, else the generated overview).
 - **Dashboards are tabs.** On the dashboards page the bar shows one tab per
   saved dashboard, after the generated overview; `[+]` makes a new, empty
-  one. Each tab is a link (`#/dashboards/<name>`). On a phone the tabs sit
+  one. A tab shows the dashboard's label and links by its name
+  (`#/dashboards/<name>`). On a phone the tabs sit
   on a row of their own, under the chips. On any other page the bar shows
   that page's title.
 - **The chips are the way to the running pages.** Each is always there, grey

@@ -463,8 +463,11 @@ has `ok: false` and `error` set, with no `normalised` or `warnings`.
 
 What the UI shows and how, saved per rig. The server keeps every version
 under a name, as it does for programs; the document's `widgets` are the
-UI's to define, validated only in outline (`{id, kind, title?, x, y, w, h,
-config}` on a `grid` of `cols` (12 or 24) × `row_height`). A rig can ship
+UI's to define, validated only in outline (`{id, type, label?, x, y, w, h,
+config}` on a `grid` of `cols` (12 or 24) × `row_height`). `name` is the
+key (the route's `{name}`, a preset's file stem); the document's optional
+`label` is what a person reads, and renaming a dashboard in the UI saves a
+version with a new `label`. A rig can ship
 `dashboards/*.toml`, `*.yaml` or `*.json` beside its file (any format a rig
 file itself takes); they are imported on start.
 
@@ -475,7 +478,7 @@ file itself takes); they are imported on start.
 | `GET` | `/api/dashboards/{name}` | `DashboardWithProblems` |
 | `GET` | `/api/dashboards/{name}/history` | `[DashboardRow]`, newest first |
 | `PUT` | `/api/dashboards/{name}` | body the document; 201 `DashboardWithProblems`; adds a version; `name` and `rig` are set from the key and the rig |
-| `POST` | `/api/dashboards/{name}/rename` | `{name}`; every version moves; 409 if taken |
+| `POST` | `/api/dashboards/{name}/rename` | `{name}`; every version moves to the new key (its `label` is kept); 409 if taken |
 | `DELETE` | `/api/dashboards/{name}` | 204; every version |
 
 A `DashboardRow` is `{id, name, rig, body, created_ns, sha256}`; a
@@ -486,12 +489,15 @@ inside the widget's own `config`) names something this rig does not
 currently have; a readout wants a signal that publishes. The document is
 saved and returned as given; nothing is refused for this.
 
-Documents carry `schema_version: 5`. Version 3 added two fields to version 2:
+Documents carry `schema_version: 6`. Version 6 renamed a widget's `kind` to
+`type` and its `title` to `label`, and gave the document a `label` (a string
+or `null`, default `null`: show the name). Version 3 added two fields to version 2:
 `readonly` (bool, default `false`: the app disables the dashboard's write
 controls for everyone; a convenience, not access control) and `order`
 (a number or `null`, default `null`: where its tab sits, ascending, with
 unordered dashboards after, newest saved first). An older document is
 migrated on read, never refused, and what is stored stays as saved. A
+version-5 widget's `kind` and `title` read as its `type` and `label`. A
 version-4 `events` widget's `level` (`"WARNING"`) reads as its `severity`
 (`"warning"`); a version-3 `program` widget's `interrupt` as its `cancel`. A
 version-2 document reads as writable and unordered. A version-1 document

@@ -1,7 +1,7 @@
 /**
  * Dashboards: what the UI shows and how, saved per rig under a name with a
  * version history (`/api/dashboards`). The server validates the outline --
- * grid, widgets with a position -- and leaves each widget's `kind` and
+ * grid, widgets with a position -- and leaves each widget's `type` and
  * `config` to the UI, so the widget catalogue can grow without a release.
  */
 
@@ -14,11 +14,13 @@ export interface DashboardGrid {
   row_height: number;
 }
 
-/** One tile on the grid. Position and size are in grid units. `config` is the kind's own. */
+/** One tile on the grid. Position and size are in grid units. `config` is the type's own. */
 export interface DashboardWidget {
   id: string;
-  kind: string;
-  title?: string | null;
+  /** Which widget: `readout`, `chart`, `loop`, `device`, ... */
+  type: string;
+  /** The tile's heading; none: the widget names itself. */
+  label?: string | null;
   x: number;
   y: number;
   w: number;
@@ -29,15 +31,20 @@ export interface DashboardWidget {
 /**
  * The document a dashboard is saved as; `extra` fields are refused at every
  * level. `schema_version` 2 binds by address and controller name; 3 adds
- * `readonly` and `order`; 4 names a program widget's button `cancel`. The
+ * `readonly` and `order`; 4 names a program widget's button `cancel`; 5 an
+ * events widget's filter `severity`; 6 names a widget's `type` and `label`
+ * (were `kind` and `title`) and gives the document its own `label`. The
  * server migrates an older document on read: version 1's channels, loops and
  * actuators become addresses and names, a version-2 document is writable and
- * unordered, and a program widget's `interrupt` becomes `cancel`.
+ * unordered, a program widget's `interrupt` becomes `cancel`, and a widget's
+ * `kind` and `title` become `type` and `label`.
  */
 export interface DashboardDocument {
   schema_version: number;
-  /** The key it is saved under. */
+  /** The key it is saved under: in its URL and file name. */
   name: string;
+  /** What its tab and its row in a list show; none: `name`. Renaming a dashboard edits this. */
+  label?: string | null;
   /** Which rig it was made for. */
   rig: string;
   description?: string | null;

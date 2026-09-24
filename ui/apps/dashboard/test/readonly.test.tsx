@@ -13,7 +13,7 @@ import { recording } from "../src/widgets/Recording.js";
 
 afterEach(cleanup);
 
-const widget = { id: "r", kind: "recording", x: 0, y: 0, w: 6, h: 3, config: { controls: true } };
+const widget = { id: "r", type: "recording", x: 0, y: 0, w: 6, h: 3, config: { controls: true } };
 
 function show(canWrite: boolean, open: boolean) {
   const data = {

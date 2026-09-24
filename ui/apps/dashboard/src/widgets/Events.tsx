@@ -4,7 +4,7 @@ import { SEVERITIES, atLeast, humanise, type Severity } from "@flyball/client";
 import { hashFor } from "../router.js";
 import { useEventsData, useRigData } from "../dashboard/context.js";
 import { rowsThatFit } from "./size.js";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 /** `anneal[2]` → "anneal · step 3": a program's step subjects count from zero; people count from one. */
 export const humaniseSubject = (subject: string) => subject.replace(/^(.*)\[(\d+)\]$/, (_m, name: string, i: string) => `${name} · step ${Number(i) + 1}`);
@@ -69,8 +69,8 @@ const EventsWidget = memo(function EventsWidget({ config, widget }: WidgetCompon
   );
 });
 
-export const events: WidgetKind = {
-  kind: "events",
+export const events: WidgetType = {
+  type: "events",
   label: "Events",
   description: "The rig's latest events, newest first, from a severity up; optionally one scope only.",
   category: "status",
@@ -87,6 +87,6 @@ export const events: WidgetKind = {
     },
   }),
   defaultConfig: () => ({ severity: "info", limit: 20, scope: "" }),
-  titleFor: (config) => (config.scope ? `${String(config.scope)} events` : "Events"),
+  labelFor: (config) => (config.scope ? `${String(config.scope)} events` : "Events"),
   Component: EventsWidget,
 };

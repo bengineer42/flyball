@@ -119,7 +119,7 @@ def test_an_events_widget_level_is_migrated_to_its_severity():
         ],
     }
     migrated = migrate(v4)
-    assert migrated["schema_version"] == SCHEMA_VERSION == 5
+    assert migrated["schema_version"] == SCHEMA_VERSION == 6
     assert migrated["widgets"][0]["config"] == {"severity": "warning", "limit": 5}
     assert migrated["widgets"][1]["config"] == {"level": "kept"}, "only the events widget"
 

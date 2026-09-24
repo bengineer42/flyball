@@ -6,7 +6,7 @@ import { useBindings, useCanWrite } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
 import { deviceSchema, SELECTS } from "./schema.js";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 /** The worst device condition, as the frame's severity dot (DESIGN-SPEC §2); `undefined` (no dot) when none is at warn/alarm. */
 function severityOf(conditions: ReadonlyArray<{ severity: Severity }>): PanelSeverity | undefined {
@@ -56,8 +56,8 @@ const DeviceWidget = memo(function DeviceWidget({ config }: WidgetComponentProps
   return <Wired device={device} commands={commands} />;
 });
 
-export const device: WidgetKind = {
-  kind: "device",
+export const device: WidgetType = {
+  type: "device",
   label: "Device",
   description: "A device's state, conditions and run, with a form per command; pick which commands, or show them all.",
   category: "control",
@@ -86,7 +86,7 @@ export const device: WidgetKind = {
   uiSchema: SELECTS,
   defaultConfig: (bindings) => ({ device: bindings.devices.find((d) => d.kind !== "simulation")?.name ?? "", commands: [] }),
   // Fallback title before `useWidgetChrome`'s richer one (a `Ref` link) lands, and while editing.
-  titleFor: (config, bindings) => {
+  labelFor: (config, bindings) => {
     const name = String(config.device ?? "");
     return name ? bindings.deviceLabel(name) : undefined;
   },

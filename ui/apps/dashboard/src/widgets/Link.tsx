@@ -4,7 +4,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { PAGES, hashFor, type Page } from "../router.js";
 import { PAGE_ICONS } from "../icons.js";
 import { isSafeHref } from "./markdown.js";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 const LinkWidget = memo(function LinkWidget({ config }: WidgetComponentProps) {
   const page = String(config.page ?? "dashboards");
@@ -33,8 +33,8 @@ const LinkWidget = memo(function LinkWidget({ config }: WidgetComponentProps) {
   );
 });
 
-export const link: WidgetKind = {
-  kind: "link",
+export const link: WidgetType = {
+  type: "link",
   label: "Link",
   description: "A button to a page of the app -- a device, a signal, a controller, a program -- or to a URL.",
   category: "layout",
@@ -54,7 +54,7 @@ export const link: WidgetKind = {
   }),
   uiSchema: { page: { "ui:widget": "select" } },
   defaultConfig: () => ({ page: "readings", name: "", url: "", label: "", variant: "outlined" }),
-  titleFor: () => undefined,
+  labelFor: () => undefined,
   header: false,
   Component: LinkWidget,
 };

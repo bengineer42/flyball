@@ -5,7 +5,7 @@ controller faceplates, device cards, and a few status and layout widgets,
 each bound to something on the rig (a signal's address, a controller, a
 device) or to nothing (a health strip, a note). It is data, not code — the
 server stores the document and validates its outline; the UI owns what a
-`kind` means and how its `config` is shaped.
+widget's `type` means and how its `config` is shaped.
 
 !!! tip "At the terminal"
     None: dashboards are a browser thing. Their documents are routes (`/api/dashboards`, [Dashboards](../4-server/api.md#dashboards)) and files under `dashboards/` beside the rig.
@@ -23,30 +23,38 @@ disk until then.
 
 ```jsonc
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "name": "furnace",
+  "label": "Furnace",
   "rig": "furnace",
   "description": "Three zones, a sample thermocouple, and the heaters holding them.",
   "grid": { "cols": 24, "row_height": 24 },
   "readonly": false,
   "order": null,
   "widgets": [
-    { "id": "w1", "kind": "health", "x": 0, "y": 0, "w": 24, "h": 2, "config": { "tiles": ["rig", "recording", "devices", "controllers", "conditions"] } },
-    { "id": "w2", "kind": "readout", "x": 0, "y": 2, "w": 6, "h": 5, "config": { "address": "furnace.zone1", "sparkline": true } },
-    { "id": "w3", "kind": "chart", "x": 0, "y": 7, "w": 18, "h": 8, "config": { "addresses": ["furnace.zone1", "furnace.zone2"], "window_s": 300, "every": 0, "y": "auto" } },
-    { "id": "w4", "kind": "loop", "x": 0, "y": 15, "w": 8, "h": 8, "config": { "controller": "heaters.heater1", "view": "compact" } }
+    { "id": "w1", "type": "health", "x": 0, "y": 0, "w": 24, "h": 2, "config": { "tiles": ["rig", "recording", "devices", "controllers", "conditions"] } },
+    { "id": "w2", "type": "readout", "x": 0, "y": 2, "w": 6, "h": 5, "config": { "address": "furnace.zone1", "sparkline": true } },
+    { "id": "w3", "type": "chart", "label": "Zones °C", "x": 0, "y": 7, "w": 18, "h": 8, "config": { "addresses": ["furnace.zone1", "furnace.zone2"], "window_s": 300, "every": 0, "y": "auto" } },
+    { "id": "w4", "type": "loop", "x": 0, "y": 15, "w": 8, "h": 8, "config": { "controller": "heaters.heater1", "view": "compact" } }
   ]
 }
 ```
+
+`name` is the dashboard's key: its link (`#/dashboards/furnace`), its route
+and its file name. `label` is what a person reads -- its tab, its row in
+**Options › Dashboards** -- and may be left out, when the name shows
+instead. A widget's `type` says which widget it is, and its optional
+`label` is the tile's heading (left out, the widget names itself: a
+readout its signal, a chart its unit).
 
 The grid is 24 columns wide; `x`/`y`/`w`/`h` are grid units, `row_height` is
 pixels per row (24 by default). A widget's binding lives inside its own
 `config` (there is no separate `bind` field): a `readout`/`gauge` names one
 signal as `address`, a `chart` names several in `addresses`, a `loop`
 widget names a `controller`, a `device` widget a `device`. Every
-widget kind's config is documented in the app's own "Add widget" catalogue
+widget type's config is documented in the app's own "Add widget" catalogue
 (hover the `?` on each field) and as data at
-`GET /api/dashboards/widgets`: every kind with its label, category, sizes
+`GET /api/dashboards/widgets`: every type with its label, category, sizes
 and config schema, the rig-dependent fields marked `x-binding: signal |
 controller | device` — what a client writing a document by hand, or a
 model doing it over MCP, reads. That catalogue is generated from the
@@ -75,7 +83,9 @@ the dashboard among the others, ascending; dashboards without one follow,
 newest saved first. A version-2 document has neither and reads as
 writable and unordered. An `events` widget in a version-4 document had
 `level` (`"WARNING"`) where it now has `severity` (`"warning"`); it is read
-as that.
+as that. Up to version 5 a widget said which it was by `kind` and named
+itself by `title`, and the document had no `label`; it is read with `type`
+and `label` in their place, showing its name.
 
 A document saved before the device model is `schema_version: 1` (bindings
 to channels, loops and actuators); it is migrated on read, never refused,
@@ -91,8 +101,9 @@ rebound.
 
 **Edit** puts the page bar into edit mode: drag a tile by its title strip,
 resize from its corner, **+ Add widget** to add another (the catalogue is
-grouped by kind, with search and a cost tag — cheap/chart/heavy), and each
-tile's `⋯` menu to configure, duplicate or remove it. Undo/redo (`Ctrl+Z` /
+grouped by category, with search and a cost tag — cheap/chart/heavy), and each
+tile's `⋯` menu to configure (its label and its `config`), duplicate or
+remove it. Undo/redo (`Ctrl+Z` /
 `Ctrl+Shift+Z` or `Ctrl+Y`, up to 20 steps) covers every edit. **Done** with unsaved
 changes offers Save, Discard or Keep editing.
 
@@ -106,16 +117,24 @@ idle view.
 The app bar shows this rig's dashboards as tabs, the generated overview
 first, then the saved ones in their `order`, the rest newest saved first
 (see [Getting around](ui/index.md#getting-around)); `[+]` makes a new, empty
-dashboard. To move one, drag its tab, or use the arrows in **Options ›
-Dashboards**, which also has each dashboard's read-only switch and home
-button. A move is saved on the documents it changes, so every browser shows
+dashboard. What you type is its label; the name it is saved under follows
+from it, in lower case with `-` between words ("Furnace overview" is saved
+as `furnace-overview`), and the dialog shows it. To move one, drag its tab,
+or use the arrows in **Options › Dashboards**, which also has each
+dashboard's read-only switch and home button. A move is saved on the documents it changes, so every browser shows
 the same order: the first move numbers every dashboard in its place, later
 moves write only the one moved. `Save ▾` offers:
 
 - **Save** — a new version under the current name.
-- **Save as…** — under a new name; the generated overview must go through
+- **Save as…** — under a new label, and the name that follows from it (an
+  existing one gets a new version); the generated overview must go through
   this once before it can be saved at all.
-- **Rename…**, **Delete…** (with confirmation).
+- **Rename…** — a new label, saved at once as a new version. The name, and
+  so the link, its tab's place and home, stay as they were. Moving a
+  dashboard to a new name is an API call (`POST
+  /api/dashboards/{name}/rename`, [Dashboards](../4-server/api.md#dashboards)),
+  not a menu item.
+- **Delete…** (with confirmation).
 - **Set as home** — `#/` opens this dashboard instead of the generated overview,
   remembered per browser (`localStorage`), not written to the document.
 - **Export JSON** / **Import JSON…** — the document above, pretty-printed.
@@ -126,9 +145,10 @@ moves write only the one moved. `Save ▾` offers:
 
 A rig can ship dashboards beside its file: anything in a `dashboards/`
 directory next to the rig's file is imported on runner start (unchanged
-files are skipped; an edited one becomes a new version). See
-`examples/simulated/dashboards/{overview,furnace}.json` for the furnace
-simulation's own presets — one generic overview, one curated for the
-furnace's three zones and heaters. Those two files still carry
-`schema_version: 1` on disk; the runner serves them migrated, exactly as it
-would any other version-1 dashboard.
+files are skipped; an edited one becomes a new version). The file's stem is
+the dashboard's name. A file is checked as a current document, so write it
+at the current `schema_version` (a `kind` where `type` belongs is skipped,
+with a warning in the runner's log). See
+`examples/furnace/dashboards/{overview,furnace}.json` for the furnace
+example's own presets — one generic overview, one curated for the
+furnace's three zones and heaters.

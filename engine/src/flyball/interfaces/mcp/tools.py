@@ -386,14 +386,14 @@ READ: tuple[Tool, ...] = (
     Tool(
         "dashboard_schema",
         "JSON schema of a dashboard document: the grid and the widget envelope. "
-        "`widget_schema` says what each kind's `config` holds.",
+        "`widget_schema` says what each type's `config` holds.",
         _object(),
         Tier.READ,
         lambda rig, a: rig.get("/api/dashboards/schema"),
     ),
     Tool(
         "widget_schema",
-        "Every widget kind: what it shows, its default and minimum size, and its `config` "
+        "Every widget type: what it shows, its default and minimum size, and its `config` "
         "schema. An `x-binding` marks a property that takes a signal address, a controller's "
         "name or a device's name from this rig.",
         _object(),
@@ -456,6 +456,9 @@ def _apply(document: dict[str, Any], change: dict[str, Any]) -> None:
     if op == "set_description":
         document["description"] = change["description"]
         return
+    if op == "set_label":
+        document["label"] = change["label"]
+        return
     matches = [w for w in widgets if w.get("id") == change["id"]]
     if not matches:
         raise SchemaError(
@@ -468,8 +471,8 @@ def _apply(document: dict[str, Any], change: dict[str, Any]) -> None:
         widget.update({k: change[k] for k in ("x", "y", "w", "h") if k in change})
     elif op == "set_widget_config":
         widget["config"] = {**widget.get("config", {}), **change["config"]}
-    elif op == "set_widget_title":
-        widget["title"] = change["title"]
+    elif op == "set_widget_label":
+        widget["label"] = change["label"]
     else:
         raise SchemaError(f"unknown op {op!r}")
 
@@ -483,14 +486,14 @@ def _update_dashboard(rig: Rig, a: dict[str, Any]) -> Any:
 
 WIDGET = {
     "type": "object",
-    "description": "A widget: `id`, `kind`, `x`, `y`, `w`, `h`, optional `title`, and the kind's "
+    "description": "A widget: `id`, `type`, `x`, `y`, `w`, `h`, optional `label`, and the type's "
     "`config` (see `widget_schema`).",
 }
 CHANGE = {
     "type": "object",
     "description": "One change. `op` is one of: `add_widget` (with `widget`); `remove_widget`, "
     "`move_widget` (any of `x`, `y`, `w`, `h`), `set_widget_config` (merged into `config`), "
-    "`set_widget_title` (with `id`); `set_description`.",
+    "`set_widget_label` (with `id`); `set_label` (the dashboard's own), `set_description`.",
     "properties": {
         "op": {
             "type": "string",
@@ -499,18 +502,19 @@ CHANGE = {
                 "remove_widget",
                 "move_widget",
                 "set_widget_config",
-                "set_widget_title",
+                "set_widget_label",
+                "set_label",
                 "set_description",
             ],
         },
-        "id": _str("The widget, for every op but `add_widget` and `set_description`."),
+        "id": _str("The widget, for every widget op but `add_widget`."),
         "widget": WIDGET,
         "x": _int(""),
         "y": _int(""),
         "w": _int(""),
         "h": _int(""),
         "config": {"type": "object"},
-        "title": _str(""),
+        "label": _str(""),
         "description": _str(""),
     },
     "required": ["op"],
@@ -555,7 +559,7 @@ AUTHOR: tuple[Tool, ...] = (
     Tool(
         "save_dashboard",
         "Save a dashboard document as a new version under `name`. The grid is 24 columns; "
-        "`widget_schema` gives each kind's size and config. Returns `problems`: widgets bound to "
+        "`widget_schema` gives each type's size and config. Returns `problems`: widgets bound to "
         "things the rig lacks.",
         _object({"name": NAME, "document": DOCUMENT}, "name", "document"),
         Tier.AUTHOR,
@@ -575,7 +579,8 @@ AUTHOR: tuple[Tool, ...] = (
     ),
     Tool(
         "rename_dashboard",
-        "Move a dashboard, every version, under a new name.",
+        "Move a dashboard, every version, under a new name (its key). To change what a person "
+        "sees, `update_dashboard` with `set_label`.",
         _object({"name": NAME, "new_name": _str("The new name.")}, "name", "new_name"),
         Tier.AUTHOR,
         lambda rig, a: rig.post(

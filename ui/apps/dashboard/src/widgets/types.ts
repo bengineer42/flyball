@@ -1,8 +1,8 @@
 /**
- * A widget kind: what the catalogue shows, what its `config` looks like (as
+ * A widget type: what the catalogue shows, what its `config` looks like (as
  * JSON Schema, rendered by the generic form), how big it starts, what it
  * costs to keep live, and the component that draws it. The document only
- * ever names a `kind`; everything else is looked up here at render time.
+ * ever names a `type`; everything else is looked up here at render time.
  */
 import type { ComponentType } from "react";
 import type { DashboardWidget, JsonSchema } from "@flyball/client";
@@ -24,8 +24,10 @@ export interface WidgetComponentProps {
   editing: boolean;
 }
 
-export interface WidgetKind {
-  kind: string;
+export interface WidgetType {
+  /** What a document's widget names: `readout`, `chart`, ... */
+  type: string;
+  /** What the catalogue calls it: "Readout". */
   label: string;
   description: string;
   category: WidgetCategory;
@@ -38,9 +40,9 @@ export interface WidgetKind {
   uiSchema?: UiSchema;
   /** The config a freshly added widget starts with: the first signal, say. */
   defaultConfig?(bindings: Bindings): Record<string, unknown>;
-  /** The tile's heading when the widget has no `title` of its own; undefined for none. */
-  titleFor?(config: Record<string, unknown>, bindings: Bindings): string | undefined;
-  /** Whether the tile draws a header when it has no title: off for widgets that carry their own (a loop faceplate). */
+  /** The tile's heading when the widget has no `label` of its own; undefined for none. */
+  labelFor?(config: Record<string, unknown>, bindings: Bindings): string | undefined;
+  /** Whether the tile draws a header when it has no label: off for widgets that carry their own (a loop faceplate). */
   header?: boolean;
   Component: ComponentType<WidgetComponentProps>;
 }

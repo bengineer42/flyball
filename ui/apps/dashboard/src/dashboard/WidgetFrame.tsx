@@ -7,7 +7,7 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { PanelFrame } from "@flyball/react";
 import type { DashboardWidget } from "@flyball/client";
-import { widgetKind } from "../widgets/registry.js";
+import { widgetType } from "../widgets/registry.js";
 import { Missing } from "../widgets/Missing.js";
 import { useBindings } from "./context.js";
 import { sameChrome, WidgetChromeContext, type WidgetChrome } from "./chrome.js";
@@ -45,9 +45,9 @@ export interface WidgetFrameProps {
  * passes `bare` and hands what the head needs (severity, subtitle, footer,
  * a mode chip) up through `useWidgetChrome` (./chrome.ts).
  *
- * Title precedence: the document's `title` › the widget's chrome `title`
- * (a `Ref` link) › `kind.titleFor(config)` › in edit mode the kind's label.
- * Kinds with `header: false` (heading, spacer, link) get no title row in
+ * Title precedence: the document's `label` › the widget's chrome `title`
+ * (a `Ref` link) › `type.labelFor(config)` › in edit mode the type's label.
+ * Types with `header: false` (heading, spacer, link) get no title row in
  * view mode and a plain one in edit mode, for the grip and the menu.
  *
  * Memoised on the widget, so a drag of another tile or a sample arriving
@@ -56,15 +56,15 @@ export interface WidgetFrameProps {
  */
 export const WidgetFrame = memo(function WidgetFrame({ widget, editing, onAction }: WidgetFrameProps) {
   const bindings = useBindings();
-  const kind = widgetKind(widget.kind);
+  const type = widgetType(widget.type);
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const [chrome, setChromeState] = useState<WidgetChrome | null>(null);
   const setChrome = useCallback((next: WidgetChrome | null) => setChromeState((prev) => (sameChrome(prev, next) ? prev : next)), []);
-  const own = widget.title ?? kind?.titleFor?.(widget.config, bindings);
-  const header = editing || kind?.header !== false;
-  const title = header ? widget.title || chrome?.title || own || (editing ? kind?.label ?? widget.kind : undefined) : undefined;
-  // The widget's own subtitle (device, signal) wins; edit mode names the kind where there is none and the title does not already.
-  const subtitle = header ? chrome?.subtitle ?? (editing && own && own !== kind?.label ? kind?.label : undefined) : undefined;
+  const own = widget.label ?? type?.labelFor?.(widget.config, bindings);
+  const header = editing || type?.header !== false;
+  const title = header ? widget.label || chrome?.title || own || (editing ? type?.label ?? widget.type : undefined) : undefined;
+  // The widget's own subtitle (device, signal) wins; edit mode names the type where there is none and the title does not already.
+  const subtitle = header ? chrome?.subtitle ?? (editing && own && own !== type?.label ? type?.label : undefined) : undefined;
   const act = (action: WidgetAction) => {
     setMenu(null);
     onAction(widget.id, action);
@@ -99,19 +99,19 @@ export const WidgetFrame = memo(function WidgetFrame({ widget, editing, onAction
       </Menu>
     </>
   ) : undefined;
-  // `body="none"` for the frameless layout kinds: their content is the whole cell (a 1-row link is 24px tall).
-  const body = kind?.header === false ? "none" : "fill";
+  // `body="none"` for the frameless layout types: their content is the whole cell (a 1-row link is 24px tall).
+  const body = type?.header === false ? "none" : "fill";
   // A widget with no title of its own (the health strip, a heading, a link) has no title row in view mode, so its
   // height holds its body alone. In edit mode it still needs the grip and the menu: they float in the top-right
   // corner (`.fb-tile-editing-float`, dashboard.css) instead of pushing a 28px row into a cell that has no room for one.
-  const floating = editing && !(widget.title || chrome?.title || own);
+  const floating = editing && !(widget.label || chrome?.title || own);
   const boundary = useMemo(
     () => (
       <Boundary key={JSON.stringify(widget.config)}>
-        {kind ? <kind.Component widget={widget} config={widget.config} editing={editing} /> : <Missing what="widget kind" name={widget.kind} hint="This app has no widget of that kind; it was saved by another version." />}
+        {type ? <type.Component widget={widget} config={widget.config} editing={editing} /> : <Missing what="widget type" name={widget.type} hint="This app has no widget of that type; it was saved by another version." />}
       </Boundary>
     ),
-    [kind, widget, editing],
+    [type, widget, editing],
   );
   return (
     <WidgetChromeContext.Provider value={setChrome}>
@@ -124,7 +124,7 @@ export const WidgetFrame = memo(function WidgetFrame({ widget, editing, onAction
         footer={chrome?.footer}
         actions={controls}
         handleClassName={editing ? "fb-tile-drag" : undefined}
-        className={["dash-widget", `dash-widget-${widget.kind}`, editing ? "fb-tile-editing" : "", floating ? "fb-tile-editing-float" : ""].filter(Boolean).join(" ")}
+        className={["dash-widget", `dash-widget-${widget.type}`, editing ? "fb-tile-editing" : "", floating ? "fb-tile-editing-float" : ""].filter(Boolean).join(" ")}
         body={body}
       >
         {boundary}

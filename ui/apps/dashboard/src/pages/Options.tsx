@@ -15,6 +15,7 @@ import { invalidateDashboards, useDashboards, useRig } from "@flyball/react";
 import type { DashboardRow } from "@flyball/client";
 import { useAuth } from "../auth.js";
 import { PasskeyManager } from "../PasskeyManager.js";
+import { labelOf } from "../dashboard/document.js";
 import { readHome, writeHome } from "../dashboard/home.js";
 import { reorder, saveOrder } from "../dashboard/order.js";
 import { PAGE_ICONS } from "../icons.js";
@@ -107,7 +108,7 @@ function DashboardList() {
           {rows.map((row, i) => (
             <TableRow key={row.name} data-testid={`options-dashboard-${row.name}`}>
               <TableCell>
-                <Link href={hashFor("dashboards", row.name)}>{row.name}</Link>
+                <Link href={hashFor("dashboards", row.name)}>{labelOf(row.body, row.name)}</Link>
               </TableCell>
               <TableCell sx={{ whiteSpace: "nowrap" }}>
                 <IconButton size="small" aria-label={`move ${row.name} earlier`} disabled={!canOperate || busy || i === 0} onClick={() => void move(i, i - 1)}>

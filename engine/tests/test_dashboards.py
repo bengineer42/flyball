@@ -21,14 +21,14 @@ DOC = {
     "widgets": [
         {
             "id": "a",
-            "kind": "readout",
+            "type": "readout",
             "x": 0,
             "y": 0,
             "w": 3,
             "h": 2,
             "config": {"address": "p.t"},
         },
-        {"id": "b", "kind": "chart", "title": "Zones", "x": 3, "y": 0, "w": 9, "h": 6},
+        {"id": "b", "type": "chart", "label": "Zones", "x": 3, "y": 0, "w": 9, "h": 6},
     ],
 }
 
@@ -51,9 +51,11 @@ def test_save_read_history_list(client):
     assert saved.status_code == 201
     body = saved.json()
     assert body["name"] == "main" and body["rig"] == "t" and body["body"]["name"] == "main"
-    assert body["body"]["schema_version"] == 5
+    assert body["body"]["schema_version"] == 6
     assert body["body"]["grid"] == {"cols": 24, "row_height": 24}
     assert body["body"]["widgets"][1]["config"] == {}
+    assert body["body"]["widgets"][1]["label"] == "Zones"
+    assert body["body"]["label"] is None, "no label: the name is what shows"
 
     again = c.put("/api/dashboards/main", json={**DOC, "name": "main", "description": "v2"})
     assert again.json()["id"] != body["id"]
@@ -79,11 +81,17 @@ def test_validation_rename_delete(client):
         json={
             **DOC,
             "name": "x",
-            "widgets": [{"id": "a", "kind": "readout", "x": -1, "y": 0, "w": 1, "h": 1}],
+            "widgets": [{"id": "a", "type": "readout", "x": -1, "y": 0, "w": 1, "h": 1}],
         },
     )
     assert bad.status_code == 422
     assert c.put("/api/dashboards/x", json={**DOC, "name": "x", "extra": 1}).status_code == 422
+    old_words = {**DOC["widgets"][0], "kind": "readout"}  # type: ignore[dict-item]
+    del old_words["type"]
+    assert (
+        c.put("/api/dashboards/x", json={**DOC, "name": "x", "widgets": [old_words]}).status_code
+        == 422
+    ), "a current document says `type`, not `kind`"
 
     c.put("/api/dashboards/x", json={**DOC, "name": "x"})
     moved = c.post("/api/dashboards/x/rename", json={"name": "y"})
@@ -117,7 +125,7 @@ def test_import_directory_reads_yaml_and_toml_too(tmp_path):
     boards.mkdir()
     (boards / "overview.yaml").write_text(
         "rig: t\ndescription: the one\nwidgets:\n"
-        "  - id: a\n    kind: readout\n    x: 0\n    y: 0\n    w: 3\n    h: 2\n"
+        "  - id: a\n    type: readout\n    x: 0\n    y: 0\n    w: 3\n    h: 2\n"
         "    config:\n      address: p.t\n"
     )
     (boards / "panel.toml").write_text('rig = "t"\ndescription = "second"\nwidgets = []\n')
@@ -138,23 +146,23 @@ def furnace_rig(rig) -> Rig:
     return rig
 
 
-def test_problems_for_flags_every_missing_binding_kind(furnace_rig):
+def test_problems_for_flags_every_missing_binding_type(furnace_rig):
     doc = {
         "widgets": [
-            {"id": "ok-readout", "kind": "readout", "config": {"address": "zone.zone1"}},
-            {"id": "bad-readout", "kind": "readout", "config": {"address": "zone.zone9"}},
-            {"id": "bad-gauge", "kind": "gauge", "config": {"address": "zone9.zone1"}},
-            {"id": "demand", "kind": "readout", "config": {"address": "zone.setpoint"}},
+            {"id": "ok-readout", "type": "readout", "config": {"address": "zone.zone1"}},
+            {"id": "bad-readout", "type": "readout", "config": {"address": "zone.zone9"}},
+            {"id": "bad-gauge", "type": "gauge", "config": {"address": "zone9.zone1"}},
+            {"id": "demand", "type": "readout", "config": {"address": "zone.setpoint"}},
             {
                 "id": "mixed-chart",
-                "kind": "chart",
+                "type": "chart",
                 "config": {"addresses": ["zone.zone1", "zone.humidity"]},
             },
-            {"id": "ok-loop", "kind": "loop", "config": {"controller": "heaters.heater1"}},
-            {"id": "bad-loop", "kind": "loop", "config": {"controller": "heaters.heater2"}},
-            {"id": "ok-device", "kind": "device", "config": {"device": "heaters"}},
-            {"id": "bad-device", "kind": "device", "config": {"device": "ghost"}},
-            {"id": "no-binding", "kind": "health", "config": {}},
+            {"id": "ok-loop", "type": "loop", "config": {"controller": "heaters.heater1"}},
+            {"id": "bad-loop", "type": "loop", "config": {"controller": "heaters.heater2"}},
+            {"id": "ok-device", "type": "device", "config": {"device": "heaters"}},
+            {"id": "bad-device", "type": "device", "config": {"device": "ghost"}},
+            {"id": "no-binding", "type": "health", "config": {}},
         ]
     }
     problems = {p.widget_id: p.ref for p in problems_for(doc, furnace_rig)}
@@ -219,8 +227,8 @@ V1 = {
 
 def test_a_version_1_document_is_migrated_to_addresses_and_controllers():
     migrated = migrate(V1)
-    assert migrated["schema_version"] == 5
-    configs = {w["id"]: (w["kind"], w["config"]) for w in migrated["widgets"]}
+    assert migrated["schema_version"] == 6
+    configs = {w["id"]: (w["type"], w["config"]) for w in migrated["widgets"]}
     assert configs == {
         "r": ("readout", {"address": "zone.zone1"}),
         "g": ("gauge", {"address": "zone.zone1", "max": 100}),
@@ -231,24 +239,24 @@ def test_a_version_1_document_is_migrated_to_addresses_and_controllers():
     }
     assert V1["widgets"][0]["config"] == {"channel": "zone.zone1"}, "a copy; the stored one stands"
     assert migrate(migrated) is migrated, "already current: untouched"
-    assert migrate({"widgets": []})["schema_version"] == 5, "no version is version 1"
-    assert (migrated["readonly"], migrated["order"]) == (False, None)
+    assert migrate({"widgets": []})["schema_version"] == 6, "no version is version 1"
+    assert (migrated["readonly"], migrated["order"], migrated["label"]) == (False, None, None)
 
 
 def test_a_stored_version_1_document_is_migrated_on_read(client, furnace_rig):
     c, store = client
     store.save_dashboard("old", "t", V1, 1)
     read = c.get("/api/dashboards/old").json()
-    assert read["body"]["schema_version"] == 5
+    assert read["body"]["schema_version"] == 6
     assert read["body"]["widgets"][0]["config"] == {"address": "zone.zone1"}
-    assert read["body"]["widgets"][4]["kind"] == "device"
+    assert read["body"]["widgets"][4]["type"] == "device"
     assert store.dashboard("old").body["schema_version"] == 1, "what is stored is as saved"
     assert {p["widget_id"]: p["ref"] for p in read["problems"]} == {"l": "heater1"}, (
         "a loop was named by its actuator; the controller is its target's address"
     )
     listed = c.get("/api/dashboards").json()
-    assert [r["body"]["schema_version"] for r in listed] == [5]
-    assert c.get("/api/dashboards/old/history").json()[0]["body"]["schema_version"] == 5
+    assert [r["body"]["schema_version"] for r in listed] == [6]
+    assert c.get("/api/dashboards/old/history").json()[0]["body"]["schema_version"] == 6
 
 
 def test_save_and_read_report_problems(client):
@@ -283,7 +291,16 @@ def test_a_version_2_document_becomes_writable_and_unordered_and_keeps_its_bindi
         ],
     }
     migrated = migrate(v2)
-    assert migrated == {**v2, "schema_version": 5, "readonly": False, "order": None}
+    widget = {**v2["widgets"][0], "type": "readout"}  # type: ignore[dict-item]
+    del widget["kind"]
+    assert migrated == {
+        **v2,
+        "schema_version": 6,
+        "readonly": False,
+        "order": None,
+        "label": None,
+        "widgets": [widget],
+    }
     assert v2["schema_version"] == 2, "a copy; the stored one stands"
 
 
@@ -299,7 +316,42 @@ def test_a_version_3_program_widget_s_interrupt_button_is_its_cancel_button():
     }
     widgets = migrate(v3)["widgets"]
     assert widgets[0]["config"] == {"events": 5, "cancel": False}
-    assert widgets[1]["config"] == {"address": "p.t", "interrupt": 1}, "another kind's is its own"
+    assert widgets[1]["config"] == {"address": "p.t", "interrupt": 1}, "another type's is its own"
+
+
+def test_a_version_5_widget_s_kind_is_its_type_and_its_title_its_label():
+    v5 = {
+        "schema_version": 5,
+        "name": "d",
+        "rig": "t",
+        "readonly": False,
+        "order": None,
+        "widgets": [
+            {"id": "r", "kind": "readout", "title": "Zone", "x": 0, "y": 0, "w": 1, "h": 1},
+            {"id": "c", "kind": "chart", "x": 0, "y": 0, "w": 1, "h": 1, "config": {"kind": 1}},
+        ],
+    }
+    migrated = migrate(v5)
+    assert migrated["schema_version"] == 6 and migrated["label"] is None
+    assert migrated["widgets"] == [
+        {"id": "r", "type": "readout", "label": "Zone", "x": 0, "y": 0, "w": 1, "h": 1},
+        {"id": "c", "type": "chart", "x": 0, "y": 0, "w": 1, "h": 1, "config": {"kind": 1}},
+    ], "a widget's own `config` is its own"
+    assert v5["widgets"][0]["kind"] == "readout", "a copy; the stored one stands"
+
+
+def test_a_label_is_what_shows_and_renaming_the_key_keeps_it(client):
+    """`name` is the key (URLs, files); `label` is what a person sees, edited by a save."""
+    c, _ = client
+    c.put("/api/dashboards/wall", json={**DOC, "name": "wall"})
+    relabelled = c.put("/api/dashboards/wall", json={**DOC, "name": "wall", "label": "Wall 2"})
+    assert relabelled.json()["body"]["label"] == "Wall 2"
+    assert [r["body"]["label"] for r in c.get("/api/dashboards/wall/history").json()] == [
+        "Wall 2",
+        None,
+    ]
+    moved = c.post("/api/dashboards/wall/rename", json={"name": "lobby"}).json()
+    assert (moved[0]["name"], moved[0]["body"]["label"]) == ("lobby", "Wall 2")
 
 
 def test_readonly_and_order_round_trip_and_are_validated(client):
@@ -309,7 +361,7 @@ def test_readonly_and_order_round_trip_and_are_validated(client):
     )
     assert saved.status_code == 201
     body = c.get("/api/dashboards/wall").json()["body"]
-    assert (body["schema_version"], body["readonly"], body["order"]) == (5, True, 1.5)
+    assert (body["schema_version"], body["readonly"], body["order"]) == (6, True, 1.5)
     plain = c.put("/api/dashboards/plain", json={**DOC, "name": "plain"}).json()["body"]
     assert (plain["readonly"], plain["order"]) == (False, None), "the defaults"
     assert (

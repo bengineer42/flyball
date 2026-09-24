@@ -32,7 +32,7 @@ const who = (verbs: string[]): AuthInfo => ({
   login: { password: false, token: false, passkey: false, sso: null },
 });
 
-const DASHBOARD = { id: 1, name: "wall", rig: "t", created_ns: 1, sha256: "", body: { schema_version: 3, name: "wall", rig: "t", grid: { cols: 24, row_height: 24 }, widgets: [] } };
+const DASHBOARD = { id: 1, name: "wall", rig: "t", created_ns: 1, sha256: "", body: { schema_version: 6, name: "wall", label: "Wall display", rig: "t", grid: { cols: 24, row_height: 24 }, widgets: [] } };
 
 function transport(info: AuthInfo): Transport {
   return {
@@ -88,6 +88,7 @@ describe("the app bar is the navigation", () => {
     open("#/dashboards?generated");
     const tabs = await screen.findByTestId("dashboard-tabs");
     await waitFor(() => expect(within(tabs).getByTestId("dashboard-tab-wall").getAttribute("href")).toBe("#/dashboards/wall"));
+    expect(within(tabs).getByTestId("dashboard-tab-wall").textContent).toBe("Wall display"); // the label shows; the name is the link
     expect(within(tabs).getByTestId("dashboard-tab-generated").getAttribute("aria-selected")).toBe("true");
     expect(screen.getByTestId("dashboard-add")).toBeTruthy();
   });
@@ -98,7 +99,7 @@ describe("Options", () => {
     open("#/options");
     const table = await screen.findByTestId("options-dashboards");
     const wall = within(table).getByTestId("options-dashboard-wall");
-    expect(within(wall).getByRole("link", { name: "wall" }).getAttribute("href")).toBe("#/dashboards/wall");
+    expect(within(wall).getByRole("link", { name: "Wall display" }).getAttribute("href")).toBe("#/dashboards/wall");
     expect(within(wall).getByRole("checkbox", { name: "wall read-only" })).toBeTruthy();
     expect((within(wall).getByRole("button", { name: "move wall earlier" }) as HTMLButtonElement).disabled).toBe(true);
   });

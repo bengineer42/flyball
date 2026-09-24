@@ -7,7 +7,7 @@ import { isNumeric } from "../valueReadout.js";
 import { Missing } from "./Missing.js";
 import { signalSchema, SELECTS } from "./schema.js";
 import { bodyPx } from "./size.js";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 const KINDS: Array<{ const: string; title: string }> = [
   { const: "auto", title: "by unit" },
@@ -44,8 +44,8 @@ const GaugeWidget = memo(function GaugeWidget({ config, widget }: WidgetComponen
   );
 });
 
-export const gauge: WidgetKind = {
-  kind: "gauge",
+export const gauge: WidgetType = {
+  type: "gauge",
   label: "Gauge",
   description: "One signal as a picture: a dial, bar, thermometer or tank with its warn and alarm zones.",
   category: "readings",
@@ -63,7 +63,7 @@ export const gauge: WidgetKind = {
   }),
   uiSchema: { ...SELECTS, kind: { "ui:widget": "select" } },
   defaultConfig: (bindings) => ({ address: bindings.signals.find(isNumeric)?.address ?? "", kind: "auto" }),
-  titleFor: (config, bindings) => {
+  labelFor: (config, bindings) => {
     const address = String(config.address ?? "");
     const s = bindings.signalAt(address);
     return s ? `${bindings.deviceLabel(deviceOf(address))} · ${signalTitle(s, bindings.devices)}` : address;
