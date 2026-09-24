@@ -560,6 +560,10 @@ class SimDrive(Committable):
     drive, so the smart work moves from the controller's feedforward into
     the drive itself. Either way the rig clamps a demand to `limits`
     before it gets here.
+
+    A linear port declares `off` at `limits[0]` (0 % drive), so a stop writes it; a
+    `demand: output` port declares none (its `limits[0]` is a setpoint), nor does a
+    span across 0.
     """
 
     def __init__(
@@ -607,6 +611,10 @@ class SimDrive(Committable):
                     " a port takes one demand"
                 )
             spelled = None if isinstance(spec, str) else spec
+            # A linear port's `limits[0]` is 0 % drive: its inactive level, what a stop writes.
+            # A `demand: output` port's is a setpoint (a chiller's `limits[0]` is full
+            # compressor), and a span across 0 has full reverse there: neither declares one.
+            linear = path not in self._smart and not limits[0] < 0.0 < limits[1]
             leaves[path] = SignalSpec(
                 name=path.rpartition(".")[2],
                 quantity=quantity,
@@ -615,6 +623,7 @@ class SimDrive(Committable):
                 label=(spelled and spelled.label) or "",
                 tags=dict((spelled and spelled.tags) or {}),
                 limits=limits,
+                off=limits[0] if linear else None,
             )
             self.ports[path] = port
             self._spans[path] = limits
