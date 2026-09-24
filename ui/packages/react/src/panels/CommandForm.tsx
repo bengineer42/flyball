@@ -1,6 +1,6 @@
-import { useMemo } from "react";
-import type { Address, CommandSchema, Interrupted, JsonSchema, Value } from "@flyball/client";
-import { formatValue, humanise, isEmpty, linkedSignal } from "@flyball/client";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import type { Address, CommandSchema, Interrupted, JsonSchema, SignalSchema, Value } from "@flyball/client";
+import { deviceOf, formatValue, humanise, isEmpty, linkedSignal, RigError } from "@flyball/client";
 import { SchemaForm, type SchemaFormProps } from "../form/SchemaForm.js";
 import { formatTagged } from "../form/tagged.js";
 import { useTelemetry } from "../provider.js";
@@ -29,6 +29,75 @@ export interface CommandFormProps {
   device?: string;
   /** The device's current `mode` value, to highlight the command that would put it there. */
   currentMode?: Value;
+  /**
+   * The device's signals by path (`DeviceSchema.signals`): tells a linked
+   * argument that sets a demand from one that sets a setting, for the
+   * "refused while a controller regulates" check. Omitted, only `mode` and
+   * `writes` count.
+   */
+  signals?: Record<string, SignalSchema>;
+}
+
+/** An error as the person should read it: a rig's refusal is its `detail`, word for word (it names what to do). */
+export const errorText = (error: unknown): string => (error instanceof RigError ? error.detail : error instanceof Error ? error.message : String(error));
+
+/**
+ * Whether running the command changes what drives the device -- a `mode`,
+ * a `writes`, or an argument linked to a demand -- and so is refused while a
+ * controller regulates one of the device's signals, unless it `interrupts`
+ * (the rig then puts that controller in manual). A setting's command (a
+ * blend flow) is not what a controller drives.
+ */
+export function commandDrives(command: CommandSchema, device?: string, signals?: Record<string, SignalSchema>): boolean {
+  if (command.mode !== null && command.mode !== undefined) return true;
+  if ((command.writes ?? []).length > 0) return true; // `?? []`: a runner from before `writes`
+  if (!device || !signals) return false;
+  return linkedArguments(command.arguments).some(({ address }) => signals[address.slice(device.length + 1)]?.role === "demand");
+}
+
+/** The names of the controllers regulating a signal of `device` now (a controller is named by its output), live. */
+export function useRegulating(device: string | undefined): string[] {
+  const store = useTelemetry();
+  const subscribe = useCallback((cb: () => void) => (device === undefined ? () => undefined : store.subscribeController(null, cb, 250)), [store, device]);
+  const names = useSyncExternalStore(subscribe, () =>
+    device === undefined
+      ? ""
+      : Object.values(store.controllers())
+          .filter((c) => c.mode === "regulating" && deviceOf(c.output_signal) === device)
+          .map((c) => c.name)
+          .sort()
+          .join("\n"),
+  );
+  useEffect(() => {
+    if (device !== undefined) void store.seedControllers();
+  }, [store, device]);
+  return useMemo(() => (names ? names.split("\n") : []), [names]);
+}
+
+/** A value as a key for "did it change": objects with their keys sorted, so a form's reordering is no edit. */
+function stableKey(value: unknown): string {
+  return JSON.stringify(value, (_k, v: unknown) =>
+    v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) : v,
+  );
+}
+
+/**
+ * Of a submitted form, only what the person edited: an argument whose value
+ * differs from what the form opened with (the prefilled current value, or
+ * the schema's default). An argument left as it opened is not sent, so the
+ * rig keeps it where it is -- a demand group's untouched members are not
+ * written, and a default the method has already is not repeated.
+ */
+export function editedArguments(data: Record<string, unknown>, opened: Record<string, unknown>, schema: JsonSchema): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(data)) {
+    if (value === undefined) continue;
+    const field = schema.properties?.[name] as JsonSchema | undefined;
+    const baseline = name in opened ? opened[name] : field?.default;
+    if (baseline !== undefined && stableKey(baseline) === stableKey(value)) continue;
+    out[name] = value;
+  }
+  return out;
 }
 
 /** The one argument's name, when a command takes exactly one -- the common "ask for a single number" shape (`demand`, `set_setpoint`, ...). */
@@ -90,9 +159,12 @@ function LastRan({ device, name, label, schema }: { device: string; name: string
  * still says what unit) and the button reads "Set". A linked argument
  * (`x-signal`) is prefilled from the store's current value for that signal
  * (left blank again, the rig keeps it where it is) and shows the signal's
- * live readback beside the form.
+ * live readback beside the form. Only the arguments the person changed are
+ * sent (`editedArguments`). A command that drives the device and does not
+ * interrupt says it is refused while a controller regulates the device,
+ * and its button is held until that controller is in manual.
  */
-export function CommandForm({ name, command, onRun, busy, result, form, device, currentMode, canOperate = true }: CommandFormProps) {
+export function CommandForm({ name, command, onRun, busy, result, form, device, currentMode, signals, canOperate = true }: CommandFormProps) {
   const only = onlyArgument(command.arguments);
   const args = only
     ? { ...command.arguments, properties: { ...command.arguments.properties, [only]: { ...command.arguments.properties![only]!, title: "" } } }
@@ -114,6 +186,11 @@ export function CommandForm({ name, command, onRun, busy, result, form, device, 
   );
   const hasMode = command.mode !== null && command.mode !== undefined;
   const active = hasMode && currentMode !== undefined && command.mode === currentMode;
+  // Refused while a controller regulates the device, unless it interrupts: said up front, and the button held.
+  const regulating = useRegulating(device);
+  const refusedBy = !command.interrupts && regulating.length > 0 && commandDrives(command, device, signals) ? regulating : [];
+  const refusal = refusedBy.length > 0 ? `refused while ${refusedBy.join(", ")} regulates: put it in manual first` : null;
+  const run = (data: Record<string, unknown>) => onRun(editedArguments(data, initial, command.arguments));
   return (
     <section className={`fb-command${active ? " fb-command-active" : ""}`}>
       <header>
@@ -125,6 +202,11 @@ export function CommandForm({ name, command, onRun, busy, result, form, device, 
             </span>
           )}
         </h4>
+        {refusal && (
+          <p className="fb-muted fb-command-refused" data-testid="command-refused">
+            {refusal}
+          </p>
+        )}
         {(hasMode || command.interrupts) && (
           <p className="fb-muted fb-command-effect">
             {hasMode && <>→ mode {formatValue(command.mode)}</>}
@@ -134,12 +216,12 @@ export function CommandForm({ name, command, onRun, busy, result, form, device, 
         )}
       </header>
       {isEmpty(command.arguments) ? (
-        <button type="button" className="btn btn-primary" disabled={busy || !canOperate} onClick={() => void onRun({})}>
+        <button type="button" className="btn btn-primary" disabled={busy || !canOperate || refusal !== null} title={refusal ?? undefined} onClick={() => void onRun({})}>
           {label}
         </button>
       ) : (
         <>
-          <SchemaForm schema={args} value={initial} onSubmit={onRun} submitLabel={only ? "Set" : label} disabled={(busy ?? false) || !canOperate} form={form} />
+          <SchemaForm schema={args} value={initial} onSubmit={run} submitLabel={only ? "Set" : label} disabled={(busy ?? false) || !canOperate || refusal !== null} form={form} />
           {linked.length > 0 && (
             <div className="fb-command-links">
               {linked.map((a) => (
@@ -150,7 +232,7 @@ export function CommandForm({ name, command, onRun, busy, result, form, device, 
         </>
       )}
       {device && <LastRan device={device} name={name} label={label} schema={command.arguments} />}
-      {result?.error && <div className="fb-error">{result.error.message}</div>}
+      {result?.error && <div className="fb-error">{errorText(result.error)}</div>}
       {result && !result.error && (
         <div className="fb-result">
           <div className="fb-result-head">

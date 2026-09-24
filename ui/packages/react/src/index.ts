@@ -17,13 +17,13 @@ export { TimeSeries, type TimeSeriesProps } from "./panels/TimeSeries.js";
 export { DeviceSignals, type DeviceSignalsProps } from "./panels/DeviceSignals.js";
 export { Readout, readoutLevel, type ReadoutProps } from "./panels/Readout.js";
 export { Gauge, gaugeKindFor, gaugeRange, gaugeZones, numberWidth, type GaugeProps, type GaugeKind, type GaugeZone, type Bands } from "./panels/Gauge.js";
-export { CommandForm, type CommandFormProps } from "./panels/CommandForm.js";
+export { CommandForm, commandDrives, editedArguments, errorText, useRegulating, type CommandFormProps } from "./panels/CommandForm.js";
 export { WritePanel, type WritePanelProps } from "./panels/WritePanel.js";
 export { useControllers, type ControllerTrace, type ControllerTraces } from "./hooks/useControllers.js";
 export { useEvents } from "./hooks/useEvents.js";
 export { MultiSeries, type MultiSeriesProps, type MultiSeriesTrace } from "./panels/MultiSeries.js";
 export { ControllerPanel, type ControllerPanelProps } from "./panels/ControllerPanel.js";
-export { EventsPanel, eventKey, type EventsPanelProps } from "./panels/EventsPanel.js";
+export { EventsPanel, describeEvent, eventKey, type EventsPanelProps } from "./panels/EventsPanel.js";
 export { useUnreadEvents, type UnreadEvents } from "./hooks/useUnreadEvents.js";
 export {
   useSession,

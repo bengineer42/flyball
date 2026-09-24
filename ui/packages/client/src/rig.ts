@@ -213,9 +213,10 @@ export class RigClient {
    * Write values to writable signals under a device as one write, committed
    * at once; keys are names relative to the device (dotted under a
    * namespace: `position.x`), values in each signal's unit. Resolves to the
-   * write state of each signal set, by address. 409 for a signal a
-   * controller drives, a `together` group set in part, or a signal that is
-   * not writable; 404 for a name not under the device.
+   * write state of each signal set, by address; a signal left out keeps its
+   * value. 409 for a signal a controller drives, or one that is not writable
+   * (a readback's refusal names the command that moves it); 503 while a
+   * signal's limit is not known yet; 404 for a name not under the device.
    */
   writeNode(name: string, values: Record<string, number>): Promise<Record<Address, WriteOut>> {
     return this.call({ method: "PUT", path: `/api/devices/${enc(name)}/write`, body: values });

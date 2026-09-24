@@ -43,6 +43,16 @@ function relative(ms: number, now: number): string {
 /** Event scopes that name a thing with a page (`device` is the one the backend emits today; the rest are for a scope a driver might add). */
 const SCOPE_KINDS: Record<string, RefKind> = { device: "device", controller: "controller", signal: "signal", session: "session" };
 
+/**
+ * The code as a person reads it. A controller's `interrupted` is "Put in
+ * manual" (by a command that interrupts, or by a stop; its details are
+ * `{was, by}` and its message names who), not a program's "Interrupted".
+ */
+export function describeEvent(e: Pick<RigEvent, "scope" | "code">): string {
+  if (e.scope === "controller" && e.code === "interrupted") return "Put in manual";
+  return describeEventCode(e.code);
+}
+
 /** An event's identity, stable across the seed/live boundary: used to key rows, track expansion and track read/unread (`useUnreadEvents`). */
 export const eventKey = (e: RigEvent) => `${e.time_ns}:${e.scope}:${e.subject}:${e.code}:${e.edge ?? ""}`;
 
@@ -168,7 +178,7 @@ export function EventsPanel({ events, severities: initialSeverities, onSelect, c
                     {SCOPE_KINDS[e.scope] ? <Ref kind={SCOPE_KINDS[e.scope]!} name={e.subject} /> : describeSubject(e.subject)}
                   </td>
                   <td className="fb-event-code" title={e.edge ? `${e.code} ${e.edge}` : e.code}>
-                    {describeEventCode(e.code)}
+                    {describeEvent(e)}
                     {e.edge && (
                       <span className={`fb-event-edge fb-event-${e.edge}`} data-testid="event-edge">
                         {describeEdge(e.edge, e.details)}
