@@ -117,7 +117,7 @@ def _forget_from(catalog: Catalog[Any], module: str) -> None:
 def describe(config: type[Config[Any]], catalogs: Catalogs) -> dict[str, Any]:
     """One registered type as `GET /api/drivers` lists it.
 
-    Every entry has its `role` (`driver` or `link`), `module`, `description` (its own
+    Every entry has its `kind` (`driver` or `link`), `module`, `description` (its own
     docstring, None without one), `summary` (the docstring's first line) and `schema` (or
     `schema_error`, when pydantic cannot build one). A link adds its `family`. A driver adds
     `requires` ([requires][flyball.runtime.drivers.requires]), plus `category` when it
@@ -126,7 +126,7 @@ def describe(config: type[Config[Any]], catalogs: Catalogs) -> dict[str, Any]:
     # Its own docstring: `inspect.getdoc` would give a config that has none `Config`'s.
     description = inspect.cleandoc(config.__doc__) if config.__doc__ else None
     entry: dict[str, Any] = {
-        "role": "driver" if issubclass(config, DriverConfig) else "link",
+        "kind": "driver" if issubclass(config, DriverConfig) else "link",
         "module": config.__module__,
         "description": description,
         "summary": description.splitlines()[0] if description else None,
@@ -156,8 +156,8 @@ def requires(driver: type[DriverConfig[Any]], catalogs: Catalogs) -> dict[str, A
     the configs its `link` field names share (None when it names none, or they disagree).
     `link` is every registered link type of that family, fakes and simulations included, and
     any other its `link` field names; empty for a driver that takes no link. `inputs` are its
-    device's declared inputs, each `{role, label, kind, quantity, unit}`: `role` is the name
-    under `inputs:`, and `kind` is `signal` (an address to follow, or a number held as a
+    device's declared inputs, each `{name, label, kind, optional, quantity, unit}`: `name` is
+    the key under `inputs:`, and `kind` is `signal` (an address to follow, or a number held as a
     constant). A composite with no `link` of its own takes its nested driver's: `link` is
     theirs combined, `family` theirs when they agree, and `nested` names the field.
     """
@@ -190,14 +190,14 @@ def requires(driver: type[DriverConfig[Any]], catalogs: Catalogs) -> dict[str, A
     device = driver.device_class()
     inputs = [
         {
-            "role": role,
+            "name": name,
             "label": declared.label,
             "kind": "signal",
             "optional": declared.optional,
             "quantity": declared.quantity.name,
             "unit": declared.quantity.unit.symbol,
         }
-        for role, declared in ({} if device is None else device.INPUTS).items()
+        for name, declared in ({} if device is None else device.INPUTS).items()
     ]
     found: dict[str, Any] = {"link": link, "family": family, "inputs": inputs}
     if nested is not None:
@@ -215,8 +215,8 @@ def _configs_in(annotation: Any) -> list[type[Config[Any]]]:
 
 
 def _default_address(driver: type[DriverConfig[Any]]) -> int | None:
-    """The default of the driver's `address` field, when it has one."""
-    field = driver.model_fields.get("address")
+    """The default of the driver's `i2c_address` field, when it has one."""
+    field = driver.model_fields.get("i2c_address")
     default = None if field is None else field.default
     return default if isinstance(default, int) and not isinstance(default, bool) else None
 

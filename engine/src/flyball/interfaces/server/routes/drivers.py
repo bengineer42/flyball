@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api", tags=["drivers"])
 
 @router.get("/drivers")
 def read_drivers(catalog: CatalogDep) -> dict[str, Any]:
-    """Every registered config, by type: its role, module, description, summary and schema.
+    """Every registered config, by type: its kind, module, description, summary and schema.
 
     A link's `family`; a driver's `requires` (`link`, `family`, `inputs`), and its `category`
     and default I²C `addresses` where it has them ([describe][flyball.runtime.drivers.describe]).

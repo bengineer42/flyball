@@ -80,8 +80,8 @@ def test_the_routes_list_reload_and_query(drivers: Path) -> None:
     try:
         with TestClient(create_app()) as c:
             listed = c.get("/api/drivers").json()
-            assert "sim_daq" in listed and listed["sim_daq"]["role"] == "driver"
-            assert "sim_plant" in listed and listed["sim_plant"]["role"] == "link"
+            assert "sim_daq" in listed and listed["sim_daq"]["kind"] == "driver"
+            assert "sim_plant" in listed and listed["sim_plant"]["kind"] == "link"
             assert "properties" in listed["sim_daq"]["schema"]
             r = c.post("/api/drivers/reload")
             assert r.status_code == 200 and r.json()["registered"] == {"probe": ["test_probe_1"]}
@@ -139,7 +139,7 @@ def test_the_list_says_what_each_driver_requires(_catalog) -> None:
         "family": None,
         "inputs": [
             {
-                "role": "dry",
+                "name": "dry",
                 "label": "Dry supply",
                 "kind": "signal",
                 "optional": False,
@@ -147,7 +147,7 @@ def test_the_list_says_what_each_driver_requires(_catalog) -> None:
                 "unit": "%",
             },
             {
-                "role": "wet",
+                "name": "wet",
                 "label": "",
                 "kind": "signal",
                 "optional": False,
