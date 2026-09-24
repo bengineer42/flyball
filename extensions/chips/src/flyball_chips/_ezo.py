@@ -124,7 +124,7 @@ def _i2c_reply(frame: bytes, command: bytes, chip: str) -> bytes:
 
 
 def i2c_exchange(
-    link: I2cLink, address: int, command: bytes, sleep: bool, delay_s: float, chip: str
+    link: I2cLink, i2c_address: int, command: bytes, sleep: bool, delay_s: float, chip: str
 ) -> bytes:
     r"""One ASCII command over I2C: write (no `\\r`), wait `delay_s`, read the reply back.
 
@@ -132,29 +132,29 @@ def i2c_exchange(
     timing": "Each command specifies the delay needed... EZO class devices do not
     support I2C clock stretching"), unlike UART where only `R` differs per chip.
     """
-    link.write(address, command)
+    link.write(i2c_address, command)
     if sleep:
         time.sleep(delay_s)
-    return _i2c_reply(link.read(address, I2C_REPLY_LENGTH), command, chip)
+    return _i2c_reply(link.read(i2c_address, I2C_REPLY_LENGTH), command, chip)
 
 
 class EzoTransport:
     r"""One EZO circuit's wire access, over UART or I2C -- chosen by what `link` is.
 
-    `address` is used only over I2C. `read`/`write` both take bare ASCII commands (no
+    `i2c_address` is used only over I2C. `read`/`write` both take bare ASCII commands (no
     `\\r`) and return the `\\r`-terminated reply frame each chip's `decode_text`/`parse_*`
     already expects, whichever transport it came over -- so a chip module writes its
     command strings once and does not branch on transport itself.
     """
 
-    __slots__ = ("address", "chip", "link", "sleep")
+    __slots__ = ("chip", "i2c_address", "link", "sleep")
 
     def __init__(
-        self, link: UartLink | I2cLink, chip: str, address: int = 0, sleep: bool = True
+        self, link: UartLink | I2cLink, chip: str, i2c_address: int = 0, sleep: bool = True
     ) -> None:
         self.link = link
         self.chip = chip
-        self.address = address
+        self.i2c_address = i2c_address
         self.sleep = sleep
         """Whether to wait each command's processing delay; off against a fake."""
 
@@ -167,14 +167,14 @@ class EzoTransport:
         """A command that answers with data (`R`, `cal,?`, `T,?`): the reply frame."""
         link = self.link
         if isinstance(link, I2cLink):
-            return i2c_exchange(link, self.address, command, self.sleep, delay_s, self.chip)
+            return i2c_exchange(link, self.i2c_address, command, self.sleep, delay_s, self.chip)
         return read_frame(link, self.sleep, delay_s, command=command)
 
     def write(self, command: bytes, delay_s: float) -> None:
         """A command that only acknowledges (a calibration point, `T,<value>`, ...)."""
         link = self.link
         if isinstance(link, I2cLink):
-            i2c_exchange(link, self.address, command, self.sleep, delay_s, self.chip)
+            i2c_exchange(link, self.i2c_address, command, self.sleep, delay_s, self.chip)
         else:
             ack_frame(link, command, self.sleep, delay_s, self.chip)
 
@@ -204,7 +204,7 @@ def compensation(*inputs: InputBinding) -> dict[str, float]:
 
     Raises:
         NotReadyError: A bound input has nothing yet (`pending`): omit this read.
-        NoValueError: A bound input's source has no value: push its `no_value` on the
+        NoValueError: What a bound input follows has no value: push its `no_value` on the
             outputs, so the reading carries the input's quality.
     """
     bound = [binding for binding in inputs if binding.bound]

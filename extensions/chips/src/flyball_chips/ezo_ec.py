@@ -136,9 +136,9 @@ class EzoEcProbe:
     __slots__ = ("transport",)
 
     def __init__(
-        self, link: UartLink | I2cLink, address: int = EC_I2C_ADDRESS, sleep: bool = True
+        self, link: UartLink | I2cLink, i2c_address: int = EC_I2C_ADDRESS, sleep: bool = True
     ) -> None:
-        self.transport = EzoTransport(link, "EZO-EC", address, sleep)
+        self.transport = EzoTransport(link, "EZO-EC", i2c_address, sleep)
 
     def read(self) -> tuple[float, float, float, float]:
         """`(ec, tds, sal, sg)`, uncompensated: one `R` command, one reading frame."""
@@ -195,22 +195,22 @@ class EzoEc(Readable):
         self,
         name: str,
         link: UartLink | I2cLink,
-        address: int = EC_I2C_ADDRESS,
+        i2c_address: int = EC_I2C_ADDRESS,
         sleep: bool = True,
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
         self.link = link
-        self.probe = EzoEcProbe(link, address, sleep)
+        self.probe = EzoEcProbe(link, i2c_address, sleep)
 
     @property
     def config(self) -> EzoEcConfig:
-        return EzoEcConfig(link="", address=self.probe.transport.address)
+        return EzoEcConfig(link="", i2c_address=self.probe.transport.i2c_address)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         try:
             given = compensation(self.temperature)
-        except NoValueError as error:  # bound, and its source has no value: nor do these
+        except NoValueError as error:  # bound, and what it follows has no value: nor do these
             no_value = error.no_value
             yield self.sample(
                 time_ns,
@@ -275,10 +275,10 @@ class EzoEc(Readable):
 
 
 class EzoEcConfig(DriverConfig[EzoEc], type="ezo_ec"):
-    """One EZO-EC circuit, on its own UART or at an I2C `address` (default 0x64)."""
+    """One EZO-EC circuit, on its own UART or at an I2C `i2c_address` (default 0x64)."""
 
     link: EzoLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(
+    i2c_address: int = Field(
         default=EC_I2C_ADDRESS,
         ge=0x03,
         le=0x77,
@@ -288,7 +288,7 @@ class EzoEcConfig(DriverConfig[EzoEc], type="ezo_ec"):
     def build(self, name: str, label: str | None = None) -> EzoEc:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return EzoEc(name, resolve(self.link), self.address, label=label)
+        return EzoEc(name, resolve(self.link), self.i2c_address, label=label)
 
 
 EzoEc.config_type = EzoEcConfig  # the config is declared after the device it builds

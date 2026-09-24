@@ -87,7 +87,7 @@ class TestEzoTransport:
 
     def test_picks_i2c_from_the_link_type(self):
         i2c = FakeI2c(replies={0x63: [_i2c_reply(1, "7.002")]}, short_reads=True)
-        transport = _ezo.EzoTransport(i2c, "EZO-pH", address=0x63, sleep=False)
+        transport = _ezo.EzoTransport(i2c, "EZO-pH", i2c_address=0x63, sleep=False)
         assert transport.is_i2c
         assert transport.read(b"R", 0.0) == b"7.002\r"
         assert i2c.written == [(0x63, None, list(b"R"))]
@@ -101,7 +101,7 @@ class TestEzoTransport:
 
     def test_write_only_requires_the_i2c_status_byte(self):
         i2c = FakeI2c(replies={0x63: [_i2c_reply(1)]}, short_reads=True)
-        transport = _ezo.EzoTransport(i2c, "EZO-pH", address=0x63, sleep=False)
+        transport = _ezo.EzoTransport(i2c, "EZO-pH", i2c_address=0x63, sleep=False)
         transport.write(b"cal,clear", 0.0)  # raises if it misreads the (absent) text
 
     def test_write_raises_on_an_unacknowledged_uart_reply(self):

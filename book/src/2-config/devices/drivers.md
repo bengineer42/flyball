@@ -662,7 +662,7 @@ frame either way -- the shared shape every `ezo_*` driver below builds on.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | a `uart` link (38400 8N1) or an `i2c` link |
-| `address` | `0x63` | I²C address; ignored on UART |
+| `i2c_address` | `0x63` | I²C address; ignored on UART |
 
 **Calibration** (`@command`s, each `long` -- they wait): `calibrate_mid(ph)`
 (`cal,mid,<ph>`, required first), `calibrate_low(ph)`/`calibrate_high(ph)`
@@ -695,7 +695,7 @@ or an `i2c` link (bare ASCII, a status byte then a NULL-terminated reply).
 | field | default | |
 | --- | --- | --- |
 | `link` | required | a `uart` link (38400 8N1) or an `i2c` link |
-| `address` | `0x64` | I²C address; ignored on UART |
+| `i2c_address` | `0x64` | I²C address; ignored on UART |
 
 **Calibration** (`@command`s, each `long`): `calibrate_dry()` (`cal,dry`),
 `calibrate_low(microsiemens)`/`calibrate_high(microsiemens)` (`cal,low`/
@@ -724,7 +724,7 @@ not temperature-corrected by the circuit.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | a `uart` link (38400 8N1) or an `i2c` link |
-| `address` | `0x62` | I²C address; ignored on UART |
+| `i2c_address` | `0x62` | I²C address; ignored on UART |
 
 **Calibration** (`@command`s, each `long`): `calibrate(mv)` (`cal,<mv>`,
 a single reference point -- no low/mid/high split), `calibrate_clear()`
@@ -745,7 +745,7 @@ guessing if the circuit was reconfigured to also report % saturation
 | field | default | |
 | --- | --- | --- |
 | `link` | required | a `uart` link (38400 8N1) or an `i2c` link |
-| `address` | `0x61` | I²C address; ignored on UART |
+| `i2c_address` | `0x61` | I²C address; ignored on UART |
 
 **Calibration** (`@command`s, each `long`): `calibrate()` (`cal`, one-point
 atmospheric-saturation calibration), `calibrate_zero()` (`cal,0`, a
@@ -1000,7 +1000,7 @@ devices:
   turbidity_adc:
     driver: ads1115
     link: i2c1
-    address: 0x49
+    i2c_address: 0x49
     channels: { raw_v: { channel: 0, unit: V } }
     signals: { raw_v: { record: false } }     # live, not stored
   turbidity:
@@ -1042,8 +1042,8 @@ on each other's).
 - **The input's no-value, carried.** While `x` has no value (`stale`,
   `invalid`, `not_applicable`), `value` has the same one, reason and all;
   before its first reading, nothing.
-- **Raw and engineering, paired.** `value` names its source (`raw:
-  turbidity_adc.raw_v`) and the source names each curve on it (`raw_for`)
+- **Raw and engineering, paired.** `value` names its raw signal (`raw:
+  turbidity_adc.raw_v`) and the raw signal names each curve on it (`raw_for`)
   on [the wire](../../4-server/wire.md#raw-and-engineering-signals), so a
   client shows the two in one row and hides the raw one by default. Mark the
   raw signal `record: false` to keep only the calibrated value in the

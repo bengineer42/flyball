@@ -127,9 +127,9 @@ class EzoDoProbe:
     __slots__ = ("transport",)
 
     def __init__(
-        self, link: UartLink | I2cLink, address: int = DO_I2C_ADDRESS, sleep: bool = True
+        self, link: UartLink | I2cLink, i2c_address: int = DO_I2C_ADDRESS, sleep: bool = True
     ) -> None:
-        self.transport = EzoTransport(link, "EZO-DO", address, sleep)
+        self.transport = EzoTransport(link, "EZO-DO", i2c_address, sleep)
 
     def read(self) -> float:
         """The current D.O. in mg/L, uncompensated: one `R` command, one reading frame."""
@@ -179,17 +179,17 @@ class EzoDo(Readable):
         self,
         name: str,
         link: UartLink | I2cLink,
-        address: int = DO_I2C_ADDRESS,
+        i2c_address: int = DO_I2C_ADDRESS,
         sleep: bool = True,
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
         self.link = link
-        self.probe = EzoDoProbe(link, address, sleep)
+        self.probe = EzoDoProbe(link, i2c_address, sleep)
 
     @property
     def config(self) -> EzoDoConfig:
-        return EzoDoConfig(link="", address=self.probe.transport.address)
+        return EzoDoConfig(link="", i2c_address=self.probe.transport.i2c_address)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         try:
@@ -233,10 +233,10 @@ class EzoDo(Readable):
 
 
 class EzoDoConfig(DriverConfig[EzoDo], type="ezo_do"):
-    """One EZO-DO circuit, on its own UART or at an I2C `address` (default 0x61)."""
+    """One EZO-DO circuit, on its own UART or at an I2C `i2c_address` (default 0x61)."""
 
     link: EzoLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(
+    i2c_address: int = Field(
         default=DO_I2C_ADDRESS,
         ge=0x03,
         le=0x77,
@@ -246,7 +246,7 @@ class EzoDoConfig(DriverConfig[EzoDo], type="ezo_do"):
     def build(self, name: str, label: str | None = None) -> EzoDo:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return EzoDo(name, resolve(self.link), self.address, label=label)
+        return EzoDo(name, resolve(self.link), self.i2c_address, label=label)
 
 
 EzoDo.config_type = EzoDoConfig  # the config is declared after the device it builds
