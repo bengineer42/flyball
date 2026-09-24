@@ -36,7 +36,7 @@ def bench_document() -> dict:
                 "driver": "sht4x_set",
                 "poll_s": 1,
                 "link": "i2c1",
-                "sensors": {"dry": {"address": 0x45}, "wet": {"address": 0x46}},
+                "sensors": {"dry": {"i2c_address": 0x45}, "wet": {"i2c_address": 0x46}},
                 "signals": {
                     "wet": {"poll_s": 5},
                     "dry": {"signals": {"humidity": {"warning": [0, 10]}}},
@@ -59,7 +59,7 @@ def bench_document() -> dict:
                 "driver": "i2c_table",
                 "poll_s": 1,
                 "link": "i2c1",
-                "address": 0x4A,
+                "i2c_address": 0x4A,
                 "registers": {
                     "temperature": {"address": 0, "signed": True, "scale": 0.0078125, "unit": "°C"},
                     "setpoint": {"address": 1, "scale": 0.5, "unit": "°C", "write": True},
@@ -82,7 +82,7 @@ def bench_document() -> dict:
                 "span": [10, 40],
                 "signals": {"drive": {"limits": [10, 34]}},
             },
-            "soil": {"driver": "ds18b20", "poll_s": 5, "link": "w1", "device": "28-1"},
+            "soil": {"driver": "ds18b20", "poll_s": 5, "link": "w1", "probe_id": "28-1"},
         },
         "controllers": {
             "heater.drive": {

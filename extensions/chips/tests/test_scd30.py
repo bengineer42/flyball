@@ -90,5 +90,5 @@ class TestScd30:
             list(air.read(0))
 
     def test_config_round_trips_the_address(self):
-        air = scd30.Scd30("air", FakeI2c(), address=0x61, sleep=False)
-        assert air.config.address == 0x61
+        air = scd30.Scd30("air", FakeI2c(), i2c_address=0x61, sleep=False)
+        assert air.config.i2c_address == 0x61

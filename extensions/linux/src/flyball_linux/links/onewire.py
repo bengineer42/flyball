@@ -15,7 +15,7 @@ class OneWireLink(Protocol):
 
     def devices(self) -> list[str]: ...
 
-    def read(self, device: str) -> str: ...
+    def read(self, probe_id: str) -> str: ...
 
 
 class FakeOneWire:
@@ -30,12 +30,12 @@ class FakeOneWire:
     def devices(self) -> list[str]:
         return sorted(self.texts)
 
-    def read(self, device: str) -> str:
-        self.reads.append(device)
+    def read(self, probe_id: str) -> str:
+        self.reads.append(probe_id)
         try:
-            queue = self.texts[device]
+            queue = self.texts[probe_id]
         except KeyError:
-            raise OSError(f"no 1-Wire device {device}") from None
+            raise OSError(f"no 1-Wire device {probe_id}") from None
         return queue[0] if len(queue) == 1 else queue.pop(0)
 
 
@@ -57,8 +57,8 @@ class SysfsOneWire:
     def devices(self) -> list[str]:
         return sorted(p.name for p in self.root.iterdir() if not p.name.startswith("w1_bus"))
 
-    def read(self, device: str) -> str:
-        return (self.root / device / "w1_slave").read_text()
+    def read(self, probe_id: str) -> str:
+        return (self.root / probe_id / "w1_slave").read_text()
 
 
 class OneWireConfig(Config[OneWireLink], type="onewire"):

@@ -37,7 +37,7 @@ MS5611_ADDRESS = 0x77
 """CSB pin low; CSB high answers at 0x76."""
 
 RESET = 0x1E  # TE MS5611-01BA03 datasheet, command table: Reset 0x1E
-_PROM_BASE = 0xA0  # PROM read: 0xA0 + 2*address, address 0..7
+_PROM_BASE = 0xA0  # PROM read: 0xA0 + 2*index, index 0..7
 _D1_BASE = 0x40  # convert D1 (pressure)
 _D2_BASE = 0x50  # convert D2 (temperature)
 _ADC_READ = 0x00
@@ -93,17 +93,17 @@ def compensate(
 
 
 class Ms5611Sensor:
-    """One chip at `address`: PROM read once at init, then D1/D2 conversions per `read`."""
+    """One chip at `i2c_address`: PROM read once at init, then D1/D2 conversions per `read`."""
 
-    __slots__ = ("address", "coefficients", "link", "osr", "sleep")
+    __slots__ = ("i2c_address", "coefficients", "link", "osr", "sleep")
 
-    def __init__(self, link: I2cLink, address: int, osr: Osr = 4096, sleep: bool = True) -> None:
+    def __init__(self, link: I2cLink, i2c_address: int, osr: Osr = 4096, sleep: bool = True) -> None:
         self.link = link
-        self.address = address
+        self.i2c_address = i2c_address
         self.osr: Osr = osr
         self.sleep = sleep
         """Whether to wait the conversion time; off in a test against a fake."""
-        self.link.write(address, [RESET])
+        self.link.write(i2c_address, [RESET])
         if self.sleep:
             time.sleep(0.003)  # datasheet: 2.8 ms reload
         self.coefficients = self._read_prom()
@@ -111,18 +111,18 @@ class Ms5611Sensor:
     def _read_prom(self) -> tuple[int, int, int, int, int, int]:
         words = []
         for word in range(1, 7):
-            self.link.write(self.address, [prom_command(word)])
-            raw = self.link.read(self.address, 2)
+            self.link.write(self.i2c_address, [prom_command(word)])
+            raw = self.link.read(self.i2c_address, 2)
             words.append(int.from_bytes(raw, "big"))
         return tuple(words)  # type: ignore[return-value]
 
     def _convert(self, base: int) -> int:
         offset, wait_s = OSR_COMMANDS[self.osr]
-        self.link.write(self.address, [base + offset])
+        self.link.write(self.i2c_address, [base + offset])
         if self.sleep:
             time.sleep(wait_s)
-        self.link.write(self.address, [_ADC_READ])
-        raw = self.link.read(self.address, 3)
+        self.link.write(self.i2c_address, [_ADC_READ])
+        raw = self.link.read(self.i2c_address, 3)
         if len(raw) != 3:
             raise HardwareError(f"MS5611 ADC reply is {len(raw)} bytes, not 3")
         return int.from_bytes(raw, "big")
@@ -144,18 +144,18 @@ class Ms5611(Readable):
         self,
         name: str,
         link: I2cLink,
-        address: int = MS5611_ADDRESS,
+        i2c_address: int = MS5611_ADDRESS,
         osr: Osr = 4096,
         sleep: bool = True,
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
         self.link = link
-        self.sensor = Ms5611Sensor(link, address, osr, sleep)
+        self.sensor = Ms5611Sensor(link, i2c_address, osr, sleep)
 
     @property
     def config(self) -> Ms5611Config:
-        return Ms5611Config(link="", address=self.sensor.address, osr=self.sensor.osr)
+        return Ms5611Config(link="", i2c_address=self.sensor.i2c_address, osr=self.sensor.osr)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         pressure, temperature = self.sensor.read()
@@ -166,13 +166,13 @@ class Ms5611Config(DriverConfig[Ms5611], type="ms5611"):
     """One chip by its I2C address; `osr` trades conversion time for resolution."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(default=MS5611_ADDRESS, ge=0x03, le=0x77)
+    i2c_address: int = Field(default=MS5611_ADDRESS, ge=0x03, le=0x77)
     osr: Osr = 4096
 
     def build(self, name: str, label: str | None = None) -> Ms5611:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return Ms5611(name, resolve(self.link), self.address, self.osr, label=label)
+        return Ms5611(name, resolve(self.link), self.i2c_address, self.osr, label=label)
 
 
 Ms5611.config_type = Ms5611Config  # the config is declared after the device it builds

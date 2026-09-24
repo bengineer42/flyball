@@ -23,7 +23,7 @@ devices:
     label: Soil
     poll_s: 5
     link: w1
-    device: 28-0316a279e7ff        # `ls /sys/bus/w1/devices` for yours
+    probe_id: 28-0316a279e7ff       # `ls /sys/bus/w1/devices` for yours
   heater:
     driver: pwm_channel
     label: Heater

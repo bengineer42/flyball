@@ -2406,9 +2406,9 @@
           "title": "Bus",
           "type": "integer"
         },
-        "device": {
+        "chip_select": {
           "minimum": 0,
-          "title": "Device",
+          "title": "Chip Select",
           "type": "integer"
         },
         "speed_hz": {
@@ -2417,11 +2417,11 @@
           "title": "Speed Hz",
           "type": "integer"
         },
-        "mode": {
+        "spi_mode": {
           "default": 0,
           "maximum": 3,
           "minimum": 0,
-          "title": "Mode",
+          "title": "Spi Mode",
           "type": "integer"
         },
         "type": {
@@ -2433,7 +2433,7 @@
       },
       "required": [
         "bus",
-        "device"
+        "chip_select"
       ],
       "title": "SpiConfigTagged",
       "type": "object"
@@ -2680,11 +2680,11 @@
           "title": "Channels",
           "type": "object"
         },
-        "address": {
+        "i2c_address": {
           "default": 72,
           "maximum": 75,
           "minimum": 72,
-          "title": "Address",
+          "title": "I2C Address",
           "type": "integer"
         },
         "gain": {
@@ -3392,11 +3392,11 @@
       "additionalProperties": false,
       "description": "One sensor of an `sht4x_set`: its I2C address.",
       "properties": {
-        "address": {
+        "i2c_address": {
           "default": 68,
           "maximum": 119,
           "minimum": 3,
-          "title": "Address",
+          "title": "I2C Address",
           "type": "integer"
         }
       },
@@ -4066,11 +4066,11 @@
                 "title": "Channels",
                 "type": "object"
               },
-              "address": {
+              "i2c_address": {
                 "default": 72,
                 "maximum": 75,
                 "minimum": 72,
-                "title": "Address",
+                "title": "I2C Address",
                 "type": "integer"
               },
               "gain": {
@@ -4248,11 +4248,11 @@
                 ],
                 "title": "Link"
               },
-              "address": {
+              "i2c_address": {
                 "default": 118,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "Address",
+                "title": "I2C Address",
                 "type": "integer"
               },
               "has_humidity": {
@@ -4443,11 +4443,11 @@
                 ],
                 "title": "Link"
               },
-              "address": {
+              "i2c_address": {
                 "default": 90,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "Address",
+                "title": "I2C Address",
                 "type": "integer"
               }
             },
@@ -4464,7 +4464,7 @@
           {
             "type": "object",
             "title": "current_loop",
-            "description": "`driver: current_loop`. Wraps an `ads1115`/`mcp3008` channel; `channels` is its own tree.\n\n```yaml\noxygen:\n  driver: current_loop\n  adc:\n    driver: ads1115\n    link: i2c1\n    address: 0x48\n  channels:\n    o2:\n      channel: 0\n      unit: \"%\"\n      resistor_ohms: 250.0\n      scale: 1.5625   # 25% over the 16 mA span\n      offset: -6.25   # so 4 mA -> 0 %, 20 mA -> 25 %\n```",
+            "description": "`driver: current_loop`. Wraps an `ads1115`/`mcp3008` channel; `channels` is its own tree.\n\n```yaml\noxygen:\n  driver: current_loop\n  adc:\n    driver: ads1115\n    link: i2c1\n    i2c_address: 0x48\n  channels:\n    o2:\n      channel: 0\n      unit: \"%\"\n      resistor_ohms: 250.0\n      scale: 1.5625   # 25% over the 16 mA span\n      offset: -6.25   # so 4 mA -> 0 %, 20 mA -> 25 %\n```",
             "properties": {
               "label": {
                 "anyOf": [
@@ -5003,15 +5003,15 @@
                 ],
                 "title": "Link"
               },
-              "device": {
-                "title": "Device",
+              "probe_id": {
+                "title": "Probe Id",
                 "type": "string"
               }
             },
             "required": [
               "driver",
               "link",
-              "device"
+              "probe_id"
             ],
             "not": {
               "required": [
@@ -5906,7 +5906,7 @@
           {
             "type": "object",
             "title": "htu21d",
-            "description": "One chip; there is no address pin, but the field stays for parity with sht31/sht4x.",
+            "description": "One chip; there is no i2c_address pin, but the field stays for parity with sht31/sht4x.",
             "properties": {
               "label": {
                 "anyOf": [
@@ -6060,11 +6060,11 @@
                 ],
                 "title": "Link"
               },
-              "address": {
+              "i2c_address": {
                 "default": 64,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "Address",
+                "title": "I2C Address",
                 "type": "integer"
               }
             },
@@ -6284,7 +6284,7 @@
           {
             "type": "object",
             "title": "i2c_table",
-            "description": "`driver: i2c_table`. `registers` is the driver's own tree -- see `Register`.\n\n```yaml\nboard_temp:\n  driver: i2c_table\n  link: i2c1\n  address: 0x48\n  registers:\n    temperature: { address: 0, length: 2, signed: true, scale: 0.0078125, unit: \"\u00b0C\" }\n```",
+            "description": "`driver: i2c_table`. `registers` is the driver's own tree -- see `Register`.\n\n```yaml\nboard_temp:\n  driver: i2c_table\n  link: i2c1\n  i2c_address: 0x48\n  registers:\n    temperature: { address: 0, length: 2, signed: true, scale: 0.0078125, unit: \"\u00b0C\" }\n```",
             "properties": {
               "label": {
                 "anyOf": [
@@ -6442,11 +6442,11 @@
                 ],
                 "title": "Link"
               },
-              "address": {
+              "i2c_address": {
                 "description": "The chip's bus address.",
                 "maximum": 119,
                 "minimum": 3,
-                "title": "Address",
+                "title": "I2C Address",
                 "type": "integer"
               },
               "registers": {
@@ -6460,7 +6460,7 @@
             "required": [
               "driver",
               "link",
-              "address",
+              "i2c_address",
               "registers"
             ],
             "not": {
@@ -6655,7 +6655,7 @@
           {
             "type": "object",
             "title": "mcp4725",
-            "description": "`driver: mcp4725`: `{ link, address }`, in a bare 0-1 fraction unless `unit` and `span`.",
+            "description": "`driver: mcp4725`: `{ link, i2c_address }`, in a bare 0-1 fraction unless `unit` and `span`.",
             "properties": {
               "label": {
                 "anyOf": [
@@ -6809,11 +6809,11 @@
                 ],
                 "title": "Link"
               },
-              "address": {
+              "i2c_address": {
                 "default": 96,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "Address",
+                "title": "I2C Address",
                 "type": "integer"
               },
               "unit": {
@@ -7379,11 +7379,11 @@
                 ],
                 "title": "Link"
               },
-              "address": {
+              "i2c_address": {
                 "default": 119,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "Address",
+                "title": "I2C Address",
                 "type": "integer"
               },
               "osr": {
@@ -8376,11 +8376,11 @@
                 ],
                 "title": "Link"
               },
-              "address": {
+              "i2c_address": {
                 "default": 97,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "Address",
+                "title": "I2C Address",
                 "type": "integer"
               },
               "pressure_mbar": {
@@ -8562,11 +8562,11 @@
                 ],
                 "title": "Link"
               },
-              "address": {
+              "i2c_address": {
                 "default": 98,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "Address",
+                "title": "I2C Address",
                 "type": "integer"
               },
               "variant": {
@@ -8958,11 +8958,11 @@
                 ],
                 "title": "Link"
               },
-              "address": {
+              "i2c_address": {
                 "default": 88,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "Address",
+                "title": "I2C Address",
                 "type": "integer"
               },
               "baseline": {
@@ -9156,11 +9156,11 @@
                 ],
                 "title": "Link"
               },
-              "address": {
+              "i2c_address": {
                 "default": 89,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "Address",
+                "title": "I2C Address",
                 "type": "integer"
               },
               "humidity_source": {
@@ -9357,11 +9357,11 @@
                 ],
                 "title": "Link"
               },
-              "address": {
+              "i2c_address": {
                 "default": 68,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "Address",
+                "title": "I2C Address",
                 "type": "integer"
               },
               "precision": {
@@ -9542,11 +9542,11 @@
                 ],
                 "title": "Link"
               },
-              "address": {
+              "i2c_address": {
                 "default": 68,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "Address",
+                "title": "I2C Address",
                 "type": "integer"
               },
               "precision": {
@@ -9573,7 +9573,7 @@
           {
             "type": "object",
             "title": "sht4x_set",
-            "description": "Several chips on one bus, one namespace per sensor: `sensors: {dry: {address: 0x45}}`.",
+            "description": "Several chips on one bus, one namespace per sensor: `sensors: {dry: {i2c_address: 0x45}}`.",
             "properties": {
               "label": {
                 "anyOf": [

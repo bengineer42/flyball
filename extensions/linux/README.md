@@ -25,7 +25,7 @@ validated in full by starting a runner.
 | type | what | fake |
 | --- | --- | --- |
 | `i2c` | `/dev/i2c-<bus>` via smbus2 | `fake_i2c` -- registers per address, scripted raw replies |
-| `spi` | `/dev/spidev<bus>.<device>` via spidev | `fake_spi` -- scripted or computed replies |
+| `spi` | `/dev/spidev<bus>.<chip_select>` via spidev | `fake_spi` -- scripted or computed replies |
 | `gpio` | `/dev/<chip>` via libgpiod v2 | `fake_gpio` -- levels per line |
 | `pwm` | `/sys/class/pwm/pwmchip<chip>` | `fake_pwm` -- period and duty per channel |
 | `onewire` | `/sys/bus/w1/devices` | `fake_onewire` -- `w1_slave` text per device |
@@ -41,14 +41,14 @@ range, precision, bands, limits and `poll_s` per signal.
 
 | driver | config | signals | on |
 | --- | --- | --- | --- |
-| `sht4x` | `link`, `address` (0x44), `precision` | `humidity [RP] %RH`, `temperature [RP] °C` | `i2c` |
-| `sht4x_set` | `link`, `sensors: {name: {address}}`, `precision` | one atomic namespace per sensor: `name.humidity`, `name.temperature [RP]`, each on its own `poll_s` | `i2c` |
-| `ads1115` | `link`, `address`, `gain`, `channels: {name: {channel, unit, quantity?, scale?, offset?}}` | one `[RP]` per channel, `volts * scale + offset` | `i2c` |
+| `sht4x` | `link`, `i2c_address` (0x44), `precision` | `humidity [RP] %RH`, `temperature [RP] °C` | `i2c` |
+| `sht4x_set` | `link`, `sensors: {name: {i2c_address}}`, `precision` | one atomic namespace per sensor: `name.humidity`, `name.temperature [RP]`, each on its own `poll_s` | `i2c` |
+| `ads1115` | `link`, `i2c_address`, `gain`, `channels: {name: {channel, unit, quantity?, scale?, offset?}}` | one `[RP]` per channel, `volts * scale + offset` | `i2c` |
 | `mcp3008` | `link`, `vref`, `channels: {name: {channel, unit, quantity?, scale?, offset?}}` | one `[RP]` per channel | `spi` |
-| `i2c_table` | `link`, `address`, `registers: {name: {address, length, signed, byteorder, shift, scale, offset, unit, write?}}` | one `[RP]` per register; `write: true` makes it `[RPW]` and a demand writes it | `i2c` |
+| `i2c_table` | `link`, `i2c_address`, `registers: {name: {address, length, signed, byteorder, shift, scale, offset, unit, write?}}` | one `[RP]` per register; `write: true` makes it `[RPW]` and a demand writes it | `i2c` |
 | `gpio_line` | `link`, `line`, `direction` (output), `invert`, `initial`, `pull_up` | an output: `on [W]` 0/1, commands `on`/`off`; an input: `level [RP]` 0/1 | `gpio` |
 | `pwm_channel` | `link`, `channel`, `frequency_hz`, `invert`, `unit?`, `quantity?`, `span?` | `drive [W]`: the duty 0..1, or in `unit` mapped linearly over `span`; commands `set_frequency`, `off` | `pwm` |
-| `ds18b20` | `link`, `device` | `temperature [RP] °C` | `onewire` |
+| `ds18b20` | `link`, `probe_id` | `temperature [RP] °C` | `onewire` |
 
 The table driver covers most register-mapped sensors (TMP117, MCP9808,
 INA219, LM75) and single-register DACs without a driver of their own:
@@ -59,13 +59,13 @@ devices:
     driver: i2c_table
     poll_s: 1
     link: i2c1
-    address: 0x48
+    i2c_address: 0x48
     registers:
       temperature: { address: 0, length: 2, signed: true, scale: 0.0078125, unit: "°C" }
   dac:
     driver: i2c_table
     link: i2c1
-    address: 0x60
+    i2c_address: 0x60
     registers:
       out: { address: 0x40, length: 2, scale: 0.001, unit: V, write: true }   # dac.out [RPW]
 ```
@@ -86,7 +86,7 @@ name: greenhouse
 board: rpi5
 devices:
   air:    { driver: sht4x,   label: Air,  poll_s: 2, link: i2c1 }
-  soil:   { driver: ds18b20, label: Soil, poll_s: 5, link: w1, device: 28-0316a279e7ff }
+  soil:   { driver: ds18b20, label: Soil, poll_s: 5, link: w1, probe_id: 28-0316a279e7ff }
   heater:                              # heater.drive [W] in °C: off holds 10, flat out 40
     driver: pwm_channel
     pin: PWM0                          # the board's `pwm` link, channel 0

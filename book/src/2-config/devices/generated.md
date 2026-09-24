@@ -12,7 +12,7 @@ is not what you expected.
 ```python
 class Sht4xConfig(DriverConfig[Sht4x], type="sht4x"):
     link: I2cLinkConfig | str
-    address: int = Field(default=0x44, ge=0x03, le=0x77)
+    i2c_address: int = Field(default=0x44, ge=0x03, le=0x77)
     precision: Literal["high", "medium", "low"] = "high"
 ```
 

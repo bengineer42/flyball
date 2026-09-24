@@ -15,7 +15,7 @@ bus = 1
 [links.spi0]
 type = "spi"
 bus = 0
-device = 0
+chip_select = 0
 
 [links.header]
 type = "gpio"

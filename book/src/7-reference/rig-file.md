@@ -106,14 +106,14 @@ field named like an envelope key). A nested `config:` is refused.
 
 ```yaml
 devices:
-  wet_supply: { driver: sht4x, label: Wet supply, poll_s: 5, link: i2c1, address: 0x46 }
+  wet_supply: { driver: sht4x, label: Wet supply, poll_s: 5, link: i2c1, i2c_address: 0x46 }
 
   hum_sensors:
     driver: sht4x_set
     label: Humidity sensors
     poll_s: 1
     link: i2c1
-    sensors: { chamber: { address: 0x44 }, dry: { address: 0x45 }, wet: { address: 0x46 } }
+    sensors: { chamber: { i2c_address: 0x44 }, dry: { i2c_address: 0x45 }, wet: { i2c_address: 0x46 } }
     signals:
       chamber: { signals: { humidity: { warning: [20, 80] } } }
       dry:     { poll_s: 5 }

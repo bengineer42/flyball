@@ -65,15 +65,15 @@ def encode(temperature: float, humidity: float) -> bytes:
 
 
 class Sht31Sensor:
-    """One chip at `address`: command, wait, read, decode, in one `read`."""
+    """One chip at `i2c_address`: command, wait, read, decode, in one `read`."""
 
-    __slots__ = ("address", "link", "precision", "sleep")
+    __slots__ = ("i2c_address", "link", "precision", "sleep")
 
     def __init__(
-        self, link: I2cLink, address: int, precision: Precision = "high", sleep: bool = True
+        self, link: I2cLink, i2c_address: int, precision: Precision = "high", sleep: bool = True
     ) -> None:
         self.link = link
-        self.address = address
+        self.i2c_address = i2c_address
         self.precision: Precision = precision
         self.sleep = sleep
         """Whether to wait the conversion time; off in a test against a fake."""
@@ -81,10 +81,10 @@ class Sht31Sensor:
     def read(self) -> tuple[float, float]:
         """(°C, %RH): one I2C transaction."""
         command, wait_s = COMMANDS[self.precision]
-        self.link.write(self.address, [command >> 8, command & 0xFF])
+        self.link.write(self.i2c_address, [command >> 8, command & 0xFF])
         if self.sleep:
             time.sleep(wait_s)
-        return decode(self.link.read(self.address, 6))
+        return decode(self.link.read(self.i2c_address, 6))
 
 
 class Sht31(Readable):
@@ -97,18 +97,18 @@ class Sht31(Readable):
         self,
         name: str,
         link: I2cLink,
-        address: int = SHT31_ADDRESS,
+        i2c_address: int = SHT31_ADDRESS,
         precision: Precision = "high",
         sleep: bool = True,
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
         self.link = link
-        self.sensor = Sht31Sensor(link, address, precision, sleep)
+        self.sensor = Sht31Sensor(link, i2c_address, precision, sleep)
 
     @property
     def config(self) -> Sht31Config:
-        return Sht31Config(link="", address=self.sensor.address, precision=self.sensor.precision)
+        return Sht31Config(link="", i2c_address=self.sensor.i2c_address, precision=self.sensor.precision)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         temperature, humidity = self.sensor.read()
@@ -119,13 +119,13 @@ class Sht31Config(DriverConfig[Sht31], type="sht31"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(default=SHT31_ADDRESS, ge=0x03, le=0x77)
+    i2c_address: int = Field(default=SHT31_ADDRESS, ge=0x03, le=0x77)
     precision: Precision = "high"
 
     def build(self, name: str, label: str | None = None) -> Sht31:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return Sht31(name, resolve(self.link), self.address, self.precision, label=label)
+        return Sht31(name, resolve(self.link), self.i2c_address, self.precision, label=label)
 
 
 Sht31.config_type = Sht31Config  # the config is declared after the device it builds

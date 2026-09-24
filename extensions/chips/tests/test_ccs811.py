@@ -15,10 +15,10 @@ class BootingI2c(FakeI2c):
     reacts to the write; this is that bus, for tests only.
     """
 
-    def write(self, address: int, data) -> None:  # noqa: ANN001
-        super().write(address, data)
+    def write(self, i2c_address: int, data) -> None:  # noqa: ANN001
+        super().write(i2c_address, data)
         if list(data) == [ccs811.APP_START]:
-            self.registers.setdefault(address, {})[ccs811.STATUS] = [
+            self.registers.setdefault(i2c_address, {})[ccs811.STATUS] = [
                 ccs811.STATUS_FW_MODE | ccs811.STATUS_DATA_READY
             ]
 
@@ -138,6 +138,6 @@ class TestCcs811Device:
         (sample,) = gas.read(9)
         assert sample.node is gas.root and sample.time_ns == 9
         assert sample.by_name() == {"co2eq": 0x0190, "tvoc": 0x0032}
-        assert gas.config.address == ccs811.CCS811_ADDRESS
+        assert gas.config.i2c_address == ccs811.CCS811_ADDRESS
         bus.registers[ccs811.CCS811_ADDRESS][ccs811.STATUS] = [ccs811.STATUS_FW_MODE]
         assert list(gas.read(10)) == [], "between results: not read this time"

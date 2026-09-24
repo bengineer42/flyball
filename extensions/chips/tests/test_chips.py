@@ -44,7 +44,7 @@ class TestSht4x:
             "temperature": pytest.approx(21.5, abs=0.01),
         }
         assert bus.written == [(0x44, None, [0xE0])]
-        assert air.config.address == 0x44 and air.config.precision == "low"
+        assert air.config.i2c_address == 0x44 and air.config.precision == "low"
 
     def test_a_missing_chip_raises_so_the_device_goes_offline(self):
         air = sht4x.Sht4x("air", FakeI2c(), sleep=False)
@@ -102,7 +102,7 @@ class TestSht4xSet:
 
     def test_config_round_trips_the_addresses(self):
         hum = sht4x.Sht4xSet("hum", FakeI2c(), {"dry": 0x45}, precision="medium")
-        assert hum.config.sensors == {"dry": sht4x.SensorEntry(address=0x45)}
+        assert hum.config.sensors == {"dry": sht4x.SensorEntry(i2c_address=0x45)}
         assert hum.config.precision == "medium"
 
 

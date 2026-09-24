@@ -15,7 +15,7 @@ devices:
     driver: sim_daq
     label: Turbidity (simulated)
     poll_s: 2
-    address: null
+    i2c_address: null
     gain: null
     channels: null
     link: turbidity_plant

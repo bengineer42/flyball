@@ -21,7 +21,7 @@ once it is installed.
 | link type | device | fake |
 | --- | --- | --- |
 | `i2c` | `/dev/i2c-<bus>` via smbus2 | `fake_i2c` — registers per address, scripted raw replies |
-| `spi` | `/dev/spidev<bus>.<device>` via spidev | `fake_spi` — scripted or computed replies |
+| `spi` | `/dev/spidev<bus>.<chip_select>` via spidev | `fake_spi` — scripted or computed replies |
 | `gpio` | `/dev/<chip>` via libgpiod v2 | `fake_gpio` — levels per line |
 | `pwm` | `/sys/class/pwm/pwmchip<chip>` | `fake_pwm` — period and duty per channel |
 | `onewire` | `/sys/bus/w1/devices` | `fake_onewire` — `w1_slave` text per device |
@@ -29,7 +29,7 @@ once it is installed.
 
 | device driver | what | on |
 | --- | --- | --- |
-| `i2c_table` | a table of registers: `address`, `length`, `signed`, `byteorder`, `shift`, `scale`, `offset`, `unit`, `write` | `i2c` |
+| `i2c_table` | a table of registers: `i2c_address`, `length`, `signed`, `byteorder`, `shift`, `scale`, `offset`, `unit`, `write` | `i2c` |
 | `sht4x` | Sensirion SHT40/41/45: one chip, `humidity`, `temperature [RP]` | `i2c` |
 | `sht4x_set` | several SHT4x chips on one bus, each its own atomic namespace | `i2c` |
 | `ads1115` | TI 16-bit ADC, four single-ended channels, PGA gain | `i2c` |
@@ -46,7 +46,7 @@ LM75) without a driver, and is its own config's tree — the same pattern as
 board_temp:
   driver: i2c_table
   link: i2c1
-  address: 0x48
+  i2c_address: 0x48
   registers:
     temperature: { address: 0, length: 2, signed: true, scale: 0.0078125, unit: "°C" }
 ```

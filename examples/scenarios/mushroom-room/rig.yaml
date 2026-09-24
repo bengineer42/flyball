@@ -21,7 +21,7 @@ devices:
     poll_s: 5
     link: i2c1
     sensors:
-      chamber: { address: 0x44 }
+      chamber: { i2c_address: 0x44 }
     signals:
       chamber:
         label: Chamber
@@ -34,7 +34,7 @@ devices:
     label: CO2 sensor
     poll_s: 10                             # SCD30's own measurement interval floor is ~2s; no need to poll faster
     link: i2c1
-    address: 0x61
+    i2c_address: 0x61
     signals:
       co2: { label: Chamber CO2, warning: [400, 5000] }
 

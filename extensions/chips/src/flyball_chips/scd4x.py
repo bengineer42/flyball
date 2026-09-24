@@ -79,14 +79,14 @@ def encode(co2: float, temperature: float, humidity: float) -> bytes:
 
 
 class Scd4xSensor:
-    """One chip at `address`: starts periodic (or single-shot) measurement, then reads it."""
+    """One chip at `i2c_address`: starts periodic (or single-shot) measurement, then reads it."""
 
-    __slots__ = ("address", "link", "single_shot", "sleep", "timeout_s", "variant")
+    __slots__ = ("i2c_address", "link", "single_shot", "sleep", "timeout_s", "variant")
 
     def __init__(
         self,
         link: I2cLink,
-        address: int = SCD4X_ADDRESS,
+        i2c_address: int = SCD4X_ADDRESS,
         variant: Variant = "scd40",
         low_power: bool = False,
         single_shot: bool = False,
@@ -95,7 +95,7 @@ class Scd4xSensor:
         if single_shot and variant != "scd41":
             raise ValueError("single-shot mode is SCD41-only")
         self.link = link
-        self.address = address
+        self.i2c_address = i2c_address
         self.variant: Variant = variant
         self.single_shot = single_shot
         self.sleep = sleep
@@ -103,7 +103,7 @@ class Scd4xSensor:
         self.timeout_s = LOW_POWER_INTERVAL_S if low_power else PERIODIC_INTERVAL_S
         # A chip left measuring by an earlier run refuses every start command; stop it
         # first, as Sensirion's own example does, and wait until it listens again.
-        self.link.write(address, _command(CMD_STOP_PERIODIC_MEASUREMENT))
+        self.link.write(i2c_address, _command(CMD_STOP_PERIODIC_MEASUREMENT))
         if sleep:
             time.sleep(STOP_S)
         if not single_shot:
@@ -112,11 +112,11 @@ class Scd4xSensor:
                 if low_power
                 else CMD_START_PERIODIC_MEASUREMENT
             )
-            self.link.write(address, _command(start))
+            self.link.write(i2c_address, _command(start))
 
     def _ready(self) -> bool:
-        self.link.write(self.address, _command(CMD_GET_DATA_READY))
-        (status,) = crc_words(self.link.read(self.address, 3), 1)
+        self.link.write(self.i2c_address, _command(CMD_GET_DATA_READY))
+        (status,) = crc_words(self.link.read(self.i2c_address, 3), 1)
         return (status & 0x07FF) != 0
 
     def read(self) -> tuple[float, float, float]:
@@ -124,7 +124,7 @@ class Scd4xSensor:
         if self.single_shot:
             rht_only = False
             self.link.write(
-                self.address,
+                self.i2c_address,
                 _command(CMD_MEASURE_SINGLE_SHOT_RHT_ONLY if rht_only else CMD_MEASURE_SINGLE_SHOT),
             )
             if self.sleep:
@@ -135,8 +135,8 @@ class Scd4xSensor:
                 if time.monotonic() > deadline:
                     raise HardwareError(f"SCD4x measurement not ready within {self.timeout_s}s")
                 time.sleep(0.05)
-        self.link.write(self.address, _command(CMD_READ_MEASUREMENT))
-        return decode(self.link.read(self.address, 9))
+        self.link.write(self.i2c_address, _command(CMD_READ_MEASUREMENT))
+        return decode(self.link.read(self.i2c_address, 9))
 
 
 class Scd4x(Readable):
@@ -150,7 +150,7 @@ class Scd4x(Readable):
         self,
         name: str,
         link: I2cLink,
-        address: int = SCD4X_ADDRESS,
+        i2c_address: int = SCD4X_ADDRESS,
         variant: Variant = "scd40",
         low_power: bool = False,
         single_shot: bool = False,
@@ -159,13 +159,13 @@ class Scd4x(Readable):
     ) -> None:
         super().__init__(name, label)
         self.link = link
-        self.sensor = Scd4xSensor(link, address, variant, low_power, single_shot, sleep)
+        self.sensor = Scd4xSensor(link, i2c_address, variant, low_power, single_shot, sleep)
 
     @property
     def config(self) -> Scd4xConfig:
         return Scd4xConfig(
             link="",
-            address=self.sensor.address,
+            i2c_address=self.sensor.i2c_address,
             variant=self.sensor.variant,
             single_shot=self.sensor.single_shot,
         )
@@ -179,7 +179,7 @@ class Scd4xConfig(DriverConfig[Scd4x], type="scd40"):
     """One chip by its I2C address; `variant: scd41` unlocks `single_shot`."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(default=SCD4X_ADDRESS, ge=0x03, le=0x77)
+    i2c_address: int = Field(default=SCD4X_ADDRESS, ge=0x03, le=0x77)
     variant: Variant = "scd40"
     low_power: bool = False
     single_shot: bool = False
@@ -191,7 +191,7 @@ class Scd4xConfig(DriverConfig[Scd4x], type="scd40"):
         return Scd4x(
             name,
             resolve(self.link),
-            self.address,
+            self.i2c_address,
             self.variant,
             self.low_power,
             self.single_shot,

@@ -70,13 +70,13 @@ def decode(frame: bytes) -> int:
 
 
 class Sgp40Sensor:
-    """One chip at `address`: command, wait, read, decode, in one `measure`."""
+    """One chip at `i2c_address`: command, wait, read, decode, in one `measure`."""
 
-    __slots__ = ("address", "link", "sleep")
+    __slots__ = ("i2c_address", "link", "sleep")
 
-    def __init__(self, link: I2cLink, address: int = SGP40_ADDRESS, sleep: bool = True) -> None:
+    def __init__(self, link: I2cLink, i2c_address: int = SGP40_ADDRESS, sleep: bool = True) -> None:
         self.link = link
-        self.address = address
+        self.i2c_address = i2c_address
         self.sleep = sleep
         """Whether to wait the conversion time; off in a test against a fake."""
 
@@ -90,14 +90,14 @@ class Sgp40Sensor:
             else humidity_ticks(humidity_percent_rh)
         )
         t = DEFAULT_TEMPERATURE_TICKS if temperature_c is None else temperature_ticks(temperature_c)
-        self.link.write(self.address, [*command(MEASURE_RAW), *word_with_crc(h), *word_with_crc(t)])
+        self.link.write(self.i2c_address, [*command(MEASURE_RAW), *word_with_crc(h), *word_with_crc(t)])
         if self.sleep:
             time.sleep(0.030)
-        return decode(self.link.read(self.address, 3))
+        return decode(self.link.read(self.i2c_address, 3))
 
     def heater_off(self) -> None:
         """Stops the hotplate; use before power-down."""
-        self.link.write(self.address, command(HEATER_OFF))
+        self.link.write(self.i2c_address, command(HEATER_OFF))
 
 
 class Sgp40(Readable):
@@ -111,7 +111,7 @@ class Sgp40(Readable):
         self,
         name: str,
         link: I2cLink,
-        address: int = SGP40_ADDRESS,
+        i2c_address: int = SGP40_ADDRESS,
         sleep: bool = True,
         humidity_source: str | None = None,
         temperature_source: str | None = None,
@@ -119,7 +119,7 @@ class Sgp40(Readable):
     ) -> None:
         super().__init__(name, label)
         self.link = link
-        self.sensor = Sgp40Sensor(link, address, sleep)
+        self.sensor = Sgp40Sensor(link, i2c_address, sleep)
         self.humidity_source = humidity_source
         """The signal address to read humidity compensation from, if any; wired by the rig."""
         self.temperature_source = temperature_source
@@ -129,7 +129,7 @@ class Sgp40(Readable):
     def config(self) -> Sgp40Config:
         return Sgp40Config(
             link="",
-            address=self.sensor.address,
+            i2c_address=self.sensor.i2c_address,
             humidity_source=self.humidity_source,
             temperature_source=self.temperature_source,
         )
@@ -149,7 +149,7 @@ class Sgp40Config(DriverConfig[Sgp40], type="sgp40"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(default=SGP40_ADDRESS, ge=0x03, le=0x77)
+    i2c_address: int = Field(default=SGP40_ADDRESS, ge=0x03, le=0x77)
     humidity_source: str | None = Field(
         default=None,
         description="Signal address to read humidity compensation from on each read; "
@@ -167,7 +167,7 @@ class Sgp40Config(DriverConfig[Sgp40], type="sgp40"):
         return Sgp40(
             name,
             resolve(self.link),
-            self.address,
+            self.i2c_address,
             humidity_source=self.humidity_source,
             temperature_source=self.temperature_source,
             label=label,
