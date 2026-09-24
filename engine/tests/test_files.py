@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from flyball.foundation.files import dumps, loads
+from flyball.foundation.files import atomic_write_text, dumps, loads
 
 
 def test_duplicate_yaml_key_names_the_key_and_the_line():
@@ -67,3 +67,38 @@ def test_dumps_toml_round_trips_through_loads():
 def test_dumps_unknown_suffix_raises():
     with pytest.raises(ValueError, match="unknown"):
         dumps({}, ".ini")
+
+
+def test_atomic_write_keeps_an_existing_files_mode(tmp_path):
+    import os
+    import stat
+    import sys
+
+    target = tmp_path / "sim.yaml"
+    target.write_text("old\n", encoding="utf-8")
+    if sys.platform != "win32":
+        os.chmod(target, 0o640)
+    atomic_write_text(target, "new\n")
+    assert target.read_text(encoding="utf-8") == "new\n"
+    if sys.platform != "win32":
+        assert stat.S_IMODE(target.stat().st_mode) == 0o640
+    assert [p.name for p in tmp_path.iterdir()] == ["sim.yaml"], "no temp file left"
+
+
+def test_atomic_write_replaces_where_a_descriptor_cannot_be_chmodded(tmp_path, monkeypatch):
+    """Python < 3.13 on Windows: `os.chmod` takes no descriptor; the write still happens."""
+    import os
+
+    real = os.chmod
+
+    def chmod(path, mode, **kw):
+        if isinstance(path, int):
+            raise TypeError("chmod: path should be string, bytes or os.PathLike, not int")
+        return real(path, mode, **kw)
+
+    monkeypatch.setattr(os, "chmod", chmod)
+    monkeypatch.setattr(os, "supports_fd", os.supports_fd - {real})
+    target = tmp_path / "sim.yaml"
+    target.write_text("old\n", encoding="utf-8")
+    atomic_write_text(target, "new\n")
+    assert target.read_text(encoding="utf-8") == "new\n"

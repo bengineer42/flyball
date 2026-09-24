@@ -139,7 +139,9 @@ def atomic_write_text(path: str | Path, text: str) -> Path:
         with os.fdopen(fd, "w", encoding="utf-8") as file:
             file.write(text)
             file.flush()
-            if path.exists():
+            # Python < 3.13 on Windows cannot chmod a descriptor, and its mode is only the
+            # read-only bit there: the new file keeps the default.
+            if path.exists() and os.chmod in os.supports_fd:
                 os.chmod(file.fileno(), path.stat().st_mode & 0o7777)
             os.fsync(file.fileno())
         os.replace(temp, path)
