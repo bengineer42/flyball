@@ -757,3 +757,33 @@ def test_on_fault_stop_on_a_kept_output_is_refused_at_load():
 
 
 # endregion
+
+
+class Motor(Committable):
+    """No demands: a stop command, and a long move."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.stopped = 0
+
+    @command(long=True)
+    def move(self, steps: float) -> None:
+        """Move."""
+        self.wait(steps)
+
+    @command(stops=True)
+    def stop(self) -> None:
+        """Stop, release the coils."""
+        self.cancel()
+        self.stopped += 1
+
+
+def test_a_device_with_no_demands_is_stopped_by_its_command(fresh: Any):
+    rig = Rig()
+    motor = Motor(fresh("motor"))
+    rig.add_device(motor)
+    report = _stop(rig)
+    assert motor.stopped == 1 and report.devices[motor.name]["state"] == "stopped"
+    with pytest.raises(ConflictError, match="stopped by ben"):
+        rig.run_command(motor, "move", {"steps": 0.0})  # automatic: refused
+    rig.run_command(motor, "move", {"steps": 0.0}, actor=BEN)  # a person: through

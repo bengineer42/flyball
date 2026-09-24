@@ -269,8 +269,13 @@ class Latches:
 
 
 def stoppable(device: Device) -> bool:
-    """Whether a stop has anything to do to `device`: demands, and not a `driver: values` one."""
-    return bool(device.demands) and not isinstance(device, Values)
+    """Whether a stop has anything to do to `device`: demands, or a stop command.
+
+    Never a `driver: values` device, whose settings a stop leaves writable.
+    """
+    return (bool(device.demands) or device.stops_by() is not None) and not isinstance(
+        device, Values
+    )
 
 
 def subjects(items: Iterable[tuple[Kind, str]]) -> tuple[Subject, ...]:

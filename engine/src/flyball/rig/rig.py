@@ -67,6 +67,7 @@ from flyball.runtime.writer import Writer
 from .bands import Bands
 from .controllers import Controllers
 from .faults import Faults
+from .latches import RIG_STOP
 from .liveness import Liveness
 from .polling import Polling, poll_period
 from .stopping import Actor, Stopping, resolve_output
@@ -2237,6 +2238,7 @@ class Rig:
             return False
         drives = (
             spec.mode is not None
+            or spec.long  # a dose, a move: it drives hardware whatever it names
             or bool(spec.writes)
             or any(
                 p.link is not None and device.signals[p.link].role is Role.DEMAND
@@ -2247,6 +2249,11 @@ class Rig:
             return False
         person = actor is not None and actor.person
         through = None
+        if not device.demands:  # a stepper, a dosing pump: the device's own latches
+            for latch in self.stopping.latches.of_device(device):
+                if latch.cause != RIG_STOP or not person:
+                    raise ConflictError(f"{device.name}.{spec.name}: it is {latch.said()}")
+                through = latch
         for signal in device.demands.values():
             refused, passed = self.stopping.refusal(signal, by=None, person=person)
             if refused is not None:
@@ -2424,7 +2431,7 @@ class Rig:
         if (
             on_fault is not None
             and on_fault.action is FaultAction.STOP
-            and type(output.device).stop_command is None
+            and output.device.stops_by() is None
             and resolve_output(output).value is None
         ):
             raise ConflictError(

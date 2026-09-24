@@ -372,7 +372,7 @@ def _set_stops(device: Device, stops: Mapping[str, float | Keep]) -> None:
     Refused whole on a device whose driver stops it with a command: its stop is that
     command, and a value beside it would never be written (or would fight it).
     """
-    if stops and (command := type(device).stop_command) is not None:
+    if stops and (command := device.stops_by()) is not None:
         raise ValueError(
             f"stop: {device.name!r} is stopped by its driver's {command!r} command; per-signal"
             " stop values are refused on it"

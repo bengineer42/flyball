@@ -253,7 +253,7 @@ class Device:
     it starts one."""
     config_type: ClassVar[type[DriverConfig[Any]]]
     stop_command: ClassVar[str | None] = None
-    """The command marked `stops=True`, if the driver has one: the device's stop."""
+    """The command marked `stops=True`, if the driver has one; see `stops_by`."""
     commands: dict[str, CommandSpec] = {}  # ruff: ignore[mutable-class-default]  the class's; an instance copies and extends
     """Every command, by name: the class's, plus a synthesised `set_<path>` for each demand of a
     tree computed at construction (a class's demands get theirs at definition)."""
@@ -272,6 +272,15 @@ class Device:
         self._extended = False
         self._batch: dict[Signal, Value] | None = None
         self.bind(self.TREE)
+
+    def stops_by(self) -> str | None:
+        """The command that is this device's stop, if it has one (`stops=True`).
+
+        A rig stop runs it instead of writing values, and the rig file's `stop:` values
+        are refused on it. Default: the class's; a driver whose stop depends on its config
+        (an instrument told its stop string, or not) overrides this.
+        """
+        return type(self).stop_command
 
     # region Conditions
 

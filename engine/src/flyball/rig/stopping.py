@@ -404,7 +404,7 @@ class Stopping:
         was = controller.mode.value
         controller.manual()
         held: list[tuple[Any, str]] = [("controller", controller.name)]
-        if action is FaultAction.STOP and type(device).stop_command is None:
+        if action is FaultAction.STOP and device.stops_by() is None:
             held.append(("signal", target.address))
         elif action in (FaultAction.STOP, FaultAction.STOP_DEVICE):
             held.append(("device", device.name))
@@ -418,7 +418,7 @@ class Stopping:
         )
         self.latch(latch)
         stop: DeviceStop | None = None
-        if action is FaultAction.STOP and type(device).stop_command is None:
+        if action is FaultAction.STOP and device.stops_by() is None:
             stop = self.stop_locked(device, only=(target,))
         elif action in (FaultAction.STOP, FaultAction.STOP_DEVICE):
             stop = self.stop_locked(device)
@@ -466,7 +466,7 @@ class Stopping:
         rig = self.rig
         chosen = None if only is None else set(only)
         plan = [resolve_output(s) for s in outputs(device) if chosen is None or s in chosen]
-        command = type(device).stop_command if chosen is None else None
+        command = device.stops_by() if chosen is None else None
         values = {o.signal: o.value for o in plan if o.value is not None}
         kept = [o.signal for o in plan if o.value is None]
         locked = deadline is None
@@ -835,7 +835,7 @@ def stop_plan(rig: Rig) -> list[dict[str, Any]]:
     for device in list(rig.devices.values()):
         if not stoppable(device):
             continue
-        command = type(device).stop_command
+        command = device.stops_by()
         for signal in outputs(device):
             resolved = resolve_output(signal)
             controller = rig.controllers.driving(signal)
