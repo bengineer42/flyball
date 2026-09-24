@@ -497,24 +497,14 @@ inside the widget's own `config`) names something this rig does not
 currently have; a readout wants a signal that publishes. The document is
 saved and returned as given; nothing is refused for this.
 
-Documents carry `schema_version: 6`. Version 6 renamed a widget's `kind` to
-`type` and its `title` to `label`, and gave the document a `label` (a string
-or `null`, default `null`: show the name). Version 3 added two fields to version 2:
+Documents carry `schema_version: 6`, and only 6: a `PUT` of any other
+version is a `422`, and a file of any other is skipped on import. The
+document has a `label` (a string or `null`, default `null`: show the name),
 `readonly` (bool, default `false`: the app disables the dashboard's write
-controls for everyone; a convenience, not access control) and `order`
-(a number or `null`, default `null`: where its tab sits, ascending, with
-unordered dashboards after, newest saved first). An older document is
-migrated on read, never refused, and what is stored stays as saved. A
-version-5 widget's `kind` and `title` read as its `type` and `label`. A
-version-4 `events` widget's `level` (`"WARNING"`) reads as its `severity`
-(`"warning"`); a version-3 `program` widget's `interrupt` as its `cancel`. A
-version-2 document reads as writable and unordered. A version-1 document
-(bindings to channels, loops and actuators) is migrated too: `channel` (`"source.measurand"` or
-`{source, measurand}`) becomes `address`, `channels` become `addresses`,
-a `loop` widget's `loop` becomes `controller`, and an `actuator` widget
-becomes a `device` widget bound by `device`. A loop was named by its
-actuator and a controller by its output's address, so a migrated `loop`
-binding may show as a problem until it is rebound.
+controls for everyone; a convenience, not access control) and `order` (a
+number or `null`, default `null`: where its tab sits, ascending, with
+unordered dashboards after, newest saved first); a widget says which it is
+by `type` and names itself by `label`.
 
 ## Simulation
 

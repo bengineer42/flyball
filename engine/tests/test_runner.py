@@ -21,7 +21,7 @@ def oven():
 
 
 def test_start_builds_the_rig_and_records_only_when_asked(tmp_path, oven):
-    rig = runner.start(oven)
+    rig = runner.start(oven, store_path=tmp_path / "s.sqlite")
     try:
         assert rig.name == "oven" and rig.recorder is None and list(rig.controllers)
     finally:
@@ -61,6 +61,26 @@ def test_a_bad_file_is_a_message_not_a_traceback(tmp_path, capsys):
     bad.write_text("name: x\nlinks:\n  p: { type: nope }\n")
     assert runner.main([str(bad)]) == 2
     assert "nope" in capsys.readouterr().err
+
+
+def test_a_store_from_before_the_baseline_is_a_message_not_a_traceback(
+    tmp_path, capsys, monkeypatch
+):
+    """Exit 2, so a supervisor does not start it again, saying to delete the store (D-064)."""
+    import sqlite3
+
+    rig_file = tmp_path / "lab.yaml"
+    rig_file.write_text("name: lab\n")
+    store = tmp_path / "old.sqlite"
+    db = sqlite3.connect(store)
+    db.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+    db.execute("INSERT INTO schema_version (version) VALUES (25)")
+    db.commit()
+    db.close()
+    monkeypatch.setattr("flyball.runner.entrypoint.serve", lambda *a, **kw: pytest.fail("served"))
+    assert runner.main([str(rig_file), "--store", str(store)]) == 2
+    err = capsys.readouterr().err
+    assert f"{store}: this store was made by a pre-reset flyball" in err and "delete it" in err
 
 
 def test_a_missing_server_extra_is_one_line_not_a_traceback(monkeypatch, capsys, tmp_path):
@@ -472,49 +492,6 @@ def test_a_start_at_the_head_records_nothing(tmp_path, oven):
     finally:
         rig.polling.stop_all()
         store.close()
-
-
-def test_the_migration_chains_versions_already_stored(tmp_path):
-    import sqlite3
-
-    from flyball.record.sqlite import SqliteStore
-
-    path = tmp_path / "old.sqlite"
-    store = SqliteStore(path)  # every migration, including 0009, on an empty store
-    store.close()
-    with sqlite3.connect(path) as db:  # then pretend three rows predate it
-        db.execute("DROP INDEX session_by_kind")  # 0010's, or it would run again too
-        db.execute("DROP TABLE audit")  # 0012's, likewise (its index and triggers go with it)
-        for column in ("kind", "origin_ns", "pinned", "continues", "bytes"):
-            db.execute(f"ALTER TABLE session DROP COLUMN {column}")
-        db.execute("DROP TABLE rig_head")
-        db.execute("ALTER TABLE rig_version DROP COLUMN parent_id")
-        # 0013's renames, undone: the columns as 0011 knew them
-        db.execute("ALTER TABLE tick RENAME COLUMN measured_value TO reading")
-        db.execute("ALTER TABLE tick RENAME COLUMN output_value TO demand")
-        db.execute("ALTER TABLE controller RENAME COLUMN measured TO source")
-        db.execute("ALTER TABLE signal RENAME COLUMN warning TO warn")  # 0014's, likewise
-        db.execute("ALTER TABLE event RENAME COLUMN code TO kind")  # 0019's, likewise
-        db.execute("ALTER TABLE event DROP COLUMN edge")  # 0020's, likewise
-        db.execute("DROP TABLE live_value")  # 0023's, likewise
-        db.execute("DROP TABLE latch")  # 0025's, likewise
-        old = {"controllers": {"h.power": {"signal": "p.t", "default": True}, "h.fan": {}}}
-        for i in (1, 2, 3):
-            db.execute(
-                "INSERT INTO rig_version (time_ns, reason, files, document) VALUES (?, ?, '[]', ?)",
-                (i, f"v{i}", json.dumps(old if i == 3 else {})),
-            )
-        db.execute("UPDATE schema_version SET version = 8")
-    store = SqliteStore(path)
-    rows = store.rig_versions()
-    assert [(r.id, r.parent) for r in rows] == [(3, 2), (2, 1), (1, None)]
-    assert store.head_rig_version().id == 3
-    # 0013: a stored controller's `signal` is its `measured` now, so the version still loads
-    assert rows[0].document == {
-        "controllers": {"h.power": {"default": True, "measured": "p.t"}, "h.fan": {}}
-    }
-    assert rows[2].document == {}
-    store.close()
 
 
 class TestExposure:

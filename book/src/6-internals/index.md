@@ -19,7 +19,7 @@
 | [Runtime](runtime.md) | the rig, polling, delivery, the router, recording |
 | [The controller in detail](controller.md) | state, the tick, feedforward, the reference, handover, anti-windup |
 | [Identification](identification.md) | fitting a plant from a controller's own samples; the tuning rules |
-| [Storage](db.md) | the store's two faces, what a session holds, SQLite and migrations |
+| [Storage](db.md) | the store's two faces, what a session holds, SQLite and its schema |
 | [The front and the runner](front.md) | the front-dir, the signed principal, what the front passes on, the verb table, adoption |
 | [Decisions](decisions.md) | the numbered record of options weighed |
 

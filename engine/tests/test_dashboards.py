@@ -10,7 +10,7 @@ from conftest import TestClient
 from flyball.control.laws import P
 from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.deps import set_store
-from flyball.interfaces.server.routes.dashboards import import_directory, migrate, problems_for
+from flyball.interfaces.server.routes.dashboards import import_directory, problems_for
 from flyball.record.sqlite import SqliteStore
 from flyball.rig import Rig
 from test_server import Daq, Drive
@@ -178,85 +178,13 @@ def test_problems_for_flags_every_missing_binding_type(furnace_rig):
     assert reasons["ghost"] == "ghost is not on this rig"
 
 
-V1 = {
-    "schema_version": 1,
-    "name": "old",
-    "rig": "t",
-    "widgets": [
-        {
-            "id": "r",
-            "kind": "readout",
-            "x": 0,
-            "y": 0,
-            "w": 1,
-            "h": 1,
-            "config": {"channel": "zone.zone1"},
-        },
-        {
-            "id": "g",
-            "kind": "gauge",
-            "x": 0,
-            "y": 0,
-            "w": 1,
-            "h": 1,
-            "config": {"channel": {"source": "zone", "measurand": "zone1"}, "max": 100},
-        },
-        {
-            "id": "c",
-            "kind": "chart",
-            "x": 0,
-            "y": 0,
-            "w": 1,
-            "h": 1,
-            "config": {"channels": ["zone.zone1", {"source": "zone", "measurand": "zone2"}, 3]},
-        },
-        {"id": "l", "kind": "loop", "x": 0, "y": 0, "w": 1, "h": 1, "config": {"loop": "heater1"}},
-        {
-            "id": "a",
-            "kind": "actuator",
-            "x": 0,
-            "y": 0,
-            "w": 1,
-            "h": 1,
-            "config": {"actuator": "heaters"},
-        },
-        {"id": "h", "kind": "health", "x": 0, "y": 0, "w": 1, "h": 1, "config": {}},
-    ],
-}
-
-
-def test_a_version_1_document_is_migrated_to_addresses_and_controllers():
-    migrated = migrate(V1)
-    assert migrated["schema_version"] == 6
-    configs = {w["id"]: (w["type"], w["config"]) for w in migrated["widgets"]}
-    assert configs == {
-        "r": ("readout", {"address": "zone.zone1"}),
-        "g": ("gauge", {"address": "zone.zone1", "max": 100}),
-        "c": ("chart", {"addresses": ["zone.zone1", "zone.zone2"]}),
-        "l": ("loop", {"controller": "heater1"}),
-        "a": ("device", {"device": "heaters"}),
-        "h": ("health", {}),
-    }
-    assert V1["widgets"][0]["config"] == {"channel": "zone.zone1"}, "a copy; the stored one stands"
-    assert migrate(migrated) is migrated, "already current: untouched"
-    assert migrate({"widgets": []})["schema_version"] == 6, "no version is version 1"
-    assert (migrated["readonly"], migrated["order"], migrated["label"]) == (False, None, None)
-
-
-def test_a_stored_version_1_document_is_migrated_on_read(client, furnace_rig):
+def test_a_document_at_another_version_is_refused_not_converted(client, tmp_path):
+    """Version 6 only (D-064): a save of an older one is a 422, a file of one is skipped."""
     c, store = client
-    store.save_dashboard("old", "t", V1, 1)
-    read = c.get("/api/dashboards/old").json()
-    assert read["body"]["schema_version"] == 6
-    assert read["body"]["widgets"][0]["config"] == {"address": "zone.zone1"}
-    assert read["body"]["widgets"][4]["type"] == "device"
-    assert store.dashboard("old").body["schema_version"] == 1, "what is stored is as saved"
-    assert {p["widget_id"]: p["address"] for p in read["problems"]} == {"l": "heater1"}, (
-        "a loop was named by its actuator; the controller is its target's address"
-    )
-    listed = c.get("/api/dashboards").json()
-    assert [r["body"]["schema_version"] for r in listed] == [6]
-    assert c.get("/api/dashboards/old/history").json()[0]["body"]["schema_version"] == 6
+    older = {**DOC, "name": "old", "schema_version": 5}
+    assert c.put("/api/dashboards/old", json=older).status_code == 422
+    (tmp_path / "old.json").write_text(json.dumps(older), encoding="utf-8")
+    assert import_directory(store, tmp_path, "t", 1) == []
 
 
 def test_save_and_read_report_problems(client):
@@ -271,73 +199,6 @@ def test_save_and_read_report_problems(client):
     assert c.get("/api/dashboards/main").json()["problems"] == expected
     # Widget "b" (a chart with no `addresses` configured) has nothing to flag.
     assert all(p["widget_id"] != "b" for p in saved.json()["problems"])
-
-
-def test_a_version_2_document_becomes_writable_and_unordered_and_keeps_its_bindings():
-    v2 = {
-        "schema_version": 2,
-        "name": "d",
-        "rig": "t",
-        "widgets": [
-            {
-                "id": "r",
-                "kind": "readout",
-                "x": 0,
-                "y": 0,
-                "w": 1,
-                "h": 1,
-                "config": {"address": "p.t"},
-            }
-        ],
-    }
-    migrated = migrate(v2)
-    widget = {**v2["widgets"][0], "type": "readout"}  # type: ignore[dict-item]
-    del widget["kind"]
-    assert migrated == {
-        **v2,
-        "schema_version": 6,
-        "readonly": False,
-        "order": None,
-        "label": None,
-        "widgets": [widget],
-    }
-    assert v2["schema_version"] == 2, "a copy; the stored one stands"
-
-
-def test_a_version_3_program_widget_s_interrupt_button_is_its_cancel_button():
-    v3 = {
-        "schema_version": 3,
-        "readonly": False,
-        "order": None,
-        "widgets": [
-            {"id": "p", "kind": "program", "config": {"events": 5, "interrupt": False}},
-            {"id": "r", "kind": "readout", "config": {"address": "p.t", "interrupt": 1}},
-        ],
-    }
-    widgets = migrate(v3)["widgets"]
-    assert widgets[0]["config"] == {"events": 5, "cancel": False}
-    assert widgets[1]["config"] == {"address": "p.t", "interrupt": 1}, "another type's is its own"
-
-
-def test_a_version_5_widget_s_kind_is_its_type_and_its_title_its_label():
-    v5 = {
-        "schema_version": 5,
-        "name": "d",
-        "rig": "t",
-        "readonly": False,
-        "order": None,
-        "widgets": [
-            {"id": "r", "kind": "readout", "title": "Zone", "x": 0, "y": 0, "w": 1, "h": 1},
-            {"id": "c", "kind": "chart", "x": 0, "y": 0, "w": 1, "h": 1, "config": {"kind": 1}},
-        ],
-    }
-    migrated = migrate(v5)
-    assert migrated["schema_version"] == 6 and migrated["label"] is None
-    assert migrated["widgets"] == [
-        {"id": "r", "type": "readout", "label": "Zone", "x": 0, "y": 0, "w": 1, "h": 1},
-        {"id": "c", "type": "chart", "x": 0, "y": 0, "w": 1, "h": 1, "config": {"kind": 1}},
-    ], "a widget's own `config` is its own"
-    assert v5["widgets"][0]["kind"] == "readout", "a copy; the stored one stands"
 
 
 def test_a_label_is_what_shows_and_renaming_the_key_keeps_it(client):

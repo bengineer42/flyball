@@ -4,7 +4,7 @@ An [Action][flyball.record.audit.Action] is one thing someone asked the rig to d
 `actor` (the verified principal, `sid`, `kind`, `via`), the client's `cip`, the method and
 route, the status
 and its outcome, the request id and, for a demand, each signal's old, requested and applied
-value. The rows go in the `audit` table (migration 0012): wall time, not the rig's clock;
+value. The rows go in the `audit` table: wall time, not the rig's clock;
 no session, so retention and deleting a session never reach it; append-only, the store
 refusing an update or a delete.
 

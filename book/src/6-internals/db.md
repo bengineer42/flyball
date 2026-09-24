@@ -26,18 +26,10 @@ another, and either can be replaced without the other noticing.
 | `span` | a labelled interval, nestable by `parent_id`: program, run, command, note |
 | `tuning` | named law configs, versioned; independent of sessions |
 
-Table and column names follow the device model rather than the model it
-replaced: `device` is the address of the node, `signal` the full address,
-`write`/`write_state` what a `channel`/`actuator` pair used to be,
-`controller` what a `loop` used to be. Migration `0007_devices.sql` carried
-the old rows across: a `channel` became a `signal` with access `"rp"` (all
-that was ever recorded of a reading), a `source` became a `device` with no
-config (none was recorded of it), an `actuator` became a `device` too —
-dropped instead where a `source` already held that name, since the rig
-never allowed the clash even though the old schema did. What could not
-carry across: an actuator had no signal of its own, so it gets no `write`
-declaration and no `write_state` row — its demands live on only in its
-loop's (now controller's) ticks, which are kept as they were.
+Table and column names follow the device model: `device` is the address
+of the node, `signal` the full address, `write`/`write_state` the signals
+written and what they were set to, `controller` a control loop named by its
+output.
 
 A run without its trace, the config that produced it, and the tuning in
 force is not an experiment, so the session records all three.
@@ -47,6 +39,13 @@ force is not an experiment, so the session records all three.
 Inside a session, times are `offset_ns` from the session's `start_ns`,
 as integers. The wire carries the same integers; a client converts once and
 nothing is rounded on the way out.
+
+A column's name says its clock (D-084): a bare `_ns` is the rig's clock
+(a session's `start_ns`, every offset, a rig version's `time_ns`, a saved
+tuning's, program's or dashboard's `created_ns`), and a `_utc_ns` is wall-clock
+time (the audit's `time_utc_ns`, a latch's `at_utc_ns`, a live value's
+`written_utc_ns`). They read the same on hardware; a simulated rig's clock
+runs scaled or stepped, and there they differ.
 
 ## Reading back
 
@@ -127,11 +126,21 @@ suite fails any test in which the app's loop took the store's lock. Nor does
 a delete or a trim hold the lock for long, however large the session:
 [Deleting a session](#deleting-a-session) below.
 
-Migrations are numbered SQL files in `flyball/record/migrations`, each one
-transaction; `schema_version` records the last applied, so opening an older
-database brings it forward. A database at a version newer than any this
-flyball ships is refused (`SchemaError`), not opened and misread: a newer
-flyball wrote it. `":memory:"` for tests.
+The schema is numbered SQL files in `flyball/record/migrations`, each one
+transaction, applied in order when a store is opened; `schema_version`
+records the last applied. There is one: `0001_initial.sql`, the baseline,
+which makes every table, index and trigger below on an empty file and stamps
+the file's `PRAGMA application_id` with `0x666C7962` ("flyb",
+`flyball.record.migrate.APPLICATION_ID`). The chain that came before it was
+folded into it at the R1 rename (D-064: no store then held anything worth
+keeping), and nothing converts a store it made. A file with tables but not
+the stamp is refused with a `SchemaError` before anything is read: one with a
+`schema_version` table ("this store was made by a pre-reset flyball (before
+the R1 rename); delete it: nothing in it needs keeping (D-064)"), or any
+other ("not a flyball store"). A store at a version newer than any this
+flyball ships is refused too, not opened and misread: a newer flyball wrote
+it. `flyball-runner` exits 2 with the message, so its supervisor does not
+start it again. `":memory:"` for tests.
 
 Every statement goes through one of two helpers, `_query` (reads) and
 `_transaction` (writes), and they classify what sqlite raises: an
@@ -155,32 +164,18 @@ it, and a restore saves the restored document again as a new version
 (`restored from N`) on top of the head; a start writes one only when the
 rig it built differs from the head (`loaded`, `started bare`, `resumed`),
 and not at all when it is the start an edit asked for. `--resume` walks back
-from the head past start rows to the last edit or restore. An older store's
-restores moved the head without a row (`set_rig_head`), so a change after
-one branched from what was restored. Migration 0009 chained the rows an
-older store held as the line they were. Migration 0013 renamed a stored
-controller's `signal` key to `measured` in every `rig_version.document`,
-since `ControllerEntry` refuses unknown keys and an older version would not
-load again (`--resume`, a restart from the head, a restore); in the same
-migration `tick.reading`/`tick.demand` became `measured`/`output` and
-`controller.source` became `measured`. A session's `config` keeps the
-spelling it was recorded with: it is never loaded again. Migration 0019
-renamed `event.kind` to `code` and rewrote the severity each event's JSON
-`details` carries from `logging`'s number (`level`: 10-40) to the lowercase
-string the wire uses (`severity`: `debug`, `info`, `warning`, `error`).
-Migration 0020 added `event.edge`: `raised`, `cleared` or NULL for a point
-event. Codes the runtime raised as conditions before it had edges
-(`offline`, `slow`, `write_failed`, `commit_failed`, `stale_input`,
-`limit_unknown`, `recording_failed`, a controller's `step_failed`) became
-`raised`; the codes that said one had ended became the `cleared` edge of
-their pair (`write_recovered`, `commit_recovered`, `step_recovered`,
-`limit_known`, and a device's `restarted`, which is `offline` cleared).
-The severity stays in the JSON `details` as its string; the `edge` is a
-column, so a session's condition history is one indexed query.
+from the head past start rows to the last edit or restore. A session's
+`config` is the record of what it built and is never loaded again.
 
-Migration 0021 made `reading.value` nullable and added `reading.flag`
-(D-048, A2): a reading with no value is kept, as NULL with the code of its
-quality, and a value may carry a mark. The codes never meet on one row:
+An event's `code` names what happened, and its JSON `details` carry the
+`severity` as the lowercase string the wire uses (`debug`, `info`,
+`warning`, `error`). `event.edge` is `raised` (a condition began), `cleared`
+(it ended) or NULL for a point event (a program step, a restore); the edge is
+a column, so a session's condition history is one indexed query.
+
+`reading.value` may be NULL (D-048, A2): a reading with no value is kept, as
+NULL with the code of its quality in `reading.flag`, and a value may carry a
+mark. The codes never meet on one row:
 
 | `flag` | with | means |
 | --- | --- | --- |
@@ -197,8 +192,7 @@ Two CHECKs hold it: a NULL value has a code in 1-15, a value has none or
 one in 16-31, and the flag is an integer. The writer never relies on them
 -- a NaN or an infinity that reached it is stored NULL with code 1, not
 refused -- so a CHECK failing is a bug, and a `ConstraintError` that ends
-the batch. `pending` writes no row. The table was rebuilt (a CHECK cannot
-be added in place), rows carried over with `flag` NULL, and
+the batch. `pending` writes no row.
 `reading_by_signal` is `(session_id, signal_id, offset_ns, value, flag)`, so
 a series with its breaks and marks is still one range scan. Reading back,
 `series` gives each point its `flag`; `every=n` keeps every NULL row
@@ -207,13 +201,10 @@ with any NULL in it is NULL, with the lowest code in it; `samples` gives
 each row its `flags`. Which stale reason (other than an offline device)
 is not kept; the device's `write_failed` edges say when its writes failed.
 
-Migration 0022 renamed the stored `commit_failed` events to `write_failed`
-(A6 made them one code: a failed commit on the delivery path and a
-blocking device's failed write are the same condition), and added
-`tick.reapplied` (`INTEGER NOT NULL DEFAULT 0`, 0 or 1) for the ticks a
+`tick.reapplied` (`INTEGER NOT NULL DEFAULT 0`, 0 or 1) marks the ticks a
 controller records when it re-applies a moving setpoint between readings.
 
-Migration 0023 added `live_value` (C10(5)): one row per signal whose last
+`live_value` (C10(5)) holds one row per signal whose last
 written value a restart restores, keyed `(device, signal)`, with `kind`
 (`value` for a `driver: values` entry; `setting`, for a driver setting
 behind a config field, is reserved for live settings, C11), `value` and
@@ -228,14 +219,7 @@ file was edited since, and the row is deleted; a changed unit leaves the
 file's `initial` in force and raises `value_not_restored` on the signal.
 `put_live_value` refuses a secret (`SecretStr`, `SecretBytes`).
 
-Migration 0024 bound a stored humidity blender's supply humidities as
-inputs: an input has no default any more (C12), so every
-`dual_pump_blender` entry in a `rig_version.document` gets `inputs.dry` and
-`inputs.wet` -- kept where bound already, else its `supply:` number, else
-the old built-in default (0 and 100 %RH) -- and loses `supply`, which would
-no longer load.
-
-Migration 0025 added `latch`: one row per latch cause held -- the rig
+`latch` holds one row per latch cause held -- the rig
 stop (`stop`) or a controller's `on_fault` action (`on_fault:<controller>`)
 -- with `subjects` as JSON `[{subject_kind, subject}]` (`rig`, `device`, `signal`,
 `controller`), `actor` (who set it, JSON `{principal, kind, via, sid, message}`: a stop's person or
@@ -246,7 +230,7 @@ is set and deleted by its Reset. At start, before serving,
 rig stop's stops every device again, a fault's `stop` or `stop_device`
 stops what it held ([the latch](../1-running/runner/access.md#the-latch)).
 
-The scratch record and retention (D-008) are migration 0010: `session.kind`,
+The scratch record and retention (D-008) are `session.kind`,
 `origin_ns`, `pinned`, `continues`, `bytes`. Trimming a scratch session
 deletes rows and moves `start_ns` without rewriting offsets: they stay
 relative to the hidden `origin_ns`, and every read shifts by
@@ -259,7 +243,7 @@ sweep itself is `flyball.runtime.retention.Retention`, started by `serve()`
 when there is a store; what it does and in what order is
 [What ages out](../1-running/runner/index.md#what-ages-out).
 
-The runner's action audit is migration 0012: the `audit` table, one row per
+The runner's action audit is the `audit` table, one row per
 action on the rig -- every request whose verb is not read, and every stop,
 the `SIGUSR1` break-glass included. A row is its actor, the verified principal
 (`principal`, `name`, `sid`, `kind`, `via`), its `cip`, and `scheme` (how it got in), the

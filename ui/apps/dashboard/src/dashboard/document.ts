@@ -5,7 +5,7 @@
  */
 import type { DashboardDocument, DashboardWidget } from "@flyball/client";
 
-/** Version 2 binds by address (`address`, `addresses`), controller name (`controller`) and device name (`device`); 3 adds `readonly` and `order`; 6 names a widget's `type` and `label` and gives the document a `label`. The server migrates older versions on read. */
+/** The document version the server takes, and the only one: it refuses any other (nothing converts an older document). */
 export const SCHEMA_VERSION = 6;
 export const DEFAULT_GRID = { cols: 24, row_height: 24 } as const;
 /** Pixels between tiles, both ways: the app's own gutter. */
@@ -23,19 +23,20 @@ export function emptyDocument(name: string, rig: string, label: string | null = 
 export const labelOf = (doc: Pick<DashboardDocument, "name" | "label"> | null | undefined, name = ""): string => doc?.label || doc?.name || name;
 
 /**
- * The key a dashboard called `label` is saved under: lower case, accents dropped, every run of
- * anything but a letter or digit one `-`, at most 64 characters (the daemon's name grammar,
- * `^[a-z0-9][a-z0-9_-]{0,63}$`). Empty when `label` has no letter or digit.
+ * The key a dashboard called `label` is saved under, in the canonical form (D-079): lower case,
+ * accents dropped, every run of anything but a letter or digit one `_`, starting with a letter,
+ * at most 64 characters (the key grammar, `^[a-z][a-z0-9_]{0,63}$`). Empty when `label` has no
+ * letter.
  */
 export const nameFor = (label: string): string =>
   label
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+/, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^[^a-z]+/, "")
     .slice(0, 64)
-    .replace(/-+$/, "");
+    .replace(/_+$/, "");
 
 /** The `label` to store for what a person typed: none when it is the key itself. */
 export const labelFor = (typed: string, name: string): string | null => (typed === name ? null : typed);

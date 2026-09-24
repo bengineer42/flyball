@@ -43,6 +43,7 @@ from .errors import (
     DashboardNotFoundError,
     NotDeclaredError,
     ProgramNotFoundError,
+    SchemaError,
     SessionEndedError,
     SessionNotFoundError,
     StoreUnavailableError,
@@ -610,7 +611,11 @@ class SqliteStore:
         self._connection.execute("PRAGMA journal_mode = WAL")
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.execute("PRAGMA synchronous = NORMAL")
-        migrate(self._connection)
+        try:
+            migrate(self._connection)
+        except SchemaError as e:
+            self._connection.close()
+            raise SchemaError(f"{path}: {e}") from e
 
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import sqlite3
 import threading
 
 import pytest
@@ -11,117 +9,15 @@ import pytest
 from flyball.control.laws import P
 from flyball.foundation.actor import Actor
 from flyball.foundation.device import Code, Committable, Demand, Sample, Severity, SubjectKind
-from flyball.record.migrate import available
 from flyball.record.sqlite import SqliteStore
 from test_rig_devices import POWER, Furnace
 
-# region Migration
-
-
-def _store_at_0018(path, events: list[tuple[int, str | None, str, dict]]) -> None:
-    """A database at schema 0018 with one session and `events` in the old shape."""
-    connection = sqlite3.connect(path)
-    files = available()
-    for version in range(1, 19):
-        connection.executescript("BEGIN;\n" + files[version].read_text() + "\nCOMMIT;")
-    connection.executescript("""
-        DELETE FROM schema_version;
-        INSERT INTO schema_version (version) VALUES (18);
-        INSERT INTO session (id, start_ns, end_ns, origin_ns) VALUES (1, 1000, 5000, 1000);
-    """)
-    connection.executemany(
-        "INSERT INTO event (session_id, offset_ns, subject, kind, details) VALUES (1, ?, ?, ?, ?)",
-        [(offset, subject, kind, json.dumps(details)) for offset, subject, kind, details in events],
-    )
-    connection.commit()
-    connection.close()
-
-
-def test_the_migration_renames_kind_to_code_and_level_to_a_severity_string(tmp_path):
-    path = tmp_path / "old.db"
-    _store_at_0018(
-        path,
-        [
-            (10, "furnace", "offline", {"level": 40, "subject_kind": "device", "message": "gone"}),
-            (20, "bake", "step", {"level": 20, "subject_kind": "program", "message": "one"}),
-            (30, None, "note", {"x": 1}),
-        ],
-    )
-    store = SqliteStore(path)
-    events = store.events(1)
-    assert [(e.code, e.subject) for e in events] == [
-        ("offline", "furnace"),
-        ("step", "bake"),
-        ("note", None),
-    ]
-    assert events[0].details == {"severity": "error", "subject_kind": "device", "message": "gone"}
-    assert events[1].details["severity"] == "info" and "level" not in events[1].details
-    assert events[2].details == {"x": 1}, "details with no numeric level are left as they were"
-    assert [e.code for e in store.events(1, code="offline")] == ["offline"]
-    store.close()
-
-
-def test_the_migration_turns_the_recovery_codes_into_cleared_edges(tmp_path):
-    path = tmp_path / "old.db"
-    device = {"level": 40, "subject_kind": "device", "message": "m"}
-    controller = {"level": 40, "subject_kind": "controller", "message": "m"}
-    program = {"level": 40, "subject_kind": "program", "message": "m"}
-    _store_at_0018(
-        path,
-        [
-            (1, "pump", "write_failed", device),
-            (2, "pump", "write_recovered", {**device, "level": 20}),
-            (3, "pump", "commit_failed", device),
-            (4, "pump", "commit_recovered", {**device, "level": 20}),
-            (5, "pump.power", "step_failed", controller),
-            (6, "pump.power", "step_recovered", {**controller, "level": 20}),
-            (7, "bake[1]", "step_failed", program),
-            (8, "pump.power", "limit_unknown", controller),
-            (9, "pump.power", "limit_known", {**controller, "level": 20}),
-            (10, "daq", "offline", device),
-            (11, "daq", "restarted", {**device, "level": 20}),
-            (12, "daq", "slow", device),
-            (13, "bake", "started", program),
-        ],
-    )
-    store = SqliteStore(path)
-    assert [(e.code, e.edge) for e in store.events(1)] == [
-        ("write_failed", "raised"),
-        ("write_failed", "cleared"),
-        ("write_failed", "raised"),  # 0022: commit_failed is write_failed now (A6)
-        ("write_failed", "cleared"),
-        ("step_failed", "raised"),
-        ("step_failed", "cleared"),
-        ("step_failed", None),  # a program's step: a point event
-        ("limit_unknown", "raised"),
-        ("limit_unknown", "cleared"),
-        ("offline", "raised"),
-        ("offline", "cleared"),
-        ("slow", "raised"),
-        ("started", None),
-    ]
-    store.close()
+# region Severity
 
 
 def test_a_severity_is_ranked_as_logging_ranks_it():
     assert [s.rank for s in Severity] == [10, 20, 30, 40]
     assert str(Severity.WARNING) == "warning"
-
-
-def test_an_events_widget_level_is_migrated_to_its_severity():
-    from flyball.interfaces.server.routes.dashboards import SCHEMA_VERSION, migrate
-
-    v4 = {
-        "schema_version": 4,
-        "widgets": [
-            {"id": "e", "kind": "events", "config": {"level": "WARNING", "limit": 5}},
-            {"id": "r", "kind": "readout", "config": {"level": "kept"}},
-        ],
-    }
-    migrated = migrate(v4)
-    assert migrated["schema_version"] == SCHEMA_VERSION == 6
-    assert migrated["widgets"][0]["config"] == {"severity": "warning", "limit": 5}
-    assert migrated["widgets"][1]["config"] == {"level": "kept"}, "only the events widget"
 
 
 # endregion
