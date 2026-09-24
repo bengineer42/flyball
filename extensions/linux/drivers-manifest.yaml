@@ -318,7 +318,7 @@ sensors:
     manufacturer: Maxim Integrated / Analog Devices
     category: temp
     interface: spi
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/max6675.py
     loc_estimate: "50-100"
     loc_actual: 71
@@ -336,7 +336,7 @@ sensors:
     manufacturer: Maxim Integrated / Analog Devices
     category: temp
     interface: spi
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/max31855.py
     loc_estimate: "80-120"
     loc_actual: 108
@@ -354,7 +354,7 @@ sensors:
     manufacturer: Maxim Integrated / Analog Devices
     category: temp
     interface: spi
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/max31856.py
     loc_estimate: "150-250"
     loc_actual: 230
@@ -372,7 +372,7 @@ sensors:
     manufacturer: Maxim Integrated / Analog Devices
     category: temp
     interface: spi
-    tier: bespoke_driver
+    support: bespoke_driver
     file: extensions/chips/src/flyball_chips/max31865.py
     loc_estimate: "150-250"
     loc_actual: 229
