@@ -78,7 +78,7 @@ class TestTheTest:
     )
     def test_above_below_and_near(self, rig, scale, test, misses, meets):
         programmer = _start(rig, Settle(signal=_address(scale), count=1, **test))
-        assert programmer.running and programmer.state.command == "settle"
+        assert programmer.running and programmer.state.type == "settle"
         _push(rig, scale, misses)
         assert programmer.running, f"{misses} does not meet {test}"
         _push(rig, scale, meets)
@@ -198,7 +198,7 @@ class TestEnding:
         programmer = Programmer(rig)
 
         @dataclass(frozen=True)
-        class EndedWhileApplying(Settle, tag="settle"):
+        class EndedWhileApplying(Settle, type="settle"):
             def run(self, rig, operator=None):
                 activity = super().run(rig, operator)
                 programmer.cancel()
@@ -287,14 +287,14 @@ class TestWriting:
         client = TestClient(create_app())
         response = client.post(
             "/api/programs/command",
-            json={"command": "settle", "controllers": "h.a", "signal": _address(scale), "above": 1},
+            json={"type": "settle", "controllers": "h.a", "signal": _address(scale), "above": 1},
         )
         assert response.status_code == 422 and "not both" in response.json()["detail"]
         response = client.post(
             "/api/programs/command",
-            json={"command": "settle", "signal": _address(scale), "above": 36, "count": 1},
+            json={"type": "settle", "signal": _address(scale), "above": 36, "count": 1},
         )
-        assert response.status_code == 200 and response.json()["command"] == "settle"
+        assert response.status_code == 200 and response.json()["type"] == "settle"
         _push(rig, scale, 40.0)
         client.post("/api/programs/cancel")
         set_programmer(None)

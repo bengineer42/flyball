@@ -267,7 +267,7 @@ def test_the_anneal_soaks_on_the_sample_and_ends_when_it_can_be_unloaded(furnace
     programmer.start(program)
     programmer.join(120)
     assert programmer.running is False
-    codes = [e.code for e in rig.recent if e.scope == "program"]
+    codes = [e.code for e in rig.recent if e.subject_kind == "program"]
     assert "step_timed_out" not in codes and codes[-1] == "succeeded", codes
     assert _zone(rig, "sample") < 60, "cool enough to unload"
     for name in ("heater1", "heater2", "heater3"):

@@ -156,7 +156,7 @@ class TestEvaluation:
         for x in (2.0, 3.0):
             rig.clock.advance(1.0)  # type: ignore[attr-defined]
             _push(rig, adc.signals["raw_v"], x)
-            measured = controller.state.measured
+            measured = controller.state.measured_value
             assert measured is not None and measured.value == 10 * x, (
                 "stepped on the value this delivery computed, not the one before"
             )
