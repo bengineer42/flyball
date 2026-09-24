@@ -39,6 +39,12 @@ There is no sidebar: the app bar at the top of every page is how you move.
   connected.
 - **Software stop** keeps its place whether or not you may operate, so
   signing in does not move anything.
+- **Without `operate`, every write control is shown but off**: run, save,
+  delete, rename, import, pin, keep, start or end a recording, add or remove
+  a device, link or controller, restore a version, restart the runner. A
+  device, link or controller chip loses its remove cross. Opening **Programs** as a
+  reader lists the library without importing new files from the programs
+  directory; an operator's visit imports them.
 - **The gear opens Options** (`#/options`): **Dashboards** (each saved one's
   place, read-only switch and home), **Access** (who you are here, what you
   may do, sign in or out), the **Rig file** (the running
