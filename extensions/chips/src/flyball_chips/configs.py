@@ -12,6 +12,7 @@ from flyball_chips.ezo_ph import EzoPhConfig
 from flyball_chips.htu21d import Htu21dConfig
 from flyball_chips.hx711 import Hx711Config
 from flyball_chips.max31855 import Max31855Config
+from flyball_chips.max31856 import Max31856Config
 from flyball_chips.max6675 import Max6675Config
 from flyball_chips.mcp3008 import Mcp3008Config
 from flyball_chips.mcp4725 import Mcp4725Config
@@ -36,6 +37,7 @@ def register(catalog: Catalogs) -> None:
     catalog.register_device(Htu21dConfig)
     catalog.register_device(Hx711Config)
     catalog.register_device(Max31855Config)
+    catalog.register_device(Max31856Config)
     catalog.register_device(Max6675Config)
     catalog.register_device(Mcp3008Config)
     catalog.register_device(Mcp4725Config)

@@ -349,6 +349,23 @@ sensors:
       - label: note
         url: "Register map (14-bit thermocouple, 12-bit cold junction, D16 fault + OC/SCG/SCV bits) matches the Adafruit MAX31855 library's decode"
 
+  - type: max31856
+    part_number: MAX31856
+    manufacturer: Maxim Integrated / Analog Devices
+    category: temp
+    interface: spi
+    tier: bespoke_driver
+    file: extensions/chips/src/flyball_chips/max31856.py
+    loc_estimate: "150-250"
+    loc_actual: 230
+    status: done
+    datasheet_checked: partial
+    hardware_tested: false
+    price_approx: "~$12-18 module [Unverified]"
+    domains: [espresso, dyno, industrial_process]
+    links:
+      - label: caveat
+        url: "Register map and fault bits confirmed against the Adafruit MAX31856 library's constants; one-shot conversion time (~143ms/60Hz, ~169ms/50Hz for averaging=1) is [Unverified] beyond one sample -- this driver's own linear-with-averaging approximation, not a datasheet table"
 
 
   - type: tsl2591

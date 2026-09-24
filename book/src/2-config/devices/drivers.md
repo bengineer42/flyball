@@ -25,6 +25,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`mcp3008`](#mcp3008) | Microchip 10-bit ADC | `spi` | `flyball-chips` | — |
 | [`max6675`](#max6675) | Maxim K-type thermocouple | `spi` | `flyball-chips` | — |
 | [`max31855`](#max31855) | Maxim thermocouple + cold junction | `spi` | `flyball-chips` | — |
+| [`max31856`](#max31856) | Maxim precision thermocouple | `spi` | `flyball-chips` | — |
 | [`gpio_line`](#gpio_line) | a relay, a switch | `gpio` | `flyball-linux` | datasheet-checked |
 | [`pwm_channel`](#pwm_channel) | a PWM output | `pwm` | `flyball-linux` | — |
 | [`ds18b20`](#ds18b20) | 1-Wire thermometers | `onewire` | `flyball-linux` | — |
@@ -88,6 +89,7 @@ driver here follows it:
 | `i2c_table`, `ads1115`, `mcp3008`, `gpio_line`, `pulse_counter`, `hx711` | none: every read is a number | the bus; `hx711` a conversion not ready |
 | `max6675` | an open thermocouple → `invalid("open_circuit")` | the bus |
 | `max31855` | a fault (open circuit, or a short to VCC/GND) → `temperature` `invalid`, naming every fault bit set; `cold_junction` always reads | the bus |
+| `max31856` | a fault bit in the status register → that signal's own `invalid(reason)` | the bus |
 | `sht4x`, `sht4x_set`, `sht31`, `htu21d`, `scd30`, `scd40`, `sgp40`, `mhz19`, `ms5611` | none (humidity is cropped to 0-100 %, as the datasheets say) | a CRC failure, a short frame, a sensor not ready in time; in an `sht4x_set` one sensor's failure fails that read of the set |
 | `bme280` | a BMP280 has no `humidity` signal at all | the bus |
 | `ezo_*` | none | a `*` status reply, a malformed one |
@@ -379,6 +381,28 @@ always published.
 **Stop:** both signals are read-only, so a rig stop does nothing to this
 device; `stop:` values are refused on it.
 
+### `max31856`
+
+Maxim precision thermocouple to digital, SPI (mode 1 or 3 -- set on the
+link's own `mode:`), register-addressed: `temperature [RP]` (linearised
+and cold-junction-compensated, 2⁻⁷ °C steps) and `cold_junction [RP]`
+(2⁻⁶ °C steps), both in °C.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `spi` link |
+| `thermocouple_type` | `K` | `B`, `E`, `J`, `K`, `N`, `R`, `S` or `T` |
+| `averaging` | `1` | samples averaged per conversion: `1`, `2`, `4`, `8` or `16` |
+| `filter_hz` | `60` | mains frequency to reject: `50` or `60` |
+| `mode` | `continuous` | `continuous` (the chip free-runs) or `one_shot` (a conversion is triggered and waited out on every read) |
+
+A fault reads its own signal `invalid(reason)` -- `temperature`:
+`open_circuit`, `over_under_voltage`, `low`, `high`, `range`;
+`cold_junction`: `low`, `high`, `range` -- never a raise: the chip
+answered.
+
+**Stop:** both signals are read-only, so a rig stop does nothing to this
+device; `stop:` values are refused on it.
 
 
 ### `gpio_line`
