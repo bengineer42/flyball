@@ -13,7 +13,7 @@ export function PageBar({ children, end }: { children?: ReactNode; end?: ReactNo
       className="page-bar"
       sx={{
         position: "sticky",
-        top: 48,
+        top: "var(--fb-bar-h, 48px)",
         zIndex: 2,
         bgcolor: "background.default",
         borderBottom: 1,

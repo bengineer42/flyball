@@ -123,9 +123,9 @@ td .fb-state { max-height: 9rem; overflow: auto; }
 .fb-tile .fb-device .fb-commands { grid-template-columns: repeat(auto-fill, minmax(min(14rem, 100%), 1fr)); }
 
 /* Graph page (#/graph): a signal picker beside a chart that fills the rest of the viewport height (measured, not eyeballed — see ui.md). */
-.fb-graph-body { display: flex; gap: var(--gutter); align-items: stretch; height: calc(100vh - 128px); min-height: 320px; }
+.fb-graph-body { display: flex; gap: var(--gutter); align-items: stretch; height: calc(100vh - var(--fb-bar-h, 48px) - 80px); min-height: 320px; }
 .fb-graph-picker { flex: 0 0 260px; min-width: 220px; min-height: 0; border: 1px solid var(--fb-border-1); border-radius: var(--fb-radius); background: var(--fb-bg-1); overflow: hidden; display: flex; }
 .fb-graph-chart { flex: 1 1 auto; min-width: 0; }
 @media (max-width: 599.98px) {
-  .fb-graph-body { height: calc(100vh - 176px); }
+  .fb-graph-body { height: calc(100vh - var(--fb-bar-h, 48px) - 128px); }
 }

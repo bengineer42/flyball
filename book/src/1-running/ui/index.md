@@ -30,13 +30,16 @@ There is no sidebar: the app bar at the top of every page is how you move.
 - **Dashboards are tabs.** On the dashboards page the bar shows one tab per
   saved dashboard, after the generated overview; `[+]` makes a new, empty
   one. Each tab is a link (`#/dashboards/<name>`). On a phone the tabs sit
-  on a second row. On any other page the bar shows that page's title.
+  on a row of their own, under the chips. On any other page the bar shows
+  that page's title.
 - **The chips are the way to the running pages.** Each is always there, grey
   when nothing is happening: the conditions chip opens **Events** (and
   carries the count of unread warnings), the recording chip **Sessions**,
   the program chip **Programs**; on a simulated rig the sim chip opens
   **Simulation**. The server chip says whether the live streams are
   connected.
+  On a phone the chips move to a second row of the bar, shorter and
+  wrapping, so every one stays in sight.
 - **Software stop** keeps its place whether or not you may operate, so
   signing in does not move anything.
 - **Without `operate`, every write control is shown but off**: run, save,
