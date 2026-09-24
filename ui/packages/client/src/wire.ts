@@ -77,11 +77,48 @@ export type Dtype = "float" | "int" | "bool" | "str" | "enum" | "json";
  */
 export type Role = "demand" | "readout" | "setting" | "config";
 
-/** One value on one signal at one instant. */
+/**
+ * What a signal's value is worth now: `ok`, or why there is none. First match wins:
+ * `stale` (reason `device_offline`) > `pending` > `stale` (other reasons) > `invalid` /
+ * `not_applicable` > `ok`. `pending` and `not_applicable` ("n/a") are benign; `invalid` and
+ * `stale` are faults.
+ */
+export type Quality = "ok" | "pending" | "not_applicable" | "invalid" | "stale";
+
+/** Why a signal is `stale`: the rig's own reasons. A driver's `invalid` reason is its own string. */
+export type StaleReason =
+  | "device_offline"
+  | "device_hung"
+  | "silent"
+  | "never_read"
+  | "last_read"
+  | "write_failed";
+
+/**
+ * What annotates a usable (`ok`) value, gating nothing: `at_limit` (the sensor railed, or the
+ * rig clamped a demand, at that end), `out_of_range` (outside the signal's own `range`).
+ */
+export interface Caveats {
+  at_limit?: "low" | "high";
+  out_of_range?: "low" | "high";
+}
+
+/**
+ * One value on one signal at one instant. `value` is `null` when the reading has none:
+ * `quality` says why and `reason` what the driver or the rig gave; `last_usable` is the newest
+ * reading that had a value and `age_s` how long ago that was, on the rig's clock. `reason`,
+ * `caveats`, `last_usable` and `age_s` are absent when there are none.
+ */
 export interface ReadingOut {
   signal: Address;
   time_ns: Nanoseconds;
   value: Value;
+  /** Always sent; optional here only so client-built readings (a chart's own) type-check. */
+  quality?: Quality;
+  reason?: string;
+  caveats?: Caveats;
+  last_usable?: LatestOut;
+  age_s?: number;
 }
 
 /** A demand's write record, riding along with its reading in a `SampleOut`: no `value` -- that
@@ -96,6 +133,10 @@ export interface WriteMetaOut {
 
 /** Signals under one node at one instant; `values` keyed by name relative to `node`.
  *
+ * A value is `null` when its reading has none (a chart breaks there): `quality` and `reason`
+ * say why, for those values only, keyed the same way; `caveats` those of the usable values
+ * that carry any. Each of the three is absent when nothing in the sample has one.
+ *
  * `writes` carries the write record for each demand the sample includes (present only for
  * those, keyed the same way as `values`): a demand's reading and its write record arrive
  * together now, so `/ws/writes` no longer exists.
@@ -104,13 +145,20 @@ export interface SampleOut {
   node: Address;
   time_ns: Nanoseconds;
   values: Record<string, Value>;
+  quality?: Record<string, Exclude<Quality, "ok" | "pending">>;
+  reason?: Record<string, string>;
+  caveats?: Record<string, Caveats>;
   writes?: Record<string, WriteMetaOut>;
 }
 
-/** The last reading on a signal, without repeating its address. */
+/** The last reading on a signal, without repeating its address. `value` is `null` with no value. */
 export interface LatestOut {
   time_ns: Nanoseconds;
   value: Value;
+  /** Always sent; optional here only so client-built values type-check. */
+  quality?: Quality;
+  reason?: string;
+  caveats?: Caveats;
 }
 
 /** What a writable signal was last set to, after limits, and by whom. */
@@ -192,8 +240,19 @@ export interface SignalOut {
   poll_s: number | null;
   /** What a demand is clamped to, in the signal's unit, as effective now; a demand only. */
   limits: Bounds | null;
+  /**
+   * `pending` before the first reading, else the newest reading's quality. This and the
+   * three below are always sent; optional here only so client-built signals type-check.
+   */
+  quality?: Quality;
+  /** A demand's: `echo` (its reading is what was committed) or `sensed` (read back); else null. */
+  readback?: "echo" | "sensed" | null;
+  /** A banded signal's, default resolved: `fire` raises `band_unknown` on a fault with no value; else null. */
+  on_no_value?: "fire" | "ignore" | null;
   /** The last reading, once there has been one. */
   latest: LatestOut | null;
+  /** With no value now: the newest reading that had one; else null. */
+  last_usable?: LatestOut | null;
   /** The last committed state of a writable signal, once it has been set. */
   write: WriteOut | null;
 }
@@ -604,10 +663,10 @@ export interface Health {
   /** Every condition held now, on any device, signal, controller or the rig (`scope`, `subject`). */
   conditions: Condition[];
   /**
-   * Signals holding the rig's `band_warning` (warn) or `band_alarm` (alarm)
-   * condition, each counted once; fault conditions are never alarms.
-   * `unknown` (a banded signal with no value) is 0 until that rule lands.
-   * `max_level` is 40/30/0.
+   * Signals holding the rig's `band_warning` (warn), `band_alarm` (alarm) or
+   * `band_unknown` (unknown: a banded signal with no value because of a fault, past its
+   * grace) condition, each counted once, `unknown` first; fault conditions are never
+   * alarms. `max_level` is 40/30/0 from `alarm`/`warn`; `unknown` does not raise it.
    */
   alarms: { warn: number; alarm: number; unknown: number; max_level: number };
   /** The names of the registered activities. */
@@ -961,9 +1020,26 @@ export interface ControllerRow {
   feedforward: unknown;
 }
 
+/**
+ * A stored reading's `flag`. With `value` null (the no-value's quality): 1 invalid,
+ * 2 not_applicable, 3 stale, 4 stale because the device was offline. With a value (a mark):
+ * 16 at_limit low, 17 at_limit high. Null: a plain value.
+ */
+export type StoreFlag = 1 | 2 | 3 | 4 | 16 | 17;
+
+/**
+ * One stored reading, with its `flag`. An averaged bucket carries the lowest no-value code in
+ * it when any reading in it had no value.
+ *
+ * NOTE: since store migration 0021 the server sends `value: null` for a reading with no value
+ * (`flag` 1-4; a chart breaks there), and for such a bucket. `value` stays typed `number` only
+ * until the UI's session loaders (`useSession.ts`, `store/telemetry.ts`) map null to a break;
+ * then it becomes `number | null`.
+ */
 export interface Point {
   offset_ns: Nanoseconds;
   value: number;
+  flag?: StoreFlag | null;
 }
 
 /** How a series was thinned: exactly one of the three set. */
