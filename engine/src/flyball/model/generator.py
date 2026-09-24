@@ -105,6 +105,15 @@ class SetpointGenerator:
     def start(self, time: float, value: float) -> None:
         """Bind to the rig: `time` is the origin, `value` the process value then."""
 
+    def reseed(self, time: float, value: float) -> bool:
+        """Go on from `value` at `time`, at the trajectory's own rate: whether anything changed.
+
+        What a controller resuming after a hold calls, so the setpoint does not jump to
+        where the trajectory's clock took it meanwhile. Default: nothing (a dwell holds its
+        value whatever the reading).
+        """
+        return False
+
     def generate(self, time: float) -> float:
         """The setpoint at `time`."""
         raise NotImplementedError

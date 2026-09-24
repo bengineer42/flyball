@@ -131,6 +131,7 @@ export function Heading({ children, end }: { children: ReactNode; end?: ReactNod
 
 /** What the programmer is doing, and the recent program events for `name` (all programs when omitted). */
 export function ProgramStatus({ programmer, events, name, onCancel }: { programmer: Programmer; events: RigEvent[]; /** One program's page: its events only, and "Status" rather than "Programmer". */ name?: string; onCancel?(): void }) {
+  const { canOperate } = useAuth();
   const p = programmer.data;
   const recent = events
     .filter((e) => e.scope === "program" && (name === undefined || e.subject === name || e.subject.startsWith(`${name}[`)))
@@ -153,7 +154,7 @@ export function ProgramStatus({ programmer, events, name, onCancel }: { programm
       <Heading
         end={
           running && onCancel ? (
-            <Button variant="outlined" color="error" startIcon={<CancelIcon />} onClick={onCancel}>
+            <Button variant="outlined" color="error" startIcon={<CancelIcon />} onClick={onCancel} disabled={!canOperate}>
               Cancel
             </Button>
           ) : undefined
@@ -197,6 +198,7 @@ export function ProgramStatus({ programmer, events, name, onCancel }: { programm
 
 /** One row of the library: the whole row opens the program; check and step summary are fetched lazily. */
 function ProgramRow({ program: p, running, busy, onRun, onDelete }: { program: { name: string; id: number; format: ProgramFormat; body?: string; label?: string | null; created_ns: number; notes?: unknown }; running: boolean; busy: boolean; onRun(): void; onDelete(): void }) {
+  const { canOperate } = useAuth();
   const rig = useRig();
   const check = useQuery(() => rig.checkStoredProgram(p.name), [rig, p.name, p.id]);
   const href = hashFor("programs", p.name);
@@ -235,7 +237,7 @@ function ProgramRow({ program: p, running, busy, onRun, onDelete }: { program: {
         <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
           <Tooltip title={running ? "A program is running" : "Run"}>
             <span>
-              <IconButton aria-label={`run ${p.name}`} disabled={running || busy} onClick={onRun}>
+              <IconButton aria-label={`run ${p.name}`} disabled={running || busy || !canOperate} onClick={onRun}>
                 <PlayArrowIcon fontSize="small" />
               </IconButton>
             </span>
@@ -244,7 +246,7 @@ function ProgramRow({ program: p, running, busy, onRun, onDelete }: { program: {
         <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
           <Tooltip title="Delete">
             <span>
-              <IconButton aria-label={`delete ${p.name}`} disabled={busy} onClick={onDelete}>
+              <IconButton aria-label={`delete ${p.name}`} disabled={busy || !canOperate} onClick={onDelete}>
                 <DeleteOutlineIcon fontSize="small" />
               </IconButton>
             </span>
@@ -285,10 +287,11 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
   const [rescans, setRescans] = useState(0);
   const [imported, setImported] = useState<string[] | null>(null);
   const programs = useQuery(async () => {
-    const fresh = await rig.importPrograms().catch(() => []); // no directory, or an older runner: nothing to import
+    // Importing writes to the store, so a viewer only lists what is already there.
+    const fresh = canOperate ? await rig.importPrograms().catch(() => []) : []; // no directory, or an older runner: nothing to import
     setImported(fresh.map((p) => p.name));
     return rig.programs();
-  }, [rig, rescans]);
+  }, [rig, rescans, canOperate]);
   const [error, setError] = useState<string | null>(null);
   const [toRun, setToRun] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<string | null>(null);
@@ -327,17 +330,17 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
     <>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2.25 }}>
         <input ref={file} type="file" accept=".yaml,.yml,.toml,.json" hidden onChange={(e) => void upload(e)} aria-label="upload program file" />
-        <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => file.current?.click()} disabled={busy}>
+        <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => file.current?.click()} disabled={busy || !canOperate}>
           Upload
         </Button>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => onOpen(NEW)}>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => onOpen(NEW)} disabled={!canOperate}>
           New
         </Button>
         <Tooltip title="Import any new files from the runner's programs directory">
           <span>
             <Tooltip title="Re-read the program files on the rig's disk; changed files become new versions">
               <span>
-                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => setRescans((n) => n + 1)} disabled={programs.loading} data-testid="rescan">
+                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => setRescans((n) => n + 1)} disabled={programs.loading || !canOperate} data-testid="rescan">
                   Reload files
                 </Button>
               </span>
@@ -549,6 +552,7 @@ export function useProgramEditorInputs() {
  * each editable; format, save, download, history, run/cancel, live status.
  */
 export function ProgramDetail({ name: routeName, programmer, events, onSaved, onDeleted }: ProgramDetailProps) {
+  const { canOperate } = useAuth();
   const rig = useRig();
   const creating = routeName === NEW;
   const stored = useQuery(async () => (creating ? null : rig.program(routeName)), [rig, routeName, creating]);
@@ -881,20 +885,20 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
                   </MenuItem>
                 ))}
               </Menu>
-              <Button startIcon={<DriveFileRenameOutlineIcon />} onClick={() => setRename(true)} disabled={busy}>
+              <Button startIcon={<DriveFileRenameOutlineIcon />} onClick={() => setRename(true)} disabled={busy || !canOperate}>
                 Rename…
               </Button>
-              <Button variant="contained" startIcon={<PlayArrowIcon />} disabled={running || busy} onClick={() => setRunVersion("latest")}>
+              <Button variant="contained" startIcon={<PlayArrowIcon />} disabled={running || busy || !canOperate} onClick={() => setRunVersion("latest")}>
                 Run
               </Button>
               {running && (
-                <Button variant="outlined" color="error" startIcon={<CancelIcon />} onClick={() => void act(() => rig.cancelProgram()).then(programmer.refresh)}>
+                <Button variant="outlined" color="error" startIcon={<CancelIcon />} disabled={!canOperate} onClick={() => void act(() => rig.cancelProgram()).then(programmer.refresh)}>
                   Cancel
                 </Button>
               )}
               <Tooltip title="Delete program">
                 <span>
-                  <IconButton aria-label={`delete ${routeName}`} onClick={() => setConfirmDelete(true)} disabled={busy}>
+                  <IconButton aria-label={`delete ${routeName}`} onClick={() => setConfirmDelete(true)} disabled={busy || !canOperate}>
                     <DeleteOutlineIcon fontSize="small" />
                   </IconButton>
                 </span>
@@ -919,14 +923,14 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
         <Stack direction="row" spacing={1.5} alignItems="flex-start" flexWrap="wrap" useFlexGap>
           <TextField label="label" value={label} onChange={(e) => setLabel(e.target.value)} sx={{ minWidth: 200 }} />
           {creating ? (
-            <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || Boolean(parseError) || !programName} data-testid="create">
+            <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || Boolean(parseError) || !programName || !canOperate} data-testid="create">
               Create {programName || "…"}
             </Button>
           ) : (
             <>
               <Tooltip title="Adds a version; earlier versions stay under Versions and can be loaded or run.">
                 <span>
-                  <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || Boolean(parseError) || (!dirty && label === (stored.data?.label ?? ""))} data-testid="update">
+                  <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || Boolean(parseError) || !canOperate || (!dirty && label === (stored.data?.label ?? ""))} data-testid="update">
                     Update {routeName}
                     {versions !== undefined ? ` (version ${versions + 1})` : ""}
                   </Button>
@@ -934,7 +938,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
               </Tooltip>
               <Tooltip title={`Creates a new program; ${routeName} is unchanged.`}>
                 <span>
-                  <Button variant="outlined" startIcon={<SaveAsIcon />} onClick={() => setSaveAs(true)} disabled={busy || Boolean(parseError)} data-testid="save-as">
+                  <Button variant="outlined" startIcon={<SaveAsIcon />} onClick={() => setSaveAs(true)} disabled={busy || Boolean(parseError) || !canOperate} data-testid="save-as">
                     Save as…
                   </Button>
                 </span>
@@ -988,7 +992,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
                   <TableCell sx={{ fontFamily: "monospace" }}>{h.sha256.slice(0, 12)}</TableCell>
                   <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
                     <Button onClick={() => loadText(h.body, h.format)}>load this version</Button>
-                    <Button disabled={running || busy} onClick={() => setRunVersion(h.id)}>
+                    <Button disabled={running || busy || !canOperate} onClick={() => setRunVersion(h.id)}>
                       run this version
                     </Button>
                   </TableCell>

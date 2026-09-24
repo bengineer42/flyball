@@ -221,7 +221,7 @@ class TestLiveValues:
         assert live["ambient"] == live["initial"] == plant["output"]
         (reading,) = plant["readings"].values()
         assert set(plant["readings"]) == {"thermocouple.temperature"}
-        assert set(reading) == {"value", "unit", "precision", "device", "port", "age_s"}
+        assert set(reading) == {"value", "quality", "unit", "precision", "device", "port", "age_s"}
         assert reading["port"] == "output" and reading["device"] == "thermocouple"
         assert "noise" not in live, "too few readings for a statistic: left out, not None"
         with pytest.raises(NotFoundError):

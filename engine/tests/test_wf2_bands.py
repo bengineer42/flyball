@@ -157,7 +157,7 @@ def test_a_fall_from_alarm_straight_inside_clears_the_alarm_alone():
     ]
 
 
-def test_nan_and_non_numbers_do_nothing():
+def test_nan_is_no_value_and_breaks_the_run_back_inside():
     rig, furnace = _rig()
     _push(rig, furnace, math.nan)
     _push(rig, furnace, math.inf)
@@ -165,10 +165,13 @@ def test_nan_and_non_numbers_do_nothing():
     _push(rig, furnace, 60.0)
     _push(rig, furnace, 40.0)
     rig.clock.advance(0.5)
-    _push(rig, furnace, math.nan)
+    _push(rig, furnace, math.nan)  # invalid: the band is unknown, the held one stays
     assert _held(rig, furnace) == ["band_warning"]
     rig.clock.advance(0.5)
-    _push(rig, furnace, 40.0)  # the NaN neither broke nor fed the run inside
+    _push(rig, furnace, 40.0)  # back inside starts again after the break
+    assert _held(rig, furnace) == ["band_warning"]
+    rig.clock.advance(1.0)
+    _push(rig, furnace, 40.0)
     assert _held(rig, furnace) == []
 
 

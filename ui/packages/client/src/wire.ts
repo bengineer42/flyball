@@ -72,16 +72,62 @@ export type Dtype = "float" | "int" | "bool" | "str" | "enum" | "json";
 /**
  * What a signal is to its device: `demand` (settable, with a readback; the
  * only thing a controller drives), `readout` (produced by the device, never
- * written from outside), `setting` (re-set by a command), `config`
- * (effective at build). Inputs are bindings, not signals.
+ * written from outside), `setting` (re-set by a command; an operator-entered
+ * value of a `driver: values` device is a setting with `rpw`). A number a
+ * device is built from is not a signal. Inputs are bindings, not signals.
+ *
+ * `config` is never sent since wave 2 stage 7 (`ConfigSignal` is gone); it stays in the
+ * union only until the panels stop testing for it.
  */
 export type Role = "demand" | "readout" | "setting" | "config";
 
-/** One value on one signal at one instant. */
+/**
+ * What a signal's value is worth now: `ok`, or why there is none. First match wins:
+ * `stale` (reason `device_offline`) > `pending` > `stale` (other reasons) > `invalid` /
+ * `not_applicable` > `ok`. `pending` and `not_applicable` ("n/a") are benign; `invalid` and
+ * `stale` are faults.
+ */
+export type Quality = "ok" | "pending" | "not_applicable" | "invalid" | "stale";
+
+/**
+ * Why a signal is `stale`: the rig's own reasons. A driver's `invalid` reason is its own string.
+ * `silent` (nothing from its device within `stale_after_s`), `last_read` (its device delivers,
+ * but not this signal), `never_read` (`pending` past its deadline) are pushed by the rig at the
+ * threshold, as a reading with `value: null`: the chart breaks there.
+ */
+export type StaleReason =
+  | "device_offline"
+  | "device_hung"
+  | "silent"
+  | "never_read"
+  | "last_read"
+  | "write_failed";
+
+/**
+ * What annotates a usable (`ok`) value, gating nothing: `at_limit` (the sensor railed, or the
+ * rig clamped a demand, at that end), `out_of_range` (outside the signal's own `range`).
+ */
+export interface Caveats {
+  at_limit?: "low" | "high";
+  out_of_range?: "low" | "high";
+}
+
+/**
+ * One value on one signal at one instant. `value` is `null` when the reading has none:
+ * `quality` says why and `reason` what the driver or the rig gave; `last_usable` is the newest
+ * reading that had a value and `age_s` how long ago that was, on the rig's clock. `reason`,
+ * `caveats`, `last_usable` and `age_s` are absent when there are none.
+ */
 export interface ReadingOut {
   signal: Address;
   time_ns: Nanoseconds;
   value: Value;
+  /** Always sent; optional here only so client-built readings (a chart's own) type-check. */
+  quality?: Quality;
+  reason?: string;
+  caveats?: Caveats;
+  last_usable?: LatestOut;
+  age_s?: number;
 }
 
 /** A demand's write record, riding along with its reading in a `SampleOut`: no `value` -- that
@@ -96,6 +142,10 @@ export interface WriteMetaOut {
 
 /** Signals under one node at one instant; `values` keyed by name relative to `node`.
  *
+ * A value is `null` when its reading has none (a chart breaks there): `quality` and `reason`
+ * say why, for those values only, keyed the same way; `caveats` those of the usable values
+ * that carry any. Each of the three is absent when nothing in the sample has one.
+ *
  * `writes` carries the write record for each demand the sample includes (present only for
  * those, keyed the same way as `values`): a demand's reading and its write record arrive
  * together now, so `/ws/writes` no longer exists.
@@ -104,13 +154,20 @@ export interface SampleOut {
   node: Address;
   time_ns: Nanoseconds;
   values: Record<string, Value>;
+  quality?: Record<string, Exclude<Quality, "ok" | "pending">>;
+  reason?: Record<string, string>;
+  caveats?: Record<string, Caveats>;
   writes?: Record<string, WriteMetaOut>;
 }
 
-/** The last reading on a signal, without repeating its address. */
+/** The last reading on a signal, without repeating its address. `value` is `null` with no value. */
 export interface LatestOut {
   time_ns: Nanoseconds;
   value: Value;
+  /** Always sent; optional here only so client-built values type-check. */
+  quality?: Quality;
+  reason?: string;
+  caveats?: Caveats;
 }
 
 /** What a writable signal was last set to, after limits, and by whom. */
@@ -190,10 +247,28 @@ export interface SignalOut {
   alarm: Bounds | null;
   /** The signal's own poll period; null: the enclosing node's. */
   poll_s: number | null;
+  /**
+   * The threshold the rig judges its liveness by now: its own `stale_after_s`, else
+   * `max(3·poll_s, 5 s)` while its device is polled; null: not judged (a push, a setting, an
+   * echo demand, a record). Past it with nothing arriving, the rig pushes `stale` on it itself.
+   * Always sent; optional here only so client-built signals type-check.
+   */
+  stale_after_s?: number | null;
   /** What a demand is clamped to, in the signal's unit, as effective now; a demand only. */
   limits: Bounds | null;
+  /**
+   * `pending` before the first reading, else the newest reading's quality. This and the
+   * three below are always sent; optional here only so client-built signals type-check.
+   */
+  quality?: Quality;
+  /** A demand's: `echo` (its reading is what was committed) or `sensed` (read back); else null. */
+  readback?: "echo" | "sensed" | null;
+  /** A banded signal's, default resolved: `fire` raises `band_unknown` on a fault with no value; else null. */
+  on_no_value?: "fire" | "ignore" | null;
   /** The last reading, once there has been one. */
   latest: LatestOut | null;
+  /** With no value now: the newest reading that had one; else null. */
+  last_usable?: LatestOut | null;
   /** The last committed state of a writable signal, once it has been set. */
   write: WriteOut | null;
 }
@@ -226,22 +301,72 @@ export interface CommandOut {
   commit: boolean;
   /** What the device's `mode` output becomes when this runs, if it has one. */
   mode: Value;
-  /** Puts a controller driving the device into manual and runs; without it the command is refused while one is active. */
+  /** Runs while a controller drives the device and puts it into manual once the method has succeeded (the response's `interrupted` names it); without it the command is refused while one is active. */
   interrupts: boolean;
+  /** What it moves that no linked argument says: demand paths (gpio `on`/`off` move `on`), or a private child's name (a dosing pump's `pump`). A command with any is refused while a controller drives the device, unless it `interrupts`. Always sent; optional here only for older fixtures. */
+  writes?: string[];
   /** A synthesised `set_<name>`: the path of the demand it sets. */
   demand_of: string | null;
   /** Argument name -> the path (relative to the device) of the demand or setting it is a value for. */
   links: Record<string, string>;
 }
 
-/** An input a device declares: what it follows, and what the rig bound to that role. */
+/** A controller a command put into manual, once the command had succeeded. */
+export interface Interrupted {
+  controller: string;
+  /** Its mode before: `regulating`. */
+  was: ControllerMode;
+}
+
+/**
+ * `POST /api/devices/{name}/commands/{command}`'s response: what the method
+ * returned, and each controller an `interrupts` command put into manual
+ * (empty when it displaced none). `/api/sim/device/{command}` still returns
+ * the bare result.
+ */
+export interface CommandRunOut {
+  result: unknown;
+  interrupted: Interrupted[];
+}
+
+/**
+ * One input of a device: what it follows -- an address, or a number -- and
+ * its quality now. Every input the device has: those its driver declares, and
+ * any other name the rig file's `inputs:` gives.
+ */
 export interface InputOut {
   name: string;
+  /** The declared input's label; `""` for a name only the rig file gives. */
   label: string;
+  /** The declared input's quantity, else the source's; `""` when neither says. */
   quantity: string;
+  /** The source's unit, else the declared input's; `""` when neither says. */
   unit: string;
-  /** The address bound to this role, or null. */
+  /** The address it follows; null for a number, or while unbound (its source was removed). */
   bound: Address | null;
+  /** The number, for an input bound to one (`inputs: {dry: 36.5}`); absent otherwise. */
+  constant?: number;
+  /** `ok`; `pending` before the source's first reading (or while unbound); else the source's quality. A number is always `ok`. */
+  quality: Quality;
+  /** The source's reason for having no value, when it gives one. */
+  reason?: string;
+  /** Seconds since the rig received the source's newest reading with a value. */
+  age_s?: number;
+}
+
+/**
+ * Where a `driver: values` signal's value in force came from, for the device
+ * page: `rig_file` ("rig file"), `restored` ("restored, written by `writer`
+ * at `written_ns`"), `written` (written in this run, by `writer` at
+ * `written_ns`).
+ */
+export interface ValueSourceOut {
+  origin: "rig_file" | "restored" | "written";
+  /** The rig file's `initial` in force. */
+  initial: number;
+  writer: string | null;
+  /** Wall time, ns since the epoch. */
+  written_ns: Nanoseconds | null;
 }
 
 /** How the runtime is polling a device; null on a `DeviceOut` when nothing on it is polled. */
@@ -253,6 +378,12 @@ export interface RunOut {
   read_s: number | null;
   /** Reads that took longer than the period since polling began. */
   missed: number;
+  /** When the read in flight began, on the rig's clock; null when none is. */
+  reading_since_ns: Nanoseconds | null;
+  /** Reads in a row that raised; 0 after one that succeeds. */
+  consecutive_failures: number;
+  /** When an offline device is next read, on the rig's clock; null unless it is offline and backing off. An offline device keeps `running: true` while it retries. */
+  next_retry_ns: Nanoseconds | null;
 }
 
 /**
@@ -275,8 +406,12 @@ export interface DeviceOut {
   poll_s: number | null;
   signals: TreeNode[];
   commands: CommandOut[];
-  /** What the device follows, by role. */
+  /** Each input by name: what it follows (an address or a number) and its quality now. */
   inputs: Record<string, InputOut>;
+  /** Who follows each signal of this device, by path: the inputs bound to it (`blender.inputs.dry`), or to a namespace above it. A signal nobody follows is left out. */
+  consumers: Record<string, string[]>;
+  /** A `driver: values` device's: where each value in force came from, by path; empty for any other device. */
+  sources: Record<string, ValueSourceOut>;
   /** Implements `read`: polled on a period. */
   readable: boolean;
   /** Implements `commit`: has demands. */
@@ -306,6 +441,8 @@ export interface CommandSchema {
   commit: boolean;
   mode: Value;
   interrupts: boolean;
+  /** As `CommandOut.writes`. Always sent; optional here only for older fixtures. */
+  writes?: string[];
   demand_of: string | null;
 }
 
@@ -327,12 +464,15 @@ export interface SignalSchema {
   limits: Bounds | null;
 }
 
-/** An input as a `DeviceSchema` lists it. */
+/** An input as a `DeviceSchema` lists it: every input the device has. */
 export interface InputSchema {
   label: string;
   quantity: string;
   unit: string;
+  /** The address it follows; null for a number or while unbound. */
   bound: Address | null;
+  /** The number, for an input bound to one; null otherwise. */
+  constant: number | null;
 }
 
 /** `GET /api/devices/{name}/schema`: how a device is configured, its signals, inputs and commands. */
@@ -480,7 +620,21 @@ export interface ControllerOut {
   delivered_correction: number | null;
   /** The measured signal's reading at the last tick. */
   measured: ReadingOut | null;
+  /** What it does once its source has been faulty for its wait (the rig file's `on_fault`). */
+  on_fault?: OnFault;
+  /**
+   * The causes of every latch that refuses its `regulate` now: `stop` (the rig stop),
+   * `on_fault:<controller>`. Empty on a tick's snapshot (`/ws/controllers`); a person's
+   * Reset (`POST /api/rig/reset {cause}`) clears one.
+   */
+  latched?: string[];
 }
+
+/** An `on_fault` action: `freeze` (default: never acts), `manual`, `stop`, `stop_device`. */
+export type FaultAction = "freeze" | "manual" | "stop" | "stop_device";
+
+/** A controller's `on_fault`: an action, or frozen `freeze_s` of fault time and `then` one. */
+export type OnFault = FaultAction | { freeze_s: number; then: Exclude<FaultAction, "freeze"> };
 
 /** A signal a controller may bind to, with what a form shows beside it. */
 export interface SignalChoice {
@@ -536,6 +690,10 @@ export interface NewController {
   feedforward?: FeedforwardConfig | string | null;
   default?: boolean;
   min_period_s?: number | null;
+  /** While following a moving setpoint, re-apply its feedforward this often between readings; omitted: `max(0.1 s, poll_s / 4)`. */
+  setpoint_period_s?: number | null;
+  /** Omitted: `freeze`. `stop` is refused (409) on an output whose stop is `keep`. */
+  on_fault?: OnFault;
 }
 
 export type ValueSource = "measured" | "setpoint" | "output";
@@ -598,16 +756,28 @@ export interface Health {
   /** Every condition held now, on any device, signal, controller or the rig (`scope`, `subject`). */
   conditions: Condition[];
   /**
-   * Signals holding the rig's `band_warning` (warn) or `band_alarm` (alarm)
-   * condition, each counted once; fault conditions are never alarms.
-   * `unknown` (a banded signal with no value) is 0 until that rule lands.
-   * `max_level` is 40/30/0.
+   * Signals holding the rig's `band_warning` (warn), `band_alarm` (alarm) or
+   * `band_unknown` (unknown: a banded signal with no value because of a fault, past its
+   * grace) condition, each counted once, `unknown` first; fault conditions are never
+   * alarms. `max_level` is 40/30/0 from `alarm`/`warn`; `unknown` does not raise it.
    */
   alarms: { warn: number; alarm: number; unknown: number; max_level: number };
   /** The names of the registered activities. */
   activities: string[];
   recording: boolean;
+  /** The rig stop's latch, if it holds: who, when (wall ns) and why; null when not stopped. */
+  stopped: { by: string; at_ns: Nanoseconds; reason: string } | null;
+  /** Every latch cause held now, one row per subject it holds. */
+  latches: LatchRow[];
   exposure?: Exposure | null;
+}
+
+/** One subject a latch holds (`/api/health` `latches`). */
+export interface LatchRow {
+  scope: "rig" | "device" | "signal" | "controller";
+  subject: string;
+  /** `stop` (the rig stop), or `on_fault:<controller>`: what a Reset names. */
+  cause: string;
 }
 
 export interface ErrorDetail {
@@ -647,7 +817,7 @@ export interface RigDocument {
   controllers: Record<string, Record<string, unknown>>;
 }
 
-/** A link as the file writes one: `{name, type, ...its config}`. Body for `POST /api/links`, and what it returns. */
+/** A link as the file writes one: `{name, type, ...its config}`. Body for `POST /api/links` (which answers `RigEditOut`). */
 export interface LinkEntry {
   name: string;
   type: string;
@@ -657,14 +827,17 @@ export interface LinkEntry {
 /**
  * A device entry with its name, as `POST /api/devices` takes it: the file's
  * envelope (`driver`, `label`, `poll_s`, `inputs`) plus the driver's own
- * fields, flat beside the envelope.
+ * fields, flat beside the envelope. The route answers `RigEditOut`.
  */
 export interface NewDevice {
   name: string;
   driver: string;
   label?: string;
   poll_s?: number;
-  inputs?: Record<string, string>;
+  /** Input name -> an address on another device, or a number. Every input the driver declares must be given. */
+  inputs?: Record<string, string | number>;
+  /** How long a value a failed write kept may wait to be sent again; omitted: 60 s. */
+  retry_max_age_s?: number;
   [key: string]: unknown;
 }
 
@@ -674,10 +847,35 @@ export interface RigVersion {
   time_ns: Nanoseconds;
   reason: string;
   files: string[];
-  /** The version this one was made from; the head moves on a restore rather than a new row being written. */
+  /** The version this one was made from: the head when it was saved (a restore is a new version on top, `restored from N`). */
   parent?: number | null;
-  /** The version the running rig is at. */
+  /** The version the running rig is at, or is restarting to after an edit. */
   head?: boolean;
+}
+
+/**
+ * What a rig edit answers (202): `POST /api/links`, `DELETE /api/links/{name}`,
+ * `POST /api/devices`, `DELETE /api/devices/{name}`, `POST /api/rig`,
+ * `POST /api/rig/versions/{id}/restore` (D-051). Nothing is applied in place:
+ * the edit is saved as a new head version, the rig is stopped, and the runner
+ * restarts from that version (controllers in manual, each driver at its build
+ * values); the API answers again once it is back. Each takes `?base=<version>`
+ * (409 unless that is the head) and `?force=true` (a running program is
+ * cancelled; without it, 409 while one runs).
+ */
+export interface RigEditOut {
+  /** The edit's rig version, now the head. */
+  version: number;
+  /** The head before it: what a start that cannot build the edit goes back to. */
+  previous: number | null;
+  /** The version's reason: `edited: added device probe`, `restored from 3`. */
+  reason: string;
+  /** The overlay the edit was saved to (`<rig file>.d/added.<suffix>`); null for a bare or resumed rig (the store alone). */
+  saved: string | null;
+  restarting: boolean;
+  /** The stop's report, as `POST /api/rig/stop` answers; null if the stop failed. */
+  stop: StopReport | null;
+  detail: string;
 }
 
 /**
@@ -766,17 +964,24 @@ export interface StopActor {
   detail: string;
 }
 
-/** One device's outcome of a stop. */
+/**
+ * One device's outcome of a stop: `stopped` (its stop command ran, or its stop values
+ * were written), `unchanged` (every output kept as it was), `failed` (`detail` says why;
+ * "may still act" when the time ran out).
+ */
 export interface DeviceStopOut {
   state: "stopped" | "unchanged" | "failed";
   detail: string;
+  /** What it wrote, by address. */
+  written?: Record<Address, number>;
+  /** What it left as it was, by address, with the value it holds (null: not known): energised if it was. */
+  kept?: Record<Address, number | null>;
 }
 
 /**
- * `POST <root>/api/rig/stop`: what stopping did. Needs `OPERATE`; never rate-limited. `interim`
- * is true until package A8's real `Stopper` replaces the placeholder that only interrupts the
- * program and puts controllers in manual (the signals work lands the rest). The route answers
- * 501 `{"detail": ...}` until A8 lands -- callers must not treat that as success.
+ * `POST <root>/api/rig/stop`: what the Software stop did. Needs `OPERATE`; never
+ * rate-limited. The rig is latched (`latched`) until a person resets it
+ * (`POST /api/rig/reset`). `interim` is false: it wrote each device's resolved stop.
  */
 export interface StopReport {
   at_ns: Nanoseconds;
@@ -786,6 +991,46 @@ export interface StopReport {
   program_interrupted: boolean;
   controllers_manual: Address[];
   interim: boolean;
+  /** Whether the rig is latched stopped now; absent from a report before wave 3. */
+  latched?: boolean;
+}
+
+/** `POST <root>/api/rig/reset` body: which latch to let go (default `stop`). Operate, and a person. */
+export interface ResetRequest {
+  cause?: string;
+}
+
+/** A latch held: `GET /api/rig/latches`, and what `POST /api/rig/reset` answers. */
+export interface LatchOut {
+  cause: string;
+  subjects: { scope: LatchRow["scope"]; subject: string }[];
+  by: string;
+  at_ns: Nanoseconds;
+  reason: string;
+  /** A fault's action (`manual`, `stop`, `stop_device`); "" for the rig stop. */
+  action: string;
+}
+
+/** One writable output's resolved stop (`GET /api/rig/stop`). */
+export interface OutputStopOut {
+  address: Address;
+  device: string;
+  /** What a stop writes: a number, or `keep`; null where the device's stop command runs. */
+  stop: number | "keep" | null;
+  /** `off` (the driver's inactive level), `you said` (the rig file's `stop:`), `nobody said`, `command`. */
+  source: "off" | "you said" | "nobody said" | "command";
+  command: string | null;
+  /** The controller driving it, if any. */
+  controller: Address | null;
+  /** Always false: nothing here acts if flyball is not running. */
+  covered_if_flyball_dies: boolean;
+  warnings: string[];
+}
+
+/** `GET <root>/api/rig/stop`: the stop a Software stop would apply, output by output. */
+export interface StopPlan {
+  stopped: LatchOut | null;
+  outputs: OutputStopOut[];
 }
 
 // Passkey wire types: for Phase 3 (passkeys in the Go front). Nothing serves /api/auth/passkey/* in
@@ -852,6 +1097,8 @@ export interface RigVersionDetail extends RigVersion {
 export interface SaveResult {
   path: string;
   document: RigDocument;
+  /** False when the default overlay already said the same, so nothing was rewritten. */
+  written: boolean;
 }
 
 // endregion
@@ -955,9 +1202,26 @@ export interface ControllerRow {
   feedforward: unknown;
 }
 
+/**
+ * A stored reading's `flag`. With `value` null (the no-value's quality): 1 invalid,
+ * 2 not_applicable, 3 stale, 4 stale because the device was offline. With a value (a mark):
+ * 16 at_limit low, 17 at_limit high. Null: a plain value.
+ */
+export type StoreFlag = 1 | 2 | 3 | 4 | 16 | 17;
+
+/**
+ * One stored reading, with its `flag`. An averaged bucket carries the lowest no-value code in
+ * it when any reading in it had no value.
+ *
+ * NOTE: since store migration 0021 the server sends `value: null` for a reading with no value
+ * (`flag` 1-4; a chart breaks there), and for such a bucket. `value` stays typed `number` only
+ * until the UI's session loaders (`useSession.ts`, `store/telemetry.ts`) map null to a break;
+ * then it becomes `number | null`.
+ */
 export interface Point {
   offset_ns: Nanoseconds;
   value: number;
+  flag?: StoreFlag | null;
 }
 
 /** How a series was thinned: exactly one of the three set. */
@@ -988,6 +1252,11 @@ export interface Tick {
   output: number | null;
   expected: number | null;
   delivered_correction: number | null;
+  /**
+   * A re-apply between readings (a moving setpoint's feedforward, on the rig clock): no reading,
+   * so `measured` is null and the law did not step. Always sent; optional for older servers.
+   */
+  reapplied?: boolean;
 }
 
 /** What one writable signal was set to at one instant. */
@@ -1081,7 +1350,11 @@ export interface SimulationClock {
 
 /** What the rig last delivered on one signal read off a plant: noise and all, not the model's state. */
 export interface SimulationReading {
+  /** The delivered value. NOTE: `null` when the reading has none (a failed sensor); typed
+   * `number` until the simulation page handles that, like `Point.value`. */
   value: number;
+  /** `ok`, or why there is no value (a failed sensor reads `invalid`). */
+  quality?: Quality;
   unit: string;
   precision: number | null;
   /** The device that read it. */

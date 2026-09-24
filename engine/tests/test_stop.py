@@ -1,7 +1,9 @@
 """`POST /api/rig/stop` and the `SIGUSR1` break-glass: one stop, two ways in.
 
-The interim stop (until the signals work's lands) interrupts the program, puts every
-controller in manual and writes nothing: each writable device is reported `held`.
+The oven's heater is a `demand: output` port (a setpoint): it declares no `off`, so the
+stop leaves it as it is and reports it `unchanged`. The stop itself is latched,
+interrupts the program and puts every controller in manual. What a stop writes is
+`test_wf3_stop.py`'s.
 """
 
 from __future__ import annotations
@@ -27,7 +29,8 @@ from flyball.interfaces.server.deps import current_stopper, get_dialect, set_sto
 from flyball.interfaces.server.dialect import program_from_document
 from flyball.model.controller import ControllerMode
 from flyball.rig import Rig
-from flyball.runner.stopping import Actor, InterimStopper, StopReport, install_break_glass
+from flyball.rig.stopping import RigStopper
+from flyball.runner.stopping import Actor, StopReport, install_break_glass
 from flyball.runtime.config import AuthConfig, load_rig_config
 from flyball.sequencing import Programmer
 
@@ -89,7 +92,7 @@ def _outputs(rig: Rig) -> dict[str, Any]:
 # region The route
 
 
-def test_interim_report(oven, monkeypatch):
+def test_report(oven, monkeypatch):
     rig, programmer = oven
     _run_program(rig, programmer)
     before = _outputs(rig)
@@ -103,12 +106,14 @@ def test_interim_report(oven, monkeypatch):
     report = response.json()
     assert report["program_interrupted"] is True
     assert report["controllers_manual"] == ["heater.drive"]
-    assert report["interim"] is True
+    assert report["interim"] is False
+    assert report["latched"] is True
     assert report["reason"] == "lid open"
     # Every writable device, and only those: the thermocouple has nothing to stop.
     assert set(report["devices"]) == {"heater"}
     assert report["devices"]["heater"]["state"] == "unchanged"
-    assert "nothing written" in report["devices"]["heater"]["detail"]
+    assert "no stop declared" in report["devices"]["heater"]["detail"]
+    assert report["devices"]["heater"]["kept"] == {"heater.drive": 50.0}
     assert "safe" not in json.dumps(report).lower()
     assert report["actor"]["via"] == "http"
     assert isinstance(report["at_ns"], int) and report["at_ns"] > 0
@@ -130,7 +135,7 @@ def test_a_second_stop_is_idempotent(oven, monkeypatch):
 
     assert first["program_interrupted"] is True
     assert second["program_interrupted"] is False  # nothing was running the second time
-    for key in ("controllers_manual", "devices", "interim"):
+    for key in ("controllers_manual", "devices", "interim", "latched"):
         assert second[key] == first[key]
     assert rig.controllers["heater.drive"].mode is ControllerMode.MANUAL
     assert writes.calls == []
@@ -169,7 +174,7 @@ class Counting:
     def __init__(self) -> None:
         self.actors: list[Actor] = []
 
-    def stop(self, actor: Actor, reason: str) -> StopReport:
+    def stop(self, actor: Actor, reason: str, *, latch: bool = True) -> StopReport:
         self.actors.append(actor)
         return StopReport(
             at_ns=1,
@@ -273,11 +278,11 @@ def test_revocation_changes_nothing(oven, monkeypatch):
 # region The stopper itself
 
 
-def test_interim_stopper_is_thread_safe(oven, monkeypatch):
+def test_stopper_is_thread_safe(oven, monkeypatch):
     rig, programmer = oven
     _run_program(rig, programmer)
     writes = Writes(rig.devices["heater"], monkeypatch)
-    stopper = InterimStopper(rig, programmer)
+    stopper = RigStopper(rig, programmer)
     actor = Actor(sub="t", sid="", kind="human", via="http")
     reports: list[StopReport] = []
     threads = [
@@ -303,15 +308,14 @@ def test_a_failing_controller_is_reported_not_raised(oven, monkeypatch):
         raise RuntimeError("stuck")
 
     monkeypatch.setattr(controller, "manual", broken)
-    report = InterimStopper(rig, programmer).stop(Actor("t", "", "human", "http"), "")
+    report = RigStopper(rig, programmer).stop(Actor("t", "", "human", "http"), "")
     assert report.controllers_manual == []
-    assert report.devices["heater"]["state"] == "failed"
     assert "stuck" in report.devices["heater"]["detail"]
 
 
 def test_no_stopper_until_a_rig_is_set(oven):
     rig, programmer = oven
-    assert isinstance(current_stopper(), InterimStopper)
+    assert isinstance(current_stopper(), RigStopper)
     set_rig(None)
     assert current_stopper() is None
     set_rig(rig)

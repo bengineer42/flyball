@@ -3,7 +3,8 @@
 A device is a Python class with *descriptors* for its signals and, where it
 does something, a `read` and/or a `commit`. A *driver config* beside it
 registers a type so a rig file can say `driver: <type>`. Check what you wrote
-with `check_driver`, attach it with `attach_device`, keep it with `save_rig`.
+with `check_driver`, attach it with `attach_device`: the change is saved and the
+rig restarts with it.
 
 ## First: does it need code at all?
 
@@ -157,9 +158,12 @@ fakes are how a driver is tested without hardware.
    error.
 3. `reload_drivers`, then `list_drivers` shows the type.
 4. `attach_device(name, entry)` with `{"driver": "<type>", "link": "...",
-   ...}`; `read` or `view_device` to see it live; `set_demand` or its
-   commands to drive it.
-5. `save_rig` writes the entry into the rig file so it survives a restart.
+   ...}`. It is saved (a new rig version, and the overlay beside the rig
+   file), then the rig is stopped and the runner restarts with it: wait for
+   the runner to answer again, then `read` or `view_device` to see it live,
+   `set_demand` or its commands to drive it. Controllers come back in manual.
+5. It survives a restart already. `save_rig` with a `path` writes the whole
+   rig into a rig file of your choosing.
 
 A driver package that ships is registered with an entry point instead:
 `[project.entry-points."flyball.configs"] name = "package.module"`.

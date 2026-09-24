@@ -37,6 +37,13 @@ export interface Navigation {
   onWheelY?: (u: uPlot, deltaY: number) => void;
 }
 
+/** The largest finite value in `xs` (times ascend, so it is the last finite one), or null. */
+function lastFinite(xs: ArrayLike<number> | undefined): number | null {
+  if (!xs) return null;
+  for (let i = xs.length - 1; i >= 0; i--) if (Number.isFinite(xs[i])) return xs[i]!;
+  return null;
+}
+
 export function navigation(): Navigation {
   let held: [number, number] | null = null;
 
@@ -46,6 +53,11 @@ export function navigation(): Navigation {
     xRange(_u, min, max, windowS) {
       if (held) return held;
       if (!windowS) return [min, max];
+      // The newest point, from the data itself: with a single point (or all points at one time) uPlot
+      // pads a time scale's max far ahead -- a thousand days -- and a window hung from that max shows
+      // an empty chart dated years ahead. The data's own last time is what "live" means.
+      const newest = lastFinite(_u.data[0] as ArrayLike<number> | undefined);
+      if (newest !== null) max = newest;
       // No points yet: a window ending now, so an empty chart is not labelled with whatever uPlot makes of NaN.
       if (!Number.isFinite(max)) return [Date.now() / 1000 - windowS, Date.now() / 1000];
       // Live follows the right edge (UI.md B8): the newest point sits at the right and the window

@@ -47,9 +47,11 @@ and `GET /api/controllers/{address}` carry it as `ControllerOut`.
 
 A measured signal's node delivers a sample; the rig calls `controller.on_reading(reading)`
 for the controller regulating it, which asserts the reading is on
-`self.measured_signal` and calls `tick(reading)`. A controller with no fresh reading —
-the rig re-applying after a manual demand elsewhere, `apply()` — calls
-`tick(None)`.
+`self.measured_signal` and calls `tick(reading)`. `apply()` -- a caller
+putting the output back after a manual demand elsewhere -- calls
+`tick(None)`. Between readings the rig's timer calls
+[`reapply`](#between-readings-reapply) instead, never `tick(None)`: a
+`tick(None)` clears `held` and would use up a resume.
 
 ```python
 # flyball/control/controller.py, trimmed
@@ -65,7 +67,10 @@ def tick(self, reading):
         return                                # too soon: reading recorded, nothing else runs this tick
 
     if self.mode.active():                                  # regulating
-        if (reason := self.hold()) is not None:           # the rig would refuse the write
+        reason = self.hold()                              # the rig would refuse the write
+        if reason is None and reading is not None and not reading.usable:
+            reason = Code.FROZEN                          # no value: never stepped on, rig or not
+        if reason is not None:
             self.held = reason                            # frozen: no step, no write
             return
         resumed, self.held = self.held is not None, None
@@ -149,8 +154,11 @@ Seven things to note:
    asks `self.hold()` -- the rig's
    [`hold_reason`][flyball.rig.rig.Rig.hold_reason], injected like `write`
    -- whether the rig would refuse its write: `stale_input` (the measured signal is
-   older than `stale_after_s`) or `limit_unknown` (a limit on the output
-   follows a signal with no finite value, D-030). If so the tick returns
+   older than `stale_after_s`), `limit_unknown` (a limit on the output
+   follows a signal with no finite value, D-030), `not_permitted` (the
+output's `permissive:` does not allow a write now) or `frozen` (the measured
+   signal's newest reading is a `NoValue`; the controller holds `frozen`
+   on such a reading by itself too, with no rig in front of it). If so the tick returns
    there: the law does not step, `correction`, `output`, `expected` and
    `delivered_correction` keep their last values, and `held` records the
    reason. Stepping anyway would integrate the error against a write that
@@ -162,10 +170,91 @@ Seven things to note:
    yet), so the law's `dt` is at most one ordinary interval and the result
    is what it would have been had the held ticks never happened. The rig
    holds each reason as a condition on the controller in `rig.conditions`
-   (`stale_input`, `limit_unknown`): set on every held call, which raises
+   (`stale_input`, `limit_unknown`, `frozen`): set on every held call, which raises
    it once, and cleared on the first call that is not held, and `demand(by=controller)` asks `hold_reason`
-   again for the write itself. Unattached, `hold` is
-   `Controller._never_held`.
+   again for the write itself. `frozen` clears only once `RESUME_AFTER` (3)
+   readings in a row have had a value: the rig counts them per controller as
+   it steps it, and until then `hold_reason` keeps answering `frozen`.
+   Unattached, `hold` is `Controller._never_held`. `last_value` is None
+   while the newest reading has no value, so `regulate(ValueSource.MEASURED)`
+   refuses, and a `TRACK`/`CARRY` handover seeds as if nothing had been read.
+8. **Resuming re-seeds a trajectory.** A generator is a function of
+   absolute time, so its clock ran on through the hold. On the first step
+   after one, `_reseed(time_ns, reading)` asks the `SetpointGenerator` to
+   `reseed(now_s, value)`: the segment in force walks on from the reading
+   at its own rate, never faster, and so ends later if it has further to
+   go. A dwell is left alone; a profile re-seeds its current segment and
+   shifts the later ones. When the end moves, `on_reseed(was, end)` -- the
+   rig's, injected like `hold` -- raises a `reseeded` event on the
+   controller (`{end_was_s, end_s}`).
+9. **`regulate` asks a guard first.** `self.guard()` -- the rig's
+   `stopping.regulate_refusal`, injected at attach -- names a latch that
+   holds the controller, its output or the rig; `regulate` then raises
+   `ConflictError` (409) before anything changes. Nothing that regulates
+   can clear a latch: only a person's Reset, or the HTTP route's own
+   shortcut for a controller's `on_fault: manual` latch. Unattached, the
+   guard is `Controller._never_refused`.
+
+## Between readings: `reapply`
+
+E25 (D-052). While a controller is `REGULATING` on a generator that has not
+finished, through a feedforward other than `none` (`Controller.follows`),
+the rig runs `reapply(time_ns)` every `setpoint_period_s` (default
+`max(0.1 s, poll_s / 4)`) on its timers. It writes `feedforward(setpoint_at(now),
+rate_at(now)) + correction` -- the last correction, unchanged -- and returns
+whether it wrote. It returns at once in `MANUAL`, off a moving setpoint,
+while `held` is set (it tests `held`, never assigns or clears it), when the
+last measured reading has no value, when `hold()` gives a reason, and when
+the output would not change. It never touches `_last_step_ns`,
+`_step_interval_ns` or `offset_ns`, so the next reading steps the law as it
+would have.
+
+The controller tells the rig when its reference or mode changes
+(`on_reference`, injected like `write` and `hold`, called by `regulate`,
+`set_setpoint` and `manual`); the rig arms the periodic call then, and
+cancels it off a moving setpoint without taking its lock (a stop puts every
+controller in `MANUAL` without waiting behind a delivery). The call itself is
+serialised like a delivery: under `rig.lock`, in its own `_touched`, one
+commit, `controller_states` updated, and a tick recorded with `reapplied`
+and no reading. A re-apply at the same instant as a reading's tick gives
+way to it in the store.
+
+## Fault time
+
+The rig's `faults` ([`Faults`][flyball.rig.faults.Faults]) keeps, per
+controller, the outage of its measured signal (A5): every delivery to the
+controller (`Rig._step`) starts, pauses or ends it, and fault time accrues
+on the rig clock only while the source is `invalid` or `stale`. On each
+entry into fault-class a one-shot is armed for the wait still to go
+(`max(2·poll_s, 1 s)` for a single observation, 0 for staleness by age or a
+law that raises); a reading that is not a fault cancels it. When it comes
+up it takes the rig's lock, checks again, and releases the outage -- once,
+and only while `REGULATING` -- to `faults.on_fault`, which the rig sets to
+[`Stopping.on_fault`][flyball.rig.stopping.Stopping.on_fault]. The
+arithmetic ([`Accrual`][flyball.rig.faults.Accrual]) is shared with the
+bands' `invalid` grace.
+
+Freezing and acting are two separate things. The freeze is the tick's
+own hold (7): immediate, per reading, and undone by itself after
+`RESUME_AFTER` readings with a value. The release is the rig's, once per
+outage, and acts on the controller's `OnFault`:
+
+- `freeze` (the default) is never released: `on_fault` returns at once.
+- `{freeze_s: d, then: a}` (`OnFault(action, freeze_s)`) arms the one-shot
+  for `d` of accrued fault time instead of the reason's wait.
+- A law that raises is released at once with the reason `law_error`, and
+  takes `OnFault.escalated()`: the stricter of the configured action and
+  `manual`.
+- `manual`, `stop` and `stop_device` put the controller in manual, set a
+  `Latch` with the cause `on_fault:<controller>` (holding the controller;
+  and the output signal for `stop`, or the device where a command stops
+  it; the device for `stop_device`), then write the stop under the lock
+  already held (`stop_locked`: a blocking device's writer is handed it and
+  not waited for), and raise an `on_fault` event. A latch on the store's
+  `latch` table survives a restart; `Stopping.attach` re-applies it.
+
+The one-shot runs inside the runner. If the process is stuck or dead,
+nothing is released: no bound on a freeze is kept outside flyball.
 
 ## The feedforward
 

@@ -46,7 +46,7 @@ no per-device subcommand tree built from the schema -- those were `cli.py`'s
 | `watch STREAM` | `/ws/STREAM` | one JSON line per frame; `samples`, `controllers`, `writes`, `signals` |
 | `view DEVICE` | `GET /api/devices/DEVICE` | one device's signal tree |
 | `device-schema DEVICE` | `GET /api/schema` (the `devices.DEVICE` branch) | one device's config/signal/command schemas |
-| `invoke DEVICE COMMAND [KEY=VALUE ...\|JSON]` | `POST /api/devices/DEVICE/commands/COMMAND` | run a device command |
+| `invoke DEVICE COMMAND [KEY=VALUE ...\|JSON]` | `POST /api/devices/DEVICE/commands/COMMAND` | run a device command; prints `{result, interrupted}` |
 | `sessions` | `GET /api/history/sessions` | recorded sessions, newest first |
 | `export SESSION [--format csv\|json\|zip] [--out PATH]` | `GET /api/history/sessions/SESSION/export` | a session as a table; written to `PATH` or stdout |
 | `program check\|run\|status\|cancel PATH` | `/api/programs/*` | validate, start, watch, cancel a program (`run` takes `[--cancel]`) |
@@ -94,7 +94,12 @@ password: give the CLI its token (`--token`, `FLYBALL_TOKEN`).
 ### Stopping a rig
 
 `flyball stop` sends the [software stop](../1-running/runner/access.md#stopping-the-rig)
-(program interrupted, every controller in manual, nothing written). How it
+(the rig latched, long commands cancelled, program interrupted, every
+controller in manual, each device's resolved stop written). The printed
+report has a line per device (`stopped`, `unchanged` or `failed`, and why)
+and, while the rig is latched, `latched: automatic writes are refused until
+a person resets it`; the reset is `POST /api/rig/reset`, with no subcommand
+yet. How it
 reaches the rig depends on how the rig is named (D-042):
 
 | | how | the report |
@@ -156,7 +161,7 @@ is stopped with `--pid` or `--front-dir`.
 
 | command | | |
 | --- | --- | --- |
-| `rig check FILE... [--set KEY=VALUE] [--print]` | validate one or more rig files (later overlays earlier) against the embedded rig schema and the same hand-written cross-field rules `RigConfig` enforces; prints a one-line summary, and the merged document with `--print`. The schema holds the drivers and links of every first-party package (the engine, `flyball-sim`, `-modbus`, `-visa`, `-chips`, `-linux`, `-qcodes`, `-pymeasure`, and `examples/furnace`), not those of a package of your own; and a `board:` profile is not applied, so a device that names a `pin:` is refused here though the runner accepts it |
+| `rig check FILE... [--set KEY=VALUE] [--print]` | validate one or more rig files (later overlays earlier) against the embedded rig schema and the same hand-written cross-field rules `RigConfig` enforces; prints a one-line summary, and the merged document with `--print`. The schema holds the drivers and links of every first-party package (the engine, `flyball-sim`, `-modbus`, `-visa`, `-chips`, `-linux`, `-qcodes`, `-pymeasure`, and `examples/furnace`), not those of a package of your own; and a `board:` profile is not applied, so a device that names a `pin:` is refused here though the runner accepts it. It checks the schema only, so it cannot see a driver's `off`: what a stop would write to each output, and the warnings about it, are `GET /api/rig/stop` on a running rig and the runner's log at start |
 | `rig schema` | the rig file's JSON Schema, for an editor (`# yaml-language-server: $schema=`) |
 | `program schema` | the program file's JSON Schema |
 | `run RIG-FILE [--listen ADDR] [--uv] [--insecure-open] [flyball-runner flags...]` | [start a rig](#flyball-run) behind a front, in the foreground |
@@ -253,7 +258,7 @@ than use a shared directory.
 ### Named tokens
 
 `flyball token create|list|revoke --config PATH` work offline on the file a
-front reads its named tokens from, under a lock, so they are safe while the
+front reads its named tokens from, under a lock, so they may be used while the
 front runs; it notices a change at its next check. `create` takes
 `--config` more than once and `--set KEY=VALUE`, merged as `flyball run
 PATH PATH… --set …` merges them, so `runner.front.tokens` limits the token

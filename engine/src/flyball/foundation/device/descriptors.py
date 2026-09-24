@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar, Self, overload
 
-from ..errors import NotReadyError
 from ..quantities.quantity import Quantity
 from ..quantities.si import Unitless
 from .signal import (
@@ -21,10 +20,10 @@ from .signal import (
     Signal,
     SignalRef,
     SignalSpec,
-    Value,
 )
 
 if TYPE_CHECKING:
+    from .binding import InputBinding
     from .device import Device
 
 
@@ -33,7 +32,7 @@ class Namespace:
 
     `flows = Namespace("flows", "Flows")` on the class; `self.flows` is the
     bound [Node][flyball.foundation.device.signal.Node]. Its `demand`, `readout`,
-    `setting`, `config` and `input` make the signals under it.
+    `setting` and `input` make the signals under it.
     """
 
     def __init__(
@@ -77,10 +76,6 @@ class Namespace:
     def setting(self, name: str, label: str = "", *args: Any, **meta: Any) -> Setting:
         """A signal under this namespace that a command re-sets; shown, not driven."""
         return Setting(name, label, *args, parent=self, **meta)
-
-    def config(self, name: str, label: str = "", *args: Any, **meta: Any) -> ConfigSignal:
-        """A signal under this namespace effective at build: the driver pushes it once."""
-        return ConfigSignal(name, label, *args, parent=self, **meta)
 
     def input(self, name: str, label: str = "", *args: Any, **meta: Any) -> Input:
         """An input grouped under this namespace for the schema; not in the tree (rig-bound)."""
@@ -230,50 +225,14 @@ class Setting(Descriptor[Signal]):
     role = Role.SETTING
 
 
-class ConfigSignal(Descriptor[Signal]):
-    """Effective at build, shown, never set at run time: the driver pushes it once. `R`."""
+class Input(Descriptor["InputBinding"]):
+    """An input: another device's signal, or a number, bound by the rig (`inputs: {dry: ...}`).
 
-    role = Role.CONFIG
-
-
-class BoundInput:
-    """An input on an instance: the source signal the rig bound, and its current value."""
-
-    __slots__ = ("device", "input")
-
-    def __init__(self, device: Device, input: Input) -> None:
-        self.device = device
-        self.input: Any = input  # not a class-level Descriptor annotation: see Namespace
-
-    @property
-    def signal(self) -> Signal | None:
-        """The bound source, or None until the rig binds one."""
-        bound = self.device.bound.get(self.input.name)
-        return bound if isinstance(bound, Signal) else None
-
-    @property
-    def value(self) -> Value:
-        """The source's newest value; the input's default before one arrives.
-
-        Raises:
-            NotReadyError: Nothing bound or read, and no default.
-        """
-        if (signal := self.signal) is not None and (reading := signal.reading) is not None:
-            return reading.value
-        default = self.input.default
-        if isinstance(default, Descriptor):
-            return self.device.signals[default.path].value
-        if default is None:
-            raise NotReadyError(f"{self.device.name}.{self.input.name}: nothing has been read")
-        return default
-
-
-class Input(Descriptor[BoundInput]):
-    """Another device's signal, bound by the rig to this input (`inputs: {dry: ...}`).
-
-    Not in the device's tree: `self.dry_supply` is the source signal once
-    bound, and reads `default` (a number, or a config descriptor) before
-    that or when nothing has been read on it yet. It has no `Role` and no
+    Not in the device's tree: on an instance, `self.dry_supply` is the
+    [InputBinding][flyball.foundation.device.binding.InputBinding] the rig
+    resolved it to -- its `value`, `quality` and source. It has no default:
+    an input takes its value only from what it is bound to, and a rig file
+    that binds it to nothing is refused at load. It has no `Role` and no
     access: an input is a binding, never a signal of this device, so it is
     told apart by its type and never becomes a `SignalSpec`.
     """
@@ -285,16 +244,19 @@ class Input(Descriptor[BoundInput]):
         quantity: Quantity | None = None,
         vtype: Any = float,
         *,
-        default: Any = None,
         parent: Namespace | None = None,
         **meta: Any,
     ) -> None:
+        if "default" in meta:
+            raise TypeError(
+                f"input {name!r}: an input has no default; bind it to a number in the rig"
+                f" file instead (`inputs: {{{name}: 36.5}}`)"
+            )
         super().__init__(name, label, quantity, vtype, access=Access(0), parent=parent, **meta)
-        self.default = default
 
-    def on(self, device: Device) -> BoundInput:
-        """What this input is on an instance: the bound source and its current value."""
-        return BoundInput(device, self)
+    def on(self, device: Device) -> InputBinding:
+        """What this input is on an instance: the binding the rig resolves."""
+        return device.binding(self.name)
 
 
 def _declare(owner: type, item: Namespace | Descriptor[Any]) -> None:

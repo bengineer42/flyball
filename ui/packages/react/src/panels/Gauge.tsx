@@ -3,7 +3,7 @@ import { alarmLevel, describeUnit, staleAfterS, withUnit, type AlarmLevel, type 
 export type GaugeKind = "thermometer" | "tank" | "dial" | "bar";
 
 export interface GaugeProps {
-  signal: Bands & Pick<SignalOut, "unit" | "precision">;
+  signal: Bands & Pick<SignalOut, "unit" | "precision"> & Partial<Pick<SignalOut, "poll_s">>;
   /** The current reading; undefined draws an empty gauge. */
   value: number | undefined;
   /** Default by unit: temperatures a thermometer, percentages a tank, else a dial. */
@@ -103,7 +103,7 @@ export function Gauge({ signal, value, kind = gaugeKindFor(signal.unit), height,
   return (
     <div
       className={`fb-gauge fb-gauge-${kind} fb-alarm-${level}`}
-      title={stale ? `stale — last sample ${ageS} s ago (over ${staleAfterS(fresh?.periodS)} s)` : withUnit(`${range[0]} – ${range[1]}`, signal.unit)}
+      title={stale ? `stale — last sample ${ageS} s ago (over ${staleAfterS(signal.poll_s ?? fresh?.periodS)} s)` : withUnit(`${range[0]} – ${range[1]}`, signal.unit)}
     >
       {kind === "thermometer" && <Thermometer {...drawing} />}
       {kind === "tank" && <Tank {...drawing} />}

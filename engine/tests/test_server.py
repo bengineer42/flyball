@@ -10,6 +10,7 @@ import pytest
 
 from conftest import TestClient
 from flyball.foundation.device import (
+    Access,
     Committable,
     Demand,
     Namespace,
@@ -17,6 +18,7 @@ from flyball.foundation.device import (
     Readable,
     Readout,
     Sample,
+    Setting,
     Severity,
     Signal,
     command,
@@ -25,6 +27,7 @@ from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Percent, Watt
 from flyball.foundation.router import Trigger
 from flyball.interfaces.server import create_app, set_rig
+from flyball.rig.polling import ReadPolicy
 from flyball.sequencing.devices import RunCommand
 
 TEMP = Quantity("temperature", Celsius)
@@ -218,11 +221,16 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
         "warning": [0.0, 1100.0],
         "alarm": [-10.0, 1150.0],
         "poll_s": None,
+        "stale_after_s": None,
         "limits": None,
         "role": "readout",
         "tags": {},
         "initial": None,
+        "quality": "pending",
+        "readback": None,
+        "on_no_value": "fire",
         "latest": None,
+        "last_usable": None,
         "write": None,
     }
     assert furnace["signals"][2]["access"] == "rpw", "a demand is readable, publishing and writable"
@@ -234,6 +242,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": None,
             "links": {},
         },
@@ -244,6 +253,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": "setpoint",
             "links": {},
         },
@@ -267,6 +277,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": None,
             "links": {},
         },
@@ -277,6 +288,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": None,
             "links": {},
         },
@@ -287,6 +299,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": None,
             "links": {},
         },
@@ -297,6 +310,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": "heater1",
             "links": {},
         },
@@ -307,6 +321,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": "heater2",
             "links": {},
         },
@@ -316,8 +331,16 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
     sample = deliver(rig, daq, 5_000_000_000)
     rig.write(drive.root, {"heater1": 3000.0})
     one = client.get(f"/api/devices/{daq.name}").json()
-    assert one["signals"][0]["latest"] == {"time_ns": sample.time_ns, "value": 21.5}
-    assert one["signals"][2]["latest"] == {"time_ns": sample.time_ns, "value": 0.0}, "RW reads too"
+    assert one["signals"][0]["latest"] == {
+        "time_ns": sample.time_ns,
+        "value": 21.5,
+        "quality": "ok",
+    }
+    assert one["signals"][2]["latest"] == {
+        "time_ns": sample.time_ns,
+        "value": 0.0,
+        "quality": "ok",
+    }, "RW reads too"
     heater1 = client.get(f"/api/devices/{drive.name}").json()["signals"][0]
     assert heater1["write"] == {
         "value": 2500.0,
@@ -387,7 +410,7 @@ def test_device_schema_and_commands(client, rig, drive, daq):
     assert set(everything["devices"]) == {daq.name, drive.name}
 
     r = client.post(f"/api/devices/{drive.name}/commands/set_duty", json={"duty": 0.4})
-    assert r.status_code == 200 and r.json() == 0.4
+    assert r.status_code == 200 and r.json() == {"result": 0.4, "interrupted": []}
     assert client.post(f"/api/devices/{drive.name}/commands/off").status_code == 200
     tree = client.get(f"/api/devices/{drive.name}").json()["signals"]
     duty = next(s for s in tree if s["name"] == "duty")
@@ -416,7 +439,7 @@ def test_read_by_address(client, rig, daq, clock):
     assert client.get(f"/api/read/{daq.name}.zone9").status_code == 404
     sample = deliver(rig, daq, 5_000_000_000)
     assert client.get(f"/api/read/{zone1}").json() == {
-        "reading": {"signal": zone1, "time_ns": 5_000_000_000, "value": 21.5}
+        "reading": {"signal": zone1, "time_ns": 5_000_000_000, "value": 21.5, "quality": "ok"}
     }
     assert daq.reads == 1, "a plain read is what is known; the device was not asked"
     assert client.get(f"/api/read/{daq.name}").json() == {
@@ -433,7 +456,9 @@ def test_read_by_address(client, rig, daq, clock):
     daq.temps["zone1"] = 99.0
     clock.advance(1.0)
     fresh = client.get(f"/api/read/{zone1}?fresh=true").json()
-    assert fresh == {"reading": {"signal": zone1, "time_ns": clock.now_ns(), "value": 99.0}}
+    assert fresh == {
+        "reading": {"signal": zone1, "time_ns": clock.now_ns(), "value": 99.0, "quality": "ok"}
+    }
     assert daq.reads == 2 and rig.latest[daq.signals["zone1"]].value == 99.0, "delivered too"
 
     many = client.get(f"/api/read?at={zone1},{daq.name}.zone2,{daq.name}").json()
@@ -499,7 +524,7 @@ def test_a_demand_whose_limit_is_not_known_yet_is_a_503_and_reaches_nothing(clie
         assert r.status_code == 503, "not ready: never passed through unclamped"
         assert (
             "limit" in r.json()["detail"]
-            and "follows 'supply', which has no value yet" in r.json()["detail"]
+            and "follows 'supply' (pending), which has no value yet" in r.json()["detail"]
         )
     assert supplied.inputs == {}
 
@@ -574,9 +599,10 @@ def test_health_alarms_never_count_a_device_condition(client, rig, daq):
     """One offline device is one fault and zero alarms: `ok` says it, `alarms` does not."""
     daq.poll_s = 0.5
     daq.broken = True
+    rig.polling.defaults = ReadPolicy(fail_after=1)
     rig.start_polling(daq)
     rig.polling.stop_all()
-    rig.polling._read(daq)  # one poll, as the loop would: it fails and stops
+    rig.polling._read(daq)  # one poll, as the loop would: it fails, and the budget is 1
     body = client.get("/api/health").json()
     assert body["ok"] is False
     assert (
@@ -588,7 +614,13 @@ def test_health_alarms_never_count_a_device_condition(client, rig, daq):
 def test_health_without_a_rig_says_so():
     set_rig(None)
     with TestClient(create_app()) as c:
-        assert c.get("/api/health").json() == {"ok": False, "rig": None, "exposure": None}
+        assert c.get("/api/health").json() == {
+            "ok": False,
+            "rig": None,
+            "stopped": None,
+            "latches": [],
+            "exposure": None,
+        }
 
 
 def test_events_are_kept_and_streamed(client, rig):
@@ -612,12 +644,11 @@ def test_events_are_kept_and_streamed(client, rig):
 
 
 def test_samples_stream_carries_only_what_publishes(rig, fresh):
-    """A config is `[R]`, not `[P]`: mixed into a sample with a zone, only the zone streams."""
-    from flyball.foundation.device import ConfigSignal
+    """A setting read on demand is `[R]`, not `[P]`: mixed into a sample, only the zone streams."""
 
     class Mixed(Readable):
         zone = Readout("zone", "", TEMP)
-        static = ConfigSignal("static", "", TEMP)
+        static = Setting("static", "", TEMP, access=Access.R)
 
         def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
             yield self.sample(time_ns, zone=0.0)
@@ -664,7 +695,12 @@ def test_read_and_samples_stream_carry_enum_and_json_values(client, rig, typed):
 
     mode = client.get(f"/api/read/{typed.name}.mode").json()
     assert mode == {
-        "reading": {"signal": f"{typed.name}.mode", "time_ns": sample.time_ns, "value": "running"}
+        "reading": {
+            "signal": f"{typed.name}.mode",
+            "time_ns": sample.time_ns,
+            "value": "running",
+            "quality": "ok",
+        }
     }
     config = client.get(f"/api/read/{typed.name}.config").json()
     assert config["reading"]["value"] == {"gain": 2, "offset": 1}
@@ -699,6 +735,7 @@ def test_writes_ride_the_samples_stream(client, rig, drive):
 def test_device_runs_ride_the_samples_stream(client, rig, daq):
     """`/ws/devices` is gone: a device's run rides beside its samples on `/ws/samples`."""
     daq.poll_s = 0.5
+    rig.polling.defaults = ReadPolicy(fail_after=1)
     rig.start_polling(daq)
     rig.polling.stop_all()
     with client.websocket_connect("/ws/samples") as ws:
@@ -988,14 +1025,17 @@ class TestSimRoutes:
 def test_a_program_command_step_on_an_offline_device_restarts_it_too(rig, daq):
     daq.poll_s = 0.5
     daq.broken = True
+    rig.polling.defaults = ReadPolicy(fail_after=1)
     rig.start_polling(daq)
     try:
         rig.polling.stop_all()
-        rig.polling._read(daq)  # one poll, as the loop would: it fails and stops
+        rig.polling._read(daq)  # one poll, as the loop would: it fails, and the budget is 1
         assert rig.polling.run(daq.name).running is False
 
         RunCommand(device_command="restore", device=daq.name).run(rig)
         assert rig.polling.run(daq.name).running is True, "the step is a fix, as the route is"
+        assert [c.code for c in rig.conditions.of(daq)] == ["offline"], "until a good read"
+        rig.polling._read(daq)
         assert rig.conditions.of(daq) == []
     finally:
         rig.polling.stop_all()
@@ -1004,10 +1044,11 @@ def test_a_program_command_step_on_an_offline_device_restarts_it_too(rig, daq):
 def test_a_command_on_an_offline_device_restarts_it(client, rig, daq):
     daq.poll_s = 0.5
     daq.broken = True
+    rig.polling.defaults = ReadPolicy(fail_after=1)
     rig.start_polling(daq)
     try:
         rig.polling.stop_all()
-        rig.polling._read(daq)  # one poll, as the loop would: it fails and stops
+        rig.polling._read(daq)  # one poll, as the loop would: it fails, and the budget is 1
         assert rig.polling.run(daq.name).running is False
         body = client.get(f"/api/devices/{daq.name}").json()
         assert body["run"] == {
@@ -1016,11 +1057,15 @@ def test_a_command_on_an_offline_device_restarts_it(client, rig, daq):
             "last_read_ns": None,
             "read_s": None,
             "missed": 0,
+            "reading_since_ns": None,
+            "consecutive_failures": 1,
+            "next_retry_ns": body["run"]["next_retry_ns"],
         }
         assert body["conditions"][0]["code"] == "offline"
 
         assert client.post(f"/api/devices/{daq.name}/commands/restore").status_code == 200
         assert rig.polling.run(daq.name).running is True
+        rig.polling._read(daq)  # the first good read clears it, not the restart
         assert rig.conditions.of(daq) == []
         rig.polling.stop_all()
 

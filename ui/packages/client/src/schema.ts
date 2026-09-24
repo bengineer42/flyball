@@ -616,6 +616,15 @@ export function staleAfterS(periodS: number | null | undefined): number {
 }
 
 /**
+ * Seconds without a sample before a signal counts as stale, or null when it is not read on a
+ * period at all (`null`: a pushed or written-only signal, which holds its value between writes and
+ * is never stale by age). `undefined` -- the period not known yet -- keeps the 5 s floor.
+ */
+export function staleThresholdS(periodS: number | null | undefined): number | null {
+  return periodS === null ? null : staleAfterS(periodS);
+}
+
+/**
  * Freshness for one signal, in RIG time (a simulated rig's clock runs
  * faster than the wall clock, so `nowS` must come from `/api/clock` or the
  * newest sample across the rig, never `Date.now()`).
@@ -674,8 +683,8 @@ export function alarmLevel(
   fresh?: Freshness | null,
   band?: "ok" | "warn" | "alarm",
 ): AlarmLevel {
-  if (fresh && fresh.lastSampleS != null && fresh.nowS != null && fresh.nowS - fresh.lastSampleS > staleAfterS(signal.poll_s ?? fresh.periodS))
-    return "stale";
+  const limit = fresh ? staleThresholdS(signal.poll_s ?? fresh.periodS) : null;
+  if (fresh && limit !== null && fresh.lastSampleS != null && fresh.nowS != null && fresh.nowS - fresh.lastSampleS > limit) return "stale";
   // The rig raises band alarms (a `band_warning`/`band_alarm` condition on the signal) and the UI
   // shows its word for it. Only a caller with no rig feed (a standalone panel) leaves `band` out and
   // gets the value checked against the bands here instead.

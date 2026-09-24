@@ -24,7 +24,7 @@ Writes are two-phase, the mirror of a sample:
 2. `commit(time_ns) -> None` — pushes everything recorded since the last
    commit to hardware **once**. The rig calls it at the end of every
    delivery that touched the device — a demand applied, or one of its
-   `Input` signals landing — and immediately after a manual demand. The
+   inputs' sources landing — and immediately after a manual demand. The
    default writes each staged value through `write_signal`; a composite
    device overrides `commit` itself to do arithmetic across everything
    staged and everything it reads from its inputs (`self.<input>.value`) —
@@ -44,9 +44,12 @@ not echo it as a reading, reports it with the reading unchanged and the
 demand as `requested`, and raises a `demand_ignored` event once until one
 is read again. A composite that drives from its target and has no use for a
 line demand in its present mode gets exactly this for that demand. If
-`commit` raises, the device's staged demands are dropped (not sent with a
-later commit) and a `commit_failed` event names it; the rest of the
-delivery goes on.
+`commit` raises, the device's staged demands are kept for its next commit
+and retried on the rig's clock, a `write_failed` condition names the
+device until a commit succeeds, and the rest of the delivery goes on
+([A write that fails](../../2-config/devices/index.md#a-write-that-fails)).
+Retrying sends a demand's latest value again: `commit` should set levels,
+which a second send does not change.
 
 There is no dirty flag to maintain in a driver: the rig tracks which
 devices a delivery touched and calls `commit` once per device, however many
@@ -54,9 +57,10 @@ signals on it changed.
 
 ## Limits and controllers
 
-A `W` signal's `limits` — numbers on the descriptor, or a reference to
-another signal of the same device (`limits=(0.0, max_flow_config)`,
-resolved live) — are enforced by the rig before `apply` is ever called: a
+A `W` signal's `limits` — numbers on the descriptor (or set on the instance
+in `__init__`, `self.dry_flow.set_meta(limits=(0.0, max_flow))`), or a
+reference to another signal or an input of the same device
+(`limits=(dry_supply, wet_supply)`, resolved live) — are enforced by the rig before `apply` is ever called: a
 demand outside them is clamped, and the committed state's `at_limit` says
 which rail it landed on. `signal.limits` always gives the
 numbers in force, whichever way they were declared, and `None` while a referenced
@@ -65,21 +69,69 @@ signal has no value yet or a non-finite one (NaN, inf). That case fails closed: 
 `NotReadyError`, 503 over HTTP) rather than let the demand through --
 even when the other end is a number, because the unknown end is usually
 the one that matters. A manual demand or a command's linked argument is
-refused whole; a controller's write is held (nothing applied) with a
-`limit_unknown` event, and `limit_known` once the bound reads a finite value. A driver
+refused whole, naming the bound and its quality (`its limit follows 'dry'
+(pending)`); a controller's write is held (nothing applied) with a
+`limit_unknown` condition -- `info` while what it follows is only
+`pending`, `warning` once it is `stale` or `invalid` -- cleared once the
+bound reads a finite value. A driver
 whose reference should never block a demand gives that signal an
 `initial` value. A controller drives at most one
 writable signal; the signal knows which one, so the committed state's
 `controller` names it and a manual demand against a controlled signal is
 refused.
 
+## Inputs
+
+What a device follows -- another device's signal, or a number -- is an
+`Input`, declared in the class body and bound in the rig file
+(`inputs: {dry: hum_sensors.dry.humidity, wet: 88.5}`). It has no default:
+the rig file gives every declared input an address or a number, or it does
+not load.
+
+```python
+class Blender(Committable):
+    humidities = Namespace("humidities", "Supply humidities")
+    dry_supply = humidities.input("dry", "Dry line humidity", HUMIDITY)
+    wet_supply = humidities.input("wet", "Wet line humidity", HUMIDITY)
+    humidity = Demand("humidity", "Humidity", HUMIDITY, limits=(dry_supply, wet_supply))
+    expected = Readout("expected_humidity", "Expected humidity", HUMIDITY)
+
+    def commit(self, time_ns: int) -> None:
+        try:
+            dry, wet = values_of(self.dry_supply, self.wet_supply)
+        except NoValueError as error:
+            self.expected.push(error.no_value, time_ns)  # the supply's quality, carried
+            return
+        except NotReadyError:
+            return  # pending: nothing to say yet
+        ...
+```
+
+- On an instance, `self.dry_supply` is its
+  [`InputBinding`](../model.md#inputs): `value` raises `NotReadyError` while
+  it is `pending` and `NoValueError` while its source has no value --
+  never a stand-in number. A limit may follow it.
+- **When it lands.** The rig calls `inputs_changed(time_ns, changed)` in the
+  delivery that brought the reading, before the controllers step; a device
+  with demands is then committed too, and reads it there. A device with no
+  demands that computes an output from an input (a curve, a sum) overrides
+  `inputs_changed` and pushes the output; it is delivered in the same chain,
+  so a controller measuring it does not lag.
+- **An output computed from an input carries its quality**: push the
+  `NoValueError`'s `no_value` on it, not a number. `values_of(a, b)` reads
+  several and raises the one that ranks first (`stale(device_offline)` over
+  `pending` over `invalid`).
+
 ## Demand, readout and setting
 
 A device declares what each of its signals is with a **role**: `Demand`
 (settable, `RPW`; the only thing a controller drives), `Readout` (produced
 by the device, never written from outside, `RP`), `Setting` (re-set by a
-command, `RP`) and `ConfigSignal` (set at build, `R`). On the class a
-descriptor is its spec; on an instance it is the bound signal. Checked on
+command, `RP`). A number the device is built from is not a signal: it is a
+config field, or metadata of the signal it bounds -- a pump's maximum flow
+is the top of that flow's `limits`, set in `__init__` with
+`signal.set_meta(limits=...)`. On the class a descriptor is its spec; on
+an instance it is the bound signal. Checked on
 subclassing: pydantic must be able to describe every `vtype`.
 
 ```python
@@ -131,8 +183,41 @@ command needs a docstring. `schema` is reserved as a route segment.
 
 A command with a `mode` or a linked argument changes what drives the
 device, so it is refused while a controller drives one of its demands —
-unless `interrupts=True`, which puts the controller in manual first (an
-`interrupted` event) and runs anyway.
+unless `interrupts=True`. Then the rig checks everything first, runs the
+method, and only once it has succeeded puts the controller in manual (an
+`interrupted` event); a command that raises leaves the controller
+regulating. The response names each controller it put in manual
+(`interrupted: [{controller, was}]`). A long command cannot interrupt
+(refused when the class is defined): the controller would fight it while it
+waits.
+
+A command that moves a demand without a linked argument — a relay's `on`
+and `off`, a PWM channel's `off`, a blender's `set_blend` — says so with
+`writes=`, naming the demands by descriptor or path:
+
+```python
+@command(writes=(on,))
+def off(self) -> None:
+    """Switch the line off, whatever was last demanded."""
+```
+
+It is then refused while a controller drives the device, like a command
+with a `mode`. A command that drives a private child device the rig cannot
+see (a dosing pump's motor) names the child (`writes=("pump",)`); that
+refuses nothing yet, since no controller can drive the child.
+
+A demand that only a command moves is declared `access=Access.RP`: a
+readback. A direct write to it is refused, and the refusal names the
+command whose argument is linked to it (failing one, a command that
+declares it in `writes=`), and says when that command puts a regulating
+controller in manual — `'blender.flows.dry' [rp] is not writable: it is a
+readback, moved by the command 'set_flows' (it puts a regulating controller
+in manual)`.
+
+A driver reports something that happened once — a blend flow resolved, a
+request scaled — with `self.event(code, severity, message, details)`: a
+point event, logged and recorded like the rig's own, with nothing held
+(compare `set_condition` below).
 
 A command runs under the rig lock, so it must return promptly: nothing
 waits while holding it. One that takes time — a dose, a move — is
@@ -142,8 +227,9 @@ the lock back only to record what ran. Such a command waits with
 `self.wait(seconds)`, never `time.sleep`: the wait is in the rig's time
 (a scaled or stepped sim clock scales or steps it) and returns `True` at
 once when `self.cancel()` is called. The device's `stop` command calls
-`self.cancel()` first, so a stop ends the long command straight away;
-the long command's `finally` leaves the hardware safe:
+`self.cancel()` first, so a stop ends the long command straight away (a
+rig stop, and the end of a program whose step is running it, cancel it
+too); the long command's `finally` switches the hardware off:
 
 ```python
 @command(long=True)
@@ -155,7 +241,7 @@ def dispense(self, volume_ml: float) -> None:
     finally:
         self._run(False)
 
-@command
+@command(stops=True)
 def stop(self) -> None:
     """Stop the pump now: a dose in progress ends."""
     self.cancel()
@@ -166,6 +252,48 @@ A device runs one long command at a time: a second is refused (409)
 until the first ends. A long command cannot be run by a caller already
 holding the rig lock (refused, 409); a program's `command` step does not
 hold it.
+
+## What a stop does to it
+
+A [software stop](../../1-running/runner/access.md#stopping-the-rig), a
+shutdown and a controller's `on_fault: stop` apply each device's
+[resolved stop](../../2-config/devices/index.md#stop-what-a-stop-writes).
+A driver says what that is in one of two ways, or neither.
+
+**A stop command.** `@command(stops=True)` makes a command the device's
+stop: a stop runs it instead of writing values, and the rig file's `stop:`
+values are refused on the device. At most one per driver (two are refused
+when the class is defined). It runs under the rig's lock, so it must
+return promptly and cannot be `long`; a running long command has already
+been cancelled when it runs. Use it when the device has one action that
+stops it whole -- a blender's pumps off together, a DAC's power-down, a
+stepper's enable line released. A driver whose stop depends on its config
+overrides `stops_by()`, returning the command's name or `None`
+(`scpi` returns `stop` only when a `stop_command:` is configured). If the
+stop command raises, the stop writes each demand's declared `off` instead
+and reports the device `failed`.
+
+**An `off` on a demand.** `SignalSpec(off=...)`, or `off=` on the
+descriptor, is the demand's inactive level: what a stop writes when the
+rig file says nothing for it.
+
+```python
+drive = Demand("drive", "Drive", quantity=DRIVE, limits=(0.0, 1.0), off=0.0)
+```
+
+Declare it only where it cannot be wrong. A PWM duty's 0 % is off; a DAC's
+0 V is a setpoint for a positioner or a VFD, so `mcp4725` declares none.
+Never on an inverted output (whether logical 0 is the load's off depends on
+why it was inverted), and never on a span that straddles 0, where one end
+is full reverse. `off` is a logical value, before any `invert`, in the
+signal's unit. It is written even outside `limits`, which bound regulation,
+not switching an output off. `spanned_signal_spec(..., off_at_zero=True)`
+(`flyball.hardware.spanned_demand`) declares 0, or `span[0]`, for a spanned
+demand, and none across 0; its default is none.
+
+**Neither.** The output is kept: a stop leaves it where it is, energised if
+it was, unless the rig file gives it a `stop:` value. That is the right
+answer wherever the driver cannot know what off means for the load.
 
 ## Conditions
 

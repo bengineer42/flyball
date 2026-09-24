@@ -31,7 +31,10 @@ def start(
 
 
 def start_with_store(
-    config: RigConfig, record: bool | None = None, store_path: str | Path = "flyball.sqlite"
+    config: RigConfig,
+    record: bool | None = None,
+    store_path: str | Path = "flyball.sqlite",
+    edit: int | None = None,
 ) -> tuple[Rig, Store]:
     """`start`, also returning the store so the server can read history from it.
 
@@ -39,7 +42,8 @@ def start_with_store(
     readable and recording can be started from the API either way. Opened
     before the rig is built, so a scaled clock (N19) can be seeded from
     the last session it holds -- otherwise a rig run faster than real
-    time would restart behind where it left off.
+    time would restart behind where it left off. `edit`: the rig version a rig edit saved,
+    which this start builds (it is the head: no version is recorded for the start).
 
     Raises:
         BuildFailed: The rig could not be built; nothing is left running.
@@ -54,7 +58,7 @@ def start_with_store(
         store.close()
         raise BuildFailed(str(e) or type(e).__name__) from e
     try:
-        _open(config, rig, store, record, store_path)
+        _open(config, rig, store, record, store_path, edit)
     except BaseException:
         rig.close()  # nothing left polling a rig that will not be served
         raise
@@ -98,11 +102,20 @@ def _seed_clock(config: RigConfig, store: Store) -> Clock | None:
 
 
 def _open(
-    config: RigConfig, rig: Rig, store: Store, record: bool | None, store_path: str | Path
+    config: RigConfig,
+    rig: Rig,
+    store: Store,
+    record: bool | None,
+    store_path: str | Path,
+    edit: int | None = None,
 ) -> None:
     keep_versions(
-        rig, store, "resumed" if config.resumed else "loaded" if rig.files else "started bare"
+        rig,
+        store,
+        "resumed" if config.resumed else "loaded" if rig.files else "started bare",
+        edit,
     )
+    rig.values.attach(store)  # values written in an earlier run, while the file agrees
     if record if record is not None else config.recording:
         rig.start_recording(store, config=config.model_dump(mode="json"))
         log.info("recording to %s", store_path)
@@ -112,11 +125,14 @@ START_REASONS = ("loaded", "started bare", "resumed")
 """Versions a start records, as against a change made through the API."""
 
 
-def keep_versions(rig: Rig, store: Store, reason: str) -> None:
+def keep_versions(rig: Rig, store: Store, reason: str, edit: int | None = None) -> None:
     """Record the rig as it stands, and every change to its composition from now on.
 
     A start whose rig is what the last version already says records nothing:
-    a runner restarted on the same files does not fill the store.
+    a runner restarted on the same files does not fill the store. Nor does the start
+    after a rig edit, at the version `edit` it saved: that version is the rig, though the
+    running rig may render a detail the saved document left to the build (a controller's
+    feedforward resolved from the units, the one controller made the default).
     """
 
     def version(why: str) -> None:
@@ -126,7 +142,7 @@ def keep_versions(rig: Rig, store: Store, reason: str) -> None:
         log.info("rig version %d: %s", row.id, why)
 
     head = store.head_rig_version()
-    if head is None or head.document != rig.document():
+    if head is None or (head.id != edit and head.document != rig.document()):
         version(reason)
     rig.on_change = version
 

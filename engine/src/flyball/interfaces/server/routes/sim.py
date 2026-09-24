@@ -138,7 +138,7 @@ def read_device(rig: RigDep, device: SimulationDeviceDep) -> Any:
     return {
         "config": device.config,
         "values": {
-            path: None if (r := rig.router.reading(s)) is None else r.value
+            path: None if (r := rig.router.reading(s)) is None or not r.usable else r.value
             for path, s in device.signals.items()
         },
     }
@@ -158,7 +158,7 @@ def run_device_command(
 ) -> Any:
     """Run the command with the validated body; respond with whatever it returns."""
     assert isinstance(device, Device)
-    return run(rig, device, command, body)
+    return run(rig, device, command, body).result
 
 
 # endregion

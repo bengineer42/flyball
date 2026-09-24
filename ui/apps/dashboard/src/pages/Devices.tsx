@@ -252,6 +252,7 @@ function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; sc
 
 /** The rig's links, name and type, each with a remove button (409 while a device is built on it). */
 export function LinksSection({ document, schema, showAdd = true }: { document: QueryState<RigDocument>; schema: QueryState<JsonSchema>; showAdd?: boolean }) {
+  const { canOperate } = useAuth();
   const rig = useRig();
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -281,7 +282,7 @@ export function LinksSection({ document, schema, showAdd = true }: { document: Q
           Links
         </Typography>
         {showAdd && (
-          <Button size="small" startIcon={<AddIcon />} sx={{ ml: "auto" }} onClick={() => setAdding(true)} data-testid="add-link">
+          <Button size="small" startIcon={<AddIcon />} sx={{ ml: "auto" }} disabled={!canOperate} onClick={() => setAdding(true)} data-testid="add-link">
             Add link
           </Button>
         )}
@@ -299,7 +300,7 @@ export function LinksSection({ document, schema, showAdd = true }: { document: Q
               key={name}
               label={`${name} · ${String(entry.type)}`}
               variant="outlined"
-              onDelete={() => setRemoving(name)}
+              onDelete={canOperate ? () => setRemoving(name) : undefined}
               data-testid={`link-${name}`}
             />
           ))}
@@ -334,6 +335,7 @@ export function LinksSection({ document, schema, showAdd = true }: { document: Q
 
 /** Every device the rig has, as cards: `#/devices` without a name. The simulation device (if any) stays on its own page. */
 export function Devices({ devices }: { devices: DeviceOut[] }) {
+  const { canOperate } = useAuth();
   const runs = useDeviceRuns();
   const rig = useRig();
   const schema = useRigFileSchema();
@@ -383,9 +385,11 @@ export function Devices({ devices }: { devices: DeviceOut[] }) {
               run={runs[d.name]}
               actions={
                 <Tooltip title="Remove this device from the rig">
-                  <IconButton aria-label={`remove device ${d.name}`} size="small" onClick={() => setRemoving(d.name)} data-testid={`remove-${d.name}`}>
-                    <DeleteOutlineIcon fontSize="small" />
-                  </IconButton>
+                  <span>
+                    <IconButton aria-label={`remove device ${d.name}`} size="small" disabled={!canOperate} onClick={() => setRemoving(d.name)} data-testid={`remove-${d.name}`}>
+                      <DeleteOutlineIcon fontSize="small" />
+                    </IconButton>
+                  </span>
                 </Tooltip>
               }
             />

@@ -88,8 +88,9 @@ Three kinds of object, told apart by who changes them and when:
 | the running rig | `Node`, `Signal`, `Device`, `Rig`, `Controller` | mutable, identity-hashed, made once at startup — the running graph: things happen *to* them |
 | one instant | `Reading`, `Sample`, `Write`, `WriteState`, `Event` | frozen — facts about one moment; recorded, streamed, compared; never changed after the fact |
 
-A device's own signal roles follow the same split (below): a
-`Role.CONFIG` signal is set when the rig is built; a
+A device's own signals follow the same split (below): what it is built
+from (driver config, and metadata such as a pump's maximum as the top of
+its flow's `limits`) is set when the rig is built; a
 `Role.DEMAND`/`Role.SETTING`/`Role.READOUT` signal's readings are facts
 about one instant. Two rules
 keep "mutable" from meaning "anything goes": after startup, mutation goes
@@ -103,11 +104,10 @@ both.
 
 ## Devices
 
-Every signal has a **role** (`Role.DEMAND`, `Role.READOUT`, `Role.SETTING`,
-`Role.CONFIG`), which sets its default access; an input is not a signal of
-the device and has no role. Structure is declared once as descriptors in
-the class body (`Namespace`, `Demand`, `Readout`, `Setting`, `ConfigSignal`,
-`Input`) or built from config in
+Every signal has a **role** (`Role.DEMAND`, `Role.READOUT`, `Role.SETTING`),
+which sets its default access; an input is not a signal of the device and
+has no role. Structure is declared once as descriptors in the class body
+(`Namespace`, `Demand`, `Readout`, `Setting`, `Input`) or built from config in
 `__init__` and bound with `Device.bind`. `Device.__init_subclass__` collects
 every descriptor into `DESCRIPTORS`, checks `vtype` and `config`'s return
 type against pydantic, and collects `@command` methods — checking every
@@ -125,10 +125,14 @@ reader/actuator class any more:
 [commit][flyball.foundation.device.device.Committable.commit] for the demand side;
 `cls.readable`/`cls.writable` are derived from whether `read`/`commit` is
 defined. A device may be either, both, or neither, and separately declare
-`Input` signals — another device's signal the rig binds to a role; when one
-lands the rig commits the device, which reads it itself
-(`self.<input>.value`, from the router) inside `commit`. There is no
-`observe` callback.
+`Input`s -- what it follows, another device's signal or a number. Each is
+one [`InputBinding`][flyball.foundation.device.binding.InputBinding] for
+the device's life, made unbound when the device is and pointed at its
+source by the rig (`Rig.bind`, from `bind_inputs`) at build. When a source
+gets a reading the rig tells the device (`inputs_changed`, before the
+controllers step) and commits it if it has demands; it reads the value
+itself through the binding (`self.<input>.value`, from the router). There
+is no `observe` callback.
 
 Writes are two-phase: `apply(signal, time_ns, value)` records one value
 with no hardware I/O, and `commit(time_ns) -> None` pushes everything

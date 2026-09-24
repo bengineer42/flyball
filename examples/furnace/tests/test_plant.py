@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from flyball.control.feedforward import Table
+from flyball.foundation.device import invalid
 from flyball.model.feedforward import NoFeedforward
 from flyball.sequencing import Manual, Program, Programmer, Ramp, Regulate, Wait
 from flyball.runtime.config import RigConfig, resolve_document
@@ -96,7 +97,8 @@ def _zone(rig, name: str) -> float:
 def test_the_example_reads_every_port_from_one_plant(furnace_rig):
     rig = furnace_rig
     clock = rig.clock
-    assert isinstance(clock, SteppedClock) and clock.scheduled == 1, "one daq polled, on the clock"
+    assert isinstance(clock, SteppedClock), "on the clock"
+    assert list(rig.polling.periodic) == ["furnace"], "one daq polled"
     assert set(rig.devices) == {"furnace", "heaters"}
     assert rig.devices["furnace"].plant is rig.devices["heaters"].plant is rig.links["tube"]
     rig.detach_controller("heaters.heater1")  # a driven signal refuses a manual demand
@@ -137,15 +139,17 @@ def test_a_firing_runs_deterministically_on_the_stepped_clock(furnace_rig):
         assert rig.controllers[f"heaters.{name.replace('zone', 'heater')}"].mode.value == "manual"
 
 
-def test_a_failed_thermocouple_takes_the_daq_offline_with_an_event(furnace_rig):
+def test_a_dead_bus_takes_the_daq_offline_and_it_retries(furnace_rig):
     rig = furnace_rig
     furnace = rig.devices["furnace"]
-    furnace.fail("zone3")
+    furnace.fail("zone3", raises=True)
     rig.clock.advance(2)
+    assert rig.conditions.of(furnace) == [], "two failed reads: under the budget of 3"
+    rig.clock.advance(1)
     run = rig.polling.run("furnace")
     (offline,) = rig.conditions.of(furnace)
-    assert run.running is False and offline.code == "offline"
-    assert "zone3" in offline.message
+    assert run.running is True and offline.code == "offline", "offline, and still retrying"
+    assert "zone3" in offline.message and run.consecutive_failures == 3
     assert any(
         e.code == "offline" and e.edge == "raised" and e.subject == "furnace" for e in rig.recent
     )
@@ -153,10 +157,31 @@ def test_a_failed_thermocouple_takes_the_daq_offline_with_an_event(furnace_rig):
     furnace.restore("zone3")
     assert all(c.code != "broken" for c in furnace.held_conditions()) and furnace.broken == ()
     zone1 = rig.resolve("furnace.zone1")
-    assert zone1 not in rig.latest, "it failed on the first poll: nothing was ever read"
-    rig.polling.restart("furnace")
-    rig.clock.advance(2)
+    assert zone1 not in rig.latest, "it failed from the first poll: nothing was ever read"
+    rig.clock.advance(1)  # the first retry, 1 s after going offline
+    assert rig.conditions.of(furnace) == [], "the first good read clears it"
     assert rig.latest[zone1].time_ns > 0, "polled again"
+
+
+def test_an_open_thermocouple_reads_invalid_and_freezes_its_zone_s_loop(furnace_rig):
+    rig = furnace_rig
+    furnace = rig.devices["furnace"]
+    controller = rig.controllers["heaters.heater3"]
+    rig.clock.advance(1)
+    controller.regulate(200.0)
+    rig.clock.advance(5)
+    output = controller.output
+    furnace.fail("zone3")
+    rig.clock.advance(5)
+    zone3 = rig.resolve("furnace.zone3")
+    assert rig.latest[zone3].value == invalid("sensor_failed")
+    assert rig.conditions.of(furnace) == [], "a no-value is a good read: never offline"
+    assert controller.held == "frozen" and controller.output == output, "the law never saw it"
+    zone1 = rig.latest[rig.resolve("furnace.zone1")]
+    assert zone1.usable and zone1.time_ns == rig.latest[zone3].time_ns, "the others read on"
+    furnace.restore("zone3")
+    rig.clock.advance(3)
+    assert rig.latest[zone3].usable and controller.held is None
 
 
 # The single-zone losses curve for the furnace's shared loss model

@@ -12,7 +12,7 @@ from __future__ import annotations
 import heapq
 import time
 from collections.abc import Callable
-from threading import Event, Lock, RLock
+from threading import Event, Lock, get_ident
 
 from flyball.foundation.time import Clock
 
@@ -28,14 +28,19 @@ class SteppedClock(Clock):
     the arithmetic takes.
     """
 
-    __slots__ = ("_advancing", "_due", "_elapsed_ns", "_lock", "_seq")
+    __slots__ = ("_advance_lock", "_advancer", "_due", "_elapsed_ns", "_lock", "_seq")
 
     def __init__(self, seconds: float | int | None = None) -> None:
         self._elapsed_ns = 0
-        self._due: list[tuple[int, int, int, Callable[[], object]]] = []
+        self._due: list[tuple[int, int, int | None, Callable[[], object]]] = []
         self._seq = 0
-        self._lock = RLock()
-        self._advancing = False
+        self._lock = Lock()
+        """Guards the schedule alone, and is never held while a scheduled call runs: a call
+        may schedule or cancel, and another thread may, while the clock advances."""
+        self._advance_lock = Lock()
+        """One advance at a time; a second thread's waits for the first to finish."""
+        self._advancer: int | None = None
+        """The thread advancing now, so a scheduled call that tries to advance is refused."""
         super().__init__(seconds)
 
     def monotonic_ns(self) -> int:
@@ -50,10 +55,17 @@ class SteppedClock(Clock):
         """Run `fn` every `period_s` of clock time, first after one period; returns a handle."""
         if period_s <= 0:
             raise ValueError("period must be positive")
+        period_ns = round(period_s * 1e9)
+        return self._push(period_ns, period_ns, fn)
+
+    def call_later(self, delay_s: float, fn: Callable[[], object]) -> int:
+        """Run `fn` once, `delay_s` of clock time from now (0: on the next advance); a handle."""
+        return self._push(max(0, round(delay_s * 1e9)), None, fn)
+
+    def _push(self, delay_ns: int, period_ns: int | None, fn: Callable[[], object]) -> int:
         with self._lock:
             self._seq += 1
-            period_ns = round(period_s * 1e9)
-            heapq.heappush(self._due, (self._elapsed_ns + period_ns, self._seq, period_ns, fn))
+            heapq.heappush(self._due, (self._elapsed_ns + delay_ns, self._seq, period_ns, fn))
             return self._seq
 
     def cancel(self, handle: int) -> None:
@@ -75,22 +87,25 @@ class SteppedClock(Clock):
         """
         if seconds < 0:
             raise ValueError("a clock does not go backwards")
-        with self._lock:
-            if self._advancing:
-                raise RuntimeError(
-                    "the clock is already advancing; a scheduled call cannot advance it"
-                )
-            self._advancing = True
+        if self._advancer == get_ident():
+            raise RuntimeError("the clock is already advancing; a scheduled call cannot advance it")
+        with self._advance_lock:
+            self._advancer = get_ident()
             try:
                 target = self._elapsed_ns + round(seconds * 1e9)
-                while self._due and self._due[0][0] <= target:
-                    due, seq, period_ns, fn = heapq.heappop(self._due)
-                    self._elapsed_ns = due
-                    heapq.heappush(self._due, (due + period_ns, seq, period_ns, fn))
+                while True:
+                    with self._lock:
+                        if not self._due or self._due[0][0] > target:
+                            break
+                        due, seq, period_ns, fn = heapq.heappop(self._due)
+                        self._elapsed_ns = due
+                        if period_ns is not None:
+                            heapq.heappush(self._due, (due + period_ns, seq, period_ns, fn))
                     fn()
-                self._elapsed_ns = target
+                with self._lock:
+                    self._elapsed_ns = max(self._elapsed_ns, target)
             finally:
-                self._advancing = False
+                self._advancer = None
         return self.now_ns()
 
     def sleep(self, seconds: float) -> None:

@@ -35,6 +35,9 @@ Layout = Literal["wide", "long"]
 
 TIME_COLUMNS = ("time_s", "time")
 
+_ABSENT = object()
+"""Not in this sample, as against in it with no value (None)."""
+
 
 def _stamp(start_ns: int, offset_ns: int) -> tuple[float, str]:
     at = datetime.fromtimestamp((start_ns + offset_ns) / 1e9, tz=UTC)
@@ -88,32 +91,35 @@ def session_table(
     by_instant: dict[int, list] = {}
     for device in store.devices(session_id):
         for sample in store.samples(session_id, device.address):
-            row = by_instant.setdefault(sample.offset_ns, [None] * len(signals))
+            row = by_instant.setdefault(sample.offset_ns, [_ABSENT] * len(signals))
             for address, value in sample.values.items():
                 index = order.get(address)
                 if index is not None:
                     row[index] = value
     # Devices sample on their own clocks, milliseconds apart, so a row per raw
     # instant would be mostly blank: each row carries the last value of every
-    # signal instead, and `step_s` resamples that onto a regular grid.
+    # signal instead, and `step_s` resamples that onto a regular grid. A reading
+    # with no value (stored null) is carried as a blank until a value comes; on
+    # the grid, a cell is blank if any reading since the last cell had no value.
     held: list = [None] * len(signals)
     rows: list[list] = []
     instants = sorted(by_instant)
     if step_s is None:
         for at in instants:
-            held = [v if v is not None else h for v, h in zip(by_instant[at], held, strict=True)]
+            held = [h if v is _ABSENT else v for v, h in zip(by_instant[at], held, strict=True)]
             rows.append([*_stamp(session.start_ns, at), *held])
     elif instants:
         step_ns = int(step_s * 1e9)
         i = 0
         for at in range(0, instants[-1] + 1, step_ns):
+            broken = [False] * len(signals)
             while i < len(instants) and instants[i] <= at:
-                held = [
-                    v if v is not None else h
-                    for v, h in zip(by_instant[instants[i]], held, strict=True)
-                ]
+                values = by_instant[instants[i]]
+                held = [h if v is _ABSENT else v for v, h in zip(values, held, strict=True)]
+                broken = [b or v is None for v, b in zip(values, broken, strict=True)]
                 i += 1
-            rows.append([*_stamp(session.start_ns, at), *held])
+            cells = [None if b else h for h, b in zip(held, broken, strict=True)]
+            rows.append([*_stamp(session.start_ns, at), *cells])
     return [*TIME_COLUMNS, *(_column(s) for s in signals)], rows
 
 

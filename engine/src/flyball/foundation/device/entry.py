@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import MISSING, fields
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -14,7 +14,8 @@ from flyball.model.catalog import Catalogs, get_catalog
 from ..errors import NotFoundError
 from ..time.clock import Rate
 from .device import Device, DriverConfig
-from .signal import Access, Bounds, Node, NodeSpec, Signal, SignalSpec
+from .novalue import OnNoValue
+from .signal import KEEP, Access, Bounds, Keep, Node, NodeSpec, Role, Signal, SignalSpec
 
 
 def _period(value: float | None, name: str | None) -> float | None:
@@ -22,6 +23,63 @@ def _period(value: float | None, name: str | None) -> float | None:
     if value is not None and not (math.isfinite(value) and value > 0):
         raise ValueError(f"{name} {value!r}: must be a finite number of seconds above zero")
     return value
+
+
+def _backoff(value: list[float] | None) -> list[float] | None:
+    """A backoff sequence: at least one wait, each finite and above zero."""
+    if value is None:
+        return value
+    if not value:
+        raise ValueError("backoff_s: give at least one wait")
+    for wait in value:
+        _period(wait, "backoff_s")
+    return value
+
+
+def _budget(value: int | None) -> int | None:
+    if value is not None and value < 1:
+        raise ValueError(f"fail_after {value!r}: must be at least 1")
+    return value
+
+
+class Reads(BaseModel):
+    """A device's `reads:`: when failed reads put it offline, and how it retries.
+
+    `fail_after` reads that raise in a row put the device `offline`; it is
+    then read again after each wait in `backoff_s` in turn, the last one
+    repeating, until a read succeeds. `give_up_after_s` stops the retries
+    that long after `offline` was raised (null: never). A key left out is
+    the runner's `reads:`, then the built-in default.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    fail_after: int | None = Field(
+        default=None, description="Reads that raise in a row before the device is offline."
+    )
+    backoff_s: list[float] | None = Field(
+        default=None,
+        description="Seconds between retries while offline, in turn; the last repeats.",
+    )
+    give_up_after_s: float | None = Field(
+        default=None,
+        description="Stop retrying this long after the device went offline; null: never.",
+    )
+
+    @field_validator("fail_after")
+    @classmethod
+    def _at_least_one(cls, value: int | None) -> int | None:
+        return _budget(value)
+
+    @field_validator("backoff_s")
+    @classmethod
+    def _waits(cls, value: list[float] | None) -> list[float] | None:
+        return _backoff(value)
+
+    @field_validator("give_up_after_s")
+    @classmethod
+    def _positive_seconds(cls, value: float | None, info: Any) -> float | None:
+        return _period(value, info.field_name)
 
 
 class SignalMeta(BaseModel):
@@ -49,8 +107,18 @@ class SignalMeta(BaseModel):
     stale_after_s: float | None = None
     limits: Bounds | None = None
     max_rate: Rate | None = None
+    on_no_value: OnNoValue | None = Field(
+        default=None,
+        description="A banded signal with no value because of a fault: fire (band_unknown) or"
+        " ignore. Default: fire with an alarm band, ignore with only a warning band.",
+    )
     tags: dict[str, str] | None = None
     """Groupings across the tree, `{axis: name}`, added to the driver's."""
+    record: bool | None = Field(
+        default=None,
+        description="false: left out of a recording started with the default selection (a raw"
+        " value a derived signal is computed from). Default: recorded.",
+    )
     access: str | None = None
     readable: bool | None = None
     published: bool | None = None
@@ -113,6 +181,49 @@ class NamespaceMeta(BaseModel):
 NamespaceMeta.model_rebuild()
 
 
+class Permissive(BaseModel):
+    """A demand's permissive: writes to it are refused unless `signal`'s value is in the band.
+
+    `above` and `below` bound the value (either or both); a value with no reading, or no
+    value (`stale`, `invalid`, `pending`), refuses -- a permissive fails closed. A write
+    of the demand's resolved stop value, and a stop itself, are never refused.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    signal: str = Field(description="The address whose value permits the write.")
+    above: float | None = Field(default=None, description="Permit only above this value.")
+    below: float | None = Field(default=None, description="Permit only below this value.")
+
+    @model_validator(mode="after")
+    def _a_bound(self) -> Permissive:
+        if self.above is None and self.below is None:
+            raise ValueError(f"permissive on {self.signal!r}: give `above`, `below` or both")
+        for name in ("above", "below"):
+            value = getattr(self, name)
+            if value is not None and not math.isfinite(value):
+                raise ValueError(f"permissive {name} {value!r}: must be finite")
+        if self.above is not None and self.below is not None and self.above >= self.below:
+            raise ValueError(
+                f"permissive on {self.signal!r}: above {self.above} is not below {self.below}"
+            )
+        return self
+
+    def holds(self, value: float) -> bool:
+        """Whether `value` permits the write."""
+        return (self.above is None or value > self.above) and (
+            self.below is None or value < self.below
+        )
+
+    def describe(self) -> str:
+        parts = [f"> {self.above:g}" if self.above is not None else ""]
+        parts.append(f"< {self.below:g}" if self.below is not None else "")
+        return f"{self.signal} {' and '.join(p for p in parts if p)}"
+
+
+type OnShutdown = Literal["stop", "keep"]
+
+
 class DeviceEntry(BaseModel):
     """The envelope of one device in the rig file: flyball's keys, the same for every driver.
 
@@ -127,13 +238,62 @@ class DeviceEntry(BaseModel):
     label: str | None = None
     poll_s: float | None = None
     signals: dict[str, SignalMeta | NamespaceMeta] = Field(default_factory=dict)
-    inputs: dict[str, str] = Field(default_factory=dict)
-    """Input name -> address on another device; the rig binds it."""
+    inputs: dict[str, str | float] = Field(
+        default_factory=dict,
+        description="Input name -> what it follows: an address on another device"
+        " (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares"
+        " must be given one; it has no default.",
+    )
+    """Input name -> an address on another device, or a number; the rig binds it."""
+    reads: Reads | None = None
+    """When failed reads put the device offline, and how it retries; the runner's otherwise."""
+    retry_max_age_s: float | None = Field(
+        default=None,
+        description="How long a value a failed write kept may wait to be sent again; older is"
+        " dropped, not sent. Omit for 60 s.",
+    )
+    stop: dict[str, float | Keep] | None = Field(
+        default=None,
+        description="Demand path -> what a stop writes to it: a number, or `keep` to leave it as"
+        " it is. A demand left out takes its driver's `off`, else keeps. Refused on a device"
+        " whose driver has a stop command (it stops the whole device).",
+    )
+    on_shutdown: OnShutdown | None = Field(
+        default=None,
+        description="What the runner's shutdown does to this device: `stop` (its resolved stop)"
+        " or `keep` (writes nothing). Omit for the runner's `on_shutdown`.",
+    )
+    permissive: dict[str, Permissive] | None = Field(
+        default=None,
+        description="Demand path -> the value condition a write to it needs: `{signal: <address>,"
+        " above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+    )
 
-    @field_validator("poll_s")
+    @field_validator("stop")
+    @classmethod
+    def _finite_stops(cls, value: dict[str, float | Keep] | None) -> dict[str, float | Keep] | None:
+        for path, stop in (value or {}).items():
+            if stop != KEEP and not math.isfinite(float(stop)):
+                raise ValueError(f"stop.{path}: {stop!r} is not finite")
+        return value
+
+    @field_validator("poll_s", "retry_max_age_s")
     @classmethod
     def _positive_seconds(cls, value: float | None, info: Any) -> float | None:
         return _period(value, info.field_name)
+
+    @field_validator("inputs", mode="before")
+    @classmethod
+    def _addresses_or_numbers(cls, value: Any) -> Any:
+        if isinstance(value, Mapping):
+            for name, source in value.items():
+                if isinstance(source, bool) or not isinstance(source, (str, int, float)):
+                    raise ValueError(
+                        f"inputs.{name}: {source!r} is neither an address nor a number"
+                    )
+                if isinstance(source, float) and not math.isfinite(source):
+                    raise ValueError(f"inputs.{name}: {source!r} is not finite")
+        return value
 
     @model_validator(mode="before")
     @classmethod
@@ -188,7 +348,59 @@ class DeviceEntry(BaseModel):
         if self.poll_s is not None:
             device.poll_s = self.poll_s
         _set_meta_under(device.root, self.signals)
+        _set_stops(device, self.stop or {})
+        for path in self.permissive or {}:
+            _writable_demand(device, path, "permissive")
         return device
+
+
+def _writable_demand(device: Device, path: str, key: str) -> Signal:
+    """The writable demand at `path` on `device`, for the entry's `key`; else a ValueError."""
+    signal = device.signals.get(path)
+    if signal is None:
+        raise ValueError(f"{key}.{path}: {path!r} is not a signal of {device.name!r}")
+    if signal.role is not Role.DEMAND or Access.W not in signal.access:
+        raise ValueError(
+            f"{key}.{path}: '{signal.address}' [{signal.access}] is not a writable demand"
+        )
+    return signal
+
+
+def _set_stops(device: Device, stops: Mapping[str, float | Keep]) -> None:
+    """The rig file's `stop:` onto each demand, checked: a writable demand, inside static limits.
+
+    Refused whole on a device whose driver stops it with a command: its stop is that
+    command, and a value beside it would never be written (or would fight it).
+    """
+    if stops and (command := device.stops_by()) is not None:
+        raise ValueError(
+            f"stop: {device.name!r} is stopped by its driver's {command!r} command; per-signal"
+            " stop values are refused on it"
+        )
+    for path, value in stops.items():
+        signal = _writable_demand(device, path, "stop")
+        if value != KEEP:
+            number = float(value)
+            low, high = _static_bounds(signal)
+            if (low is not None and number < low) or (high is not None and number > high):
+                raise ValueError(
+                    f"stop.{path}: {number:g} is outside '{signal.address}' limits"
+                    f" [{'' if low is None else f'{low:g}'}, {'' if high is None else f'{high:g}'}]"
+                )
+            value = number
+        signal.stop = value
+
+
+def _static_bounds(signal: Signal) -> tuple[float | None, float | None]:
+    """The numeric ends of `signal`'s limits (a bound that follows a signal is not static)."""
+    low = high = None
+    if (declared := signal.spec.limits) is not None:
+        low = declared[0] if isinstance(declared[0], (int, float)) else None
+        high = declared[1] if isinstance(declared[1], (int, float)) else None
+    if (narrowed := signal.narrowed) is not None:
+        low = narrowed[0] if low is None else max(low, narrowed[0])
+        high = narrowed[1] if high is None else min(high, narrowed[1])
+    return low, high
 
 
 _SIGNAL_FIELDS = (
@@ -200,6 +412,8 @@ _SIGNAL_FIELDS = (
     "poll_s",
     "stale_after_s",
     "max_rate",
+    "on_no_value",
+    "record",
 )
 _NODE_FIELDS = ("label", "poll_s", "tags")
 

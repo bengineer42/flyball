@@ -41,7 +41,7 @@ holds for a program file, a library upload and a `--set` value.
 | `recording` | bool | open a session when the runner starts |
 | `clock` | `{speed?, stepped?}` | run the rig's time faster (`speed`, default 1×), or only when stepped (`stepped`, for a batch run or a test); refused unless every link is `sim_*`/`fake_*` |
 | `extends` | `[path, …]` | this file's own bases, resolved and merged (in order) before this file's own keys are layered on top; the command line's own overlay list still wins |
-| `runner` | `RunnerConfig` | how the process serves -- port, who may reach a bare runner (`auth`), how `flyball run`'s front serves it ([`front`](#the-front)), what the API may do, where the store and the directories are; not part of the rig (not in its document or versions; a save over an existing file keeps that file's own section), overridden by the flags of the same names. Every key: [The runner section](../2-config/runner.md) |
+| `runner` | `RunnerConfig` | how the process serves -- port, who may reach a bare runner (`auth`), how `flyball run`'s front serves it ([`front`](#the-front)), what the API may do, where the store and the directories are, the default `reads: {fail_after: 3, backoff_s: [1, 2, 5, 15, 60]}` for every device; what shutting down does to outputs (`on_shutdown: stop | keep`, default `stop`); not part of the rig (not in its document or versions; a save over an existing file keeps that file's own section), overridden by the flags of the same names. Every key: [The runner section](../2-config/runner.md) |
 | `links` | `{name: Link}` | declared once, referred to by name |
 | `devices` | `{name: DeviceEntry}` | the envelope + the driver's own config, [flat beside it](#devices) |
 | `controllers` | `{output-address: ControllerEntry}` | keyed by the demand driven, the controller's output |
@@ -66,6 +66,15 @@ applies as a one-key overlay on top of every file. `extends:` inside a
 file resolves the same way, under that file, before the command line's
 files are merged with each other.
 
+After the command line's files, every start also loads the files in
+`<first file>.d/` (`lab.yaml.d/*.yaml`, sorted), before `--set`. The
+runner's own is `added.<suffix>`: where a [rig edit](../glossary.md) made
+over the API is saved, as the difference from your files, so the edit
+survives a restart and a later change to your file still applies where the
+edit did not touch it. Delete it to go back to your files alone; the one an
+edit replaced is kept as `added.<suffix>.prev`
+([Building a rig while it runs](../1-running/runner/building.md)).
+
 The point of an overlay is that it swaps the **drivers** behind the same
 device and signal names, so every address, controller, dashboard, program
 and recorded session is identical whether the rig is real or simulated.
@@ -88,7 +97,12 @@ field named like an envelope key). A nested `config:` is refused.
 | `label` | string, optional | shown instead of the name |
 | `poll_s` | number, optional | inherited down the tree; a namespace's or signal's own wins |
 | `signals` | `{name: SignalMeta \| NamespaceMeta}` | per-signal metadata and access restriction — never adds access the driver did not declare |
-| `inputs` | `{input: address}` | what this device follows on another device: an input's name from the driver's `Input` declarations, resolved to the address's `Signal`/`Node` and read as `self.<input>.value` in `commit` |
+| `inputs` | `{input: address \| number}` | what each input follows: an address on another device, resolved once at build to its `Signal` (which must publish) or `Node` (something under it must), or a finite number, a constant. The device reads it through its `InputBinding` (`self.<input>.value`). Every input the driver declares must be given one and no other name -- an input has no default; a cycle through `inputs:` is refused, the path named. [Devices: binding one device to another](../2-config/devices/index.md#binding-one-device-to-another) |
+| `reads` | `{fail_after?, backoff_s?, give_up_after_s?}`, optional | reads that raise in a row before the device is `offline` (integer ≥ 1), the waits between retries while offline (non-empty, each finite and > 0; the last repeats), and how long after going offline to stop retrying (finite, > 0; `null`: never). A key left out is `runner.reads`', then `3` / `[1, 2, 5, 15, 60]` / never. [Devices: `reads`](../2-config/devices/index.md#reads) |
+| `retry_max_age_s` | number, optional | how long a value a failed write kept may wait to be sent again (finite, > 0); older is dropped with a `write_dropped` event, not sent. Unset: 60 s. [Devices: a write that fails](../2-config/devices/index.md#a-write-that-fails) |
+| `stop` | `{path: number \| "keep"}`, optional | what a stop writes to each writable demand (by path under the device): a finite number inside the signal's static limits, or `keep` (leave it as it is); overrides the driver's `off`. Refused whole on a device whose driver has a stop command. [Devices: `stop`](../2-config/devices/index.md#stop-what-a-stop-writes) |
+| `on_shutdown` | `stop` \| `keep`, optional | what the runner's shutdown does to this device; unset: `runner.on_shutdown`. [Devices: `on_shutdown`](../2-config/devices/index.md#on_shutdown-what-shutting-down-does) |
+| `permissive` | `{path: {signal, above?, below?}}`, optional | a write to the demand at `path` is refused unless `signal`'s value is `> above` and `< below` (at least one; finite; `above < below`); fails closed; the demand's stop value is always permitted. [Devices: `permissive`](../2-config/devices/index.md#permissive-a-write-only-while-another-signal-allows-it) |
 
 ```yaml
 devices:
@@ -108,13 +122,22 @@ devices:
 (from the plan's worked example — `examples/humidity/rig-multi-sensor.yaml` is the real
 file this became).
 
-A `SignalMeta` is `{label, range, precision, warning, alarm, poll_s,
-stale_after_s, limits, max_rate, tags, access, readable, published, writable}`:
+A `SignalMeta` is `{label, range, precision, warning, alarm, on_no_value, poll_s,
+stale_after_s, limits, max_rate, tags, record, access, readable, published, writable}`
+(`record: false` leaves the signal out of a recording started with the
+default selection):
 the first group replaces metadata the driver declared (`tags` are added to the
 driver's: `{line: dry}`, a grouping across the tree the UI titles and
-filters by; `stale_after_s` is seconds since the last reading beyond which a
-controller regulated from the signal is held -- its law does not step and
-its demand is not applied;
+filters by; `stale_after_s` is seconds without a reading after which the
+rig pushes `stale` on the signal (default `max(3·poll_s, 5 s)` while its
+device is polled; a pushed signal is judged only with its own --
+[Liveness](../2-config/devices/index.md#liveness-a-signal-that-stops-arriving)),
+and a controller regulated from it holds on a reading that arrives older
+than this; `on_no_value` is `fire` or `ignore`, what a
+banded signal does while it has no value because of a fault (`fire`:
+`band_unknown` after `max(2·poll_s, 1 s)` of fault time; unset: `fire` with an `alarm`
+band, `ignore` with only `warning` --
+[Bands](../2-config/devices/index.md#a-banded-signal-with-no-value));
 `max_rate` is `{per_second: N}` (or `per_minute`, `per_hour`, ...), the
 fastest a demand may move -- a faster one is clamped to the largest step the
 elapsed time allows, up to one update period (`poll_s`, else the controller's
@@ -155,6 +178,11 @@ Any device entry may say `pin: "LABEL"` instead
 of the link/line fields, when the file has a `board`: the board's fields
 for that label fill in, and anything the entry already gives wins.
 
+The engine's one built-in driver is `values`: `values: {name: {initial,
+unit?, quantity?, label?, limits?}}`, one `setting` `rpw` per entry,
+published from build, whose last write is kept in the store and restored
+while `initial` is unchanged -- [`values`](../2-config/devices/drivers.md#values).
+
 ## Controllers
 
 Keyed by the **output's address** — a controller is named by the demand it
@@ -168,6 +196,8 @@ a setting, or an `RP` demand, is refused when the rig is built.
 | `feedforward` | `{type, ...}` | maps the measured signal's unit to the output's: `identity`, `none`, `affine {gain, bias, rate_gain?}`, `table {points, rate_gain?}`; omit for `identity` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one per file |
 | `min_period_s` | number, optional | update the law at most this often |
+| `setpoint_period_s` | number, optional | while following a moving setpoint, re-apply its feedforward this often between readings (> 0); unset: `max(0.1 s, poll_s / 4)` from the measured signal's `poll_s`. [Controllers](../2-config/controllers.md#a-setpoint-that-moves-faster-than-its-sensor) |
+| `on_fault` | `freeze` \| `manual` \| `stop` \| `stop_device` \| `{freeze_s, then}`, optional | what it does once its measured signal has been faulty for its wait; default `freeze`. `freeze_s` finite, ≥ 0; `then` one of `manual`, `stop`, `stop_device`. `stop` on an output whose stop resolves to `keep` is refused when the rig is built. [Controllers: `on_fault`](../2-config/controllers.md#on_fault-what-a-controller-does-about-a-faulty-source) |
 
 ```yaml
 controllers:

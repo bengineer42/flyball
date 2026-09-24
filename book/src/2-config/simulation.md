@@ -254,13 +254,17 @@ through the `flyball.configs` entry point, the way `examples/furnace`'s
 for exercising fault handling:
 
 ```
-flyball invoke furnace fail signal=zone3     # opens the thermocouple: reads on it raise HardwareError
-flyball invoke furnace restore signal=zone3  # mends it; a command on an offline device polls it again
+flyball invoke furnace fail signal=zone3              # opens the thermocouple: it reads invalid
+flyball invoke furnace fail signal=zone3 raises=true  # a dead bus: every read of it raises
+flyball invoke furnace restore signal=zone3           # mends it; a command on an offline device polls it again
 ```
 
-`fail` raises `HardwareError` on the next read of that signal until
-`restore` -- what a controller does about a source going offline is the
-thing to watch. `SimDrive.disturb(signal, offset)` kicks the plant's drive
+`fail` makes that signal read `invalid("sensor_failed")` until `restore`,
+as a DAQ reports an open thermocouple: the other channels read on, and a
+controller regulating on it freezes. With `raises=true` every read of the
+signal raises `HardwareError` instead, and the device goes `offline` after
+its failure budget -- what a controller does about a source going offline
+is the thing to watch. `SimDrive.disturb(signal, offset)` kicks the plant's drive
 on `signal`'s port by `offset` (in the signal's own unit) without touching
 the demand that set it there -- a door opened, a leak -- so the plant moves
 and the controller only finds out once the reading does. The kick persists

@@ -37,6 +37,13 @@ one exists.
 | `author` | saving programs, dashboards and tunings to the store | "write me a program that…", "make a dashboard for the blender" |
 | `operate` | one tool per device command (`blender-set_humidity`), demands, controllers, running programs, recording, a simulation's knobs, and `stop_rig` (the [software stop](../1-running/runner/access.md#stopping-the-rig)) | driving the rig |
 
+`stop_rig` runs the same stop as the button: the rig latched, every
+controller to manual, each device's resolved stop written. An agent can
+stop the rig but never undo a stop: while the rig is latched its writes,
+commands and `regulate` are refused, and a Reset
+(`POST /api/rig/reset`) needs a person
+([the latch](../1-running/runner/access.md#the-latch)).
+
 Entering a mode needs a verb (pending D-034): `read` for `/mcp/read`,
 `operate` for `/mcp/author` and `/mcp/operate`. Every call a tool makes
 then carries the caller's own verbs cut to what the mode allows, so a
@@ -99,7 +106,11 @@ Every tool call is recorded like any other request that needs more than
 - A device command's tool carries the argument schema the rig publishes:
   titles, units, and this instance's limits, so an out-of-range argument is
   refused before it is sent. A command that interrupts a controller is
-  marked destructive, so a client can ask first.
+  marked destructive, so a client can ask first; its description says the
+  controller goes to manual once the command succeeds, and the call's result
+  is `{result, interrupted: [{controller, was}]}`, naming it. A command with
+  a `mode` or `writes` that does not interrupt says it is refused while a
+  controller drives the device.
 - `list_devices` is name, type, label and a one-line description -- not the
   full tree `GET /api/devices` answers (signals, commands, conditions),
   which is tens of kB even on a one-device rig; its `detail` argument asks
@@ -133,16 +144,26 @@ Every tool call is recorded like any other request that needs more than
   model polls. On `read` and `author` they answer from the latest poll only;
   `operate` has the same two tools with a `fresh` argument for a live device
   read, so the read tier's "nothing here changes the rig" stays true.
+  A reading with no value comes back as `value: null` with its `quality`
+  (`invalid`, `stale`, `not_applicable`), `reason`, `last_usable` and
+  `age_s` ([no value](wire.md#a-reading-with-no-value)): a model never
+  sees a number that is not one.
   `session_series` is one recorded signal over a session; `session_ticks`
   is a recorded controller's steps over one -- mode, correction and, when
   logged, setpoint, output and measured, the data behind a ramp's setpoint
   curve, which no signal series carries.
-- The rig can be built up: `attach_link`, `attach_device`, or a whole
-  document with `attach_document`; `rig_document` shows the result,
-  `rig_versions` every change, `restore_rig_version` undoes one, `save_rig`
-  writes it out. A change rebuilds the tool list, so a new device's
-  commands appear as tools at once. A simulated or bare rig can always be
-  built up; a hardware rig only when the runner runs with `--compose`.
+- The rig can be changed: `attach_link`, `attach_device`, or a whole
+  document with `attach_document`; `detach_device`, `detach_link`;
+  `rig_document` shows the result, `rig_versions` every change,
+  `restore_rig_version` goes back to one, `save_rig` writes it out. None of
+  them changes the running rig in place (D-051): each saves a new rig
+  version, stops the rig (outputs to their stop states, a running program
+  cancelled -- refused while one runs unless `force`) and restarts the
+  runner on that version, controllers in manual. The result names the
+  version; the runner answers again once it is back, and the tool list is
+  rebuilt, so a new device's commands appear as tools. A simulated or bare
+  rig can always be changed; a hardware rig only when the runner runs with
+  `--compose`.
 - New equipment: `driver_guide` (also the resource `flyball://guide/driver`)
   says how to write a driver and when not to; `driver_scaffold` gives a
   module that already runs; `check_driver` imports one where the server

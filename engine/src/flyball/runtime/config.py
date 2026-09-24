@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,12 +68,16 @@ from flyball.control import (
 )
 from flyball.foundation.config import Config, discover_paths, discriminated_union
 from flyball.foundation.device import RESERVED_NAMES, Device, DeviceEntry, DriverConfig, Signal
+from flyball.foundation.device.entry import Reads
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, load_document
 from flyball.foundation.time import Clock
 from flyball.model.catalog import Catalogs, ensure_discovered, get_catalog
+from flyball.model.controller import OnFault
 from flyball.model.feedforward import Identity, NoFeedforward
 from flyball.rig import Rig
+from flyball.rig.polling import BACKOFF_S, FAIL_AFTER, ReadPolicy
+from flyball.rig.stopping import stop_plan
 
 log = logging.getLogger(__name__)
 
@@ -127,6 +131,21 @@ def registered(role: Role, catalogs: Catalogs | None = None) -> tuple[type[Confi
 # region The models
 
 
+class FreezeThen(BaseModel):
+    """`on_fault: {freeze_s: <s>, then: <action>}`: frozen `freeze_s` of fault time, then act."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    freeze_s: float = Field(
+        ge=0,
+        description="Seconds of fault time (accrued across flicker) to stay frozen before `then`.",
+    )
+    then: Literal["manual", "stop", "stop_device"]
+
+
+type OnFaultEntry = Literal["freeze", "manual", "stop", "stop_device"] | FreezeThen
+
+
 class ControllerEntry(BaseModel):
     """A controller and how it regulates its output; keyed by the output's address in the file."""
 
@@ -145,6 +164,26 @@ class ControllerEntry(BaseModel):
         gt=0,
         description="Update the law at most this often; omit to update on every reading.",
     )
+    setpoint_period_s: float | None = Field(
+        default=None,
+        gt=0,
+        description="While following a moving setpoint (a ramp, a profile), re-apply its"
+        " feedforward this often between readings; the law steps only on readings. Omit for"
+        " max(0.1 s, poll_s / 4) from the measured signal's poll_s.",
+    )
+    on_fault: OnFaultEntry = Field(
+        default="freeze",
+        description="What it does once its source has been faulty (stale, invalid, offline) for"
+        " its wait, or at once when its law raises: freeze (default: stays frozen, resumes by"
+        " itself), manual, stop (its output's stop), stop_device (its output's device's stop),"
+        " or {freeze_s: <s>, then: manual|stop|stop_device}. Each but freeze latches until a"
+        " person resets it; a law error takes at least manual.",
+    )
+
+    def fault_policy(self) -> OnFault:
+        """`on_fault` as the controller holds it."""
+        value = self.on_fault
+        return OnFault.parse(value.model_dump() if isinstance(value, FreezeThen) else value)
 
 
 class ClockEntry(BaseModel):
@@ -508,6 +547,30 @@ def settle_exposure(
     )
 
 
+class RunnerReads(BaseModel):
+    """`runner.reads`: the rig's default for when failed reads put a device offline.
+
+    A device's own `reads:` wins key by key. `give_up_after_s` is a device's
+    only: rig-wide, a device retries for ever.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    fail_after: int = Field(
+        default=FAIL_AFTER, description="Reads that raise in a row before a device is offline."
+    )
+    backoff_s: list[float] = Field(
+        default_factory=lambda: list(BACKOFF_S),
+        description="Seconds between retries while offline, in turn; the last repeats.",
+    )
+
+    @field_validator("fail_after", "backoff_s")
+    @classmethod
+    def _as_a_device_s(cls, value: Any, info: Any) -> Any:
+        Reads.model_validate({info.field_name: value})  # the same rules, the same messages
+        return value
+
+
 class RunnerConfig(BaseModel):
     """The `runner:` section: how the process serves, not what the rig is.
 
@@ -554,6 +617,17 @@ class RunnerConfig(BaseModel):
     )
     allow_shutdown: bool = Field(
         default=False, description="Let the API stop or restart the runner."
+    )
+    on_shutdown: Literal["stop", "keep"] = Field(
+        default="stop",
+        description="What the runner's shutdown does to outputs: stop (each device's resolved"
+        " stop, best-effort, not latched) or keep (writes nothing: outputs stay energised with"
+        " no process watching them). A device's own `on_shutdown: keep` wins over stop.",
+    )
+    reads: RunnerReads = Field(
+        default_factory=RunnerReads,
+        description="When failed reads put a device offline, and how it retries; a device's"
+        " own `reads:` wins.",
     )
     keep: str = Field(
         default="1h",
@@ -809,6 +883,8 @@ class RigConfig(BaseModel):
             link = entry.driver_config.get("link")
             if isinstance(link, str) and link not in self.links:
                 raise ValueError(f"link {link!r} is not declared; links are {sorted(self.links)}")
+            _check_inputs(name, entry, driver.device_class())
+        _refuse_input_cycles(self.devices)
         for output, controller in self.controllers.items():
             if "." not in output:
                 raise ValueError(f"controller {output!r} must be a 'node.signal' address")
@@ -858,6 +934,9 @@ class RigConfig(BaseModel):
         }
         if clock is not None:
             rig.clock = clock
+        if self.runner is not None:
+            reads = self.runner.reads
+            rig.polling.defaults = ReadPolicy(reads.fail_after, tuple(reads.backoff_s))
         # Build everything before anything runs: a failure part-way leaves no
         # thread polling and no name claimed for a retry to trip on, and no
         # link (a serial port, a socket) held open behind it.
@@ -873,8 +952,10 @@ class RigConfig(BaseModel):
                 rig.entries[name] = entry
                 built_devices.append(device)
             for name, entry in self.devices.items():
-                if entry.inputs:
-                    rig.bind_inputs(rig.devices[name], entry.inputs)
+                rig.bind_inputs(rig.devices[name], entry.inputs)
+            for name, entry in self.devices.items():
+                for path, permissive in (entry.permissive or {}).items():
+                    rig.permit(rig.devices[name].signals[path], permissive)
             for output_address, controller in self.controllers.items():
                 output = rig.resolve(output_address)
                 if not isinstance(output, Signal):
@@ -892,6 +973,8 @@ class RigConfig(BaseModel):
                     feedforward=controller.feedforward,
                     default=controller.default,
                     min_period_s=controller.min_period_s,
+                    setpoint_period_s=controller.setpoint_period_s,
+                    on_fault=controller.fault_policy(),
                 )
         except Exception:
             for device in built_devices:
@@ -906,6 +989,11 @@ class RigConfig(BaseModel):
             for device in built_devices:
                 rig.start_polling(device)
         rig.loaded = rig.document()
+        rig.saved_overlay = _saved_overlay(rig.files)
+        said = logging.getLogger("flyball.rig")  # the rig's own: what `rig check` cannot see
+        for row in stop_plan(rig):
+            for warning in row["warnings"]:
+                said.warning("stop: %s: %s", row["address"], warning)
         return rig
 
 
@@ -931,6 +1019,56 @@ def rig_model(catalogs: Catalogs | None = None) -> type[RigConfig]:
             links=(dict[str, links], Field(default_factory=dict)),  # type: ignore[valid-type]
         )
     return _models[key]
+
+
+def _check_inputs(name: str, entry: DeviceEntry, device: type[Device] | None) -> None:
+    """Every input the driver declares is bound to an address or a number, and no other name.
+
+    An input has no default (C12): one left out is refused here, so `rig check` says so.
+    """
+    declared = {} if device is None else device.INPUTS
+    if not declared:
+        return
+    if missing := [n for n in declared if n not in entry.inputs]:
+        raise ValueError(
+            f"device {name!r}: input {', '.join(repr(n) for n in missing)} is neither bound nor"
+            " a number: give `inputs: {"
+            + ", ".join(f"{n}: <address or number>" for n in missing)
+            + "}`"
+        )
+    if unknown := [n for n in entry.inputs if n not in declared]:
+        raise ValueError(
+            f"device {name!r}: {', '.join(repr(n) for n in unknown)} is not an input of"
+            f" {entry.driver!r}; it has {', '.join(repr(n) for n in declared)}"
+        )
+
+
+def _refuse_input_cycles(devices: Mapping[str, DeviceEntry]) -> None:
+    """A cycle through `inputs:` -- a device following itself, through others or not -- is refused.
+
+    Device by device, by the first segment of each address; the path is named.
+    """
+    follows = {
+        name: [
+            (input_name, source)
+            for input_name, source in entry.inputs.items()
+            if isinstance(source, str) and source.partition(".")[0] in devices
+        ]
+        for name, entry in devices.items()
+    }
+    for start in devices:
+        stack: list[tuple[str, list[str]]] = [(start, [])]
+        seen: set[str] = set()
+        while stack:
+            name, path = stack.pop()
+            for input_name, source in follows[name]:
+                step = [*path, f"{name}.inputs.{input_name} <- {source}"]
+                target = source.partition(".")[0]
+                if target == start:
+                    raise ValueError("a cycle through inputs: " + "; ".join(step))
+                if target not in seen:
+                    seen.add(target)
+                    stack.append((target, step))
 
 
 def _driver_configs(catalogs: Catalogs) -> tuple[type[DriverConfig[Any]], ...]:
@@ -961,16 +1099,29 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
     for driver in drivers:
         driver_schema = driver.model_json_schema(ref_template="#/$defs/{model}")
         defs.update(driver_schema.pop("$defs", {}))
+        device = driver.device_class()
+        declared = [] if device is None else list(device.INPUTS)
+        properties = {
+            **envelope,
+            "driver": {"const": driver.type_name},
+            **driver_schema.get("properties", {}),
+        }
+        if declared:  # no default: each is bound to an address or a number (C12)
+            properties["inputs"] = {
+                **envelope["inputs"],
+                "required": declared,
+                "propertyNames": {"enum": declared},
+            }
         variants.append({
             "type": "object",
             "title": driver.type_name,
             **({"description": d} if (d := driver_schema.get("description")) else {}),
-            "properties": {
-                **envelope,
-                "driver": {"const": driver.type_name},
-                **driver_schema.get("properties", {}),
-            },
-            "required": ["driver", *driver_schema.get("required", [])],
+            "properties": properties,
+            "required": [
+                "driver",
+                *driver_schema.get("required", []),
+                *(["inputs"] if declared else []),
+            ],
             "not": {"required": ["config"]},
         })
     # A layer may add to a device a base declared (`inputs`, a label, one driver field)
@@ -982,6 +1133,57 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
         "not": {"required": ["driver"]},
     }
     return {"additionalProperties": {"oneOf": [*variants, overlay]}}, defs
+
+
+def render_document(loaded: dict[str, Any]) -> dict[str, Any]:
+    """A rig as a rig file, in the form [Rig.document][flyball.rig.rig.Rig.document] gives.
+
+    `loaded` holds `name`, the header keys (`board`, `clock`, `recording`), `links` as the
+    file writes them (`{type, ...}`), `devices` as entries and `controllers` as
+    [ControllerEntry][flyball.runtime.config.ControllerEntry]s. Defaults are left out, as a
+    hand-written file leaves them; a law's or feedforward's `type` is kept, since the file
+    needs it.
+    """
+    config = RigConfig.model_validate(loaded)
+    document = config.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
+    document["links"] = loaded["links"]
+    for key in ("devices", "controllers"):
+        document.setdefault(key, {})
+    controllers: dict[str, ControllerEntry] = loaded["controllers"]
+    for name, entry in controllers.items():
+        rendered = document["controllers"][name]
+        if entry.law is not None:
+            rendered.setdefault("law", {})["type"] = entry.law.type
+        if entry.feedforward is not None:
+            rendered.setdefault("feedforward", {})["type"] = entry.feedforward.type
+    return document
+
+
+def document_of(config: RigConfig) -> dict[str, Any]:
+    """`config` as the rig it builds would render itself (`Rig.document()`), without building.
+
+    What a rig edit is saved as, and compared by: the running rig's document and one read
+    from files are then in the same form.
+    """
+    header = {
+        k: v
+        for k, v in canonical(config).items()
+        if k not in ("name", "links", "devices", "controllers")
+    }
+    links = {
+        name: {
+            "type": link.type_name,
+            **link.model_dump(mode="json", exclude_none=True, exclude_defaults=True),
+        }
+        for name, link in config.links.items()
+    }
+    return render_document({
+        "name": config.name,
+        **header,
+        "links": links,
+        "devices": dict(config.devices),
+        "controllers": dict(config.controllers),
+    })
 
 
 def canonical(config: RigConfig) -> dict[str, Any]:
@@ -1132,16 +1334,58 @@ def resolve_documents(
         contributed: the layers, in the order first read, then the board
         file, if one was used.
     """
+    path_list = [Path(paths)] if isinstance(paths, (str, Path)) else [Path(p) for p in paths]
+    return _layered(path_list, [*path_list, *saved_overlays(path_list[0])], sets)
+
+
+def resolve_with_overlay(
+    paths: Sequence[str | Path], sets: Sequence[str], overlay: Mapping[str, Any]
+) -> tuple[dict[str, Any], list[Path]]:
+    """`resolve_documents`, with `overlay` in place of the saved overlay (`<file>.d/added.*`).
+
+    What a start from the same command line would load once `overlay` is saved there, read
+    before it is written; an empty `overlay` is a start with none. The other files in the
+    `.d/` directory keep their places (the directory's sorted order, `added.*` among them).
+    """
+    path_list = [Path(p) for p in paths]
+    added = saved_overlay_path(path_list[0])
+    others = [p for p in saved_overlays(path_list[0]) if p.name != added.name]
+    layers: list[Path | Mapping[str, Any]] = list(path_list)
+    for path in sorted([*others, added]):
+        if path != added:
+            layers.append(path)
+        elif overlay:
+            layers.append(overlay)
+    return _layered(path_list, layers, sets)
+
+
+def _layered(
+    path_list: list[Path], layers: Sequence[Path | Mapping[str, Any]], sets: Sequence[str]
+) -> tuple[dict[str, Any], list[Path]]:
     from flyball.runtime.overlay import resolve_layers
 
-    path_list = [Path(paths)] if isinstance(paths, (str, Path)) else [Path(p) for p in paths]
-    path_list.extend(saved_overlays(path_list[0]))
-    document, files = resolve_layers(path_list, sets)
+    document, files = resolve_layers(layers, sets)
     board_name = document.get("board")
     if not isinstance(board_name, str):
         return document, files
     board_path = find_board(board_name, path_list[0].parent)
     return apply_board(document, load_board(board_path)), [*files, board_path]
+
+
+def saved_overlay_path(first: Path) -> Path:
+    """Where `POST /api/rig/save` writes by default: `<file>.d/added.<suffix>` beside `first`."""
+    return first.with_name(first.name + ".d") / f"added{first.suffix}"
+
+
+def _saved_overlay(files: Sequence[Path]) -> dict[str, Any]:
+    """The saved overlay's document if this rig loaded one (it is among `files`), else `{}`."""
+    if not files:
+        return {}
+    target = saved_overlay_path(files[0])
+    if not any(f.resolve() == target.resolve() for f in files):
+        return {}
+    document = load_document(target)
+    return document if isinstance(document, dict) else {}
 
 
 def saved_overlays(first: Path) -> list[Path]:
@@ -1195,15 +1439,18 @@ __all__ = [
     "apply_board",
     "board_dirs",
     "canonical",
+    "document_of",
     "find_board",
     "is_simulated",
     "load_board",
     "load_rig",
     "load_rig_config",
     "registered",
+    "render_document",
     "resolve_document",
     "resolve_documents",
     "resolve_live",
+    "resolve_with_overlay",
     "rig_model",
     "rig_schema",
     "role_of",

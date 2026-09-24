@@ -14,15 +14,21 @@ a fresh read may deliver several at once:
 
 1. **Every reading lands in `latest`**, whether or not it publishes, and the
    last `RECENT_READINGS` (60) per signal are kept for a stat on request.
-2. **Devices with a bound input are touched.** A device with an `Input`
-   bound to a signal (`inputs: { dry: hum_sensors.dry.humidity }`) is added
-   to the delivery's touched set for every reading on that exact signal; a
-   device bound to a whole node is touched by any sample carrying something
-   under it, but only once it is `published()` — a subscriber hears only
-   what publishes, never a fresh read of an `R`-only setting, which is for
-   whoever asked for it. There is no callback: a touched device reads the
-   value itself (`self.<input>.value`, from the router) when the rig calls
-   its `commit`, in step 4.
+2. **Bindings whose source got a reading are told.** The rig keeps every
+   [`InputBinding`][flyball.foundation.device.binding.InputBinding] by the
+   signal (or node) it follows. A binding to a signal lands with every
+   reading on that exact signal; one bound to a whole node with any sample
+   carrying something under it, but only once it is `published()` — a
+   subscriber hears only what publishes, never a fresh read of an `R`-only
+   setting, which is for whoever asked for it. Each binding that landed
+   calls its watchers (a program step's), and a device holding one is added
+   to the touched set and told, once per delivery with the bindings that
+   changed, through `inputs_changed` -- before the controllers step, so
+   what it pushes (an output computed from the input) is delivered next in
+   the same chain, and a controller measuring that output steps on it in
+   this chain rather than the next. A device with demands reads the value
+   itself (`self.<input>.value`, from the router) when the rig calls its
+   `commit`, in step 4.
 3. **Controllers whose measured signal is in the delivery tick.** For every reading
    whose signal a controller regulates (`self.controllers.find(signal)`),
    the reading is queued; after every sample in the batch has been walked,
@@ -62,14 +68,20 @@ before touching anything:
 1. Every key resolves under the node — a bound `Signal`, or a name relative
    to it, dotted for a namespace (`AddressNotFoundError` if not; `ValueError`
    if a signal is named twice).
-2. Every resolved signal is `W` (`ConflictError` otherwise), and not driven
+2. Every resolved signal is `W` (`ConflictError` otherwise; for a readback
+   demand, `[RP]`, the message names the command whose argument is linked to
+   it, else one that declares it in `writes=`), and not driven
    by an *active* controller other than the one making the demand — a
    controller may re-demand its own target, and a controller in manual
    leaves its target to direct demands; anything else attempting to move
    a regulating controller's target gets "is driven by controller ...:
    set its reference, put it in manual, or detach it". The same rule
-   refuses a command with a `mode` or a linked argument, unless it
-   `interrupts`.
+   refuses a command with a `mode`, a linked demand or `writes=`, unless it
+   `interrupts`. `Rig.invoke` checks that before the method runs and puts
+   each displaced controller in manual only after the method has returned,
+   before the commit and the flush, so a controller cannot write again in
+   between; it returns `CommandRun(result, interrupted)` (`run_command`
+   returns only `result`).
 3. Each value is clamped to the signal's `limits` — numbers, or a reference
    to another signal of the same device, resolved live — and the original
    value kept (as `_requested`) only where the clamp changed it — that is
@@ -137,25 +149,78 @@ streamed like any event (under the store's own lock, so in order), and
 in-process subscribers (`rig.conditions.subscribe`) hear each one on the
 store's own thread, never under the rig's lock.
 
-Only `read` itself can put a device offline: a raised exception raises an
-`offline` condition, and the device's loop stops itself until `restart`
-(which clears it), or until a command on it succeeds (`Polling.revive`,
-called by the command route and by a program's `command` step alike).
-Neither waits on a read in flight: `restart` is refused (409) while one is
+Only `read` itself can put a device offline. `_read` iterates the driver's
+`read` into a list, so samples yielded before a raise are delivered all the
+same; the raise then goes to `Polling._failed`, which counts it in
+`DeviceRun.consecutive_failures` against the device's
+[ReadPolicy][flyball.rig.polling.ReadPolicy] -- its entry's `reads:` key by
+key over `Polling.defaults` (`runner.reads`, set by `RigConfig.build`),
+resolved when its polling starts. Below `fail_after` it is a log line. At
+`fail_after` it sets `offline` (raised once; each later failure only
+updates its message) and, on that raise, `Rig.device_offline` delivers a
+`stale(device_offline)` no-value on the device's read path -- the readouts
+and `sensed` demands its polled reads have delivered (`Rig.note_read` keeps
+the set as `Polling.delivered` hands samples over), never its settings,
+configs or echo demands -- so what follows them fails closed at once. The
+loop keeps running: `PeriodicLoop.defer(wait)`
+puts its next run `backoff_s[n]` from now, `n` counting retries and the
+last wait repeating, and `DeviceRun.next_retry_ns` says when. `defer`
+moves one run: on a thread it resets `_next_loop_time`, on a stepped clock
+it swaps the periodic schedule for a one-shot that puts the period back
+before it runs; either way the rig's clock times it, and `stop` ends the
+wait at once, so a removal or `close` does not wait out a 60 s backoff.
+The first read that succeeds (`_recovered`) zeroes the count, clears
+`next_retry_ns` and clears `offline`, and the loop is on its period again.
+A device's `give_up_after_s`, once `offline` has been held that long,
+stops the loop from inside (`running: false`) with a `gave_up` event;
+`offline` stays. `DeviceRun.reading_since_ns` is set on the rig's clock
+while a poll's `read` is in flight, and pushed, so a read that never
+returns shows on the runs stream. Each poll also arms a one-shot on the
+rig's timers at `max(3·period, 5 s)` ([hung_after_s][flyball.rig.liveness.hung_after_s]);
+if that read is still in flight when it comes up, the device holds `hung`
+and `Rig.device_hung` delivers `stale(device_hung)` on its read path, as
+`device_offline` does. The read returning cancels the one-shot and clears
+`hung`.
+
+`restart` stops the loop and starts a new one on the period (its first
+read one period later), clearing nothing: `offline` and the count stay
+until a read succeeds. A command that succeeds on a device that is offline
+or stopped (`Polling.revive`, called by the command route and by a
+program's `command` step alike) restarts it the same way. Neither waits on
+a read in flight: `restart` is refused (409) while one is
 (`Polling.reading_for`), and stops the old loop for at most `STOP_JOIN_S`
 before refusing too; `revive` on a device whose poll has been stuck in a
 read for longer than its period leaves it alone and says so with a
 `not_revived` event on the device. A loop left to finish its read after a
-restart does not stop the newer loop if that read raises
+restart neither backs off nor stops the newer loop if that read raises
 (`PeriodicLoop.runs_here`). A
 controller whose law raises is kept to itself: a `step_failed` condition on
 the controller, raised on the first failure and cleared when it steps
 again, its mode left as it was, and every other controller, commit,
 reading and the recorder carry on. A device whose `commit` raises is
-likewise kept to itself: its demands are dropped rather than left staged,
-and a `commit_failed` condition names it, raised once per outage and
-cleared when a commit succeeds again; the other commits and the recorder
-carry on. Any other failure *downstream* of the
+likewise kept to itself: its demands stay staged (`Rig._commit_failed`
+keeps `staged`, each `_requested` record and `at_limit`, and forgets only
+which the driver read), a `write_failed` condition names it, raised once
+per outage and cleared when a commit succeeds again, and `_retry_later`
+arms a retry on the rig's timers (`min(poll_s, 5 s)`, doubling to 60 s);
+the other commits and the recorder carry on. The retry (`_retry_due`,
+under the rig lock) drops what is older than `retry_max_age_s`
+(`write_dropped`, the demand added to `_write_lost`) and commits the rest
+as a manual demand would. Meanwhile `Rig._writes_failing` gives every echo
+demand on the device (with a reading) a `stale(write_failed)` no-value and
+remembers the demands of the failed commit in `_write_lost`; the commit
+that clears the condition carries the kept values (each a `resent` event),
+takes them out of `_write_lost`, and calls `_writes_recovered`, which pushes
+each still-stale echo demand's `router.last_usable` value back, except
+those still in `_write_lost` (a dropped one: a demand of its own has to
+commit first). A blocking device's `Writer` merges a failed write's values
+back into its queue (a newer value on a signal wins), and does the rest
+through `Rig.writes_failed` / `writes_recovered` / `resent`, which take the
+rig lock from the writer thread; its retry calls `Writer.retry`. A sample from any source goes through
+the value gate first (`normalised`, in `on_samples`): `None`, NaN and
+infinities become `invalid` no-values and a `railed` value its number plus
+a `Sample.marks` entry; `router.last_usable` keeps each signal's newest
+reading that had a value. Any other failure *downstream* of the
 read — an observer, the recorder — is the rig's, not the read's: a
 `delivery_failed` event, and the device's samples are still noted as read. After a gap in its readings
 longer than three usual intervals (an outage), a controller's next step
@@ -182,10 +247,12 @@ tick — is arithmetic under the lock. What leaves it:
 | the recorder's writes | the recorder's own thread, every `flush_s`; a store that fails ends the recording with a `recording_failed` event and control is unaffected |
 | a device's `read` | the poll loop's thread, or the fresh reader's (`rig.read(..., fresh=True)`), under the device's `read_lock` and never the rig's; the delivery after it takes the rig's. A fresh read asked for by a caller already holding the rig lock is refused |
 | a simulated device's `commit` | in the delivery — it is arithmetic, and a stepped clock stays deterministic |
+| a deadline on the rig clock: a signal's liveness, a hung read's watchdog, a write retry, a fault's wait, a band's `invalid` grace, a controller's re-apply | the rig's [Timers][flyball.foundation.time.timer.Timers] (`rig.timers`, `rig.after`, `rig.every`): one thread, waiting on the rig's clock, for wall time and a scaled sim; on a stepped clock, whoever advances it. Each call is short and takes the rig lock itself if it needs it; one that raises is logged and counted (`rig.timers.errors`), never the end of the thread |
 | a long command (`@command(long=True)`: `dosing_pump.dispense`, `stepper.move`) | the caller's thread, off the lock: `Rig.run_command` makes its checks and claims the device's one long-command slot under it (a second is refused), runs the method without it, and takes it back to push `mode`, the linked readings and `last.<command>` and to commit. The method waits with `Device.wait`, on the rig's clock and an event `Device.cancel` sets, so the device's `stop` (a short command, under the lock) ends it at once. A caller already holding the lock is refused rather than made to wait under it; a program's `command` step runs without it (`Step.locked = False`). Removing the device, or closing the rig, cancels it |
 
-`rig.close()` stops all of it: polling, writers, recording, then closes the
-rig's links. It waits for reads in progress for `STOP_JOIN_S` (2 s) in
+`rig.close()` stops all of it: the timers first (nothing armed fires while
+the rig comes down; a call in progress is waited on for at most 1 s), then
+polling, writers, recording, then closes the rig's links. It waits for reads in progress for `STOP_JOIN_S` (2 s) in
 total; a poll thread still in its driver's `read` after that is abandoned
 -- it is a daemon thread -- and logged once by device name. A link whose
 `close` raises is logged and skipped; the rest still close.
@@ -224,6 +291,35 @@ of its own, taken after the rig's and never held across a join, so a run
 noted by a poll thread cannot put back one a `stop` just removed; `stop_all`
 and `rig.close` walk copies of the loops, writers and links, as a request
 may add one while the rig shuts down.
+
+## Timers and liveness
+
+[Timers][flyball.foundation.time.timer.Timers] is the one rig-clock timer:
+`after(seconds, fn)` for a one-shot, `every(seconds, fn)` for a periodic
+call, each returning a `Timer` to `cancel`. The calls live in one heap;
+a thread runs them for a clock that runs by itself, waiting with
+`Clock.wait` (so a scaled clock's deadlines come at the scaled time, and
+in steps of at most 0.5 s of real time, so a speed change is followed), and
+a `SteppedClock` runs them itself, in time order with its polls, through one
+call kept on it (`call_later`) at the earliest due time. `SteppedClock`
+does not hold its schedule's lock while it runs a call, so a thread holding
+the rig's lock may arm a timer while a call waits for that lock. The rig
+makes its timers on first use, on the clock it has then; swapping
+`rig.clock` rebuilds them. `PeriodicLoop` stays the poll loop -- a device's
+read may block, so each device has its own thread -- and its backoff
+(`defer`) is not on the timers.
+
+[Liveness][flyball.rig.liveness.Liveness] (`rig.liveness`) keeps one record
+per judged signal (a published readout or `sensed` demand, with a
+threshold: its `stale_after_s`, else `max(3·poll_s, 5 s)` while polled),
+built when its device's polling starts. A delivery notes each arrival
+(`received_ns`, stamped on the reading by `Router.note`) and does nothing
+else unless the record has no one-shot armed; the one-shot, when it comes
+up, re-arms for the true deadline or, under the rig lock, delivers a
+`stale` reading on every signal of the device due by then, stamped at that
+instant. The reason is the device's (`device_offline`, `device_hung`) if it
+holds one, else `never_read`, `last_read` (the device's other signals
+still arrive) or `silent`.
 
 ## Controllers
 

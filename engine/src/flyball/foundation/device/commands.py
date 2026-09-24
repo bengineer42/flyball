@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, get_type_hints, overload
 
@@ -88,14 +88,26 @@ class CommandSpec:
     mode: Any = None
     """What the device's `mode` output becomes when this runs, if it has one."""
     interrupts: bool = False
-    """Puts a controller driving one of the device's demands into manual and runs (`stop`,
-    a manual flow); without it, such a command is refused while the controller is active."""
+    """Runs even while a controller drives one of the device's demands (`stop`, a manual flow),
+    and puts that controller into manual once the method has succeeded; without it, such a
+    command is refused while the controller is active. Not with `long`."""
+    writes: tuple[str, ...] = ()
+    """What the command moves that no linked argument says: paths of the device's own demands
+    (gpio `on`/`off` move `on`), or the name of a private child it drives (a dosing pump's
+    `pump`). A command that declares any is refused while a controller drives the device, like
+    one with a `mode` or a linked demand, unless it `interrupts`."""
     long: bool = False
     """The method waits (a dose, a move): the rig runs it off its lock, so polling, deliveries
     and a `stop` carry on meanwhile. It waits with
     [Device.wait][flyball.foundation.device.device.Device.wait], which the device's `stop`
     ends early through [Device.cancel][flyball.foundation.device.device.Device.cancel]. One
     long command at a time per device."""
+    stops: bool = False
+    """This command is the device's stop: what a rig stop, a shutdown and `on_fault: stop_device`
+    run on it instead of writing per-signal values (a blender's pumps off, a DAC's power-down).
+    It must return promptly -- it cuts, it does not sequence -- since it runs under the rig's
+    lock; never `long`. At most one per driver; a rig file's `stop:` values are refused on
+    its device. The rig runs it whatever holds the device (a controller, a latch)."""
     demand_of: str | None = None
     """For a synthesised `set_<name>`: the path of the demand it sets; the rig routes it through
     its demand path."""
@@ -116,6 +128,8 @@ def command[F: Callable[..., Any]](
     mode: Any = None,
     interrupts: bool = False,
     long: bool = False,
+    writes: Iterable[Any] = (),
+    stops: bool = False,
 ) -> Callable[[F], F]: ...
 def command(
     fn: Any = None,
@@ -127,6 +141,8 @@ def command(
     mode: Any = None,
     interrupts: bool = False,
     long: bool = False,
+    writes: Iterable[Any] = (),
+    stops: bool = False,
 ) -> Any:
     """Mark a device method as a command, under the method's name or `name`.
 
@@ -136,17 +152,34 @@ def command(
     class body, since the descriptor's name is already bound there. `mode`
     is what the device's `mode` output becomes when it runs. `commit=True`
     for a method that only records and needs the device committed after.
-    `interrupts=True` puts a controller
-    driving the device into manual and runs; without it the command is
-    refused while one is active. `long=True` for one that waits (a dose, a
+    `interrupts=True` runs while a controller
+    drives the device and puts it into manual once the method succeeds;
+    without it the command is refused while one is active. `writes=` names
+    what a command moves that no linked argument says -- descriptors or
+    paths (`writes=(on,)`) -- so it is refused like one that drives.
+    `long=True` for one that waits (a dose, a
     move): it runs off the rig lock and waits with `self.wait`, which the
-    device's `stop` ends through `self.cancel`. `simulation=True` marks one that only
+    device's `stop` ends through `self.cancel`; a long command cannot
+    interrupt (the controller would fight it while it waits). `simulation=True` marks one that only
     makes sense on a simulated device (a scripted fault, a disturbance): it
     is served like any other, but the schema says so, so a UI can keep it
-    off the device's page.
+    off the device's page. `stops=True` makes it the device's stop (at
+    most one per driver): a rig stop runs it instead of writing values; it
+    must return promptly, so it cannot be `long`.
     """
+    paths = tuple(w if isinstance(w, str) else w.path for w in writes)
 
     def mark(f: Any) -> Any:
+        if long and interrupts:
+            raise TypeError(
+                f"{f.__qualname__}: a long command cannot interrupt a controller -- it would"
+                " fight the command while it waits"
+            )
+        if long and stops:
+            raise TypeError(
+                f"{f.__qualname__}: a stop cannot be long -- it runs under the rig's lock and"
+                " must return promptly"
+            )
         f.__command__ = name or f.__name__
         f.__command_options__ = {
             "simulation": simulation,
@@ -154,6 +187,8 @@ def command(
             "mode": mode,
             "interrupts": interrupts,
             "long": long,
+            "writes": paths,
+            "stops": stops,
         }
         return f
 

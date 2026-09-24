@@ -25,6 +25,7 @@ import flyball.rig.rig
 from flyball.model.catalog import Catalogs, set_catalog
 from flyball.rig import Rig
 from flyball.runtime.config import RunnerConfig
+from flyball.runtime.edits import Origin
 
 _counter = itertools.count()
 
@@ -142,17 +143,31 @@ class TestClient(_StarletteClient):
 class FakeRunner:
     """A stand-in for `flyball.runner.Handle`: what `set_runner` takes; remembers what was asked."""
 
-    def __init__(self, settings: RunnerConfig | None = None, files: list[Path] | None = None):
+    def __init__(
+        self,
+        settings: RunnerConfig | None = None,
+        files: list[Path] | None = None,
+        origin: Origin | None = None,
+    ):
         self.settings = settings or RunnerConfig()
         self.files = files or []
         self.asked: list[str] = []
         self.exposure = None
+        self.origin = origin or Origin()
+        self.restarting = False
+        self.edits: list[tuple[int, int | None, bool]] = []
+        """Each `restart_for_edit`: the version, the one before, whether it records."""
 
     def shutdown(self) -> None:
         self.asked.append("shutdown")
 
     def restart(self) -> None:
         self.asked.append("restart")
+
+    def restart_for_edit(self, version: int, previous: int | None, record: bool = False) -> None:
+        self.asked.append("restart")
+        self.edits.append((version, previous, record))
+        self.restarting = True
 
 
 def free_port() -> int:

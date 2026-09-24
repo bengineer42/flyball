@@ -20,9 +20,10 @@ relative to the first rig file's directory.
 | `auth.anonymous` | `none` / `read` | `none` | `--anonymous`, `FLYBALL_ANONYMOUS` | what a caller with no token and no session may do: nothing, or every `GET` and stream -- by an IP address, `localhost` or the machine's own name only |
 | `auth.password`, `auth.session`, `auth.secret` | | | `--password`, `--session`, `FLYBALL_PASSWORD`, `FLYBALL_SESSION` | removed: read, so an old file still starts, and ignored with a warning. A password is the front's now (`front.password`) |
 | `mcp` | bool | `true` | `--no-mcp`, `FLYBALL_NO_MCP` | mount the MCP servers at `/mcp/{read,author,operate}` |
-| `compose` | bool | `false` | `--compose` | let the API add links and devices to a *hardware* rig; a simulated or bare rig always may |
+| `compose` | bool | `false` | `--compose` | let the API change a *hardware* rig (add or remove links and devices, restore a version; each change restarts the rig); a simulated or bare rig always may |
 | `allow_save` | bool | `false` | `--allow-save` | let the API write rig files: `/api/rig/save` to a path, `/api/sim/save`. The overlay save (`<rig>.d/added.yaml`) needs no flag |
-| `allow_shutdown` | bool | `false` | `--allow-shutdown` | let the API stop or restart the runner (`/api/runner/shutdown`, `/restart`) |
+| `allow_shutdown` | bool | `false` | `--allow-shutdown` | let the API stop or restart the runner (`/api/runner/shutdown`, `/restart`); a rig edit's own restart does not need it |
+| `on_shutdown` | `stop` / `keep` | `stop` | `--on-shutdown`, `FLYBALL_ON_SHUTDOWN` | what the runner's shutdown (and restart) does to outputs: `stop` writes each device's [resolved stop](devices/index.md#stop-what-a-stop-writes), best-effort within the supervisor's stop window (`flyballd` kills the runner after 10 s), not latched; `keep` writes nothing, leaving outputs energised with no process watching them. A device's own [`on_shutdown: keep`](devices/index.md#on_shutdown-what-shutting-down-does) wins over `stop`. For one run: `--on-shutdown keep` |
 | `store` | path | `<rig>.sqlite` beside the file | `--store` | the SQLite store: sessions, versions, programs, dashboards |
 | `store_dir` | path | none | -- | put the store at `<store_dir>/<name>.sqlite` instead, so several runners keep theirs in one place; `store` wins |
 | `programs` | path | `programs/` beside the file | `--programs` | program files imported into the library at start |
@@ -33,6 +34,7 @@ relative to the first rig file's directory.
 | `retain` | duration | `0` (forever) | `--retain`, `FLYBALL_RETAIN` | delete an unpinned session this long after it ended (`30d`) |
 | `rotate` | duration | `0` (never) | `--rotate`, `FLYBALL_ROTATE` | close a recording at this length and continue it in a new session (`24h`) |
 | `max_store` | size | `0` (no cap) | `--max-store`, `FLYBALL_MAX_STORE` | keep the store under this size by deleting the oldest data of any kind, never a pinned session (`20GB`) |
+| `reads` | `{fail_after, backoff_s}` | `{fail_after: 3, backoff_s: [1, 2, 5, 15, 60]}` | -- | when failed reads put a device `offline`, and how it is retried: the rig's default, which a device's own [`reads:`](devices/index.md#reads) overrides key by key -- [below](#reads-when-a-failed-read-puts-a-device-offline) |
 
 A **duration** is a number with `ns`, `us`, `ms`, `s`, `m`, `h`, `d` or `w`
 (a bare number is seconds); a **size** is `kB`/`MB`/`GB`/`TB` (decimal),
@@ -46,6 +48,38 @@ what ages out, pins -- is [What ages out](../1-running/runner/index.md#what-ages
 retention keys both as written and resolved (`keep_ns`, `keep_bytes`,
 `retain_ns`, `rotate_ns`, `max_bytes`; 0 = off). Command-line only:
 `--record`, `--resume`, `--set KEY=VALUE`.
+
+## `reads:` -- when a failed read puts a device offline
+
+```yaml
+runner:
+  reads: { fail_after: 3, backoff_s: [1, 2, 5, 15, 60] }   # the defaults
+```
+
+A read that raises (a timeout, a bus error, a CRC failure) counts toward
+the device's budget. Below `fail_after` reads that raise in a row, it is
+logged and the device is polled again on its period, with no condition.
+At `fail_after`, the device is `offline` (an `error` condition, one
+`raised` event per outage), and polling does not stop: the device is read
+again after each wait in `backoff_s` in turn, the last one repeating for
+ever. The first read that succeeds clears `offline` (the `cleared` event,
+with `details.duration_s`) and puts the device back on its period.
+Samples a read yielded before it raised are delivered; the raise still
+counts. All of it runs on the rig's clock, so a scaled simulation retries
+at the scaled waits.
+
+With the defaults and a 1 s period, a device that stops answering at
+t = 1 s is read at 1, 2 and 3 s (offline at 3), then at 4, 6, 11, 26, 86 s
+and every 60 s after that, until it answers.
+
+`fail_after` is a whole number of at least 1; `backoff_s` at least one
+wait, each finite and above zero. A device's own `reads:` in its entry
+overrides either key, and adds `give_up_after_s`: stop retrying that long
+after the device went offline. It is per device only, so rig-wide a
+device retries for ever. A restart (`POST /api/devices/{name}/restart`),
+or a command that succeeds on the device, reads it again one period later
+rather than at the end of its wait; neither clears `offline` -- only a
+read that succeeds does.
 
 ## `front:` -- how `flyball run` serves the rig
 

@@ -19,12 +19,16 @@ from flyball.foundation.device import (
     DriverConfig,
     Node,
     Readable,
+    Readback,
     Role,
     Sample,
     Signal,
     SignalSpec,
+    Value,
     command,
+    invalid,
 )
+from flyball.foundation.errors import ConflictError
 from flyball.foundation.quantities import Quantity
 from flyball.hardware.links import TextLink
 from flyball.hardware.scan import Scan
@@ -38,6 +42,25 @@ Parser = Callable[[str], float]
 def parse_float(reply: str) -> float:
     """The default parser: the first token, as a number. `+1.2E-3 V` -> 0.0012."""
     return float(reply.strip().split()[0].rstrip(","))
+
+
+SCPI_NAN = 9.91e37
+"""What SCPI instruments reply for "not a number" (IEEE 488.2)."""
+SCPI_OVERFLOW = 9.9e37
+"""What SCPI instruments reply, signed, for a value past the range: +/- infinity."""
+
+
+def gated(value: float) -> Value:
+    """A parsed reply, with SCPI's stand-ins for no value made no-values.
+
+    `9.91E37` is `invalid("not_a_number")`; `+/-9.9E37` is `invalid("overrange")` on that
+    side: the instrument read, and has no number to give. Anything else is the number.
+    """
+    if not isinstance(value, int | float) or abs(value) < SCPI_OVERFLOW * 0.999:
+        return value
+    if abs(value - SCPI_NAN) < SCPI_NAN * 1e-4:
+        return invalid("not_a_number")
+    return invalid("overrange", side="high" if value > 0 else "low")
 
 
 class ScpiSignal(BaseModel):
@@ -110,9 +133,11 @@ class Scpi(Readable, Committable):
         channels: Mapping[str, ScpiSignal],
         parse: Parser = parse_float,
         label: str | None = None,
+        stop_command: str | None = None,
     ) -> None:
         super().__init__(name, label)
         self.link = link
+        self.stop_text = stop_command
         self.parse = parse
         self.channels = dict(channels)
         # Device.blocking is a ClassVar; this driver's real bus or fake is only known
@@ -126,6 +151,8 @@ class Scpi(Readable, Committable):
                 quantity=Quantity(sig.quantity or key, sig.unit),
                 access=sig.access,
                 role=sig.signal_role,
+                # A demand with a query is read back from the instrument by polling.
+                readback=Readback.ECHO if sig.query is None else Readback.SENSED,
             )
             for key, sig in self.channels.items()
         ])
@@ -147,13 +174,26 @@ class Scpi(Readable, Committable):
         for signal in self._scan.due(candidates, time_ns, whole=False):
             channel = self.channels[candidates[signal]]
             assert channel.query is not None
-            value = self.parse(self.link.query(channel.query)) * channel.scale
+            value = gated(self.parse(self.link.query(channel.query)))
+            if isinstance(value, int | float):
+                value *= channel.scale
             yield Sample(self.root, time_ns, {signal: value})
 
     def write_signal(self, signal: Signal, value: float) -> None:
         channel = self.channels[signal.name]
         assert channel.write is not None
         self.link.write(channel.write.format(value=value / channel.scale))
+
+    def stops_by(self) -> str | None:
+        """`stop` when a `stop_command` is configured; else none, and a stop keeps its outputs."""
+        return "stop" if self.stop_text else None
+
+    @command(stops=True)
+    def stop(self) -> None:
+        """Send the configured `stop_command` (`OUTP OFF`): the instrument's own stop."""
+        if not self.stop_text:
+            raise ConflictError(f"{self.name}: no stop_command is configured")
+        self.link.write(self.stop_text)
 
     @command
     def write(self, text: str) -> None:
@@ -176,11 +216,19 @@ class ScpiConfig(DriverConfig[Scpi], type="scpi"):
 
     link: TextLinkConfig | str  # type: ignore[valid-type]
     channels: dict[str, ScpiSignal]
+    stop_command: str | None = Field(
+        default=None,
+        description="What a stop sends (`OUTP OFF`, `INP OFF`): the instrument's own stop."
+        " Omitted: a stop leaves its outputs as they are -- the right string differs by"
+        " instrument, so none is assumed.",
+    )
 
     def build(self, name: str, label: str | None = None) -> Scpi:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a link before building")
-        return Scpi(name, resolve(self.link), self.channels, label=label)
+        return Scpi(
+            name, resolve(self.link), self.channels, label=label, stop_command=self.stop_command
+        )
 
 
 __all__ = ["Parser", "Scpi", "ScpiConfig", "ScpiSignal", "parse_float"]

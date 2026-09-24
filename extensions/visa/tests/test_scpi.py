@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from flyball.foundation.device import Access, Reading, Role, Signal
+from flyball.foundation.device import Access, Readback, Reading, Role, Signal, invalid
 from flyball.runtime.config import RigConfig, rig_schema
 from pydantic import ValidationError
 
@@ -53,6 +53,30 @@ class TestScpi:
         assert [s.time_ns for s in samples] == [100, 100]
         assert [s.by_name() for s in samples] == [{"voltage": 12.345}, {"current": 0.5}]
         assert link.queried == ["MEAS:VOLT:DC?", "MEAS:CURR:DC?"]
+
+    def test_scpi_s_stand_ins_for_no_number_are_no_values(self):
+        replies = {"A?": "+9.9E37", "B?": "-9.90000E+37", "C?": "9.91E37", "D?": "1.5"}
+        link = FakeTextLink(replies)
+        dev = Scpi("d", link, {k.lower(): ScpiSignal(query=f"{k}?", unit="V") for k in "ABCD"})
+        values = {k: v for s in dev.read(0) for k, v in s.by_name().items()}
+        assert values == {
+            "a": invalid("overrange", side="high"),
+            "b": invalid("overrange", side="low"),
+            "c": invalid("not_a_number"),
+            "d": 1.5,
+        }
+
+    def test_a_demand_with_a_query_is_sensed_one_without_an_echo(self):
+        dev = Scpi(
+            "d",
+            FakeTextLink({}),
+            {
+                "sensed": ScpiSignal(query="V?", write="V {value}", unit="V"),
+                "echo": ScpiSignal(write="W {value}", unit="V"),
+            },
+        )
+        assert dev.signals["sensed"].spec.readback is Readback.SENSED
+        assert dev.signals["echo"].spec.readback is Readback.ECHO
 
     def test_scale_applies_on_read_and_write(self):
         link = FakeTextLink(lambda q: "1200" if q == "R?" else "")
@@ -106,10 +130,24 @@ class TestScpi:
     def test_write_and_query_commands_are_a_raw_passthrough(self):
         link = FakeTextLink({"*IDN?": "Keysight,34465A,MY123,1.0"})
         dmm = Scpi("dmm", link, {"v": ScpiSignal(query="V?", unit="V")})
-        assert set(type(dmm).commands) == {"write", "query"}
+        assert set(type(dmm).commands) == {"write", "query", "stop"}
         assert dmm.query("*IDN?") == "Keysight,34465A,MY123,1.0"
         dmm.write("SYST:BEEP")
         assert link.written == ["SYST:BEEP"]
+
+    def test_the_stop_is_the_configured_string_or_none(self):
+        link = FakeTextLink({})
+        psu = Scpi(
+            "psu",
+            link,
+            {"v": ScpiSignal(write="VOLT {value}", unit="V")},
+            stop_command="OUTP OFF",
+        )
+        assert psu.stops_by() == "stop"
+        psu.stop()
+        assert link.written == ["OUTP OFF"]
+        plain = Scpi("dmm", FakeTextLink({}), {"v": ScpiSignal(query="V?", unit="V")})
+        assert plain.stops_by() is None, "no string assumed: a stop keeps its outputs"
 
     def test_blocking_is_true_for_a_real_bus_false_for_a_fake(self):
         fake = Scpi("d", FakeTextLink({}), {"v": ScpiSignal(query="V?", unit="V")})

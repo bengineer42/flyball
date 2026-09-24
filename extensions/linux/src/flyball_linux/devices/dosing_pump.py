@@ -18,6 +18,11 @@ Calibration is a single `ml_per_s` figure: how many ml/s the pump delivers at fu
 while on, for the GPIO case). This is deliberately the simplest possible model -- linear,
 one point, no flow curve -- and is a placeholder until real calibration data exists.
 
+`dispense` declares `writes=("pump",)`: it moves the private child pump, which no
+demand of this device says. Nothing on the rig can drive that child today, so the
+declaration refuses nothing yet; it is there for when the child's writes go through the
+rig.
+
 `dispense` is a long command (`@command(long=True)`): it runs the pump for
 `volume_ml / ml_per_s` seconds of the rig's time and blocks its caller, but the rig runs it
 off its lock, so polling, deliveries and a `stop` carry on meanwhile. It waits on
@@ -121,7 +126,7 @@ class DosingPump(Committable):
             else:
                 self.pump.off()
 
-    @command(long=True)
+    @command(long=True, writes=("pump",))
     def dispense(self, volume_ml: float) -> None:
         """Run the pump for `volume_ml / ml_per_s` seconds, then stop it.
 
@@ -147,9 +152,12 @@ class DosingPump(Committable):
         dosed = volume_ml * ran_s / duration_s
         self.signals["dispensed_ml"].push(self.signals["dispensed_ml"].value + dosed)
 
-    @command
+    @command(stops=True)
     def stop(self) -> None:
-        """Stop the pump immediately, whatever it is doing: a dose in progress ends now."""
+        """Stop the pump immediately, whatever it is doing: a dose in progress ends now.
+
+        The device's stop: a rig stop runs it.
+        """
         self.cancel()
         self._run(False)
 

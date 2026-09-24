@@ -12,6 +12,7 @@ import type { DashboardDocument, DashboardRow, DashboardWithProblems } from "./d
 import { decodeCreationOptions, decodeRequestOptions, encodeCredential } from "./webauthn.js";
 import type {
   AuthInfo,
+  CommandRunOut,
   PasskeyOut,
   PasskeyListOut,
   Address,
@@ -189,8 +190,8 @@ export class RigClient {
     return this.get(`/api/devices/${enc(name)}/schema`, undefined, signal);
   }
 
-  /** Run a marked command; resolves to whatever the method returned. A command that succeeds on an offline device restarts its polling. */
-  command(name: string, command: string, args: Record<string, unknown> = {}): Promise<unknown> {
+  /** Run a marked command: what the method returned (`result`) and the controllers it put in manual (`interrupted`). A command that succeeds on an offline device restarts its polling. */
+  command(name: string, command: string, args: Record<string, unknown> = {}): Promise<CommandRunOut> {
     return this.call({ method: "POST", path: `/api/devices/${enc(name)}/commands/${enc(command)}`, body: args });
   }
 
@@ -326,9 +327,9 @@ export class RigClient {
 
   /**
    * Stop the rig for everyone: interrupt any running program, put every controller in manual and
-   * hold every writable device (`POST <root>/api/rig/stop`). Needs `OPERATE`; never rate-limited.
-   * Answers 501 until package A8 wires the real stopper -- callers must surface that honestly
-   * rather than treating the call as having stopped anything.
+   * write each device's stop (`POST <root>/api/rig/stop`); the rig stays latched until
+   * `POST /api/rig/reset`. Needs `OPERATE`; never rate-limited. A refusal must be surfaced as one,
+   * never treated as a stop.
    */
   stopRig(reason?: string): Promise<StopReport> {
     return this.call({ method: "POST", path: "/api/rig/stop", body: reason === undefined ? {} : { reason } });

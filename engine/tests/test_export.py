@@ -236,8 +236,8 @@ def test_history_routes_read_by_address(client):
     series = c.get(f"/api/history/sessions/{sid}/series/{probe}.temperature").json()
     assert series["signal"]["address"] == f"{probe}.temperature"
     assert series["points"] == [
-        {"offset_ns": 1_000_000_000, "value": 20.5},
-        {"offset_ns": 2_000_000_000, "value": 21.0},
+        {"offset_ns": 1_000_000_000, "value": 20.5, "flag": None},
+        {"offset_ns": 2_000_000_000, "value": 21.0, "flag": None},
     ]
     bucketed = c.get(
         f"/api/history/sessions/{sid}/series/{probe}.temperature?max_points=2&start_ns=1500000000"

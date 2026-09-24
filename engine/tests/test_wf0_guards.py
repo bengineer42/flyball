@@ -98,7 +98,7 @@ class TestCommitFailure:
         _deliver(rig, furnace)  # does not raise
         assert good.commits == 1, "the other device still committed"
         assert len(recorder.records) == 1, "the recorder still got the delivery"
-        (event,) = _events(rig, Code.COMMIT_FAILED)
+        (event,) = _events(rig, Code.WRITE_FAILED)
         assert event.scope == Scope.DEVICE and event.subject == flaky.name
         assert event.severity is Severity.ERROR and "bus gone" in event.message
         assert not _events(rig, Code.DELIVERY_FAILED)
@@ -108,31 +108,36 @@ class TestCommitFailure:
         for _ in range(3):
             clock.advance(1.0)
             _deliver(rig, furnace)
-        assert flaky.commits == 3 and len(_events(rig, Code.COMMIT_FAILED)) == 1
+        assert flaky.commits == 3 and len(_events(rig, Code.WRITE_FAILED)) == 1
         (condition,) = rig.conditions.of(flaky)
-        assert condition.code == Code.COMMIT_FAILED and condition.severity is Severity.ERROR
+        assert condition.code == Code.WRITE_FAILED and condition.severity is Severity.ERROR
         flaky.fail = False
         clock.advance(1.0)
         _deliver(rig, furnace)
-        raised, recovered = _events(rig, Code.COMMIT_FAILED)
+        raised, recovered = _events(rig, Code.WRITE_FAILED)
         assert (raised.edge, recovered.edge) == ("raised", "cleared")
         assert recovered.subject == flaky.name and recovered.severity is Severity.INFO
         assert recovered.details["duration_s"] == pytest.approx(3.0)
         assert rig.conditions.of(flaky) == []
         clock.advance(1.0)
         _deliver(rig, furnace)
-        assert len(_events(rig, Code.COMMIT_FAILED)) == 2
+        assert len(_events(rig, Code.WRITE_FAILED)) == 2
 
-    def test_a_failed_demand_is_not_applied_later(self, rig, clock, furnace, flaky):
+    def test_a_failed_demand_stays_staged_and_goes_out_with_the_next_commit(
+        self, rig, clock, furnace, flaky
+    ):
+        """A6: the failed value is kept, not dropped; the next commit carries it."""
         out = flaky.signals["out"]
         flaky.fail = True
         with pytest.raises(OSError, match="bus gone"):
             rig.write(flaky.root, {out: 80.0})  # a manual write still hears the failure
-        assert flaky.staged == {}, "the failed demand does not linger"
+        assert dict(flaky.staged) == {out: 80.0}, "kept for the next commit"
         flaky.fail = False
         clock.advance(1.0)
-        _deliver(rig, furnace)  # an input landing commits again: nothing stale goes out
-        assert rig.latest.get(out) is None or rig.latest[out].value != 80.0
+        _deliver(rig, furnace)  # an input landing commits again: the kept value goes out
+        assert rig.latest[out].value == 80.0
+        (resent,) = _events(rig, Code.RESENT)
+        assert resent.subject == flaky.name and resent.details["value"] == 80.0
 
     def test_the_controller_hears_the_failed_write(self, rig, clock, furnace, flaky):
         controller = rig.attach_controller(

@@ -18,10 +18,10 @@ another, and either can be replaced without the other noticing.
 | `session` | start, end, version, config, hardware, details |
 | `device`, `signal` | what was declared: a device's driver and config, a signal's quantity, unit, access and bands |
 | `write` | the signals whose writes this session records, with the driver behind them |
-| `sample` | every reading, by signal, under one node's instant |
+| `sample` | every reading, by signal, under one node's instant: `reading.value` and its `flag` (below) |
 | `write_state` | what a writable signal was set to: one row per commit that touched it |
 | `controller` | what was driven, named by its output's address, with its `measured` signal, law and feedforward |
-| `tick` | one controller step: `measured` (the reading it stepped on), setpoint, correction, `output`, expected. `correction` is NULL when the law's output was not a number (a NaN integral), so the tick is kept rather than ending the recording |
+| `tick` | one controller step: `measured` (the reading it stepped on), setpoint, correction, `output`, expected. `correction` is NULL when the law's output was not a number (a NaN integral), so the tick is kept rather than ending the recording. `reapplied` is 1 on a re-apply of a moving setpoint's feedforward between readings (no reading: `measured` NULL); one at the same instant as a reading's tick is not written |
 | `event` | something non-numeric that happened: a fault, a retune, a flag |
 | `span` | a labelled interval, nestable by `parent_id`: program, run, command, note |
 | `tuning` | named law configs, versioned; independent of sessions |
@@ -149,9 +149,15 @@ everything.
 The rig's history is `rig_version`: one row per version, the whole document
 each time (never a diff, so any row stands alone), `parent_id` the version
 it was made from, and a one-row `rig_head` naming where the running rig
-is. Saving a version chains it to the head and moves the head to it;
-restoring moves the head and writes nothing; so after a restore the next
-change branches from what was restored. Migration 0009 chained the rows an
+is. Saving a version chains it to the head and moves the head to it. A
+rig edit (D-051) saves one (`edited: ...`) before the runner restarts on
+it, and a restore saves the restored document again as a new version
+(`restored from N`) on top of the head; a start writes one only when the
+rig it built differs from the head (`loaded`, `started bare`, `resumed`),
+and not at all when it is the start an edit asked for. `--resume` walks back
+from the head past start rows to the last edit or restore. An older store's
+restores moved the head without a row (`set_rig_head`), so a change after
+one branched from what was restored. Migration 0009 chained the rows an
 older store held as the line they were. Migration 0013 renamed a stored
 controller's `signal` key to `measured` in every `rig_version.document`,
 since `ControllerEntry` refuses unknown keys and an older version would not
@@ -171,6 +177,73 @@ their pair (`write_recovered`, `commit_recovered`, `step_recovered`,
 `limit_known`, and a device's `restarted`, which is `offline` cleared).
 The severity stays in the JSON `detail` as its string; the `edge` is a
 column, so a session's condition history is one indexed query.
+
+Migration 0021 made `reading.value` nullable and added `reading.flag`
+(D-048, A2): a reading with no value is kept, as NULL with the code of its
+quality, and a value may carry a mark. The codes never meet on one row:
+
+| `flag` | with | means |
+| --- | --- | --- |
+| NULL | a value | a plain reading |
+| 1 | NULL | `invalid` |
+| 2 | NULL | `not_applicable` |
+| 3 | NULL | `stale`, any reason but the next |
+| 4 | NULL | `stale`: the device was offline |
+| 5-15 | NULL | free |
+| 16, 17 | a value | `at_limit`: low, high |
+| 18-31 | a value | free |
+
+Two CHECKs hold it: a NULL value has a code in 1-15, a value has none or
+one in 16-31, and the flag is an integer. The writer never relies on them
+-- a NaN or an infinity that reached it is stored NULL with code 1, not
+refused -- so a CHECK failing is a bug, and a `ConstraintError` that ends
+the batch. `pending` writes no row. The table was rebuilt (a CHECK cannot
+be added in place), rows carried over with `flag` NULL, and
+`reading_by_signal` is `(session_id, signal_id, offset_ns, value, flag)`, so
+a series with its breaks and marks is still one range scan. Reading back,
+`series` gives each point its `flag`; `every=n` keeps every NULL row
+besides every nth, so thinning never hides a break; an averaged bucket
+with any NULL in it is NULL, with the lowest code in it; `samples` gives
+each row its `flags`. Which stale reason (other than an offline device)
+is not kept; the device's `write_failed` edges say when its writes failed.
+
+Migration 0022 renamed the stored `commit_failed` events to `write_failed`
+(A6 made them one code: a failed commit on the delivery path and a
+blocking device's failed write are the same condition), and added
+`tick.reapplied` (`INTEGER NOT NULL DEFAULT 0`, 0 or 1) for the ticks a
+controller records when it re-applies a moving setpoint between readings.
+
+Migration 0023 added `live_value` (C10(5)): one row per signal whose last
+written value a restart restores, keyed `(device, signal)`, with `kind`
+(`value` for a `driver: values` entry; `setting`, for a driver setting
+behind a config field, is reserved for live settings, C11), `value` and
+`initial` as JSON (a later setting may be a string, a bool or an enum
+member), `unit` (the symbol when it was written), `config_field` (a
+setting's; NULL for a value), `writer` (the principal's `sub`),
+`written_ns` (wall time) and `head_version` (the rig version in force). It
+does not depend on recording: the runner always opens the store. At start,
+`Rig.values.attach` restores a row while the rig file's `initial` still
+equals the row's and the unit is the same; a changed `initial` means the
+file was edited since, and the row is deleted; a changed unit leaves the
+file's `initial` in force and raises `value_not_restored` on the signal.
+`put_live_value` refuses a secret (`SecretStr`, `SecretBytes`).
+
+Migration 0024 bound a stored humidity blender's supply humidities as
+inputs: an input has no default any more (C12), so every
+`dual_pump_blender` entry in a `rig_version.document` gets `inputs.dry` and
+`inputs.wet` -- kept where bound already, else its `supply:` number, else
+the old built-in default (0 and 100 %RH) -- and loses `supply`, which would
+no longer load.
+
+Migration 0025 added `latch`: one row per latch cause held -- the rig
+stop (`stop`) or a controller's `on_fault` action (`on_fault:<controller>`)
+-- with `subjects` as JSON `[{scope, subject}]` (`rig`, `device`, `signal`,
+`controller`), `by` (the principal's `sub`, or `on_fault`), `at_ns` (wall
+time), `reason` and `action` (a fault's). A row is written when the latch
+is set and deleted by its Reset. At start, before serving,
+`Stopping.attach` restores every row and re-applies the stop it implies: a
+rig stop's stops every device again, a fault's `stop` or `stop_device`
+stops what it held ([the latch](../1-running/runner/access.md#the-latch)).
 
 The scratch record and retention (D-008) are migration 0010: `session.kind`,
 `origin_ns`, `pinned`, `continues`, `bytes`. Trimming a scratch session

@@ -491,9 +491,46 @@ def test_a_stored_rig_version_names_a_device_s_inputs(tmp_path, monkeypatch):
     )
     assert document["devices"]["blender"] == {
         "driver": "dual_pump_blender",
-        "inputs": {"dry": "s.dry.humidity"},
-    }
+        "inputs": {"dry": "s.dry.humidity", "wet": 100.0},
+    }, "0017 renamed `bound`; 0024 bound the unbound `wet` to its old built-in default"
     assert document["devices"]["s"] == {"driver": "sht4x_set", "link": "i2c1"}
+
+
+def test_a_stored_blender_s_supply_becomes_its_inputs_numbers(tmp_path, monkeypatch):
+    document = _migrated_rig_version(
+        tmp_path,
+        monkeypatch,
+        23,
+        {
+            "devices": {
+                "blender": {
+                    "driver": "dual_pump_blender",
+                    "link": "pwm0",
+                    "supply": {"dry": 36.5, "wet": 88.5},
+                },
+                "bare": {"driver": "dual_pump_blender", "link": "pwm0"},
+                "bound": {
+                    "driver": "dual_pump_blender",
+                    "inputs": {"dry": "s.dry.humidity", "wet": "s.wet.humidity"},
+                    "supply": {"dry": 1.0, "wet": 2.0},
+                },
+                "s": {"driver": "sht4x_set", "link": "i2c1", "supply": {"dry": 1.0}},
+            }
+        },
+    )
+    devices = document["devices"]
+    assert devices["blender"] == {
+        "driver": "dual_pump_blender",
+        "link": "pwm0",
+        "inputs": {"dry": 36.5, "wet": 88.5},
+    }
+    assert devices["bare"]["inputs"] == {"dry": 0.0, "wet": 100.0}, "the old built-in default"
+    assert devices["bound"] == {
+        "driver": "dual_pump_blender",
+        "inputs": {"dry": "s.dry.humidity", "wet": "s.wet.humidity"},
+    }, "an input bound already keeps its address"
+    assert devices["s"]["supply"] == {"dry": 1.0}, "another driver's key is left alone"
+    assert list(devices) == ["blender", "bare", "bound", "s"], "the devices keep their order"
 
 
 def test_a_stored_rig_version_s_pass_through_feedforward_is_identity(tmp_path, monkeypatch):

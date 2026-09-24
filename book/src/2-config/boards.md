@@ -34,7 +34,7 @@ once it is installed.
 | `sht4x_set` | several SHT4x chips on one bus, each its own atomic namespace | `i2c` |
 | `ads1115` | TI 16-bit ADC, four single-ended channels, PGA gain | `i2c` |
 | `mcp3008` | Microchip 10-bit ADC, eight channels | `spi` |
-| `gpio_line` | `direction: output` (default): one `[W]` signal `on`, plus `on`/`off` commands; `direction: input`: one `[RP]` signal `level` | `gpio` |
+| `gpio_line` | `direction: output` (default): one `[W]` signal `on`, plus `on`/`off` commands (refused while a controller drives `on`); `direction: input`: one `[RP]` signal `level` | `gpio` |
 | `pwm_channel` | one `[W]` signal `drive`: the duty itself (0-1), or a unit and `span` mapping it linearly (a feedforward) | `pwm` |
 | `ds18b20` | the `w1_therm` family, in °C | `onewire` |
 

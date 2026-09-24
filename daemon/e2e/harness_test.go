@@ -606,8 +606,8 @@ func waitAudit(t *testing.T, store string, want map[string]string) auditRow {
 	return nil
 }
 
-// program is a program that holds for ten hours after taking the loop.
-const program = `{"name":"e2e","steps":[{"regulate":{"loop":"heater.drive","setpoint":50}},{"wait":{"minutes":600}}]}`
+// program is a program that holds for ten hours after taking the controller.
+const program = `{"name":"e2e","steps":[{"regulate":{"controllers":"heater.drive","setpoint":50}},{"wait":{"minutes":600}}]}`
 
 // ---- websockets ----
 

@@ -1,4 +1,4 @@
-"""Polling devices on their period: the run state, going offline, restarting."""
+"""Polling devices on their period: the run state, going offline, retrying, restarting."""
 
 from __future__ import annotations
 
@@ -80,13 +80,13 @@ def test_a_read_that_yields_nothing_keeps_the_last_read(rig, clock, furnace):
     assert rig.polling.run(furnace.name).last_read_ns == first
 
 
-def test_offline_on_an_exception_with_a_condition_and_an_event(rig, clock, furnace):
+def test_offline_after_the_budget_with_a_condition_and_an_event(rig, clock, furnace):
     rig.start_polling(furnace)
     clock.advance(1.0)
     furnace.fail = True
-    clock.advance(1.0)
+    clock.advance(3.0)  # three failures in a row: the default budget
     run = rig.polling.run(furnace.name)
-    assert run.running is False
+    assert run.running is True, "the loop runs on, retrying"
     (offline,) = rig.conditions.of(furnace)
     assert offline.code == "offline" and offline.severity is Severity.ERROR
     assert "modbus timeout" in offline.message
@@ -94,15 +94,15 @@ def test_offline_on_an_exception_with_a_condition_and_an_event(rig, clock, furna
     assert event.code == "offline" and event.scope == "device" and event.subject == furnace.name
     assert event.edge == "raised"
     clock.advance(5.0)
-    assert furnace.reads == 2, "stays stopped until restarted"
+    assert furnace.reads == 6, "retried after 1 s, then 2 s: backing off"
 
     furnace.fail = False
     run = rig.polling.restart(furnace.name)
-    assert rig.conditions.of(furnace) == [] and run.running is True
+    assert [c.code for c in rig.conditions.of(furnace)] == ["offline"] and run.running is True
+    clock.advance(1.0)
     event = rig.recent[-1]
     assert (event.code, event.edge, event.subject) == ("offline", "cleared", furnace.name)
-    clock.advance(1.0)
-    assert furnace.reads == 3 and rig.polling.run(furnace.name).last_read_ns == clock.now_ns()
+    assert furnace.reads == 7 and rig.polling.run(furnace.name).last_read_ns == clock.now_ns()
     with pytest.raises(NotFoundError, match="Polled device 'nope' not found"):
         rig.polling.restart("nope")
 
@@ -120,7 +120,7 @@ def test_a_failure_downstream_of_a_read_is_the_rig_s(rig, clock, furnace, fresh)
     assert rig.conditions.of(furnace) == [], "the device read fine"
     assert run.last_read_ns == clock.now_ns()
     event = rig.recent[-1]
-    assert event.code == "commit_failed" and event.scope == "device"
+    assert event.code == "write_failed" and event.scope == "device"
     assert event.subject == broken.name, "the committing device's, not the polled one's"
     assert "a bug in a driver's commit" in event.message
     assert run.running is True
@@ -190,29 +190,30 @@ def test_stop_gives_up_on_a_read_stuck_in_its_driver(monkeypatch, caplog, fresh)
         release.set()
 
 
-def test_revive_restarts_only_an_offline_polled_device(rig, clock, furnace):
+def test_revive_restarts_only_an_offline_or_stopped_polled_device(rig, clock, furnace):
     rig.start_polling(furnace)
     clock.advance(1.0)
     assert rig.polling.revive(furnace.name) is False, "running: nothing to do"
     furnace.fail = True
-    clock.advance(1.0)
-    assert rig.polling.run(furnace.name).running is False
+    clock.advance(3.0)
+    assert rig.polling.run(furnace.name).running is True
     furnace.fail = False
-    assert rig.polling.revive(furnace.name) is True
+    assert rig.polling.revive(furnace.name) is True, "offline: read again now"
+    rig.polling.stop_all()
+    assert rig.polling.revive(furnace.name) is True, "stopped: polled again"
     assert rig.polling.run(furnace.name).running is True
     assert rig.polling.revive("nope") is False, "not polled: not an error"
 
 
-def test_a_restart_of_a_still_broken_device_ends_offline_again(rig, clock, furnace):
+def test_a_restart_of_a_still_broken_device_stays_offline(rig, clock, furnace):
     rig.start_polling(furnace)
     clock.advance(1.0)
     furnace.fail = True
-    clock.advance(1.0)
+    clock.advance(3.0)
     rig.polling.restart(furnace.name)  # still broken
     clock.advance(1.0)
     run = rig.polling.run(furnace.name)
-    assert run.running is False and [c.code for c in rig.conditions.of(furnace)] == ["offline"]
+    assert run.running is True and [c.code for c in rig.conditions.of(furnace)] == ["offline"]
     edges = [(e.code, e.edge) for e in rig.recent if e.subject == furnace.name]
-    assert edges[-2:] == [("offline", "cleared"), ("offline", "raised")], (
-        "the offline is raised again after the restart cleared it"
-    )
+    assert edges == [("offline", "raised")], "one outage: the restart neither cleared nor raised"
+    assert run.consecutive_failures == 4

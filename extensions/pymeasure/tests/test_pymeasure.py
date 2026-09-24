@@ -109,6 +109,28 @@ class TestPyMeasure:
         assert device.signals["enable"].role is Role.DEMAND
         assert device.signals["enable"].access is Access.RPW, "its readback is the committed value"
 
+    def test_a_none_from_the_instrument_is_left_for_the_rig_to_make_invalid(self, fresh):
+        inst = FakePyMeasureInstrument()
+        inst._v = None
+        device = PyMeasure(
+            fresh("dmm"), inst, {"v": PyMeasureSignal(property="voltage", publish=True)}
+        )
+        (sample,) = device.read(0)
+        assert sample.by_name() == {"v": None}
+
+    def test_a_demand_with_a_getter_is_sensed_one_without_an_echo(self, fresh):
+        inst = FakePyMeasureInstrument()
+        device = PyMeasure(
+            fresh("src"),
+            inst,
+            {
+                "v": PyMeasureSignal(property="source_voltage"),
+                "enable": PyMeasureSignal(property="output_enabled"),
+            },
+        )
+        assert device.signals["v"].spec.readback.value == "sensed"
+        assert device.signals["enable"].spec.readback.value == "echo"
+
     def test_read_skips_a_demand_with_no_getter(self, fresh):
         inst = FakePyMeasureInstrument()
         device = PyMeasure(

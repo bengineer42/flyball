@@ -36,6 +36,13 @@ class PwmChannel(Committable):
 
     The channel is enabled at 0 % on construction, so a heater is off from
     the moment the rig has it.
+
+    `drive` declares `off` at 0 % duty (0, or `span[0]`): what a stop writes, as a
+    value -- the channel stays enabled. None with `invert: true` (a logical 0 is the
+    load's off under only one of the two reasons to invert), nor on a span that
+    straddles 0 (`span[0]` is full reverse there): a stop then leaves the output as
+    it is, unless the rig file's `stop:` says otherwise. The driver cannot tell a
+    heater from a fan: a fan that must run on after a stop says so in `stop:`.
     """
 
     frequency_hz = Setting("frequency_hz", "Carrier frequency", FREQUENCY)
@@ -62,7 +69,9 @@ class PwmChannel(Committable):
         self._duty = 0.0
         """The fraction last driven, 0 to 1: independent of `drive`'s reading, to re-apply at a
         new `frequency_hz` even when the commit that set it pushed no readback."""
-        self.bind((spanned_signal_spec("drive", unit, quantity, span, bare=DRIVE),))
+        self.bind((
+            spanned_signal_spec("drive", unit, quantity, span, bare=DRIVE, off_at_zero=not invert),
+        ))
         self.frequency_hz.push(frequency_hz)
         self._drive(0.0)
 
@@ -109,9 +118,12 @@ class PwmChannel(Committable):
         self.frequency_hz.push(frequency_hz)
         self._drive(self._duty)
 
-    @command
+    @command(writes=("drive",))
     def off(self) -> None:
-        """Duty to zero and the channel disabled, until the next demand."""
+        """Duty to zero and the channel disabled, until the next demand.
+
+        Refused while a controller drives `drive`: put it in manual first.
+        """
         self._drive(0.0)
         self.link.enable(self.channel, False)
         self._enabled = False

@@ -125,8 +125,12 @@ class Ccs811Sensor:
             self.address, ENV_DATA, encode_env_data(humidity_percent_rh, temperature_c)
         )
 
-    def measure(self) -> tuple[int, int]:
-        """(eCO2 ppm, TVOC ppb): one register read.
+    def measure(self) -> tuple[int, int] | None:
+        """(eCO2 ppm, TVOC ppb): one register read; None while no new result is ready.
+
+        `STATUS`'s DATA_READY is clear before the first measurement completes and
+        between one result's read and the next: `ALG_RESULT_DATA` then holds
+        nothing new (zeros, before the first), so nothing is read.
 
         Raises:
             HardwareError: `STATUS` reports an error, or the chip is not in app mode.
@@ -137,6 +141,8 @@ class Ccs811Sensor:
         if status & STATUS_ERROR:
             error = self.link.read_register(self.address, ERROR_ID, 1)[0]
             raise HardwareError(f"CCS811 reports an error: ERROR_ID=0x{error:02x}")
+        if not (status & STATUS_DATA_READY):
+            return None
         return decode_alg_result(self.link.read_register(self.address, ALG_RESULT_DATA, 4))
 
 
@@ -164,7 +170,10 @@ class Ccs811(Readable):
         return Ccs811Config(link="", address=self.sensor.address)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
-        co2eq, tvoc = self.sensor.measure()
+        """One result, when the chip has a new one; nothing (not read this time) when not."""
+        if (result := self.sensor.measure()) is None:
+            return
+        co2eq, tvoc = result
         yield self.sample(time_ns, co2eq=co2eq, tvoc=tvoc)
 
 

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from flyball.record.store import Store
 from flyball.rig import Rig
 from flyball.runtime.config import Exposure, RigConfig, RunnerConfig, settle_exposure
+from flyball.runtime.edits import Origin
 from flyball.runtime.retention import Retention
 
 from . import logs
@@ -41,6 +42,17 @@ if TYPE_CHECKING:
 log = logging.getLogger("flyball.runner")
 
 
+EDIT_ENV = "FLYBALL_EDIT"
+"""Set for the start after a rig edit: `<version>:<previous>:<record>`, the edit's rig
+version, the head before it (empty for none), and `1` if a session was recording (the start
+opens a new one). If that start cannot build the rig, it rolls the edit back (`entrypoint`).
+Not a flag: nothing but the runner itself sets it."""
+
+EDIT_FAILED_ENV = "FLYBALL_EDIT_FAILED"
+"""Set for the start after a rollback: `{"version", "previous", "error"}` as JSON, which that
+start raises as an `edit_not_built` condition on the rig."""
+
+
 class Handle:
     """What the server may do to the process: read how it was started, stop it, restart it."""
 
@@ -50,12 +62,16 @@ class Handle:
         files: Sequence[Path],
         stop: Callable[[], None],
         exposure: Exposure | None = None,
+        origin: Origin | None = None,
     ):
         self.settings = settings
         self.files = list(files)
         self._stop = stop
         self.restarting = False
+        self.resume = False
+        """Start again with `--resume`: an edit to a bare or resumed rig lives in the store."""
         self.exposure = exposure
+        self.origin = origin or Origin()
 
     def shutdown(self) -> None:
         """Stop serving; `serve` returns once the rig is stopped."""
@@ -65,6 +81,18 @@ class Handle:
         """Stop serving, then start this process again with the same command line."""
         self.restarting = True
         self._stop()
+
+    def restart_for_edit(self, version: int, previous: int | None, record: bool = False) -> None:
+        """`restart`, to build rig version `version`, which an edit has just saved.
+
+        A rig from files builds it from the overlay the edit wrote; a bare or resumed one
+        starts again with `--resume`. `previous` is what a start that cannot build it rolls
+        back to; `record`, whether that start opens a recording session (one was open).
+        """
+        before = "" if previous is None else previous
+        os.environ[EDIT_ENV] = f"{version}:{before}:{1 if record else ''}"
+        self.resume = self.origin.stored
+        self.restart()
 
 
 GRACEFUL_SHUTDOWN_S = 5
@@ -243,6 +271,7 @@ def serve(
     config: RigConfig | None = None,
     insecure_open: bool = False,
     front: FrontDir | None = None,
+    origin: Origin | None = None,
 ) -> None:
     """Serve `rig` until interrupted. The rig's devices must already be polling.
 
@@ -271,10 +300,13 @@ def serve(
             `host` and `port` are then ignored, with one line on stderr if they said
             anything. None: a bare runner, whose token (if any) gets a one-time sign-in
             link printed at start.
+        origin: The rig files and `--set`s the command line named, and whether it
+            resumed: where a rig edit is saved (`flyball.runtime.edits`). None: a bare
+            runner, whose edits live in the store.
 
-    A restart asked for over the API (`POST /api/runner/restart`) stops the
-    rig and replaces this process with the same command line, once `serve`
-    has unwound.
+    A restart asked for over the API (`POST /api/runner/restart`, or a rig edit) stops
+    the rig and replaces this process with the same command line, once `serve` has
+    unwound; after an edit to a bare or resumed rig, with `--resume` added.
     """
     import uvicorn
 
@@ -365,7 +397,7 @@ def serve(
     def stop() -> None:
         server.should_exit = True
 
-    handle = Handle(settings, rig.files, stop, exposure)
+    handle = Handle(settings, rig.files, stop, exposure, origin)
     set_runner(handle)
     retention = None if store is None else Retention(rig, store, settings)
     set_retention(retention)
@@ -410,5 +442,7 @@ def serve(
         # The interpreter's own argv, so `python -m flyball.runner` restarts as `-m` too (and
         # `--front-dir` comes back with the rest: fronted stays fronted).
         argv = [sys.executable, *sys.orig_argv[1:]]
+        if handle.resume and "--resume" not in argv:
+            argv.append("--resume")
         log.info("restarting: %s", " ".join(redacted(argv)))
         os.execv(sys.executable, argv)

@@ -17,18 +17,26 @@ What each box shows:
 - **Versions** (`GET /api/rig/versions`) — every version the store has
   seen, newest first, the one the running rig is at marked **current**
   (its restore is disabled) and each row saying which version it was made
-  from; **restore** (`POST /api/rig/versions/{id}/restore`) rebuilds the
-  running rig to match that version and moves the head there.
+  from; **restore** (`POST /api/rig/versions/{id}/restore`) saves that
+  version again as a new one on top and restarts the rig with it.
 - **Save** (`POST /api/rig/save`) — with no path, just what changed since
-  start, written to an overlay beside the file the rig was loaded from; a
+  start and was not saved yet (a controller: every other change saved
+  itself), written to the overlay beside the file the rig was loaded from; a
   path writes the whole rig there instead, with a checkbox to overwrite a
   loaded file. The path field only appears on a runner that allows it
   (`allow_save`); otherwise the box says so and saves the overlay alone.
 - The section head shows where the runner serves from and how many files
   it loaded; on a runner started with `allow_shutdown`, **Restart** and
   **Shut down** buttons beside it, each behind a confirmation. Restart
-  runs the same command again: the rig is rebuilt from its files, the app
-  reconnects within a few seconds.
+  runs the same command again: the rig is rebuilt from its files and the
+  overlay the changes were saved to, the app reconnects within a few
+  seconds.
+- **Every add, remove and restore restarts the rig** (D-051): it is saved
+  as a new version, the rig is stopped -- outputs to their stop states, a
+  running program cancelled, controllers to manual -- and the runner comes
+  back on the new version, passive, within a few seconds. Nothing is added
+  or removed in place. See
+  [Building a rig while it runs](../runner/building.md).
 - **Devices, links and controllers** — Config is the only place in the app to add or remove
   any of the three (Readings, a device's own page and Controllers show them but no longer offer
   add/remove for anything but a controller's own detach). Each section lists what exists as

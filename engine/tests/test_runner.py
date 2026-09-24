@@ -496,6 +496,8 @@ def test_the_migration_chains_versions_already_stored(tmp_path):
         db.execute("ALTER TABLE signal RENAME COLUMN warning TO warn")  # 0014's, likewise
         db.execute("ALTER TABLE event RENAME COLUMN code TO kind")  # 0019's, likewise
         db.execute("ALTER TABLE event DROP COLUMN edge")  # 0020's, likewise
+        db.execute("DROP TABLE live_value")  # 0023's, likewise
+        db.execute("DROP TABLE latch")  # 0025's, likewise
         old = {"controllers": {"h.power": {"signal": "p.t", "default": True}, "h.fan": {}}}
         for i in (1, 2, 3):
             db.execute(
@@ -987,6 +989,156 @@ def test_the_runner_route_reports_the_endpoint():
         assert body["endpoint"] == "unix:/r/sock" and "host" not in body and "port" not in body
     finally:
         set_runner(None)
+
+
+# endregion
+
+
+# region After a rig edit (D-051)
+
+LAB = """\
+name: lab
+links:
+  t1: {type: sim_plant, model: lag, tau_s: 1.0}
+devices:
+  probe:
+    driver: sim_daq
+    link: t1
+    poll_s: 0.1
+    ports: {signal: {port: output, quantity: x, unit: "1"}}
+  drive: {driver: sim_drive, link: t1, ports: {u: input}}
+"""
+
+
+def test_a_restart_for_an_edit_of_a_bare_rig_resumes_from_the_store(monkeypatch):
+    from flyball.interfaces.server import deps
+    from flyball.rig import Rig
+    from flyball.runner.serving import EDIT_ENV
+
+    execs = []
+
+    def fake_run(self):
+        deps.current_runner().restart_for_edit(7, 6, record=True)
+
+    monkeypatch.setattr("uvicorn.Server.run", fake_run)
+    monkeypatch.setattr("os.execv", lambda exe, argv: execs.append(argv))
+    monkeypatch.setattr("sys.orig_argv", ["python3", "flyball-runner", "--port", "1"])
+    monkeypatch.delenv(EDIT_ENV, raising=False)
+    runner.serve(Rig("t"), RunnerConfig(port=1, log_level="warning"))
+    assert execs == [[sys.executable, "flyball-runner", "--port", "1", "--resume"]]
+    import os
+
+    assert os.environ.pop(EDIT_ENV) == "7:6:1"
+
+
+def test_a_restart_for_an_edit_of_a_rig_file_keeps_the_command_line(monkeypatch, tmp_path):
+    from flyball.interfaces.server import deps
+    from flyball.rig import Rig
+    from flyball.runner.serving import EDIT_ENV
+    from flyball.runtime.edits import Origin
+
+    execs = []
+    monkeypatch.setattr(
+        "uvicorn.Server.run", lambda self: deps.current_runner().restart_for_edit(3, None)
+    )
+    monkeypatch.setattr("os.execv", lambda exe, argv: execs.append(argv))
+    monkeypatch.setattr("sys.orig_argv", ["python3", "flyball-runner", "lab.yaml"])
+    monkeypatch.delenv(EDIT_ENV, raising=False)
+    origin = Origin((tmp_path / "lab.yaml",))
+    runner.serve(Rig("t"), RunnerConfig(port=1, log_level="warning"), origin=origin)
+    assert execs == [[sys.executable, "flyball-runner", "lab.yaml"]], "the overlay holds it"
+    import os
+
+    assert os.environ.pop(EDIT_ENV) == "3::"
+
+
+def test_an_edit_that_does_not_build_is_rolled_back_and_said(tmp_path, monkeypatch, caplog):
+    import os
+
+    import yaml
+
+    from flyball.record.sqlite import SqliteStore
+    from flyball.runner.serving import EDIT_ENV, EDIT_FAILED_ENV
+
+    rig_file = tmp_path / "lab.yaml"
+    rig_file.write_text(LAB)
+    store_path = tmp_path / "s.sqlite"
+    argv = [str(rig_file), "--store", str(store_path), "--no-mcp"]
+    seen: dict = {}
+    monkeypatch.setattr(
+        "flyball.runner.entrypoint.serve", lambda rig, settings, **kw: seen.update(rig=rig)
+    )
+    monkeypatch.delenv(EDIT_ENV, raising=False)
+    monkeypatch.delenv(EDIT_FAILED_ENV, raising=False)
+    assert runner.main(argv) == 0
+    seen.pop("rig").close()
+    store = SqliteStore(store_path)
+    started = store.head_rig_version()
+    assert started is not None and started.reason == "loaded"
+    # An edit saved: a controller on a signal the drive does not have. It validates (an
+    # address is only checked for its dot) and fails at the build.
+    overlay = tmp_path / "lab.yaml.d" / "added.yaml"
+    overlay.parent.mkdir()
+    broken = {"controllers": {"drive.nope": {"measured": "probe.signal"}}}
+    overlay.write_text(yaml.safe_dump(broken))
+    edited = store.save_rig_version(1, "edited: x", {"name": "lab"}, [])
+    store.close()
+    monkeypatch.setenv(EDIT_ENV, f"{edited.id}:{started.id}:")
+
+    class Exec(Exception):
+        pass
+
+    def execv(exe, args):
+        raise Exec(args)
+
+    monkeypatch.setattr("os.execv", execv)
+    monkeypatch.setattr("sys.orig_argv", ["python3", "flyball-runner", *argv])
+    with pytest.raises(Exec):
+        runner.main(argv)
+    assert not overlay.exists(), "there was no overlay before the edit: none now"
+    assert EDIT_ENV not in os.environ
+    failed = json.loads(os.environ[EDIT_FAILED_ENV])
+    assert failed["version"] == edited.id and failed["previous"] == started.id
+    assert "nope" in failed["error"]
+    store = SqliteStore(store_path)
+    head = store.head_rig_version()
+    assert head is not None and head.reason == f"restored from {started.id}"
+    assert head.document == started.document
+    store.close()
+    # The start after the rollback: the rig before the edit, and a condition saying why.
+    assert runner.main(argv) == 0
+    rig = seen.pop("rig")
+    try:
+        assert EDIT_FAILED_ENV not in os.environ, "said once"
+        held = [c for c in rig.conditions.all() if c.code == "edit_not_built"]
+        assert len(held) == 1 and held[0].scope == "rig"
+        assert held[0].message.startswith(f"edit to version {edited.id} did not build: ")
+        assert held[0].message.endswith(f"; running version {started.id}")
+        assert "drive.nope" not in rig.controllers
+    finally:
+        rig.close()
+
+
+def test_a_start_says_what_the_saved_overlay_sets(tmp_path, monkeypatch, caplog):
+    import os
+    import time
+
+    rig_file = tmp_path / "lab.yaml"
+    rig_file.write_text(LAB)
+    overlay = tmp_path / "lab.yaml.d" / "added.yaml"
+    overlay.parent.mkdir()
+    overlay.write_text("devices:\n  probe: {label: Probe}\n")
+    later = time.time() + 5
+    os.utime(rig_file, (later, later))  # the file was edited after the overlay was saved
+    seen: dict = {}
+    monkeypatch.setattr(
+        "flyball.runner.entrypoint.serve", lambda rig, settings, **kw: seen.update(rig=rig)
+    )
+    caplog.set_level("INFO", logger="flyball.runner")
+    assert runner.main([str(rig_file), "--store", str(tmp_path / "s.sqlite"), "--no-mcp"]) == 0
+    seen.pop("rig").close()
+    assert f"saved overlay {overlay} sets devices.probe" in caplog.text
+    assert "was changed after the saved overlay" in caplog.text and "devices.probe" in caplog.text
 
 
 # endregion

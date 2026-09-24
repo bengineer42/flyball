@@ -27,7 +27,7 @@ class Set(Step, tag="set"):
         node = rig.resolve(self.device)
         if isinstance(node, Signal):
             raise NotFoundError(f"'{self.device}' is a signal, not a device or namespace")
-        rig.write(node, {**self.values})
+        rig.write(node, {**self.values}, writer="program")
         return None
 
     def missing(self, rig: Rig) -> list[str]:

@@ -3,8 +3,9 @@
 A device has a tree of [signals][flyball.foundation.device.signal.Signal] (namespaces
 group them), each with a [Role][flyball.foundation.device.signal.Role]: a **demand** is
 settable and has a current value, a **readout** is produced, a **setting** is
-re-set by a command, a **config** is effective at build; an **input** is not
-a signal of the device but another device's, which the rig binds to it.
+re-set by a command; an **input** is not a signal of the device but another
+device's (or a number), which the rig binds to it as an
+[InputBinding][flyball.foundation.device.binding.InputBinding].
 Structure is declared once -- as descriptors in the class body
 (`flows = Namespace(...)`, `dry_flow = flows.demand(...)`), or built from
 config in `__init__` with the same factories and bound with
@@ -59,6 +60,7 @@ from flyball.model.config import Config
 
 from ..router.router import Router
 from ..time.clock import Clock
+from .binding import InputBinding
 from .building import _inputs, _last_of, _Leaf, _leaves, _link_params, _setter
 from .commands import RESERVED_NAMES, CommandSpec, _check_command_signature, _schemable, command
 from .conditions import Conditions
@@ -102,6 +104,14 @@ class Staged(dict[Signal, float]):
     def __init__(self) -> None:
         super().__init__()
         self._read: set[Signal] = set()
+        self._all = False
+
+    def forget_reads(self) -> None:
+        """Forget which demands the driver read, keeping the demands.
+
+        A commit that failed leaves them staged for the next, which reads them afresh.
+        """
+        self._read.clear()
         self._all = False
 
     def unread(self) -> list[Signal]:
@@ -218,9 +228,10 @@ class Device:
     """Every leaf, by address relative to the device: `"dry.humidity"`."""
     nodes: dict[str, Node]
     """Every namespace, likewise: `"dry"`."""
-    bound: dict[str, Signal | Node]
-    """Inputs this device follows on other devices, by role (`"dry"`): a signal, or a whole
-    namespace read as one message; the rig resolves them."""
+    bound: dict[str, InputBinding]
+    """Its inputs, by name (`"dry"`): each declared input's binding from construction, unbound
+    until the rig binds it to a signal, a whole namespace read as one message, or a number;
+    and one per other name the rig file's `inputs:` gives."""
     staged: Staged
     """What `apply` staged since the last `commit`; the rig clears it after each."""
     written: dict[Signal, WriteState]
@@ -241,6 +252,8 @@ class Device:
     command's [wait][flyball.foundation.device.device.Device.wait]; the rig clears it when
     it starts one."""
     config_type: ClassVar[type[DriverConfig[Any]]]
+    stop_command: ClassVar[str | None] = None
+    """The command marked `stops=True`, if the driver has one; see `stops_by`."""
     commands: dict[str, CommandSpec] = {}  # ruff: ignore[mutable-class-default]  the class's; an instance copies and extends
     """Every command, by name: the class's, plus a synthesised `set_<path>` for each demand of a
     tree computed at construction (a class's demands get theirs at definition)."""
@@ -248,7 +261,7 @@ class Device:
     def __init__(self, name: str, label: str | None = None) -> None:
         self.name = name
         self.label = label
-        self.bound = {}
+        self.bound = {n: InputBinding(self, n, spec) for n, spec in self.INPUTS.items()}
         self.staged = Staged()
         self.written = {}
         self.router = Router()
@@ -259,6 +272,15 @@ class Device:
         self._extended = False
         self._batch: dict[Signal, Value] | None = None
         self.bind(self.TREE)
+
+    def stops_by(self) -> str | None:
+        """The command that is this device's stop, if it has one (`stops=True`).
+
+        A rig stop runs it instead of writing values, and the rig file's `stop:` values
+        are refused on it. Default: the class's; a driver whose stop depends on its config
+        (an instrument told its stop string, or not) overrides this.
+        """
+        return type(self).stop_command
 
     # region Conditions
 
@@ -293,9 +315,52 @@ class Device:
         owner = self if signal is None else signal
         return self.conditions.clear(owner, code, details, message=message)
 
+    def event(
+        self,
+        code: str,
+        severity: Severity,
+        message: str,
+        details: Any = None,
+        *,
+        signal: Signal | None = None,
+    ) -> None:
+        """Record that something happened once on this device, or on one of its signals.
+
+        A point event, not a condition: nothing is held, nothing clears. On a
+        rig it is logged, kept, streamed and recorded like the rig's own; off
+        one it is dropped. Safe from any thread.
+        """
+        self.conditions.note(self if signal is None else signal, code, severity, message, details)
+
     def held_conditions(self) -> list[Condition]:
         """What is held now on this device and on its signals, in the order raised."""
         return [c for owner in (self, *self.signals.values()) for c in self.conditions.of(owner)]
+
+    # endregion
+
+    # region Inputs
+
+    def binding(self, name: str) -> InputBinding:
+        """The binding of input `name`, made unbound if it has none yet: what the rig binds."""
+        if (binding := self.bound.get(name)) is None:
+            binding = self.bound[name] = InputBinding(self, name, self.INPUTS.get(name))
+        return binding
+
+    def inputs_changed(self, time_ns: int, changed: list[InputBinding]) -> None:
+        """Called by the rig when inputs of this device have something new: `changed`.
+
+        In the delivery that brought each source a reading (and once when the
+        rig binds inputs that have a value already: a number, a source read
+        before), under the rig's lock, before the controllers step. What the
+        driver pushes here is delivered next in the same chain, so a
+        controller measuring an output computed from an input steps on it
+        without lagging a delivery. Default: nothing -- a device with demands
+        reads its inputs in `commit`, which the rig calls in the same
+        delivery. An output computed from an input with no value carries the
+        input's quality: push `NoValueError.no_value`
+        ([values_of][flyball.foundation.device.binding.values_of] picks it
+        across several inputs).
+        """
 
     # endregion
 
@@ -507,6 +572,13 @@ class Device:
                 spec = CommandSpec(name, value, params, **value.__command_options__)
                 _check_command_signature(cls, spec)
                 cls.commands[name] = spec
+        stops = [c.name for c in cls.commands.values() if c.stops]
+        if len(stops) > 1:
+            raise TypeError(
+                f"{cls.__name__}: {' and '.join(map(repr, stops))} are both marked stops=True;"
+                " a device has one stop"
+            )
+        cls.stop_command = stops[0] if stops else None
         linked = {p.link for c in cls.commands.values() for p in c.params.values() if p.link}
         for leaf in _leaves(cls.TREE):
             if leaf.role is Role.DEMAND and leaf.path not in linked:
@@ -536,8 +608,11 @@ class Readable(Device):
         published signal, but a slow bus may yield them at different
         instants, a buffered instrument a backlog, and per-signal `poll_s`
         means only some are due at a given call. Yield nothing if none are.
-        Raise HardwareError to go offline; the runtime records the condition
-        and retries on the next poll.
+        Raise HardwareError when the transport fails. The runtime delivers
+        what was yielded before the raise and counts it toward the device's
+        `reads.fail_after`: below it, polling carries on at its period; at
+        it, the device is `offline` and is retried after each wait of
+        `reads.backoff_s`, until a read succeeds and clears it.
         """
         raise NotImplementedError(f"{type(self).__name__} has nothing to read")
 
@@ -580,7 +655,19 @@ class Committable(Device):
         """Put one committed value on the hardware. Default: nothing -- the device just holds it."""
 
 
-ENVELOPE_KEYS = frozenset({"driver", "label", "poll_s", "signals", "inputs", "config"})
+ENVELOPE_KEYS = frozenset({
+    "driver",
+    "label",
+    "poll_s",
+    "signals",
+    "inputs",
+    "reads",
+    "retry_max_age_s",
+    "stop",
+    "on_shutdown",
+    "permissive",
+    "config",
+})
 """The keys of a device entry that are flyball's, the same for every driver; `config` is
 refused outright, so a driver field of that name could never be set."""
 
@@ -608,6 +695,19 @@ class DriverConfig[D: Device](Config[D]):
 
     def build(self, name: str, label: str | None = None) -> D:  # pyright: ignore[reportIncompatibleMethodOverride]  the envelope supplies the name
         raise NotImplementedError(f"{type(self).__name__} cannot build a device")
+
+    @classmethod
+    def device_class(cls) -> type[Device] | None:
+        """The device class this config builds (`DriverConfig[Values]` -> `Values`), if known.
+
+        What a check that has no device yet reads the declared inputs from.
+        """
+        for base in cls.__mro__:
+            metadata = getattr(base, "__pydantic_generic_metadata__", None) or {}
+            for arg in metadata.get("args", ()):
+                if isinstance(arg, type) and issubclass(arg, Device):
+                    return arg
+        return None
 
 
 Device.config_type = DriverConfig  # declared above it; the bare device's tier

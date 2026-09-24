@@ -11,4 +11,16 @@
 
 ::: flyball.rig.polling
 
+::: flyball.rig.liveness
+
+::: flyball.rig.faults
+
+::: flyball.rig.bands
+
 ::: flyball.rig.triggers
+
+::: flyball.rig.values
+
+::: flyball.rig.stopping
+
+::: flyball.rig.latches

@@ -29,12 +29,13 @@ run says `--insecure-open` (or `FLYBALL_INSECURE_OPEN=1`), when it answers an
 IP address, `localhost` or the machine's own name --
 [the bare runner](access.md#the-bare-runner).
 
-!!! warning "flyball is not a safety system"
-    Its stop is a control function, not an emergency stop in the sense of
-    IEC 60204-1 or ISO 13850. Put the protection outside flyball: thermal
-    cut-outs, a hardware emergency stop that removes power, and wiring such
-    that de-energised is safe. [Unattended runs](#unattended-runs) says what
-    to check before leaving a rig alone.
+!!! warning "Protection belongs outside flyball"
+    Its stop is a control function, and everything it does to outputs
+    happens inside one process. Wire a hardware stop that removes power,
+    interlocks and thermal cut-outs independently of flyball.
+    [What flyball does not do](../../0-overview/limits.md) lists the limits;
+    [Unattended runs](#unattended-runs) says what to check before leaving a
+    rig alone.
 
 The file is validated first (`flyball rig check rig.yaml` does the same
 without serving); a bad file is a one-line message and exit code 2, and so
@@ -44,8 +45,17 @@ fix from a crash. With
 `recording: true` in the file, or `--record`, a session is opened in
 `--store` (default `<rig>.sqlite` beside the rig file) before serving. On
 shutdown -- Ctrl-C (SIGINT) or SIGTERM, which is how `flyball run`, `flyball
-runners stop` and systemd stop it -- the programmer is interrupted, the session closed and the polled
-devices stopped, and the runner exits 0. A read stuck in its driver is waited
+runners stop` and systemd stop it -- the programmer is interrupted, each
+device's [resolved stop](../../2-config/devices/index.md#stop-what-a-stop-writes)
+is written, the session closed and the polled devices stopped, and the
+runner exits 0. The stop at shutdown is best-effort within the
+supervisor's stop window (`flyballd` kills the runner after 10 s) and is
+not latched: the next start is passive. `runner.on_shutdown: keep`, or
+`--on-shutdown keep` for one run, writes nothing on the way out, and a
+device's own `on_shutdown: keep` leaves that device alone; either leaves
+those outputs energised with no process watching them. The next start
+still writes each driver's build value
+([The runner section](../../2-config/runner.md)). A read stuck in its driver is waited
 on for 2 s at most (over all devices together), then abandoned with a
 warning naming the device, so a hung read does not hold up the shutdown. Open
 connections -- a dashboard's websocket, a download -- get 5 s to finish,
@@ -119,9 +129,14 @@ hardware and its wiring, not by flyball:
 - **A crash, `kill -9`, a power loss or a hung machine leaves each output
   at its last value.** Nothing runs to change it: a Raspberry Pi's sysfs
   PWM, for example, may keep its duty cycle with nothing left to drive it.
+  A stop, and the stop at shutdown, set only the outputs whose inactive
+  level is known; `GET /api/rig/stop` lists which
+  ([What flyball does not do](../../0-overview/limits.md)).
 - **A closed loop with a failed sensor can drive its actuator to its
   limit.** Set output limits (`limits` on the writable signal) and decide
-  how faults are handled before any unattended run.
+  how faults are handled -- each controller's
+  [`on_fault`](../../2-config/controllers.md#on_fault-what-a-controller-does-about-a-faulty-source)
+  -- before any unattended run.
 - **Before the first overnight run**, on the real hardware, try a
   [software stop](access.md#stopping-the-rig), a killed runner (`kill -9`)
   and a power cut, and write down where each output ends up.
@@ -168,13 +183,13 @@ so, and the API still works.
 | `/api/devices` | each device's signal tree, schema, and a `POST` per command |
 | `/api/read`, `/api/signals` | a signal's reading, a namespace's sample, or a device's samples; put a demand on a writable signal |
 | `/api/controllers`, `/api/tunings`, `/api/clock` | the live rig |
-| `/api/links`, `/api/devices` (`POST`, `DELETE`), `/api/rig` | build the rig up while it runs: see above |
+| `/api/links`, `/api/devices` (`POST`, `DELETE`), `/api/rig` | change the rig: each change is saved and the rig restarted with it ([Building a rig while it runs](building.md)) |
 | `/api/rig/document`, `/api/rig/changes`, `/api/rig/versions`, `/api/rig/save` | the running rig as a file, what changed, its versions, saving it |
 | `/api/rig/schema`, `/api/rig/config`, `/api/rig/check` | the rig file's schema, the file as loaded, validate a document without building |
 | `/api/drivers`, `/api/drivers/reload`, `/api/probe`, `/api/links/{name}/query` | what the runner can build, load the drivers directory again, what the board has, one raw exchange on a link |
 | `/mcp/read`, `/mcp/author`, `/mcp/operate` | the rig for a model: [the MCP server](../../4-server/mcp.md) |
 | `/api/activities` | what a program is waiting on; fire or cancel one |
-| `/api/rig/stop` | the [software stop](access.md#stopping-the-rig): the program interrupted, every controller to manual |
+| `/api/rig/stop`, `/api/rig/reset`, `/api/rig/latches` | the [software stop](access.md#stopping-the-rig): the rig latched, the program interrupted, every controller to manual, each device's stop written; what a stop would write; a person's Reset; what is latched |
 | `/api/auth` | who the caller is and what the door takes (a bare runner's; behind a front, the front answers it) |
 | `/api/programs` | check a program file, run one, see what is running |
 | `/api/dashboards` | the UI's saved dashboards for this rig; `dashboards/*.toml`/`*.yaml`/`*.json` beside the rig file are imported on start |
@@ -266,6 +281,6 @@ Nothing forks or writes a PID file. Run it under systemd `Type=simple` (or
 any supervisor that restarts a foreground process): `flyball run` for one
 rig, `flyballd` for several ([its example unit](../../7-reference/cli.md#what-stopping-flyballd-does)).
 A bare runner decides where it listens with `--host`/`--port` (or the
-`runner:` section). On shutdown the server stops the rig's polled devices;
-anything else — putting a controller in manual, closing a session — is the
-application's to do.
+`runner:` section). On shutdown the runner writes each device's stop
+(unless `on_shutdown: keep`), closes the session and stops the rig's polled
+devices.

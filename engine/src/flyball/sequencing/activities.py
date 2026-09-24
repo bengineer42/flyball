@@ -61,7 +61,14 @@ class Sustained(Activity):
         self.test = test
 
     def _on_tick(self, controller: Controller, reading: Reading | None) -> None:
-        if reading is not None and self.test(reading):
+        # A reading with no value, or one at a limit (the true value may lie beyond it),
+        # passes no test.
+        if (
+            reading is not None
+            and reading.usable
+            and reading.at_limit is None
+            and self.test(reading)
+        ):
             self.fire()
 
     def attach(self, rig: Rig) -> None:
@@ -76,9 +83,10 @@ class Settled(Activity):
 
     Each controller is judged against *its own* setpoint at the reading's
     instant, so one still on a ramp is measured against where the ramp is
-    now. A reading outside the band resets that controller's count; the
-    controllers are independent, and the activity fires when the last of
-    them arrives.
+    now. A reading outside the band resets that controller's count, and so
+    does one with no value or one at a limit (the true value may lie beyond
+    it); the controllers are independent, and the activity fires when the
+    last of them arrives.
     """
 
     __slots__ = ("_controllers", "_counts", "count", "within")
@@ -109,6 +117,9 @@ class Settled(Activity):
 
     def _on_tick(self, controller: Controller, reading: Reading | None) -> None:
         if reading is None:
+            return
+        if not reading.usable or reading.at_limit is not None:
+            self._counts[controller] = 0
             return
         setpoint = controller.setpoint_at(reading.time_ns)
         self._counts[controller] = (

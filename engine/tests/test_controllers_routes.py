@@ -150,7 +150,12 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
     assert drive.inputs["heater1"] == 385.0
     after = client.get(f"/api/controllers/{target}").json()
     assert after["expected"] == 385.0
-    assert after["measured"] == {"signal": source, "time_ns": 1_000_000_000, "value": 21.5}
+    assert after["measured"] == {
+        "signal": source,
+        "time_ns": 1_000_000_000,
+        "value": 21.5,
+        "quality": "ok",
+    }
 
     ref = client.put(f"/api/controllers/{target}/setpoint", json={"at": 65.0})
     assert ref.json()["reference"] == 65.0 and ref.json()["mode"] == "regulating"

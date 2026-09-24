@@ -37,6 +37,7 @@ from flyball.foundation.time import Rate, TimeUnit
 from flyball.model.feedforward import NoFeedforward
 from flyball.model.law import Transfer
 from flyball.rig import Rig, SignalClaimedError
+from flyball.rig.stopping import Actor
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -155,7 +156,8 @@ class Blender(Readable, Committable):
     def commit(self, time_ns: int) -> None:
         """Pull every bound input's newest value -- there is no callback any more."""
         self.commits += 1
-        for role, target in self.bound.items():
+        for role, binding in self.bound.items():
+            target = binding.source
             if isinstance(target, Signal):
                 if (reading := target.reading) is not None:
                     self.supply[role] = reading.value
@@ -605,10 +607,15 @@ class TestOneControllerFailing:
         assert furnace.commits >= 3
         failed = [e for e in rig.recent if e.code == "step_failed"]
         assert len(failed) == 1 and failed[0].subject == bad.name, "one event per outage"
-        assert bad.mode.value == "regulating", "its mode is left alone"
+        assert bad.mode.value == "manual", "a law error takes at least on_fault: manual"
+        assert good.mode.value == "regulating", "the others are left alone"
         assert rig.latest[zone1].value == 20.0, "the delivery's readings landed"
+        with pytest.raises(ConflictError, match="reset it first"):
+            bad.regulate(30.0)
 
         bad.set_law(P(kp=1.0))
+        rig.stopping.reset(f"on_fault:{bad.name}", Actor("ben", "", "human", "http"))
+        bad.regulate(30.0)
         clock.advance(1.0)
         rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 20.0, zone2: 20.0})])
         last = rig.recent[-1]
@@ -629,7 +636,9 @@ class TestLimitsThatFollowASignal:
     ):
         humidity = supplied.signals["humidity"]
         assert humidity.limits is None, "nothing read on the supply yet"
-        with pytest.raises(NotReadyError, match=r"limit follows 'supply', which has no value yet"):
+        with pytest.raises(
+            NotReadyError, match=r"limit follows 'supply' \(pending\), which has no value yet"
+        ):
             rig.write(supplied.root, {humidity: 150.0})
         assert supplied.written == {} and supplied.staged == {}, "nothing reached the device"
         assert humidity.reading is None
@@ -670,7 +679,9 @@ class TestLimitsThatFollowASignal:
         assert supplied.written == {}, "still held on the next step"
         held = [e for e in rig.recent if e.code == "limit_unknown"]
         assert len(held) == 1, "one event on entering the hold, not one per step"
-        assert held[0].severity is Severity.WARNING and held[0].subject == controller.name
+        assert held[0].severity is Severity.INFO, "benign: what it follows is only pending"
+        assert held[0].subject == controller.name
+        assert held[0].details["why"] == {"supply": ("pending", "")}
 
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
         clock.advance(1.0)
@@ -689,7 +700,8 @@ class TestLimitsThatFollowASignal:
         rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: math.nan})])
         assert humidity.limits is None, "a NaN bound is no bound to display"
         with pytest.raises(
-            NotReadyError, match=r"'supply', which has no value yet, or not a finite"
+            NotReadyError,
+            match=r"'supply' \(invalid: not finite\), which has no value yet, or not a finite",
         ):
             rig.write(supplied.root, {humidity: 150.0})
         assert supplied.written == {} and supplied.staged == {}, "nothing reached the device"
@@ -799,7 +811,7 @@ class TestBoundInputs:
         dry_h, dry_t = sensors.signals["dry.humidity"], sensors.signals["dry.temperature"]
         chamber_h, chamber_t = chamber.signals["humidity"], chamber.signals["temperature"]
         rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry.humidity"})
-        assert blender.bound == {"dry": dry_h}
+        assert blender.bound["dry"].source is dry_h and list(blender.bound) == ["dry"]
         rig.on_samples([Sample(dry, 5, {dry_h: 3.0, dry_t: 20.0})])
         assert blender.supply == {"dry": 3.0} and blender.commits == 1
         assert blender.pump_writes == [(3.0, 50.0)]
@@ -825,7 +837,7 @@ class TestBoundInputs:
         dry_h, dry_t = sensors.signals["dry.humidity"], sensors.signals["dry.temperature"]
         wet_h = sensors.signals["wet.humidity"]
         rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry", "wet": wet_h.address})
-        assert blender.bound == {"dry": dry, "wet": wet_h}
+        assert {n: b.source for n, b in blender.bound.items()} == {"dry": dry, "wet": wet_h}
         rig.on_samples([Sample(dry, 5, {dry_h: 3.0, dry_t: 20.0})])
         assert blender.commits == 1, "the sample itself when it is the node's"
         assert blender.supply["dry"] == {"humidity": 3.0, "temperature": 20.0}
@@ -860,7 +872,7 @@ class TestBoundInputs:
             match=f"{blender.name}.inputs.dry: nothing under '{stage.name}.position' publishes",
         ):
             rig.bind_inputs(blender, {"dry": f"{stage.name}.position"})
-        assert blender.bound == {}
+        assert not any(b.bound for b in blender.bound.values()), "nothing stays bound"
 
 
 def test_a_trailing_or_doubled_dot_resolves_to_nothing(rig, sensors):

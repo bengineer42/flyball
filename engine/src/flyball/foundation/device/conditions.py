@@ -155,6 +155,28 @@ class Conditions:
             self._transition(owner, condition, event)
             return condition
 
+    def note(
+        self,
+        owner: object,
+        code: str,
+        severity: Severity,
+        message: str,
+        details: Any = None,
+    ) -> Event:
+        """A point event about `owner`: recorded, nothing held, no edge, no subscriber hears it.
+
+        What happened once rather than what is true now: a blend flow resolved,
+        a request clamped.
+        """
+        scope, subject = self._describe(owner)
+        event = Event(self.now_ns(), severity, scope, subject, str(code), message, details)
+        if self._emit is not None:
+            try:
+                self._emit(event)
+            except Exception:  # a point event is never lost to a failing log or recorder
+                log.exception("recording %s", event.code)
+        return event
+
     def clear_owner(self, owner: object, *, reason: str = "removed") -> list[Condition]:
         """End every condition `owner` holds, one `cleared` edge each: removed, or detached."""
         with self._lock:

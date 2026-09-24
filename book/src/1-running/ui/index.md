@@ -30,15 +30,24 @@ There is no sidebar: the app bar at the top of every page is how you move.
 - **Dashboards are tabs.** On the dashboards page the bar shows one tab per
   saved dashboard, after the generated overview; `[+]` makes a new, empty
   one. Each tab is a link (`#/dashboards/<name>`). On a phone the tabs sit
-  on a second row. On any other page the bar shows that page's title.
+  on a row of their own, under the chips. On any other page the bar shows
+  that page's title.
 - **The chips are the way to the running pages.** Each is always there, grey
   when nothing is happening: the conditions chip opens **Events** (and
   carries the count of unread warnings), the recording chip **Sessions**,
   the program chip **Programs**; on a simulated rig the sim chip opens
   **Simulation**. The server chip says whether the live streams are
   connected.
+  On a phone the chips move to a second row of the bar, shorter and
+  wrapping, so every one stays in sight.
 - **Software stop** keeps its place whether or not you may operate, so
   signing in does not move anything.
+- **Without `operate`, every write control is shown but off**: run, save,
+  delete, rename, import, pin, keep, start or end a recording, add or remove
+  a device, link or controller, restore a version, restart the runner. A
+  device, link or controller chip loses its remove cross. Opening **Programs** as a
+  reader lists the library without importing new files from the programs
+  directory; an operator's visit imports them.
 - **The gear opens Options** (`#/options`): **Dashboards** (each saved one's
   place, read-only switch and home), **Access** (who you are here, what you
   may do, sign in or out), the **Rig file** (the running
@@ -128,12 +137,18 @@ and links to the page that explains it (Events, Sessions, Programs, Devices,
 Simulation).
 
 Beside the chips, for anyone allowed to operate the rig, is **Software
-stop**: after a confirmation it interrupts any running program and puts
-every controller in manual, for everyone ([the software
-stop](../runner/access.md#stopping-the-rig)). In this release it writes
-nothing to any device, and says so: outputs are left as they were. A
-caller without `operate` does not see the button at all. A stop that
-fails says so; it never reports a stop that did not happen.
+stop**: after a confirmation it latches the rig, cancels running device
+commands, interrupts any running program, puts every controller in manual
+and writes each device's stop, for everyone ([the software
+stop](../runner/access.md#stopping-the-rig)). Afterwards a message says
+how many devices stopped, were left unchanged or failed (naming each
+failure), and that the rig is latched; one with a failure stays until
+closed. The app has no Reset button and no banner
+for a latched rig yet: the rig's `stopped` condition is among its
+conditions (`GET /api/health`), and a person resets it with `POST /api/rig/reset`
+([Reset](../runner/access.md#reset)). A caller without `operate` does not
+see the button at all. A stop that fails says so; it never reports a stop
+that did not happen.
 
 ## Density and theme
 

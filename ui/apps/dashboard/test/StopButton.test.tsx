@@ -80,16 +80,28 @@ describe("StopButton shows iff this caller holds OPERATE", () => {
 });
 
 describe("StopButton reports what the stop did, or why it failed", () => {
-  it("confirms, then shows the report's message rather than nothing", async () => {
-    const report = { at_ns: 1, actor: { sub: "local:console", sid: "s1", kind: "human", via: "http", detail: "" }, reason: "", devices: {}, program_interrupted: false, controllers_manual: [], interim: true };
+  it("confirms, then says what each device did and that the rig is latched", async () => {
+    const report = {
+      at_ns: 1,
+      actor: { sub: "local:console", sid: "s1", kind: "human", via: "http", detail: "" },
+      reason: "",
+      devices: { heater: { state: "stopped", detail: "", written: { "heater.power": 0 } }, fan: { state: "unchanged", detail: "keep", kept: { "fan.speed": 40 } }, valve: { state: "failed", detail: "bus timeout" } },
+      program_interrupted: false,
+      controllers_manual: [],
+      interim: false,
+      latched: true,
+    };
     withProviders(OPERATOR, () => ({ status: 200, json: report }));
     await waitFor(() => screen.getByTestId("stop-button"));
     fireEvent.click(screen.getByTestId("stop-button"));
     await waitFor(() => screen.getByRole("dialog"));
     fireEvent.click(screen.getByRole("button", { name: "Software stop" }));
     await waitFor(() => expect(screen.getByTestId("stop-result").textContent).toMatch(/software stop/i));
-    expect(screen.getByTestId("stop-result").textContent).toMatch(/nothing written/i);
-    expect(screen.getByTestId("stop-result").textContent).not.toMatch(/\bstopped\b|safe/i);
+    const text = screen.getByTestId("stop-result").textContent ?? "";
+    expect(text).toContain("1 stopped, 1 unchanged, 1 failed (valve: bus timeout)");
+    expect(text).toMatch(/latched until a person resets it/);
+    expect(text).not.toMatch(/nothing written|safe/i);
+    expect(screen.getByTestId("stop-result").className).toMatch(/warning/i);
   });
 
   it("a refusal is shown as a failure with the server's own reason, never as a stop", async () => {

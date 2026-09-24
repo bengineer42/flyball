@@ -38,6 +38,16 @@ class LinearRampSetpoint(SetpointGenerator):
         # descending ramp needs the sign taken from the span.
         self.per_second = span / duration if duration > 0.0 else 0.0
 
+    def reseed(self, time: float, value: float) -> bool:
+        """Walk on from `value` at the rate it was walking: later if it has further to go."""
+        speed = abs(self.per_second)
+        if speed <= 0.0:
+            return False
+        span = self.end - value
+        self.end_time = time + abs(span) / speed  # pyright: ignore[reportIncompatibleVariableOverride]
+        self.per_second = speed if span >= 0 else -speed
+        return True
+
     def generate(self, time: float) -> float:
         if time >= self.end_time:
             return self.end
@@ -137,6 +147,20 @@ class Profile(SetpointGenerator):
                 break
             time, value = generator.end_time, generator.generate(generator.end_time)
         self.end_time = self.generators[-1].end_time
+
+    def reseed(self, time: float, value: float) -> bool:
+        """Re-seed the segment in force; the segments after it start where it now lands."""
+        at = self._at(time)
+        if not at.reseed(time, value):
+            return False
+        previous = at
+        for generator in self.generators[self.generators.index(at) + 1 :]:
+            if (end := previous.end_time) is None:
+                break
+            generator.start(end, previous.generate(end))
+            previous = generator
+        self.end_time = self.generators[-1].end_time
+        return True
 
     def _at(self, time: float) -> SetpointGenerator:
         """The segment in force at `time`: the first not yet finished, else the last."""

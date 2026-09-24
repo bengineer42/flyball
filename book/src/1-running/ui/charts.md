@@ -145,3 +145,11 @@ its device's poll period allows (`staleAfterS`) shows the panel frame's
 `stale` state: a dashed border, a hollow status dot, no pulse, and a footer
 naming how long ago the last sample was — never colour alone (`PanelFrame`,
 `ui/packages/react/src/panels/PanelFrame.tsx`).
+
+"Longer than allowed" is three poll periods, at least 5 s, using the
+signal's own `poll_s` when it has one. Age is measured against the rig's
+clock, which the page keeps running from `/api/clock` at the rig's speed —
+so when every polled device stops (and with it every new sample), the
+tiles still go stale rather than freezing on their last values. A signal
+that is not read on a period at all (a demand that is only written, a
+pushed value) is never stale by age: it holds its value until the next write.

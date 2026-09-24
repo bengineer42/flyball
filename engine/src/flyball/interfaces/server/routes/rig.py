@@ -35,31 +35,36 @@ router = APIRouter(prefix="/api", tags=["rig"])
 # isn't `get_catalog()`/`Catalogs.discover()`.
 
 
-BANDS = frozenset({Code.BAND_WARNING, Code.BAND_ALARM})
-"""The conditions that are alarms, not faults: a reading outside a band."""
+BANDS = frozenset({Code.BAND_WARNING, Code.BAND_ALARM, Code.BAND_UNKNOWN})
+"""The conditions that are alarms, not faults: a reading outside a band, or a band unknown."""
+
+_RANK: dict[str, int] = {Code.BAND_WARNING: 1, Code.BAND_ALARM: 2, Code.BAND_UNKNOWN: 3}
+"""Which a signal counts under when caught holding two: `unknown` over `alarm` over `warn`."""
 
 
 def _alarm_summary(conditions: list[dict[str, Any]]) -> dict[str, int]:
-    """Signals holding `band_warning` (`warn`) and `band_alarm` (`alarm`): alarms, not faults.
+    """Signals holding `band_warning` (`warn`), `band_alarm` (`alarm`), `band_unknown` (`unknown`).
 
     Counted from the rig's band conditions, so the count keeps the rig's
     hysteresis; a fault condition (offline, write_failed) is never an alarm.
-    A signal holds at most one; one caught mid-swap counts as `alarm`.
-    `unknown` (a banded signal with no value) is always 0 yet. `max_level`
-    is 40 with any `alarm`, 30 with only `warn`, else 0.
+    Each signal counts once: one with no value counts in `unknown` only,
+    whatever band it held before; one caught mid-swap counts as `alarm`.
+    `max_level` is 40 with any `alarm`, 30 with only `warn`, else 0:
+    `unknown` does not raise it.
     """
     held: dict[str, str] = {}
     for c in conditions:
         if c["scope"] != Scope.SIGNAL or c["code"] not in BANDS:
             continue
-        if held.get(c["subject"]) != Code.BAND_ALARM:
+        if _RANK[c["code"]] > _RANK.get(held.get(c["subject"], ""), 0):
             held[c["subject"]] = c["code"]
     alarm = sum(1 for code in held.values() if code == Code.BAND_ALARM)
-    warn = len(held) - alarm
+    unknown = sum(1 for code in held.values() if code == Code.BAND_UNKNOWN)
+    warn = len(held) - alarm - unknown
     return {
         "warn": warn,
         "alarm": alarm,
-        "unknown": 0,
+        "unknown": unknown,
         "max_level": 40 if alarm else 30 if warn else 0,
     }
 
@@ -85,15 +90,24 @@ async def read_health() -> dict[str, Any]:
     """One look: is anything offline, slow or pending. What a watchdog or a status line polls.
 
     `ok` is false with any fault condition at `error`; a band alarm is not a
-    fault, and is counted in `alarms` instead.
+    fault, and is counted in `alarms` instead. `stopped` is the rig stop's latch
+    (`{by, at_ns, reason}`, null when not stopped); `latches` every latch cause held,
+    one row per subject (`{scope, subject, cause}`).
 
     Lock-free: on the event loop, a watchdog must be answered while a delivery holds the
     rig's lock, so it reads C-level `list(...)` snapshots of the rig's dicts instead.
     """
     rig = current_rig()
     if rig is None:
-        return {"ok": False, "rig": None, "exposure": current_exposure()}
+        return {
+            "ok": False,
+            "rig": None,
+            "stopped": None,
+            "latches": [],
+            "exposure": current_exposure(),
+        }
     conditions = _conditions(rig)
+    stopped = rig.stopping.latches.rig_stop
     return {
         "ok": not any(
             c["severity"] == Severity.ERROR and c["code"] not in BANDS for c in conditions
@@ -109,6 +123,10 @@ async def read_health() -> dict[str, Any]:
         "alarms": _alarm_summary(conditions),
         "activities": sorted(rig.triggers.states()),
         "recording": rig.recording is not None,
+        "stopped": None
+        if stopped is None
+        else {"by": stopped.by, "at_ns": stopped.at_ns, "reason": stopped.reason},
+        "latches": rig.stopping.latches.rows(),
         "exposure": current_exposure(),  # served on loopback though asked for more, or open
     }
 

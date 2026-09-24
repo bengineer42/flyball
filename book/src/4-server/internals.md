@@ -79,7 +79,8 @@ the worker threads other routes share.
 | `rig.py` | the live rig read-only — health, clock, tunings; what the rig is *made of* is elsewhere |
 | `runner.py` | `/api/runner*`: the process's resolved settings, shutdown and restart, through the handle `flyball-runner` sets with `set_runner` (404 without one) |
 | `auth.py` | `/api/auth*`: AuthInfo v2, a bare runner's token sign-in, logout and one-time link, and the fronted runner's readiness probe `/api/auth/front` |
-| `stop.py` | `POST /api/rig/stop`: calls the `Stopper` (`deps.current_stopper()`) and answers its `StopReport` |
+| `stop.py` | `POST /api/rig/stop`: calls the `Stopper` (`deps.current_stopper()`) and answers its `StopReport`; `POST /api/rig/reset` (a person only, from the request's principal: `actor(request).person`) calls `rig.stopping.reset`; `GET /api/rig/stop` is `stop_plan(rig)`; `GET /api/rig/latches` reads `rig.stopping.latches`. `deps.current_stopper()` is a stopper set with `set_stopper`, else `rig_stopper()`: a `RigStopper` over the attached rig and programmer (`flyball.rig.stopping`), kept while they are the same so stops stay serialised. The `InterimStopper`, which wrote nothing, is no longer the default. The app's lifespan calls `_shutdown_stop()` on the way out: `RigStopper.shutdown`, unless `runner.on_shutdown` is `keep`, only when a runner is serving |
+| `composition.py` | the rig edits (links, devices, a document, a version restored), versions, `changes`, `save`. An edit is never applied in place (D-051): `_edit` builds the edited document from the running one, checks it, saves it (`flyball.runtime.edits`: the overlay beside the rig file, checked to rebuild exactly that version, or the store alone for a bare or resumed runner) and a version row, calls the installed `Stopper`, then the runner handle's `restart_for_edit`, which execs the process (with `--resume` when the store holds the edit). One edit at a time; the old process refuses edits once it is restarting |
 | `devices.py` | `/api/devices*`: the tree, commands, demands |
 | `read.py` | `/api/read*`: readings, samples, fresh reads |
 | `controllers.py` | `/api/controllers*`: wiring, regulate/manual, reference |
@@ -112,14 +113,15 @@ independently.
 
 | model | of | shape |
 | --- | --- | --- |
-| `SignalOut` | a `Signal` in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warning, alarm, poll_s, limits, initial, latest, write}` |
+| `SignalOut` | a `Signal` in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warning, alarm, poll_s, stale_after_s, limits, initial, quality, readback, on_no_value, latest, last_usable, write}`; `stale_after_s` from `rig.liveness.threshold_s` |
 | `NamespaceOut` | a `Node` | `{name, address, atomic, label, poll_s, signals: [...]}`, nesting `SignalOut`/`NamespaceOut` |
 | `WriteOut` | a `WriteState` | `{value, requested, at_limit, controller}` -- a signal's `write` (`GET /api/devices`) only, now |
 | `WriteMetaOut` | a demand's `Reading` | `{requested, at_limit, controller}` -- `WriteOut` without `value`, already in `SampleOut.values` |
 | `SampleOut` | a `Sample`, plus `rig.latest` for each demand's write record | `{node, time_ns, values, writes}`, both keyed relative to `node`; `writes` only for the demands the sample includes |
 | `ReadingOut` | a `Reading` | `{signal, time_ns, value}` |
-| `CommandOut` | a `CommandSpec` | `{name, description, simulation, commit, mode, interrupts, demand_of, links}` |
-| `DeviceOut` | a `Device` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, readable, writable, conditions, run}` |
+| `CommandOut` | a `CommandSpec` | `{name, description, simulation, commit, mode, interrupts, writes, demand_of, links}` |
+| `CommandRunOut` | a `CommandRun` (`Rig.invoke`) | `{result, interrupted: [{controller, was}]}` |
+| `DeviceOut` | a `Device` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, consumers, sources, readable, writable, conditions, run}`; `inputs` from each `InputBinding` on `device.bound`, `consumers` from `Rig.consumers`, `sources` from `Rig.values.source` |
 | `ControllerOut` | a `Controller`/`ControllerView` | identity, mode, law config and state, reference, setpoint, correction, demand, expected, reading |
 | `ClockOut` | a `Clock` | `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |
 
@@ -149,7 +151,7 @@ those cells directly — no separate observer is attached for them.
 
 | socket | cell(s) | frame |
 | --- | --- | --- |
-| `/ws/samples` | `rig.samples` (newest published sample per node), `rig.latest` (for `writes`), `rig.polling.runs` (for `runs`; `conditions` read from `rig.conditions` as each run is sent, and a device-scope edge re-sets its run via `Polling.touch`) | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, read_s, missed, conditions}]}`; either key present only when something in it changed, at most one sample per node and one run per device per flush |
+| `/ws/samples` | `rig.samples` (newest published sample per node), `rig.latest` (for `writes`), `rig.polling.runs` (for `runs`; `conditions` read from `rig.conditions` as each run is sent, and a device-scope edge re-sets its run via `Polling.touch`) | `{samples?: [SampleOut], runs?: [{name, period_s, running, last_read_ns, read_s, missed, reading_since_ns, consecutive_failures, next_retry_ns, conditions}]}`; either key present only when something in it changed, at most one sample per node and one run per device per flush |
 | `/ws/controllers` | `rig.controller_states` joined to controller settings | `{controllers: [ControllerOut]}` of those that ticked |
 | `/ws/activities` | `rig.triggers.latest` | `{activities: [ActivityOut]}` as each registers or settles |
 | `/ws/events` | `rig.recent` | `{events: [Event]}` as each happens |

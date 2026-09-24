@@ -87,7 +87,8 @@ same without serving.
 ## Several files
 
 The same keys in several files merge, later files winning, mappings key by
-key and everything else whole; a `null` deletes what an earlier file set.
+key and everything else whole; a `null` deletes what an earlier file set,
+and one with nothing earlier to delete is simply dropped.
 Three ways to lay a rig out:
 
 ```

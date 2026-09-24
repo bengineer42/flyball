@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { Address, CommandSchema, JsonSchema, Value } from "@flyball/client";
+import type { Address, CommandSchema, Interrupted, JsonSchema, Value } from "@flyball/client";
 import { formatValue, humanise, isEmpty, linkedSignal } from "@flyball/client";
 import { SchemaForm, type SchemaFormProps } from "../form/SchemaForm.js";
 import { formatTagged } from "../form/tagged.js";
@@ -19,7 +19,7 @@ export interface CommandFormProps {
   busy?: boolean;
   /** This browser may run commands (`AuthState.canOperate`, or a dashboard's `canWrite`); default true. False disables the form and its button, still shown. */
   canOperate?: boolean;
-  result?: { result?: unknown; error?: Error; at: number };
+  result?: { result?: unknown; interrupted?: Interrupted[]; error?: Error; at: number };
   /** The RJSF form to render with (a theme's `Form`); default `@rjsf/core`. */
   form?: SchemaFormProps["form"];
   /**
@@ -161,6 +161,11 @@ export function CommandForm({ name, command, onRun, busy, result, form, device, 
             <span className="fb-muted">done</span>
           ) : (
             <ValueView value={result.result} />
+          )}
+          {result.interrupted && result.interrupted.length > 0 && (
+            <div className="fb-muted" data-testid="interrupted">
+              put {result.interrupted.map((i) => i.controller).join(", ")} in manual
+            </div>
           )}
         </div>
       )}

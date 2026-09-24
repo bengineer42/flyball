@@ -31,8 +31,9 @@ steps; a humidity rig's `set_blend` is one. Its `blend` is a `Setting`
 signal — shown on the wire, `RP` — but a setting is re-set by a command,
 not a demand, so it stays a `command` step; only a `Demand` signal (`RPW`)
 can be reached as a `set` step. As over HTTP, a `command` step that succeeds
-on an offline device (`restore`, a reset) restarts its polling; one still
-broken goes offline again with a fresh event.
+on an offline device (`restore`, a reset) restarts its polling, read one
+period later rather than at the end of its backoff; one still broken stays
+offline and backs off again.
 
 ## Activities and signals
 
@@ -48,14 +49,24 @@ interrupted.
 
 A program ends `succeeded` (every step ran), `failed` (a step raised, or a
 wait timed out), `cancelled` (a person cancelled it, or what it waited on)
-or `interrupted` (the engine ended it: a software stop, a shutdown), with
-the reason. Either way the outputs are kept where they are.
+or `interrupted` (the engine ended it: a software stop, a shutdown, or a
+controller's latching `on_fault`, with the reason `fault:<controller>`
+whatever the program names), with the reason. Ending a program leaves the
+outputs where they are; a software stop then writes each device's own stop.
 
 A `command` step on a long device command (a `dispense`, a `move`) runs
-until the command returns; cancelling the program does not stop the
-device. A cancel or a stop waits at most 5 s for the step to return and
-then goes on, with a `step_still_running` event naming the step: it may
-still act, so stop the device itself (its `stop` command) to end it.
+until the command returns. Ending the program -- a cancel or an interrupt
+-- cancels that command, so a dose or a move ends at once and the program
+unwinds. A cancel or a stop waits at most 5 s for the step to return and
+then goes on; only a driver that does not listen to cancel still leaves a
+`step_still_running` event naming the step: it may still act, so stop the
+device itself (its `stop` command) to end it.
+
+A program cannot clear a latch. While the rig is
+[stopped](../runner/access.md#the-latch) a program's writes, commands and
+`ramp` or `regulate` steps are refused; while a controller is latched by
+its `on_fault`, a `ramp` or `regulate` step on it is refused. A person's
+Reset is the only way back.
 
 ## Running one step on its own
 

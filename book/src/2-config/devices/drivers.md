@@ -40,6 +40,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`dosing_pump`](#dosing_pump) | dispense a volume from a peristaltic pump | `pwm_channel`/`gpio_line` | `flyball-linux` | datasheet-checked |
 | [`mcp4725`](#mcp4725) | a 0-10 V-class analog control signal (a VFD, a dimmable ballast, a damper) | `i2c` | `flyball-chips` | — |
 | [`stepper`](#stepper) | a step/direction stepper motor: a motorized valve, damper or vent | two `gpio_line`s | `flyball-linux` | — |
+| [`values`](#values) | numbers an operator enters, for other devices' inputs to follow | none | `flyball` | — |
 | [`dual_pump_blender`](#dual_pump_blender) | [the humidity rig](https://bengineer42.github.io/humctrl/)'s split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` | hardware-tested |
 
 `—` means not in `drivers-manifest.yaml` (the generic/wrapped-library drivers
@@ -57,6 +58,47 @@ or the MCP `search_drivers` tool, the same catalogue over a running server.
 these plus anything from a `drivers/` directory or another installed
 package.
 
+**What a stop does** to a device is said in each driver's section: a stop
+command, or an `off` its outputs declare, or nothing (`keep`: a stop leaves
+the output as it is). A driver not named below declares none, so a stop
+keeps its outputs unless the rig file's
+[`stop:`](index.md#stop-what-a-stop-writes) gives a value -- today that is
+every `modbus`, `i2c_table`, `qcodes` and `pymeasure` writable entry.
+
+## When a driver has no value
+
+What a driver yields for a value it has not got is its contract with the
+rig ([no value](../../3-extending/model.md#no-value)): a signal left out
+of a sample was not read this time; `invalid(reason)` is a good read of a
+value that is not one (a no-value, which never counts toward
+[`reads.fail_after`](index.md#reads)); `not_applicable(reason)` is a
+quantity undefined now; a raise is the transport failing, which does. A
+`None`, NaN or infinity in a sample is made `invalid` by the rig. Every
+driver here follows it:
+
+| driver | a value it has not got | a raise |
+| --- | --- | --- |
+| `scpi` | `9.91E37` → `invalid("not_a_number")`; `±9.9E37` → `invalid("overrange")`, low or high | no reply, a reply that is not a number |
+| `modbus` | none: a register is always a number | a bus error |
+| `qcodes`, `pymeasure` | a `None` or NaN from the instrument → `invalid` | the getter raising |
+| `sim_daq` | `fail(signal)` → `invalid("sensor_failed")` on that channel | `fail(signal, raises=true)`: every read of it |
+| `sim_drive`, `pwm_channel`, `mcp4725`, `dosing_pump`, `stepper` | n/a: write-only, or internal state | the bus |
+| `i2c_table`, `ads1115`, `mcp3008`, `gpio_line`, `pulse_counter`, `hx711` | none: every read is a number | the bus; `hx711` a conversion not ready |
+| `sht4x`, `sht4x_set`, `sht31`, `htu21d`, `scd30`, `scd40`, `sgp40`, `mhz19`, `ms5611` | none (humidity is cropped to 0-100 %, as the datasheets say) | a CRC failure, a short frame, a sensor not ready in time; in an `sht4x_set` one sensor's failure fails that read of the set |
+| `bme280` | a BMP280 has no `humidity` signal at all | the bus |
+| `ezo_*` | none | a `*` status reply, a malformed one |
+| `ccs811` | no new result yet (`DATA_READY` clear) → nothing read | an error status, not in app mode |
+| `sgp30` | its 15 s warm-up placeholders → nothing read (`pending`) | a CRC failure |
+| `ds18b20` | none: the kernel's CRC line decides [Unverified: whether the kernel reports the 85 °C power-on value as a reading] | a failed CRC |
+| `current_loop` | a NAMUR fault current → `invalid("ne43_low"/"ne43_high")`, low or high; 3.6-3.8 / 20.5-21 mA → the value, `at_limit` | the ADC's own failure |
+| `dual_pump_blender` | `expected_humidity`: `not_applicable("no_flow")` with no flow, `invalid("supply")` while a supply has no value | the PWM bus |
+
+A demand's reading is the value the rig committed (`readback: echo`)
+unless the driver reads it back: `scpi` with a `query`, and `qcodes` /
+`pymeasure` with a getter, declare theirs `sensed`. A driver that pushes a
+quantised value back (`pwm_channel`, `mcp4725`, `gpio_line`, `i2c_table`,
+`modbus`) computes it rather than reads it, so stays `echo`.
+
 ## Generic instruments
 
 ### `scpi`
@@ -69,6 +111,7 @@ both `[RPW]`. Replies are parsed as a number (`+1.2E-3 V` → 0.0012).
 | --- | --- | --- |
 | `link` | required | a [text link](../links.md#text-instruments), by name |
 | `channels` | required | `{signal: {query?, write?, unit, quantity?, scale?, role?}}` -- `write` is a template with `{value}` (`"SOUR:VOLT {value:.3f}"`); `scale` multiplies a reply and divides a demand; `quantity` names the quantity when it differs from the signal's name; `role: setting` makes a signal with `write` a setting (a range, a mode) rather than a demand, so no controller can drive it -- only with `write` |
+| `stop_command` | none | the text a stop sends (`"OUTP OFF"`, `"INP OFF"`): the instrument's own stop, run as its `stop` command. Omitted: no stop -- a stop leaves its outputs as they are, since the right string differs by instrument |
 
 ```yaml
 psu:
@@ -80,12 +123,22 @@ psu:
     output_voltage: { query: "MEAS:VOLT?", unit: V }                # [RP]
   signals:
     set_voltage: { limits: [0, 30] }
+  stop_command: "OUTP OFF"      # a stop switches the output off
 ```
 
 Adds two commands for bring-up, `write` and `query`, that send any text
 outside the declared tree. An instrument that stops answering marks the
-device `offline` until the next good read; polling goes on. Replies that
+device `offline` after [`reads.fail_after`](index.md#reads) timeouts in a
+row (default 3); polling goes on, retrying with backoff, and the next good
+read clears it. SCPI's stand-ins for no number are no-values, not
+numbers: `9.91E37` is `invalid("not_a_number")` and `±9.9E37`
+`invalid("overrange")` on that side. A signal with both `query` and
+`write` is read back from the instrument (`readback: sensed`). Replies that
 are not a number need a `parse=` in Python: [Writing a sensor](../../3-extending/device/sensor.md#talking-to-an-instrument).
+
+**Stop:** with `stop_command`, the `stop` command sends it, and `stop:`
+values are refused on the device. Without it, each demand keeps unless the
+rig file gives it a `stop:` value.
 
 ### `modbus`
 
@@ -133,7 +186,9 @@ smu:
 ```
 
 A gettable numeric parameter is a signal; a settable one is writable too,
-and a demand unless it says `role: setting`.
+and a demand unless it says `role: setting` (`readback: sensed` when it
+also has a getter). A `None` from a getter is a reading with no value
+(`invalid`), not an error.
 
 ### `pymeasure`
 
@@ -161,7 +216,11 @@ smu:
 
 Reads chosen outputs of a [simulated plant](../links.md#simulated-plants) as
 `[RP]` signals. Commands `fail(signal)` / `restore(signal)` make a reading
-go bad and come back -- simulation only.
+go bad and come back -- simulation only. A failed sensor reads
+`invalid("sensor_failed")` (an open thermocouple the DAQ reports: the other
+channels read on, and a controller on it freezes); `fail(signal, raises:
+true)` instead makes every read of it raise, a dead bus, which takes the
+device `offline` after its failure budget.
 
 | field | default | |
 | --- | --- | --- |
@@ -187,7 +246,11 @@ Drives chosen inputs of a plant from `[W]` signals.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | the same plant |
-| `ports` | required | `{signal-path: port}`, or `{signal-path: {port, demand, quantity?, unit?, limits?}}`. `demand: input` (default) maps the signal linearly onto the port's 0–1 drive; `demand: output` declares the signal in the plant's own output unit and lets `commit` invert the plant's static model -- a heater commanded in °C |
+| `ports` | required | `{signal-path: port}`, or `{signal-path: {port, demand, quantity?, unit?, limits?}}`. `demand: input` (default) maps the signal linearly onto the port's 0–1 drive; `demand: output` declares the signal in the plant's own output unit and lets `commit` invert the plant's static model -- a heater commanded in °C. One signal per port: two on the same port are refused when the device is built |
+
+**Stop:** a linear port (`demand: input`) declares `off` at `limits[0]`, 0 %
+drive, and a stop writes it. A `demand: output` port (a setpoint in the
+plant's unit) and a span across 0 declare none: a stop keeps them.
 
 ```yaml
 heaters:
@@ -285,8 +348,9 @@ Microchip 10-bit ADC, eight channels, over SPI.
 
 ### `gpio_line`
 
-One line. As an output: a `[W]` signal `on` plus `on` / `off` commands. As
-an input: a `[RP]` signal `level`.
+One line. As an output: a `[W]` signal `on` plus `on` / `off` commands,
+which are refused while a controller drives `on` (put it in manual first).
+As an input: a `[RP]` signal `level`.
 
 | field | default | |
 | --- | --- | --- |
@@ -297,9 +361,16 @@ an input: a `[RP]` signal `level`.
 | `initial` | `false` | an output's level at start |
 | `pull_up` | none | an input's bias: `true` up, `false` down, omitted as-is |
 
+**Stop:** an output's `on` declares `off` at 0, and a stop writes it --
+except with `invert: true`, where whether logical 0 is the load's off
+depends on why it was inverted, so it declares none (keep). A direction or
+select line, where 0 is a position rather than off, should say
+`stop: {on: keep}`.
+
 ### `pwm_channel`
 
-One PWM output, a `[W]` signal `drive`.
+One PWM output, a `[W]` signal `drive`, and an `off` command (duty to zero,
+channel disabled) that is refused while a controller drives `drive`.
 
 | field | default | |
 | --- | --- | --- |
@@ -308,6 +379,13 @@ One PWM output, a `[W]` signal `drive`.
 | `frequency_hz` | `1000` | |
 | `invert` | `false` | |
 | `unit`, `quantity`, `span` | none | omitted, `drive` is the duty itself (0–1). Given, `drive` is set in `unit` (say °C) and `span: [lo, hi]` maps it linearly onto 0–100 % -- a static feedforward inside the device, so a controller may drive it with `feedforward: {type: identity}` |
+
+**Stop:** `drive` declares `off` at 0 % duty (0, or `span[0]`), and a stop
+writes it; the channel stays enabled. The `off` command, which also
+disables the channel, is not the stop. With `invert: true`, or a span that
+straddles 0 (full reverse at one end: an H-bridge, a Peltier), it declares
+none, and a stop keeps `drive`. A fan or a coolant pump that must keep
+running after a stop says `stop: {drive: 1}` or `stop: {drive: keep}`.
 
 ### `ds18b20`
 
@@ -404,7 +482,10 @@ periodic baseline (get/set) for long-term accuracy. The driver class has
 `get_baseline`/`set_baseline`; a baseline read back earlier can be restored
 at startup with the `baseline` field, so the chip need not settle from
 scratch on every power cycle. The `baseline` command reads the current
-baseline back out, to save for that field.
+baseline back out, to save for that field. For its first 15 s its outputs
+are fixed placeholders (400 ppm, 0 ppb): the chip is measured every poll,
+as the algorithm needs, but nothing is read until they are over -- the
+signals stay `pending`.
 
 | field | default | |
 | --- | --- | --- |
@@ -430,7 +511,8 @@ falls back to the datasheet's fixed default (50 %RH, 25 °C) for that input.
 ### `ccs811`
 
 ams/ScioSense CCS811: `co2eq` (ppm), `tvoc` (ppb), both `[RP]`. Runs a
-mandatory boot/app-start sequence before its first read.
+mandatory boot/app-start sequence before its first read. A poll while no
+new result is ready (`STATUS` without `DATA_READY`) reads nothing.
 
 | field | default | |
 | --- | --- | --- |
@@ -510,8 +592,16 @@ tested.
 A 4-20 mA instrument (an industrial O₂/DO analyser, a pressure
 transmitter) read over an existing `ads1115` or `mcp3008` channel, not a
 new bus -- it composes one, converting mA through a sense resistor into
-engineering units. Below ~3.6 mA or above ~21 mA is treated as a wiring
-fault, not a real reading (the NAMUR NE43 convention).
+engineering units. Below ~3.6 mA or above ~21 mA is a wiring fault, not a
+real reading (the NAMUR NE43 convention): that channel reads `invalid`
+(`ne43_low` or `ne43_high`, with its side), never a clamped value and never
+a raise -- the ADC was read, so its other channels read on and the device
+stays online. Between 3.6 and 3.8 mA, or 20.5 and 21 mA, the transmitter is
+pinned at an end of its range: the value is reported with the caveat
+`at_limit`. An `alarm` band on the signal raises `band_unknown` on the
+fault ([Bands](index.md#a-banded-signal-with-no-value)). [Unverified: the
+NE43 thresholds are the commonly quoted ones; the NAMUR text was not
+consulted.]
 
 | field | default | |
 | --- | --- | --- |
@@ -541,7 +631,9 @@ pump on the way out, including on an error mid-dispense. A dispense runs
 off the rig lock: polling and control carry on during the dose, and the
 `stop` command cuts the pump at once and ends the dispense, crediting
 `dispensed_ml` with what ran. The dose is timed on the rig's clock, so a
-scaled or stepped sim doses in its own time. Stepper-driven
+scaled or stepped sim doses in its own time. The pump underneath is the
+dosing pump's own, not a device of the rig, so nothing else can drive it
+while it doses. Stepper-driven
 pumps (step/direction) aren't supported directly here -- pair a `stepper`
 with your own dispense logic instead.
 
@@ -551,6 +643,10 @@ with your own dispense logic instead.
 | `ml_per_s` | required | the pump's rate at full drive (PWM) or while on (relay) |
 | `max_dispense_ml` | none | an optional per-call cap |
 | `drive_fraction` | `1.0` | the duty to run a `pwm_channel` pump at during a dispense; refused on a `gpio_line` pump unless left at `1.0` |
+
+**Stop:** the `stop` command is the device's stop: a rig stop cancels a
+dispense in progress and runs it, cutting the pump. `stop:` values are
+refused on the device.
 
 ### `mcp4725`
 
@@ -569,6 +665,12 @@ commanded directly in engineering units instead of a bare fraction.
 | `address` | `0x60` | `0x61` on the -A0T variant |
 | `unit`, `quantity`, `span` | none | omitted, `drive` is the fraction itself (0-1). Given, `drive` is set in `unit` and `span: [lo, hi]` maps it linearly onto 0-100 % -- the same rule as `pwm_channel` |
 
+**Stop:** `drive` declares no `off`: 0 V is a setpoint for a positioner or
+a VFD, not off. The device's stop is its `power_down` command, which puts
+the chip in power-down with its output pulled to ground through 1 kΩ
+(`PD = 01`); the next demand powers it up again. `stop:` values are refused
+on the device.
+
 ### `stepper`
 
 A step/direction stepper motor -- the interface almost every real driver
@@ -577,8 +679,8 @@ would be exactly the kind of fragile Python timing `hx711` is already
 flagged for. A motorized valve, damper, vent or linear actuator. A
 `move(steps)` command (not `move_to(position)` -- no homing/limit-switch
 story to trust an absolute target against) clocks out a pulse train at
-`steps_per_s`, always leaving the driver safe (direction settled,
-`enable_line` released) even on an error mid-move. A move runs off the
+`steps_per_s`, always leaving the driver IC with its direction settled and
+`enable_line` released, even on an error mid-move. A move runs off the
 rig lock, its gaps between pulses timed on the rig's clock: the `stop`
 command ends it after the pulse in progress and releases `enable_line`.
 
@@ -592,6 +694,11 @@ command ends it after the pulse in progress and releases `enable_line`.
 | `steps_per_unit` | none | lets `move()` take engineering units (degrees, mm) instead of raw steps |
 | `pulse_width_s` | `0.0005` | how long the step line is held high per pulse |
 
+**Stop:** the `stop` command is the device's stop: a rig stop cancels a
+move in progress and runs it, which releases `enable_line`. Without an
+`enable_line` it only ends the move, and the coils stay as they were.
+`stop:` values are refused on the device.
+
 `position` -- the raw step count -- is `[R]` only (readable on demand,
 never published/recorded by default): internal plumbing for the move
 command, not a quantity a rig cares to trend. A rig-file `signals:`
@@ -600,6 +707,57 @@ entry cannot widen this to `[RP]` unless the driver names it a
 purpose, so upgrading it needs a driver code change, not a config
 change.
 
+## Built in
+
+### `values`
+
+Numbers an operator enters, for other devices' [inputs](index.md#binding-one-device-to-another)
+to follow: a supply humidity measured by hand, a setpoint for a batch, a
+calibration factor. Each is a signal of the device -- a `setting`, `rpw` --
+published from build with its `initial`, so an input bound to it is never
+`pending`. An input that never changes binds to a plain number instead.
+
+```yaml
+devices:
+  bench:
+    driver: values
+    label: Bench values
+    values:
+      dry_supply: { initial: 36.5, unit: "%", label: Dry supply humidity, limits: [0, 100] }
+      wet_supply: { initial: 88.5, unit: "%", label: Wet supply humidity }
+  blender:
+    inputs: { dry: bench.dry_supply, wet: bench.wet_supply }
+```
+
+| field | | |
+| --- | --- | --- |
+| `values` | `{name: entry}` | one signal per entry |
+| `values.<name>.initial` | number | its value from build, finite |
+| `values.<name>.unit` | string | the unit symbol (`%`, `°C`, `L/min`); omit for none |
+| `values.<name>.quantity` | string | what it is (`humidity`); default: the entry's name |
+| `values.<name>.label` | string | the display text |
+| `values.<name>.limits` | `[lo, hi]` | what a write is clamped to |
+
+- **Written like any writable signal**: `PUT /api/signals/bench.dry_supply`
+  (`operate`), a program's `set` step, the device page. The rig clamps it to
+  its `limits`, logs each write as a `value_written` event naming who wrote
+  it and the value before, and records it when a recording is running.
+- **Never stale.** Nothing reads it from hardware, so nothing judges it
+  stale.
+- **A stop leaves it alone.** It has no demands; the stop report does not
+  list it, and an operator can correct a value while the rig is stopped.
+- **Kept across restarts.** The last written value, who wrote it and when,
+  its unit and the `initial` in force are kept in the store (the runner
+  always opens one, recording or not). On the next start it is restored --
+  a `value_restored` event -- as long as the rig file's `initial` for it is
+  what it was when the value was written; a changed `initial` means the file
+  was edited since, and the file wins. A changed `unit` also leaves the
+  file's `initial` in force, and raises `value_not_restored` on the signal
+  until it is written again.
+- **Where it came from**: the device page shows each value's source --
+  "rig file", "restored, written by X at T", or written in this run --
+  from `sources` on [`GET /api/devices/{name}`](../../4-server/api.md).
+
 ## From an application
 
 ### `dual_pump_blender`
@@ -607,8 +765,12 @@ change.
 The humidity rig's actuator: two pumps on one PWM chip, blended so that one
 `humidity` demand becomes a dry-line and a wet-line flow. The genuine driver
 runs on hardware (`pwm`) and on the simulated chamber alike. Its fields
-(`dry`, `wet`, `blend_flow`, `supply`, `frequency_hz`) and the physics are in
-[the humidity book](https://bengineer42.github.io/humctrl/3-devices/blender/); the class is `examples/humidity/src/humidity/blender.py`,
+(`dry`, `wet`, `blend_flow`, `frequency_hz`), its two inputs (`dry` and
+`wet`, the supply lines' humidity: a sensor's address or a number each) and
+the physics are in
+[the humidity book](https://bengineer42.github.io/humctrl/3-devices/blender/).
+Its stop is its `stop` command, both pumps off at once; `stop:` values are
+refused on it. The class is `examples/humidity/src/humidity/blender.py`,
 the worked example of a composite device in
 [Writing an actuator](../../3-extending/device/actuator.md).
 

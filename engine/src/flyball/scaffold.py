@@ -36,7 +36,11 @@ class ${Title}(Readable):
     value = Readout("value", "Value", Quantity("value", Unit.get("1")))
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
-        """Called every `poll_s`; yield the signals due at `time_ns`."""
+        """Called every `poll_s`; yield the signals due at `time_ns`.
+
+        Raise `HardwareError` when the transport fails. A sensor that answers but has no
+        valid measurement is `invalid("why")`; a quantity undefined now, `not_applicable`.
+        """
         yield self.sample(time_ns, value=0.0)  # TODO: read the hardware
 
     @command

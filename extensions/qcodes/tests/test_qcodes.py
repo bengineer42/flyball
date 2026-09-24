@@ -119,6 +119,13 @@ class TestQCoDeS:
         samples = list(device.read(int(0.95e9)))
         assert [s.by_name() for s in samples] == [{"volt": 1.25}]
 
+    def test_a_none_from_the_instrument_is_left_for_the_rig_to_make_invalid(self, fresh):
+        inst = FakeInstrument("smu")
+        inst.parameters["temp"]._value = None
+        device = QCoDeS(fresh("smu"), inst, {"t": QCoDeSSignal(property="temp", publish=True)})
+        (sample,) = device.read(0)
+        assert sample.by_name() == {"t": None}
+
     def test_read_skips_a_demand_with_no_getter(self, fresh):
         inst = FakeInstrument("smu")
         inst.parameters["write_only"] = FakeParameter("write_only", gettable=False)

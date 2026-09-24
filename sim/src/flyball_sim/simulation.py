@@ -182,7 +182,8 @@ class Simulation:
     def readings(self, name: str) -> dict[str, dict[str, Any]]:
         """What the rig last delivered on each signal read off a plant, by the signal's address.
 
-        The delivered value (noise and all, not the model's state), its unit
+        The delivered value (noise and all, not the model's state; None with
+        its `quality` when the reading has none, a failed sensor's), its unit
         and precision, which device and port it came off, and how old it is
         in rig seconds. Only signals some `sim_daq` reads appear.
         """
@@ -193,7 +194,8 @@ class Simulation:
             if reading is None:
                 continue
             out[signal.address] = {
-                "value": reading.value,
+                "value": reading.value if reading.usable else None,
+                "quality": reading.quality.value,
                 "unit": signal.unit.symbol,
                 "precision": signal.spec.precision,
                 "device": device.name,
