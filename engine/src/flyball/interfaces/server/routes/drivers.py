@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from flyball.foundation.errors import ConflictError, NotFoundError
+from flyball.foundation.schema import Titled
 from flyball.interfaces.server.deps import CatalogDep, RigDep, current_drivers_dir
 from flyball.runtime.drivers import load_drivers
 
@@ -34,7 +35,7 @@ def read_drivers(catalog: CatalogDep) -> dict[str, Any]:
                 "description": inspect.getdoc(config),
             }
             try:
-                entry["schema"] = config.model_json_schema()
+                entry["schema"] = config.model_json_schema(schema_generator=Titled)
             except Exception as e:  # a schema pydantic cannot build: say so, keep the rest
                 entry["schema_error"] = f"{type(e).__name__}: {e}"
             out[name] = entry

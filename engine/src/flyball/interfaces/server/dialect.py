@@ -29,6 +29,7 @@ import yaml
 from pydantic import TypeAdapter
 
 from flyball.foundation.files import load_document, yaml_loader
+from flyball.foundation.schema import Titled
 from flyball.foundation.time import DURATION_KEYS, RATE_KEYS, Duration, Rate
 from flyball.interfaces.server.commands import command_request, request_for
 from flyball.sequencing.program import Program
@@ -296,7 +297,9 @@ def step_schema(dialect: Dialect) -> dict[str, Any]:
     defs: dict[str, Any] = {}
     branches: list[dict[str, Any]] = []
     for tag, command in dialect.steps.items():
-        request = TypeAdapter(request_for(command)).json_schema(ref_template="#/$defs/{model}")
+        request = TypeAdapter(request_for(command)).json_schema(
+            ref_template="#/$defs/{model}", schema_generator=Titled
+        )
         defs.update(request.pop("$defs", {}))
         request["properties"].pop("type", None)
         request["required"] = [r for r in request.get("required", []) if r != "type"] or None

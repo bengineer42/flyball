@@ -7,6 +7,9 @@ rendered back to a file never gains the fallback. The wire carries the resolved 
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 
 from conftest import TestClient
@@ -18,7 +21,7 @@ from flyball.foundation.quantities.si import Percent
 from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.deps import set_store
 from flyball.record.sqlite import SqliteStore
-from flyball.runtime.config import RigConfig
+from flyball.runtime.config import RigConfig, rig_schema
 
 DUTY = Quantity("duty", Percent)
 
@@ -205,3 +208,31 @@ class TestWire:
         assert row["label"] == "Wall display"
         client.put("/api/dashboards/wall_display", json={**document, "label": "The wall"})
         assert client.get("/api/dashboards/wall_display").json()["label"] == "The wall"
+
+
+class TestSchemaTitles:
+    def test_an_untitled_field_is_titled_by_the_same_rule(self):
+        schema = rig_schema()
+        entry = schema["$defs"]["ControllerEntry"]["properties"]
+        assert entry["min_period_s"]["title"] == "Min period s"
+        assert entry["is_default"]["title"] == "Is default"
+        assert schema["properties"]["recording"]["title"] == "Recording"
+
+    def test_every_schema_flyball_generates_goes_through_titled(self):
+        """A `json_schema(` call without the generator would title in Title Case again."""
+        source = Path(__file__).parent.parent / "src" / "flyball"
+        # The class-definition check (`_schemable`) and a subprocess template only ask
+        # whether a schema can be made; neither is served.
+        exempt = {"foundation/device/commands.py", "interfaces/mcp/tools.py"}
+        missing = []
+        for path in source.rglob("*.py"):
+            if str(path.relative_to(source)) in exempt:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"([\w.]*json_schema)\(([^()]*)\)", text):
+                callee, arguments = match.groups()
+                if callee == "RigConfig.model_json_schema":
+                    continue  # its override defaults the generator
+                if "schema_generator" not in arguments and "**kwargs" not in arguments:
+                    missing.append(f"{path.relative_to(source)}: {match.group(0)}")
+        assert missing == []

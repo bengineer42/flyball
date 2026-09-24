@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from flyball.foundation.device import Access
 from flyball.foundation.files import SUFFIXES, load_document
 from flyball.foundation.keys import check_key
+from flyball.foundation.schema import Titled
 from flyball.interfaces.server.deps import RigDep, StoreDep
 from flyball.record import DashboardRow
 from flyball.record.errors import DashboardNotFoundError
@@ -239,7 +240,7 @@ def import_directory(store: Store, directory: Path, rig: str, now_ns: int) -> li
 @router.get("/schema")
 async def read_dashboard_schema() -> dict[str, Any]:
     """JSON Schema of the document, for an editor or an import check."""
-    return Dashboard.model_json_schema()
+    return Dashboard.model_json_schema(schema_generator=Titled)
 
 
 @router.get("/widgets")

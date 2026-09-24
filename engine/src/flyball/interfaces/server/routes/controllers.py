@@ -22,6 +22,7 @@ from flyball.control.setpoint import generator_union
 from flyball.foundation.config import discriminated_union
 from flyball.foundation.device import Access, Role, Signal
 from flyball.foundation.errors import NotFoundError
+from flyball.foundation.schema import Titled
 from flyball.foundation.typing import Positive
 from flyball.interfaces.server.deps import RigDep, current_catalog
 from flyball.interfaces.server.routes.stop import actor
@@ -215,9 +216,11 @@ async def read_controller_schema(rig: RigDep) -> ControllerSchema:
     return ControllerSchema(
         measured=[SignalChoice.of(s) for s in signals if Access.P in s.access],
         outputs=[SignalChoice.of(s) for s in signals if drivable(s)],
-        laws=TypeAdapter(LawConfig).json_schema(),
-        feedforwards=TypeAdapter(FeedforwardConfig).json_schema(),
-        generators=TypeAdapter(generator_union(current_catalog())).json_schema(),
+        laws=TypeAdapter(LawConfig).json_schema(schema_generator=Titled),
+        feedforwards=TypeAdapter(FeedforwardConfig).json_schema(schema_generator=Titled),
+        generators=TypeAdapter(generator_union(current_catalog())).json_schema(
+            schema_generator=Titled
+        ),
         tunings=[
             TuningChoice(name=name, law=config.type, config=config.model_dump(mode="json"))
             for name, config in rig.tunings.all().items()

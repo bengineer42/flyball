@@ -23,6 +23,7 @@ from flyball.foundation.actor import Actor
 from flyball.foundation.device import CommandSpec, Device, Node, Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.keys import humanise
+from flyball.foundation.schema import Titled
 from flyball.interfaces.server.deps import RigDep
 from flyball.interfaces.server.routes.stop import actor
 from flyball.interfaces.server.schemas import (
@@ -82,7 +83,9 @@ def _signal_schema(signal: Signal) -> dict[str, Any]:
         "unit": signal.unit.symbol,
         "dimension": signal.unit.dimension.label,
         "dtype": signal.spec.dtype,
-        "value_schema": TypeAdapter(signal.spec.vtype).json_schema(mode="serialization"),
+        "value_schema": TypeAdapter(signal.spec.vtype).json_schema(
+            mode="serialization", schema_generator=Titled
+        ),
         "range": signal.range,
         "precision": signal.spec.precision,
         "limits": signal.limits,
@@ -101,7 +104,9 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
         "readable": cls.readable,
         "writable": cls.writable,
         **extra,
-        "config": TypeAdapter(cls.config_type).json_schema(mode="validation"),
+        "config": TypeAdapter(cls.config_type).json_schema(
+            mode="validation", schema_generator=Titled
+        ),
         "signals": {path: _signal_schema(s) for path, s in device.signals.items()},
         "inputs": {
             name: {
@@ -119,7 +124,9 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
                 "description": spec.doc,
                 "arguments": _linking_demands(
                     _naming_signals(
-                        TypeAdapter(arguments_for(cls, spec)).json_schema(mode="validation"),
+                        TypeAdapter(arguments_for(cls, spec)).json_schema(
+                            mode="validation", schema_generator=Titled
+                        ),
                         device,
                     ),
                     spec,

@@ -12,6 +12,7 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter, create_model
 
+from flyball.foundation.schema import Titled
 from flyball.interfaces.server.schemas import discriminated_union
 from flyball.interfaces.server.wire import WIRE_TYPES, wire_fields
 from flyball.sequencing.step import Step
@@ -70,4 +71,4 @@ def command_request(commands: Mapping[str, type[Step]]) -> Any:
 
 def commands_schema(commands: Mapping[str, type[Step]]) -> dict[str, Any]:
     """The request union as JSON schema, for a client building a command form."""
-    return TypeAdapter(command_request(commands)).json_schema()
+    return TypeAdapter(command_request(commands)).json_schema(schema_generator=Titled)

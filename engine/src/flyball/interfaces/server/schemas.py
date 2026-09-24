@@ -41,6 +41,7 @@ from flyball.foundation.device import (
     Signal,
     WriteState,
 )
+from flyball.foundation.schema import Titled
 from flyball.foundation.time import Clock
 from flyball.model.controller import Controller, ControllerState, ControllerView
 from flyball.model.feedforward import FeedforwardConfig
@@ -59,7 +60,7 @@ _LAWS = (OpenLoop, P, PI, PID, IMC, OnOff, SmithPredictor, Scheduled, SlidingMod
 LawConfig = discriminated_union(
     {law.type: law for law in _LAWS}, "type", lambda law: law.config_type
 )
-LawsSchema = TypeAdapter(LawConfig).json_schema()
+LawsSchema = TypeAdapter(LawConfig).json_schema(schema_generator=Titled)
 
 ANY = TypeAdapter(Any)
 

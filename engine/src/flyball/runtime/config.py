@@ -73,6 +73,7 @@ from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, load_document
 from flyball.foundation.keys import Keyed, check_address, check_key, check_keys
 from flyball.foundation.keys import canonical as canonical_key
+from flyball.foundation.schema import Titled
 from flyball.foundation.time import Clock
 from flyball.model.catalog import Catalogs, ensure_discovered, get_catalog
 from flyball.model.controller import OnFault
@@ -836,6 +837,7 @@ class RigConfig(BaseModel):
 
     @classmethod
     def model_json_schema(cls, **kwargs: Any) -> dict[str, Any]:  # type: ignore[override]
+        kwargs.setdefault("schema_generator", Titled)
         if cls is RigConfig:
             catalogs = get_catalog()
             schema = rig_model(catalogs).model_json_schema(**kwargs)
@@ -1153,7 +1155,7 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
     variant per registered driver; before any driver registers, `devices`
     is just a plain `DeviceEntry` map.
     """
-    base = DeviceEntry.model_json_schema(ref_template="#/$defs/{model}")
+    base = DeviceEntry.model_json_schema(ref_template="#/$defs/{model}", schema_generator=Titled)
     defs: dict[str, Any] = dict(base.get("$defs", {}))
     envelope = {k: v for k, v in base["properties"].items() if k != "driver"}
     drivers = _driver_configs(catalogs)
@@ -1162,7 +1164,9 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
         return {"additionalProperties": {"$ref": "#/$defs/DeviceEntry"}}, defs
     variants = []
     for driver in drivers:
-        driver_schema = driver.model_json_schema(ref_template="#/$defs/{model}")
+        driver_schema = driver.model_json_schema(
+            ref_template="#/$defs/{model}", schema_generator=Titled
+        )
         defs.update(driver_schema.pop("$defs", {}))
         device = driver.device_class()
         declared = [] if device is None else list(device.INPUTS)

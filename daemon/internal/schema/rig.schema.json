@@ -28,7 +28,7 @@
             }
           ],
           "default": null,
-          "title": "Rate Gain"
+          "title": "Rate gain"
         }
       },
       "required": [
@@ -257,7 +257,7 @@
         },
         "is_default": {
           "default": false,
-          "title": "Is Default",
+          "title": "Is default",
           "type": "boolean"
         },
         "min_period_s": {
@@ -272,7 +272,7 @@
           ],
           "default": null,
           "description": "Update the law at most this often; omit to update on every reading.",
-          "title": "Min Period S"
+          "title": "Min period s"
         },
         "setpoint_period_s": {
           "anyOf": [
@@ -286,7 +286,7 @@
           ],
           "default": null,
           "description": "While following a moving setpoint (a ramp, a profile), re-apply its feedforward this often between readings; the law steps only on readings. Omit for max(0.1 s, poll_s / 4) from the measured signal's poll_s.",
-          "title": "Setpoint Period S"
+          "title": "Setpoint period s"
         },
         "on_fault": {
           "$ref": "#/$defs/OnFaultEntry",
@@ -309,7 +309,7 @@
           "type": "string"
         },
         "jwks_url": {
-          "title": "Jwks Url",
+          "title": "Jwks url",
           "type": "string"
         },
         "issuer": {
@@ -368,7 +368,7 @@
             }
           ],
           "default": null,
-          "title": "Poll S"
+          "title": "Poll s"
         },
         "signals": {
           "additionalProperties": {
@@ -421,7 +421,7 @@
           ],
           "default": null,
           "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-          "title": "Retry Max Age S"
+          "title": "Retry max age s"
         },
         "stop": {
           "anyOf": [
@@ -685,7 +685,7 @@
         "freeze_s": {
           "description": "Seconds of fault time (accrued across flicker) to stay frozen before `then`.",
           "minimum": 0,
-          "title": "Freeze S",
+          "title": "Freeze s",
           "type": "number"
         },
         "then": {
@@ -798,7 +798,7 @@
           "items": {
             "type": "string"
           },
-          "title": "Trusted Proxies",
+          "title": "Trusted proxies",
           "type": "array"
         },
         "tokens": {
@@ -839,7 +839,7 @@
             }
           ],
           "default": 2000.0,
-          "title": "Power W"
+          "title": "Power w"
         },
         "capacity_j_per_k": {
           "anyOf": [
@@ -854,18 +854,18 @@
             }
           ],
           "default": 5000.0,
-          "title": "Capacity J Per K"
+          "title": "Capacity j per k"
         },
         "coupling_w_per_k": {
           "default": 5.0,
           "minimum": 0,
-          "title": "Coupling W Per K",
+          "title": "Coupling w per k",
           "type": "number"
         },
         "loss_w_per_k": {
           "default": 2.0,
           "minimum": 0,
-          "title": "Loss W Per K",
+          "title": "Loss w per k",
           "type": "number"
         },
         "emissivity": {
@@ -878,37 +878,37 @@
         "area_m2": {
           "default": 0.02,
           "minimum": 0,
-          "title": "Area M2",
+          "title": "Area m2",
           "type": "number"
         },
         "ambient_c": {
           "default": 20.0,
           "live": "outputs.*",
-          "title": "Ambient C",
+          "title": "Ambient c",
           "type": "number"
         },
         "sample_capacity_j_per_k": {
           "default": 800.0,
           "exclusiveMinimum": 0,
-          "title": "Sample Capacity J Per K",
+          "title": "Sample capacity j per k",
           "type": "number"
         },
         "sample_coupling_w_per_k": {
           "default": 4.0,
           "minimum": 0,
-          "title": "Sample Coupling W Per K",
+          "title": "Sample coupling w per k",
           "type": "number"
         },
         "sample_zone": {
           "default": 2,
           "minimum": 1,
-          "title": "Sample Zone",
+          "title": "Sample zone",
           "type": "integer"
         },
         "sensor_lag_s": {
           "default": 3.0,
           "minimum": 0,
-          "title": "Sensor Lag S",
+          "title": "Sensor lag s",
           "type": "number"
         },
         "noise": {
@@ -941,7 +941,7 @@
           ],
           "default": null,
           "live": "outputs.*",
-          "title": "Initial C"
+          "title": "Initial c"
         },
         "type": {
           "const": "sim_furnace",
@@ -1004,12 +1004,12 @@
           "type": "number"
         },
         "tau_s": {
-          "title": "Tau S",
+          "title": "Tau s",
           "type": "number"
         },
         "dead_time_s": {
           "default": 0.0,
-          "title": "Dead Time S",
+          "title": "Dead time s",
           "type": "number"
         },
         "lam_s": {
@@ -1022,7 +1022,7 @@
             }
           ],
           "default": null,
-          "title": "Lam S"
+          "title": "Lam s"
         },
         "derivative": {
           "default": true,
@@ -1109,7 +1109,7 @@
         "timeout_s": {
           "default": 3.0,
           "description": "Socket timeout for the pymodbus client.",
-          "title": "Timeout S",
+          "title": "Timeout s",
           "type": "number"
         },
         "type": {
@@ -1151,7 +1151,7 @@
             }
           ],
           "default": null,
-          "title": "Poll S"
+          "title": "Poll s"
         },
         "tags": {
           "anyOf": [
@@ -1332,7 +1332,7 @@
         },
         "tt_s": {
           "default": 0,
-          "title": "Tt S",
+          "title": "Tt s",
           "type": "number"
         },
         "b": {
@@ -1370,7 +1370,7 @@
         },
         "tt_s": {
           "default": 0.0,
-          "title": "Tt S",
+          "title": "Tt s",
           "type": "number"
         },
         "b": {
@@ -1453,14 +1453,14 @@
           "default": 10.0,
           "description": "Time constant (lag, fopdt).",
           "exclusiveMinimum": 0,
-          "title": "Tau S",
+          "title": "Tau s",
           "type": "number"
         },
         "dead_time_s": {
           "default": 0.0,
           "description": "Dead time (fopdt).",
           "minimum": 0,
-          "title": "Dead Time S",
+          "title": "Dead time s",
           "type": "number"
         },
         "gain": {
@@ -1566,7 +1566,7 @@
             }
           ],
           "default": null,
-          "title": "Secret File"
+          "title": "Secret file"
         },
         "team": {
           "anyOf": [
@@ -1626,7 +1626,7 @@
             }
           ],
           "default": null,
-          "title": "User Header"
+          "title": "User header"
         },
         "groups_header": {
           "anyOf": [
@@ -1638,7 +1638,7 @@
             }
           ],
           "default": null,
-          "title": "Groups Header"
+          "title": "Groups header"
         },
         "separator": {
           "anyOf": [
@@ -1726,7 +1726,7 @@
           ],
           "default": null,
           "description": "Reads that raise in a row before the device is offline.",
-          "title": "Fail After"
+          "title": "Fail after"
         },
         "backoff_s": {
           "anyOf": [
@@ -1742,7 +1742,7 @@
           ],
           "default": null,
           "description": "Seconds between retries while offline, in turn; the last repeats.",
-          "title": "Backoff S"
+          "title": "Backoff s"
         },
         "give_up_after_s": {
           "anyOf": [
@@ -1755,7 +1755,7 @@
           ],
           "default": null,
           "description": "Stop retrying this long after the device went offline; null: never.",
-          "title": "Give Up After S"
+          "title": "Give up after s"
         }
       },
       "title": "Reads",
@@ -1778,7 +1778,7 @@
         },
         "log_level": {
           "default": "info",
-          "title": "Log Level",
+          "title": "Log level",
           "type": "string"
         },
         "store": {
@@ -1807,7 +1807,7 @@
           ],
           "default": null,
           "description": "Where stores live, one per rig by name: <dir>/<name>.sqlite.",
-          "title": "Store Dir"
+          "title": "Store dir"
         },
         "programs": {
           "anyOf": [
@@ -1890,18 +1890,18 @@
           ],
           "default": null,
           "description": "Serve under this path prefix.",
-          "title": "Root Path"
+          "title": "Root path"
         },
         "allow_save": {
           "default": false,
           "description": "Let the API write rig files: a save to a path, a sim save.",
-          "title": "Allow Save",
+          "title": "Allow save",
           "type": "boolean"
         },
         "allow_shutdown": {
           "default": false,
           "description": "Let the API stop or restart the runner.",
-          "title": "Allow Shutdown",
+          "title": "Allow shutdown",
           "type": "boolean"
         },
         "on_shutdown": {
@@ -1911,7 +1911,7 @@
             "stop",
             "keep"
           ],
-          "title": "On Shutdown",
+          "title": "On shutdown",
           "type": "string"
         },
         "reads": {
@@ -1927,7 +1927,7 @@
         "keep_size": {
           "default": "256MB",
           "description": "The most the scratch record may take on disk; the oldest goes first.",
-          "title": "Keep Size",
+          "title": "Keep size",
           "type": "string"
         },
         "retain": {
@@ -1945,7 +1945,7 @@
         "max_store": {
           "default": "0",
           "description": "Keep the store under this size by deleting the oldest data, of any kind, never pinned (`20GB`); `0` sets no cap.",
-          "title": "Max Store",
+          "title": "Max store",
           "type": "string"
         },
         "run": {
@@ -1966,7 +1966,7 @@
         "fail_after": {
           "default": 3,
           "description": "Reads that raise in a row before a device is offline.",
-          "title": "Fail After",
+          "title": "Fail after",
           "type": "integer"
         },
         "backoff_s": {
@@ -1974,7 +1974,7 @@
           "items": {
             "type": "number"
           },
-          "title": "Backoff S",
+          "title": "Backoff s",
           "type": "array"
         }
       },
@@ -2002,7 +2002,7 @@
         },
         "tt_s": {
           "default": 0.0,
-          "title": "Tt S",
+          "title": "Tt s",
           "type": "number"
         },
         "b": {
@@ -2078,7 +2078,7 @@
         },
         "timeout_s": {
           "default": 1.0,
-          "title": "Timeout S",
+          "title": "Timeout s",
           "type": "number"
         },
         "type": {
@@ -2165,7 +2165,7 @@
             }
           ],
           "default": null,
-          "title": "Poll S"
+          "title": "Poll s"
         },
         "stale_after_s": {
           "anyOf": [
@@ -2177,7 +2177,7 @@
             }
           ],
           "default": null,
-          "title": "Stale After S"
+          "title": "Stale after s"
         },
         "limits": {
           "anyOf": [
@@ -2379,16 +2379,16 @@
           "type": "number"
         },
         "tau_s": {
-          "title": "Tau S",
+          "title": "Tau s",
           "type": "number"
         },
         "dead_time_s": {
-          "title": "Dead Time S",
+          "title": "Dead time s",
           "type": "number"
         },
         "tt_s": {
           "default": 0.0,
-          "title": "Tt S",
+          "title": "Tt s",
           "type": "number"
         },
         "feedforward": {
@@ -2421,20 +2421,20 @@
         },
         "chip_select": {
           "minimum": 0,
-          "title": "Chip Select",
+          "title": "Chip select",
           "type": "integer"
         },
         "speed_hz": {
           "default": 1000000,
           "exclusiveMinimum": 0,
-          "title": "Speed Hz",
+          "title": "Speed hz",
           "type": "integer"
         },
         "spi_mode": {
           "default": 0,
           "maximum": 3,
           "minimum": 0,
-          "title": "Spi Mode",
+          "title": "Spi mode",
           "type": "integer"
         },
         "type": {
@@ -2487,7 +2487,7 @@
             }
           ],
           "default": null,
-          "title": "Rate Gain"
+          "title": "Rate gain"
         }
       },
       "required": [
@@ -2568,7 +2568,7 @@
           ],
           "default": null,
           "description": "A token's lifetime when created without an explicit `expires_in`. A Go duration plus a `d` suffix for days (e.g. `90d`, `36h`). Unset: the built-in 90 days.",
-          "title": "Default Lifetime"
+          "title": "Default lifetime"
         },
         "max_lifetime": {
           "anyOf": [
@@ -2581,7 +2581,7 @@
           ],
           "default": null,
           "description": "The hard cap on a token's lifetime, for tokens that are neither cleartext nor kind `agent` (those keep a fixed 30-day cap, tightened further if this is smaller). May only tighten the built-in ceiling of 365 days, never loosen it. Unset: the built-in 365 days.",
-          "title": "Max Lifetime"
+          "title": "Max lifetime"
         }
       },
       "title": "TokensConfig",
@@ -2595,7 +2595,7 @@
         },
         "timeout_ms": {
           "default": 2000,
-          "title": "Timeout Ms",
+          "title": "Timeout ms",
           "type": "integer"
         },
         "backend": {
@@ -2697,7 +2697,7 @@
           "default": 72,
           "maximum": 75,
           "minimum": 72,
-          "title": "I2C Address",
+          "title": "I2c address",
           "type": "integer"
         },
         "gain": {
@@ -2746,7 +2746,7 @@
           "default": 250.0,
           "description": "The loop's sense resistor.",
           "exclusiveMinimum": 0,
-          "title": "Resistor Ohms",
+          "title": "Resistor ohms",
           "type": "number"
         },
         "scale": {
@@ -2763,13 +2763,13 @@
         "low_ma": {
           "default": 3.6,
           "description": "At or below this, the loop is faulted.",
-          "title": "Low Ma",
+          "title": "Low ma",
           "type": "number"
         },
         "high_ma": {
           "default": 21.0,
           "description": "At or above this, the loop is faulted.",
-          "title": "High Ma",
+          "title": "High ma",
           "type": "number"
         }
       },
@@ -2982,7 +2982,7 @@
           ],
           "default": null,
           "description": "An input's bias: true pulls up, false down, omitted as-is.",
-          "title": "Pull Up"
+          "title": "Pull up"
         }
       },
       "required": [
@@ -3028,7 +3028,7 @@
         "frequency_hz": {
           "default": 1000.0,
           "exclusiveMinimum": 0,
-          "title": "Frequency Hz",
+          "title": "Frequency hz",
           "type": "number"
         },
         "invert": {
@@ -3409,7 +3409,7 @@
           "default": 68,
           "maximum": 119,
           "minimum": 3,
-          "title": "I2C Address",
+          "title": "I2c address",
           "type": "integer"
         }
       },
@@ -3550,14 +3550,14 @@
           "default": 10.0,
           "description": "Time constant (lag, fopdt).",
           "exclusiveMinimum": 0,
-          "title": "Tau S",
+          "title": "Tau s",
           "type": "number"
         },
         "dead_time_s": {
           "default": 0.0,
           "description": "Dead time (fopdt).",
           "minimum": 0,
-          "title": "Dead Time S",
+          "title": "Dead time s",
           "type": "number"
         },
         "gain": {
@@ -3955,7 +3955,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -4008,7 +4008,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -4096,7 +4096,7 @@
                 "default": 72,
                 "maximum": 75,
                 "minimum": 72,
-                "title": "I2C Address",
+                "title": "I2c address",
                 "type": "integer"
               },
               "gain": {
@@ -4144,7 +4144,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -4197,7 +4197,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -4278,27 +4278,27 @@
                 "default": 118,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2C Address",
+                "title": "I2c address",
                 "type": "integer"
               },
               "has_humidity": {
                 "default": true,
-                "title": "Has Humidity",
+                "title": "Has humidity",
                 "type": "boolean"
               },
               "osrs_t": {
                 "default": 1,
-                "title": "Osrs T",
+                "title": "Osrs t",
                 "type": "integer"
               },
               "osrs_p": {
                 "default": 1,
-                "title": "Osrs P",
+                "title": "Osrs p",
                 "type": "integer"
               },
               "osrs_h": {
                 "default": 1,
-                "title": "Osrs H",
+                "title": "Osrs h",
                 "type": "integer"
               }
             },
@@ -4339,7 +4339,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -4392,7 +4392,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -4473,7 +4473,7 @@
                 "default": 90,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2C Address",
+                "title": "I2c address",
                 "type": "integer"
               }
             },
@@ -4514,7 +4514,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -4567,7 +4567,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -4694,7 +4694,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -4747,7 +4747,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -4833,14 +4833,14 @@
               "ml_per_s": {
                 "description": "Delivery rate at full drive (pwm) or on (gpio).",
                 "exclusiveMinimum": 0,
-                "title": "Ml Per S",
+                "title": "Ml per s",
                 "type": "number"
               },
               "drive_fraction": {
                 "default": 1.0,
                 "exclusiveMinimum": 0.0,
                 "maximum": 1.0,
-                "title": "Drive Fraction",
+                "title": "Drive fraction",
                 "type": "number"
               },
               "max_dispense_ml": {
@@ -4854,7 +4854,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Max Dispense Ml"
+                "title": "Max dispense ml"
               }
             },
             "required": [
@@ -4895,7 +4895,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -4948,7 +4948,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -5030,7 +5030,7 @@
                 "title": "Link"
               },
               "probe_id": {
-                "title": "Probe Id",
+                "title": "Probe id",
                 "type": "string"
               }
             },
@@ -5072,7 +5072,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -5125,7 +5125,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -5240,7 +5240,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -5293,7 +5293,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -5408,7 +5408,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -5461,7 +5461,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -5576,7 +5576,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -5629,7 +5629,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -5744,7 +5744,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -5797,7 +5797,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -5915,7 +5915,7 @@
                 ],
                 "default": null,
                 "description": "An input's bias: true pulls up, false down, omitted as-is.",
-                "title": "Pull Up"
+                "title": "Pull up"
               }
             },
             "required": [
@@ -5956,7 +5956,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -6009,7 +6009,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -6090,7 +6090,7 @@
                 "default": 64,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2C Address",
+                "title": "I2c address",
                 "type": "integer"
               }
             },
@@ -6131,7 +6131,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -6184,7 +6184,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -6264,13 +6264,13 @@
               "clock_line": {
                 "description": "PD_SCK: the host drives this.",
                 "minimum": 0,
-                "title": "Clock Line",
+                "title": "Clock line",
                 "type": "integer"
               },
               "data_line": {
                 "description": "DOUT: the chip drives this.",
                 "minimum": 0,
-                "title": "Data Line",
+                "title": "Data line",
                 "type": "integer"
               },
               "gain": {
@@ -6334,7 +6334,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -6387,7 +6387,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -6472,7 +6472,7 @@
                 "description": "The chip's bus address.",
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2C Address",
+                "title": "I2c address",
                 "type": "integer"
               },
               "registers": {
@@ -6522,7 +6522,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -6575,7 +6575,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -6705,7 +6705,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -6758,7 +6758,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -6839,7 +6839,7 @@
                 "default": 96,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2C Address",
+                "title": "I2c address",
                 "type": "integer"
               },
               "unit": {
@@ -6918,7 +6918,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -6971,7 +6971,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -7086,7 +7086,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -7139,7 +7139,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -7233,7 +7233,7 @@
               },
               "unit_id": {
                 "default": 1,
-                "title": "Unit Id",
+                "title": "Unit id",
                 "type": "integer"
               }
             },
@@ -7275,7 +7275,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -7328,7 +7328,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -7409,7 +7409,7 @@
                 "default": 119,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2C Address",
+                "title": "I2c address",
                 "type": "integer"
               },
               "osr": {
@@ -7462,7 +7462,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -7515,7 +7515,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -7603,13 +7603,13 @@
               },
               "pulses_per_litre": {
                 "exclusiveMinimum": 0,
-                "title": "Pulses Per Litre",
+                "title": "Pulses per litre",
                 "type": "number"
               },
               "debounce_s": {
                 "default": 0.0,
                 "minimum": 0,
-                "title": "Debounce S",
+                "title": "Debounce s",
                 "type": "number"
               },
               "pull_up": {
@@ -7623,7 +7623,7 @@
                 ],
                 "default": null,
                 "description": "The line's bias: true pulls up, false down, omitted as-is.",
-                "title": "Pull Up"
+                "title": "Pull up"
               }
             },
             "required": [
@@ -7665,7 +7665,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -7718,7 +7718,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -7807,7 +7807,7 @@
               "frequency_hz": {
                 "default": 1000.0,
                 "exclusiveMinimum": 0,
-                "title": "Frequency Hz",
+                "title": "Frequency hz",
                 "type": "number"
               },
               "invert": {
@@ -7892,7 +7892,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -7945,7 +7945,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -8076,7 +8076,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -8129,7 +8129,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -8214,7 +8214,7 @@
                 ],
                 "default": null,
                 "description": "The QCoDeS instrument's own `name`; defaults to the device's.",
-                "title": "Instrument Name"
+                "title": "Instrument name"
               },
               "args": {
                 "items": {},
@@ -8272,7 +8272,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -8325,7 +8325,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -8406,13 +8406,13 @@
                 "default": 97,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2C Address",
+                "title": "I2c address",
                 "type": "integer"
               },
               "pressure_mbar": {
                 "default": 0,
                 "description": "0 disables ambient-pressure compensation",
-                "title": "Pressure Mbar",
+                "title": "Pressure mbar",
                 "type": "integer"
               },
               "sleep": {
@@ -8458,7 +8458,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -8511,7 +8511,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -8592,7 +8592,7 @@
                 "default": 98,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2C Address",
+                "title": "I2c address",
                 "type": "integer"
               },
               "variant": {
@@ -8606,12 +8606,12 @@
               },
               "low_power": {
                 "default": false,
-                "title": "Low Power",
+                "title": "Low power",
                 "type": "boolean"
               },
               "single_shot": {
                 "default": false,
-                "title": "Single Shot",
+                "title": "Single shot",
                 "type": "boolean"
               },
               "sleep": {
@@ -8657,7 +8657,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -8710,7 +8710,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -8813,7 +8813,7 @@
                 ],
                 "default": null,
                 "description": "What a stop sends (`OUTP OFF`, `INP OFF`): the instrument's own stop. Omitted: a stop leaves its outputs as they are -- the right string differs by instrument, so none is assumed.",
-                "title": "Stop Command"
+                "title": "Stop command"
               }
             },
             "required": [
@@ -8854,7 +8854,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -8907,7 +8907,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -8988,7 +8988,7 @@
                 "default": 88,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2C Address",
+                "title": "I2c address",
                 "type": "integer"
               },
               "baseline": {
@@ -9052,7 +9052,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -9105,7 +9105,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -9186,7 +9186,7 @@
                 "default": 89,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2C Address",
+                "title": "I2c address",
                 "type": "integer"
               },
               "humidity_source": {
@@ -9200,7 +9200,7 @@
                 ],
                 "default": null,
                 "description": "Signal address to read humidity compensation from on each read; omit to use the datasheet's fixed 50 %RH default.",
-                "title": "Humidity Source"
+                "title": "Humidity source"
               },
               "temperature_source": {
                 "anyOf": [
@@ -9213,7 +9213,7 @@
                 ],
                 "default": null,
                 "description": "Signal address to read temperature compensation from on each read; omit to use the datasheet's fixed 25 degC default.",
-                "title": "Temperature Source"
+                "title": "Temperature source"
               }
             },
             "required": [
@@ -9253,7 +9253,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -9306,7 +9306,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -9387,7 +9387,7 @@
                 "default": 68,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2C Address",
+                "title": "I2c address",
                 "type": "integer"
               },
               "precision": {
@@ -9438,7 +9438,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -9491,7 +9491,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -9572,7 +9572,7 @@
                 "default": 68,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2C Address",
+                "title": "I2c address",
                 "type": "integer"
               },
               "precision": {
@@ -9623,7 +9623,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -9676,7 +9676,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -9809,7 +9809,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -9862,7 +9862,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -9976,7 +9976,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -10029,7 +10029,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -10143,7 +10143,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -10196,7 +10196,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -10279,17 +10279,17 @@
               },
               "step_line": {
                 "minimum": 0,
-                "title": "Step Line",
+                "title": "Step line",
                 "type": "integer"
               },
               "direction_line": {
                 "minimum": 0,
-                "title": "Direction Line",
+                "title": "Direction line",
                 "type": "integer"
               },
               "steps_per_s": {
                 "exclusiveMinimum": 0,
-                "title": "Steps Per S",
+                "title": "Steps per s",
                 "type": "number"
               },
               "enable_line": {
@@ -10303,11 +10303,11 @@
                   }
                 ],
                 "default": null,
-                "title": "Enable Line"
+                "title": "Enable line"
               },
               "enable_active_low": {
                 "default": true,
-                "title": "Enable Active Low",
+                "title": "Enable active low",
                 "type": "boolean"
               },
               "steps_per_unit": {
@@ -10321,12 +10321,12 @@
                   }
                 ],
                 "default": null,
-                "title": "Steps Per Unit"
+                "title": "Steps per unit"
               },
               "pulse_width_s": {
                 "default": 0.0005,
                 "minimum": 0,
-                "title": "Pulse Width S",
+                "title": "Pulse width s",
                 "type": "number"
               }
             },
@@ -10370,7 +10370,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -10423,7 +10423,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -10536,7 +10536,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll S"
+                "title": "Poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -10589,7 +10589,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry Max Age S"
+                "title": "Retry max age s"
               },
               "stop": {
                 "anyOf": [
