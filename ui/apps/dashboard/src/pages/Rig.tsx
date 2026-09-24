@@ -97,7 +97,7 @@ function SaveBox({ allowPath }: { allowPath: boolean }) {
     setSaved(null);
     try {
       const result = await rig.saveRig(path.trim() ? { path: path.trim(), overwrite } : {});
-      setSaved(result.path);
+      setSaved(result.written ? `Written to ${result.path}.` : `Nothing new to save: ${result.path} already holds every change.`);
     } catch (e) {
       setError(detail(e));
     } finally {
@@ -140,7 +140,7 @@ function SaveBox({ allowPath }: { allowPath: boolean }) {
         </Stack>
         {saved && (
           <Alert severity="success" onClose={() => setSaved(null)} data-testid="save-result">
-            Written to {saved}.
+            {saved}
           </Alert>
         )}
         {error && (

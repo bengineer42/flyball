@@ -940,6 +940,7 @@ class RigConfig(BaseModel):
             for device in built_devices:
                 rig.start_polling(device)
         rig.loaded = rig.document()
+        rig.saved_overlay = _saved_overlay(rig.files)
         return rig
 
 
@@ -1176,6 +1177,22 @@ def resolve_documents(
         return document, files
     board_path = find_board(board_name, path_list[0].parent)
     return apply_board(document, load_board(board_path)), [*files, board_path]
+
+
+def saved_overlay_path(first: Path) -> Path:
+    """Where `POST /api/rig/save` writes by default: `<file>.d/added.<suffix>` beside `first`."""
+    return first.with_name(first.name + ".d") / f"added{first.suffix}"
+
+
+def _saved_overlay(files: Sequence[Path]) -> dict[str, Any]:
+    """The saved overlay's document if this rig loaded one (it is among `files`), else `{}`."""
+    if not files:
+        return {}
+    target = saved_overlay_path(files[0])
+    if not any(f.resolve() == target.resolve() for f in files):
+        return {}
+    document = load_document(target)
+    return document if isinstance(document, dict) else {}
 
 
 def saved_overlays(first: Path) -> list[Path]:
