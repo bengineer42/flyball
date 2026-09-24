@@ -57,6 +57,8 @@ are in `DECISIONS.md` at the repository root; this is the index.
 | **D-061** | A permissive always permits a write of the output's resolved stop value, a stop ignores it, and a controller whose output it refuses is held (frozen, `not_permitted`), not failed | decided; built |
 | **D-062** | Reset is allowed while its cause persists (unlike PackML's Clear), because Reset resumes nothing: controllers stay in manual and programs stay ended | decided; built |
 | **D-063** | A planned stop (`Stopper.stop(..., latch=False)`) for a rig edit before its restart (D-051): the same writes and controllers to manual, nothing latched, so the rig comes back passive | decided; built |
+| **D-078** | Auth drops the word "role": the front's grant sets are named by their key under `grants:` (`viewer`, `all`); auth keeps `scope` (the OAuth word), so what an event or a condition is about is its `subject` and that subject's kind its `subject_kind` | decided; built |
+| **D-081** | One `actor` `{principal, kind, via}` (plus `sid` and a `message`) on every record of an action -- a stop, a latch, a write, the audit -- in place of `by`, `writer` and `sub`; `user` names only auth's account record | decided; built |
 
 Nothing in this book is settled unless `DECISIONS.md` says so. Where a
 chapter describes intent rather than fact, it says which.

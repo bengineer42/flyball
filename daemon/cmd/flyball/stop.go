@@ -285,17 +285,17 @@ func postStop(ctx context.Context, t client.Target, reason string) (refused bool
 }
 
 // stopReport mirrors A8's StopReport JSON (§WP0-9, "A8 as built"):
-// {at_ns, actor{sub,sid,kind,via,detail}, reason, devices{name:
+// {at_ns, actor{principal,kind,via,sid,message}, reason, devices{name:
 // {state,message,written,kept}}, program_interrupted, controllers_manual, interim,
 // latched}.
 type stopReport struct {
 	AtNS  int64 `json:"at_ns"`
 	Actor struct {
-		Sub    string `json:"sub"`
-		Sid    string `json:"sid"`
-		Kind   string `json:"kind"`
-		Via    string `json:"via"`
-		Detail string `json:"detail"`
+		Principal string `json:"principal"`
+		Kind      string `json:"kind"`
+		Via       string `json:"via"`
+		Sid       string `json:"sid"`
+		Message   string `json:"message"`
 	} `json:"actor"`
 	Reason             string                     `json:"reason"`
 	Devices            map[string]stopDeviceState `json:"devices"`
@@ -312,7 +312,7 @@ type stopDeviceState struct {
 
 // printStopReport renders r to stdout.
 func printStopReport(r stopReport) {
-	fmt.Printf("software stop: %s by %s (%s) via %s\n", r.Reason, r.Actor.Sub, r.Actor.Kind, r.Actor.Via)
+	fmt.Printf("software stop: %s by %s (%s) via %s\n", r.Reason, r.Actor.Principal, r.Actor.Kind, r.Actor.Via)
 	if r.Interim {
 		fmt.Println("  controllers to manual; nothing written -- outputs left as they were")
 	}

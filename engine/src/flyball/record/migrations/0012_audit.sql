@@ -15,7 +15,7 @@ CREATE TABLE audit (
     time_ns    INTEGER NOT NULL,
     boot       TEXT    NOT NULL,
     seq        INTEGER NOT NULL,
-    sub        TEXT    NOT NULL,
+    principal  TEXT    NOT NULL,
     name       TEXT    NOT NULL DEFAULT '',
     sid        TEXT    NOT NULL,
     kind       TEXT    NOT NULL,

@@ -33,18 +33,18 @@ import re
 import secrets
 import time
 from collections import deque
-from typing import Any, Final
+from typing import Any, Final, cast
 
 from fastapi import HTTPException
 from starlette.routing import compile_path
 
+from flyball.foundation.actor import Actor, Via
 from flyball.foundation.device import Signal
 from flyball.interfaces.server import verbs
 from flyball.interfaces.server.deps import current_rig, get_store
 from flyball.interfaces.server.principal import ANONYMOUS
 from flyball.record.audit import Action, Auditor, Write, outcome
 from flyball.record.store import Store
-from flyball.rig.stopping import Actor
 
 __all__ = ["AUDITOR", "Audit", "record_stop"]
 
@@ -201,11 +201,13 @@ class Audit:
         self.auditor.record(
             Action(
                 time_ns=started,
-                sub=claims.sub,
+                actor=Actor(
+                    principal=claims.sub,
+                    kind=claims.kind,
+                    via=cast("Via", claims.via or "http"),
+                    sid=claims.sid,
+                ),
                 name=claims.nm,
-                sid=claims.sid,
-                kind=claims.kind,
-                via=claims.via or "http",
                 cip=claims.cip,
                 scheme=scheme,
                 method=method,
@@ -387,17 +389,14 @@ def record_stop(
         auditor.record(
             Action(
                 time_ns=at_ns,
-                sub=actor.sub,
-                sid=actor.sid,
-                kind=actor.kind,
-                via=actor.via,
+                actor=actor,
                 cip="",
                 method="SIGNAL",
                 route=reason,
                 path="",
                 status=None,
                 outcome="done" if done else "failed",
-                details={"reason": reason, "detail": actor.detail},
+                details={"reason": reason, "message": actor.message},
             )
         )
     except Exception:

@@ -125,7 +125,7 @@ async def read_health() -> dict[str, Any]:
         "recording": rig.recording is not None,
         "stopped": None
         if stopped is None
-        else {"by": stopped.by, "at_ns": stopped.at_ns, "reason": stopped.reason},
+        else {"actor": stopped.actor.as_dict(), "at_ns": stopped.at_ns, "reason": stopped.reason},
         "latches": rig.stopping.latches.rows(),
         "exposure": current_exposure(),  # served on loopback though asked for more, or open
     }

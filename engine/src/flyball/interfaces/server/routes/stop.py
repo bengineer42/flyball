@@ -20,8 +20,9 @@ from anyio import CapacityLimiter, to_thread
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from flyball.foundation.actor import Actor
 from flyball.interfaces.server.deps import RigDep, current_stopper
-from flyball.rig.stopping import Actor, StopReport, stop_plan
+from flyball.rig.stopping import StopReport, stop_plan
 
 router = APIRouter(prefix="/api/rig", tags=["rig"])
 
@@ -79,7 +80,7 @@ def reset(rig: RigDep, request: Request, body: ResetBody | None = None) -> dict[
     if not who.person:
         raise HTTPException(
             status_code=403,
-            detail=f"a Reset needs a person; {who.sub} ({who.kind} via {who.via}) may not"
+            detail=f"a Reset needs a person; {who.principal} ({who.kind} via {who.via}) may not"
             " reset a latch",
         )
     cause = "stop" if body is None else body.cause
@@ -122,8 +123,9 @@ def _reason(body: bytes) -> str:
 def actor(request: Request) -> Actor:
     """Who is asking, from the principal the door put on the request.
 
-    A principal with `sub`/`sid`/`kind` (v1) is taken as it is; today's door's
-    (`scheme`, `level`) becomes `sub` = the scheme, `kind` = `service` for a token.
+    A principal's claims (`sub`, `sid`, `kind`, v1) give its `principal`, `sid` and `kind`;
+    today's door's (`scheme`, `level`) becomes `principal` = the scheme, `kind` = `service`
+    for a token.
     """
     principal = getattr(request.state, "auth", None)
     peer = f"from {request.client.host}" if request.client is not None else ""
@@ -131,7 +133,7 @@ def actor(request: Request) -> Actor:
     if isinstance(sub, str):
         via = "mcp" if getattr(principal, "via", None) == "mcp" else "http"
         sid, kind = getattr(principal, "sid", ""), getattr(principal, "kind", "")
-        return Actor(sub=sub, sid=str(sid), kind=str(kind), via=via, detail=peer)
+        return Actor(principal=sub, kind=str(kind), via=via, sid=str(sid), message=peer)
     scheme = str(getattr(principal, "scheme", "anonymous"))
     kind = "service" if scheme == "token" else "human"
-    return Actor(sub=scheme, sid="", kind=kind, via="http", detail=peer)
+    return Actor(principal=scheme, kind=kind, via="http", message=peer)

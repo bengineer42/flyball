@@ -18,18 +18,18 @@ import time
 from collections.abc import Callable
 from types import FrameType
 
-from flyball.rig.stopping import Actor, DeviceStop, InterimStopper, Stopper, StopReport
+from flyball.foundation.actor import Actor
+from flyball.rig.stopping import DeviceStop, InterimStopper, Stopper, StopReport
 
-__all__ = ["Actor", "DeviceStop", "InterimStopper", "StopReport", "Stopper", "install_break_glass"]
+__all__ = ["DeviceStop", "InterimStopper", "StopReport", "Stopper", "install_break_glass"]
 
 log = logging.getLogger("flyball.stop")
 
 SIGNAL_ACTOR = Actor(
-    sub="local:signal",
-    sid="",
+    principal="local:signal",
     kind="human",
     via="signal",
-    detail="SIGUSR1 from a process of the runner's user or root; the sender is not recorded",
+    message="SIGUSR1 from a process of the runner's user or root; the sender is not recorded",
 )
 """Who a break-glass stop is recorded as.
 

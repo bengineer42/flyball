@@ -17,6 +17,7 @@ from flyball_sim import SteppedClock
 from conftest import TestClient
 from flyball.control.laws import P
 from flyball.control.setpoint import LinearRampSetpoint
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import (
     KEEP,
     Access,
@@ -45,15 +46,16 @@ from flyball.model.controller import ControllerMode, FaultAction, OnFault
 from flyball.record.sqlite import SqliteStore
 from flyball.rig import Rig
 from flyball.rig import stopping as stopping_mod
-from flyball.rig.stopping import Actor, RigStopper, resolve_output, stop_plan
+from flyball.rig.stopping import RigStopper, resolve_output, stop_plan
 from flyball.runtime.config import AuthConfig
 from flyball.sequencing import Program, Programmer
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
 
-BEN = Actor("ben", "s1", "human", "http")
-AGENT = Actor("claude", "s2", "agent", "mcp")
+BEN = Actor("ben", "human", "http", sid="s1")
+AGENT = Actor("claude", "agent", "mcp", sid="s2")
+PROGRAM = Actor("program", "program", "rig")
 
 
 class Oven(Committable):
@@ -266,7 +268,7 @@ class TestTheStop:
         _stop(rig)
         oven.writes.clear()
         with pytest.raises(ConflictError, match="stopped by ben"):
-            rig.write(oven.root, {"h2": 5.0}, writer="program")
+            rig.write(oven.root, {"h2": 5.0}, actor=PROGRAM)
         with pytest.raises(ConflictError, match="reset it to write"):
             rig.write(oven.root, {"h2": 5.0}, actor=AGENT)
         assert rig.write(oven.root, {"h1": 5.0}, by=controller) == {}, "held, not raised"
@@ -277,7 +279,7 @@ class TestTheStop:
         rig.write(oven.root, {"h2": 5.0}, actor=BEN)  # a person, forced and logged
         assert oven.writes == [("h2", 5.0)]
         (logged,) = _events(rig, Code.WRITTEN_WHILE_STOPPED)
-        assert logged.details == {"value": 5.0, "by": "ben"}
+        assert logged.details == {"value": 5.0, "actor": BEN.as_dict()}
         assert rig.stopping.latches.rig_stop is not None, "the latch stays"
 
     def test_reset_resumes_nothing(self, rig: Rig, oven: Oven):
@@ -290,7 +292,7 @@ class TestTheStop:
         (reset,) = _events(rig, Code.RESET)
         assert reset.details["cause"] == "stop"
         controller.regulate(25.0)  # allowed again
-        rig.write(oven.root, {"h2": 1.0}, writer="program")
+        rig.write(oven.root, {"h2": 1.0}, actor=PROGRAM)
 
     def test_a_stop_replaces_what_was_staged(self, rig: Rig, oven: Oven):
         oven.fail = True
@@ -322,7 +324,7 @@ class TestTheStop:
         rig.add_device(values)
         report = _stop(rig)
         assert values.name not in report.devices
-        rig.write(values.root, {"dry": 2.0}, writer="program")  # a stop leaves it writable
+        rig.write(values.root, {"dry": 2.0}, actor=PROGRAM)  # a stop leaves it writable
 
     def test_a_stop_command_device(self, rig: Rig, fresh: Any):
         pumps = Pumps(fresh("pumps"))
@@ -435,7 +437,7 @@ class TestShutdownAndRestart:
         assert [latch.cause for latch in restored] == ["stop"]
         assert oven.writes == [("h1", 0.0), ("h2", 0.0)], "the stop is applied again"
         with pytest.raises(ConflictError, match="stopped by ben"):
-            second.write(oven.root, {"h2": 1.0}, writer="program")
+            second.write(oven.root, {"h2": 1.0}, actor=PROGRAM)
         second.stopping.reset("stop", BEN)
         assert store.latches() == []
         store.close()
@@ -486,7 +488,7 @@ class TestOnFault:
         assert controller.mode is ControllerMode.MANUAL
         (event,) = _events(rig, Code.ON_FAULT)
         assert event.details["action"] == "manual"
-        rig.write(oven.root, {"h1": 3.0}, writer="program")  # the output is not held
+        rig.write(oven.root, {"h1": 3.0}, actor=PROGRAM)  # the output is not held
         with pytest.raises(ConflictError, match="on_fault"):
             controller.regulate(25.0)
         assert rig.conditions.get(controller, Code.LATCHED) is not None
@@ -801,4 +803,4 @@ def test_a_planned_stop_writes_the_same_and_latches_nothing(rig: Rig, oven: Oven
     assert sorted(oven.writes) == [("h1", 0.0), ("h2", 0.0)]
     assert controller.mode is ControllerMode.MANUAL
     assert rig.stopping.latches.all() == []
-    rig.write(oven.root, {"h3": 1.0}, writer="program")  # nothing refuses
+    rig.write(oven.root, {"h3": 1.0}, actor=PROGRAM)  # nothing refuses

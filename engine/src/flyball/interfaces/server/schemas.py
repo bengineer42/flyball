@@ -544,17 +544,28 @@ class InputOut(BaseModel):
         )
 
 
+class ActorOut(BaseModel):
+    """Who acted (D-081): the principal, its kind, the way it came in; the login and a note."""
+
+    principal: str
+    kind: str
+    via: str
+    """`http`, `mcp`, `signal`, or `rig` (the rig's own: a program, a controller, a stop)."""
+    sid: str = ""
+    message: str = ""
+
+
 class ValueSourceOut(BaseModel):
     """Where a `driver: values` signal's value in force came from, for the device page.
 
     `rig_file`: its `initial`; `restored`: kept from an earlier run ("restored, written by
-    `writer` at `written_ns`"); `written`: written in this run.
+    `actor` at `written_ns`"); `written`: written in this run.
     """
 
     origin: Literal["rig_file", "restored", "written"]
     initial: Any
     """The rig file's `initial` in force."""
-    writer: str | None = None
+    actor: ActorOut | None = None
     written_ns: int | None = None
     """Wall time, ns since the epoch."""
 
@@ -659,7 +670,7 @@ class DeviceOut(BaseModel):
                 path: ValueSourceOut(
                     origin=source.origin,
                     initial=source.initial,
-                    writer=source.writer,
+                    actor=None if source.actor is None else ActorOut(**source.actor.as_dict()),
                     written_ns=source.written_ns,
                 )
                 for path, signal in device.signals.items()

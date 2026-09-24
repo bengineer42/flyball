@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 
 from conftest import TestClient
+from flyball.foundation.actor import Actor
 from flyball.interfaces.server import audit as server_audit
 from flyball.interfaces.server import create_app, principal, set_rig
 from flyball.interfaces.server.auth import Fronted
@@ -31,7 +32,7 @@ from flyball.interfaces.server.deps import set_stopper, set_store
 from flyball.record import SqliteStore, StoreUnavailableError, audit
 from flyball.record.errors import ConstraintError, SchemaError
 from flyball.rig import Rig
-from flyball.rig.stopping import Actor, InterimStopper
+from flyball.rig.stopping import InterimStopper
 from flyball.runner import stopping as runner_stopping
 from flyball.runtime.config import load_rig_config
 
@@ -132,7 +133,14 @@ def test_audit_rows(http, store):
         ("POST", "/api/rig/stop", 200, "done"),
     ]
     first, second, bad, no, stop = rows
-    assert (first.sub, first.sid, first.kind, first.via, first.cip, first.scheme) == (
+    assert (
+        first.actor.principal,
+        first.actor.sid,
+        first.actor.kind,
+        first.actor.via,
+        first.cip,
+        first.scheme,
+    ) == (
         "local:admin",
         "s-1",
         "human",
@@ -147,8 +155,8 @@ def test_audit_rows(http, store):
     assert bad.writes == {
         "thermocouple.temperature": {"old": None, "requested": 1.0, "applied": None}
     }
-    assert (no.sub, no.sid) == ("local:viewer", "s-2")
-    assert (stop.kind, stop.via) == ("agent", "mcp")
+    assert (no.actor.principal, no.actor.sid) == ("local:viewer", "s-2")
+    assert (stop.actor.kind, stop.actor.via) == ("agent", "mcp")
     assert stop.details == {"reason": "smoke"}
     # One boot, a sequence with no gaps, wall-clock time.
     assert {r.boot for r in rows} == {server_audit.AUDITOR.boot}
@@ -194,14 +202,14 @@ def test_a_callers_denied_rows_are_bounded(http, store):
         assert http.post("/api/rig/stop", headers=viewer).status_code == 403
     rows = _rows(store)[len(before) :]
     assert len(rows) == server_audit.DENIED_PER_MINUTE
-    assert {(r.sub, r.outcome) for r in rows} == {("token:viewer", "denied")}
+    assert {(r.actor.principal, r.outcome) for r in rows} == {("token:viewer", "denied")}
 
     other = _as({"read"}, sub="token:other", sid="t-10")
     flood = {f"k{i}": float(i) for i in range(2000)}
     denied = http.put("/api/devices/heater/write", json=flood, headers=other)
     assert denied.status_code == 403
     (row,) = _rows(store)[len(before) + len(rows) :]
-    assert row.sub == "token:other"
+    assert row.actor.principal == "token:other"
     assert row.writes is not None and len(row.writes) == server_audit.DENIED_WRITES
     # An allowed request is never held back by the cap.
     assert http.post("/api/rig/stop", headers=_as(OPERATOR)).status_code == 200
@@ -224,7 +232,12 @@ def test_bare_runner_token_is_recorded_as_the_token(store, oven, monkeypatch):
         answer = http.post("/api/rig/stop", headers={"Authorization": "Bearer s3cret"})
     assert answer.status_code == 200
     (row,) = _rows(store)[-1:]
-    assert (row.sub, row.kind, row.scheme, row.via) == ("token:bare", "service", "token", "http")
+    assert (row.actor.principal, row.actor.kind, row.scheme, row.actor.via) == (
+        "token:bare",
+        "service",
+        "token",
+        "http",
+    )
     assert len(row.request_id) == 32  # no front: the runner makes one
 
 
@@ -232,7 +245,7 @@ def test_break_glass_stop_is_recorded(store, oven):
     """`SIGUSR1`'s stop is a row too, with the signal's actor; here, the handler's thread."""
     runner_stopping._stop(lambda: InterimStopper(oven))
     (row,) = _rows(store)[-1:]
-    assert (row.sub, row.via, row.method, row.route) == (
+    assert (row.actor.principal, row.actor.via, row.method, row.route) == (
         "local:signal",
         "signal",
         "SIGNAL",
@@ -251,10 +264,7 @@ def test_break_glass_stop_is_recorded(store, oven):
 def _action(**changes: Any) -> audit.Action:
     fields: dict[str, Any] = {
         "time_ns": time.time_ns(),
-        "sub": "local:admin",
-        "sid": "s",
-        "kind": "human",
-        "via": "http",
+        "actor": Actor("local:admin", "human", "http", sid="s"),
         "cip": "",
         "method": "POST",
         "route": "/api/rig/stop",
@@ -278,8 +288,8 @@ def test_audit_survives_retention_and_session_delete(tmp_path):
         with pytest.raises(ConstraintError), store._transaction() as connection:
             connection.execute("DELETE FROM audit")
         with pytest.raises(ConstraintError), store._transaction() as connection:
-            connection.execute("UPDATE audit SET sub = 'someone else'")
-        assert [r.sub for r in audit.actions(store)] == ["local:admin", "local:admin"]
+            connection.execute("UPDATE audit SET principal = 'someone else'")
+        assert [r.actor.principal for r in audit.actions(store)] == ["local:admin", "local:admin"]
     finally:
         store.close()
 
@@ -310,7 +320,7 @@ def test_audit_write_failure_does_not_block_stop(http, store, oven, monkeypatch,
     original = InterimStopper.stop
 
     def counting(self: InterimStopper, actor: Actor, reason: str) -> Any:
-        stopped.append(actor.sub)
+        stopped.append(actor.principal)
         return original(self, actor, reason)
 
     monkeypatch.setattr(InterimStopper, "stop", counting)
@@ -398,7 +408,7 @@ def test_sigusr1_is_audited_in_a_real_runner(tmp_path):
         def audited() -> bool:
             with sqlite3.connect(path) as connection:
                 rows = connection.execute(
-                    "SELECT sub, via, route FROM audit WHERE via = 'signal'"
+                    "SELECT principal, via, route FROM audit WHERE via = 'signal'"
                 ).fetchall()
             connection.close()
             return rows == [("local:signal", "signal", "SIGUSR1")]

@@ -9,6 +9,12 @@ rig file may widen it instead. `P` implies `R`.
 on, that knows how to attach itself to the rig (a **prompt**, a **settle**
 test, a timed **wait**, a ramp's end).
 
+**actor** — who did something, on every record of an action (a stop, a
+latch, a write, the audit): `{principal, kind, via}`, plus the login
+(`sid`) and a `message`. The **principal**'s id for a caller; the rig's own
+(`program`, a controller, `stop`) with `via: rig`. `user` names only auth's
+account record.
+
 **address** — a signal's or node's path: `device[.namespace…].signal`; no
 dots inside a segment.
 

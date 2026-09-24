@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from typing import Any, Literal
 
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import Bounds, Limit, NoValue, Quality, Reason
 from flyball.foundation.primitives import Labelled
 
@@ -125,7 +126,8 @@ class LatchRow:
 
     cause: str
     subjects: list[dict[str, str]]
-    by: str
+    actor: Actor
+    """Who set it: a stop's person or agent, a fault action's controller."""
     at_ns: int
     """When it was set, wall time in ns since the epoch."""
     reason: str = ""
@@ -149,8 +151,8 @@ class LiveValueRow:
     """The unit symbol when it was written; None: unitless."""
     initial: Any
     """The rig file's value in force when it was written."""
-    writer: str | None
-    """Who wrote it: the principal's `sub`; None when not known."""
+    actor: Actor | None
+    """Who wrote it; None when not known."""
     written_ns: int
     """When, wall time in ns since the epoch."""
     config_field: str | None = None

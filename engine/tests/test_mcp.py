@@ -942,7 +942,7 @@ class TestReMint:
         report = result["structuredContent"]
         assert report["reason"] == "agent saw smoke"
         assert report["actor"]["via"] == "mcp"
-        assert report["actor"]["sub"] == ("token:ci" if served.fronted else "token:bare")
+        assert report["actor"]["principal"] == ("token:ci" if served.fronted else "token:bare")
 
 
 class TestSelfCall:

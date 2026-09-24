@@ -20,7 +20,7 @@ from pathlib import Path
 from threading import Lock, RLock
 from typing import TYPE_CHECKING, Any, overload
 
-from flyball.foundation import Clock, Rate
+from flyball.foundation import Actor, Clock, Rate
 from flyball.foundation.device import (
     RESERVED_NAMES,
     Access,
@@ -70,7 +70,7 @@ from .faults import Faults
 from .latches import RIG_STOP
 from .liveness import Liveness
 from .polling import Polling, poll_period
-from .stopping import Actor, Stopping, resolve_output
+from .stopping import STOP_ACTOR, Stopping, resolve_output
 from .triggers import Triggers
 from .values import LiveValues
 
@@ -232,8 +232,8 @@ class Rig:
     values: LiveValues
     """Where each `driver: values` signal's value came from, and the store row that keeps its
     last write across restarts."""
-    _written_by: dict[Signal, str | None]
-    """Who asked for each staged write, until its commit: a values signal's writer."""
+    _written_by: dict[Signal, Actor | None]
+    """Who asked for each staged write, until its commit: a values signal's actor."""
     _requested: dict[Signal, float]
     """What a demand asked for where the clamp changed it, until the commit reports it."""
     _touched: dict[Device, None] | None
@@ -974,7 +974,6 @@ class Rig:
         values: Mapping[str | Signal, float],
         *,
         by: Controller | None = None,
-        writer: str | None = None,
         actor: Actor | None = None,
     ) -> Mapping[Signal, WriteState]:
         """Write `values` to W signals under `node`, as one atomic write, in each signal's unit.
@@ -995,9 +994,8 @@ class Rig:
         committed with everything else at its end, and this returns nothing.
         A blocking device's commit runs on its writer thread, so its states
         arrive later, through [written][flyball.rig.rig.Rig.written];
-        this returns nothing. `writer` says who asked (the principal's `sub`):
-        a `driver: values` signal's write is logged and kept under it; `actor`
-        is who asked, whole, when a request came in (its `sub` is the writer).
+        this returns nothing. `actor` says who asked: a `driver: values`
+        signal's write is logged and kept under it.
 
         A latch refuses it: a fault's latch on the signal or its device refuses
         everyone; the rig stop refuses every automatic writer and lets a
@@ -1026,8 +1024,6 @@ class Rig:
             raise ConflictError(f"'{device.name}' has nothing to commit: no demands")
         if by is not None and self.hold_reason(by) is not None:
             return {}
-        if writer is None and actor is not None:
-            writer = actor.sub
         person = actor is not None and actor.person
         resolved: dict[Signal, float] = {}
         for key, value in values.items():
@@ -1092,20 +1088,21 @@ class Rig:
                 else:
                     thread.apply(signal, time_ns, value)
             for signal in clamped:  # a newer demand supersedes an earlier clamped one
-                self._written_by[signal] = writer
+                self._written_by[signal] = actor
                 if signal in requested:
                     self._requested[signal] = requested[signal]
                 else:
                     self._requested.pop(signal, None)
             if forced is not None:
+                who = "someone" if actor is None else actor.principal
                 for signal, value in clamped.items():
                     self.event(
                         Severity.WARNING,
                         SubjectKind.SIGNAL,
                         signal.address,
                         Code.WRITTEN_WHILE_STOPPED,
-                        f"written {value:g} by {writer} while the rig is stopped; still stopped",
-                        {"value": value, "by": writer},
+                        f"written {value:g} by {who} while the rig is stopped; still stopped",
+                        {"value": value, "actor": None if actor is None else actor.as_dict()},
                     )
             if self._touched is not None:  # inside a delivery: committed at its end
                 self._touched[device] = None
@@ -1392,7 +1389,7 @@ class Rig:
                 self._staged_ns[signal] = time_ns
             else:
                 writer.apply(signal, time_ns, value)
-            self._written_by[signal] = "stop"
+            self._written_by[signal] = STOP_ACTOR
         if writer is not None:
             return {s.address: v for s, v in values.items()}, (writer, writer.request(time_ns))
         self._forcing.add(device)
@@ -1784,7 +1781,7 @@ class Rig:
             pushed = seq.get(signal, 0) != before.get(signal, 0)  # the driver's readback
             requested = self._requested.pop(signal, None)
             self._staged_ns.pop(signal, None)
-            writer = self._written_by.pop(signal, None)
+            written_by = self._written_by.pop(signal, None)
             before_value = self.router.latest.get(signal)
             ignored = signal in unread
             if ignored:
@@ -1817,7 +1814,7 @@ class Rig:
                 was = (
                     None if before_value is None or not before_value.usable else before_value.value
                 )
-                self.values.written(signal, value, was, writer)
+                self.values.written(signal, value, was, written_by)
             if self.write_states.watched:
                 self.write_states.set(signal.address, state)
             signal.at_limit = None
@@ -2256,8 +2253,8 @@ class Rig:
             SubjectKind.DEVICE,
             device.name,
             Code.WRITTEN_WHILE_STOPPED,
-            f"{spec.name} run by {actor.sub} while the rig is stopped; still stopped",
-            {"command": spec.name, "by": actor.sub},
+            f"{spec.name} run by {actor.principal} while the rig is stopped; still stopped",
+            {"command": spec.name, "actor": actor.as_dict()},
         )
         return True
 
@@ -2317,7 +2314,7 @@ class Rig:
                 holder.name,
                 Code.INTERRUPTED,
                 f"put in manual by {device.name}.{command}",
-                {"was": was, "by": f"{device.name}.{command}"},
+                {"was": was, "command": f"{device.name}.{command}"},
             )
             if self.controller_states.watched:
                 self.controller_states.set(holder.name, holder.state)

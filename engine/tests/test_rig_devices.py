@@ -11,6 +11,7 @@ from typing import Annotated
 import pytest
 
 from flyball.control.laws import P
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import (
     Access,
     AddressNotFoundError,
@@ -37,7 +38,6 @@ from flyball.foundation.time import Rate, TimeUnit
 from flyball.model.feedforward import NoFeedforward
 from flyball.model.law import Transfer
 from flyball.rig import Rig, SignalClaimedError
-from flyball.rig.stopping import Actor
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -614,7 +614,7 @@ class TestOneControllerFailing:
             bad.regulate(30.0)
 
         bad.set_law(P(kp=1.0))
-        rig.stopping.reset(f"on_fault:{bad.name}", Actor("ben", "", "human", "http"))
+        rig.stopping.reset(f"on_fault:{bad.name}", Actor("ben", "human", "http"))
         bad.regulate(30.0)
         clock.advance(1.0)
         rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 20.0, zone2: 20.0})])

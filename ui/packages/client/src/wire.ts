@@ -353,15 +353,15 @@ export interface InputOut {
 
 /**
  * Where a `driver: values` signal's value in force came from, for the device
- * page: `rig_file` ("rig file"), `restored` ("restored, written by `writer`
- * at `written_ns`"), `written` (written in this run, by `writer` at
+ * page: `rig_file` ("rig file"), `restored` ("restored, written by `actor`
+ * at `written_ns`"), `written` (written in this run, by `actor` at
  * `written_ns`).
  */
 export interface ValueSourceOut {
   origin: "rig_file" | "restored" | "written";
   /** The rig file's `initial` in force. */
   initial: number;
-  writer: string | null;
+  actor: Actor | null;
   /** Wall time, ns since the epoch. */
   written_ns: Nanoseconds | null;
 }
@@ -763,7 +763,7 @@ export interface Health {
   activities: string[];
   recording: boolean;
   /** The rig stop's latch, if it holds: who, when (wall ns) and why; null when not stopped. */
-  stopped: { by: string; at_ns: Nanoseconds; reason: string } | null;
+  stopped: { actor: Actor; at_ns: Nanoseconds; reason: string } | null;
   /** Every latch cause held now, one row per subject it holds. */
   latches: LatchRow[];
   exposure?: Exposure | null;
@@ -953,13 +953,17 @@ export interface AuthInfo {
   rig?: string;
 }
 
-/** Who asked for the stop (`StopReport.actor`), and how they reached it. */
-export interface StopActor {
-  sub: string;
-  sid: string;
+/**
+ * Who acted, on every record of an action (a stop, a latch, a write): the principal, its
+ * kind (`human`, `service`, `agent`; the rig's own `program`, `controller`, `rule`), how it
+ * came in (`rig` for the rig's own), the login (`sid`, `""` for none) and a note.
+ */
+export interface Actor {
+  principal: string;
   kind: string;
-  via: "http" | "mcp" | "signal";
-  detail: string;
+  via: "http" | "mcp" | "signal" | "rig";
+  sid: string;
+  message: string;
 }
 
 /**
@@ -983,7 +987,7 @@ export interface DeviceStopOut {
  */
 export interface StopReport {
   at_ns: Nanoseconds;
-  actor: StopActor;
+  actor: Actor;
   reason: string;
   devices: Record<Address, DeviceStopOut>;
   program_interrupted: boolean;
@@ -1002,7 +1006,7 @@ export interface ResetRequest {
 export interface LatchOut {
   cause: string;
   subjects: { subject_kind: LatchRow["subject_kind"]; subject: string }[];
-  by: string;
+  actor: Actor;
   at_ns: Nanoseconds;
   reason: string;
   /** A fault's action (`manual`, `stop`, `stop_device`); "" for the rig stop. */

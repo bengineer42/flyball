@@ -46,7 +46,7 @@ const SUBJECT_PAGES: Record<string, RefKind> = { device: "device", controller: "
 /**
  * The code as a person reads it. A controller's `interrupted` is "Put in
  * manual" (by a command that interrupts, or by a stop; its details are
- * `{was, reason}` and its message names who), not a program's "Interrupted".
+ * `{was, reason}` from a stop, `{was, command}` from a command; its message names who), not a program's "Interrupted".
  */
 export function describeEvent(e: Pick<RigEvent, "subject_kind" | "code">): string {
   if (e.subject_kind === "controller" && e.code === "interrupted") return "Put in manual";

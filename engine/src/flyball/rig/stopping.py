@@ -41,6 +41,7 @@ from collections.abc import Iterable, Mapping
 from threading import Lock
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import (
     KEEP,
     Access,
@@ -64,7 +65,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DEVICE_STOP_S",
-    "Actor",
+    "STOP_ACTOR",
     "DeviceStop",
     "InterimStopper",
     "OutputStop",
@@ -84,22 +85,8 @@ not done by then is reported `failed` ("may still act"), and the stop returns.""
 
 type Origin = Literal["off", "you_said", "nobody_said"]
 
-
-@dataclasses.dataclass(frozen=True)
-class Actor:
-    """Who asked for a stop: the principal's `sub`/`sid`/`kind`, and the way it came in."""
-
-    sub: str
-    sid: str
-    kind: str
-    via: Literal["http", "mcp", "signal"]
-    detail: str = ""
-    """Anything more about the caller, e.g. `signal from pid 4121 uid 1000`."""
-
-    @property
-    def person(self) -> bool:
-        """A person at a UI or the HTTP API: a human principal, not an agent through MCP."""
-        return self.kind == "human" and self.via != "mcp"
+STOP_ACTOR = Actor(principal="stop", kind="rule", via="rig")
+"""Who writes a stop's values: the stop itself, whoever asked for it."""
 
 
 class DeviceStop(TypedDict):
@@ -293,7 +280,7 @@ class Stopping:
         details = {
             "cause": latch.cause,
             "action": latch.action,
-            "by": latch.by,
+            "actor": latch.actor.as_dict(),
             "at_ns": latch.at_ns,
             "reason": latch.reason,
         }
@@ -302,8 +289,9 @@ class Stopping:
                 rig,
                 Code.STOPPED,
                 Severity.WARNING,
-                f"stopped by {latch.by}" + (f": {latch.reason}" if latch.reason else ""),
-                {"by": latch.by, "at_ns": latch.at_ns, "reason": latch.reason},
+                f"stopped by {latch.actor.principal}"
+                + (f": {latch.reason}" if latch.reason else ""),
+                {"actor": latch.actor.as_dict(), "at_ns": latch.at_ns, "reason": latch.reason},
             )
         else:
             for owner in self._owners(latch):
@@ -326,7 +314,7 @@ class Stopping:
         latch = self.latches.clear(cause)
         if latch is None:
             raise NotFoundError(f"No latch holds for {cause!r}")
-        message = f"reset by {actor.sub}: {cause}"
+        message = f"reset by {actor.principal}: {cause}"
         if latch.cause == RIG_STOP:
             rig.conditions.clear(rig, Code.STOPPED, message=message)
         else:
@@ -341,7 +329,7 @@ class Stopping:
             rig.name or "rig",
             Code.RESET,
             message,
-            {"cause": cause, "by": actor.sub, "latch": latch.as_dict()},
+            {"cause": cause, "actor": actor.as_dict(), "latch": latch.as_dict()},
         )
         return latch
 
@@ -416,7 +404,7 @@ class Stopping:
         latch = Latch(
             cause=fault_cause(controller.name),
             subjects=subjects(held),
-            by="on_fault",
+            actor=Actor(principal=controller.name, kind="controller", via="rig"),
             at_ns=time.time_ns(),
             reason=outage.reason,
             action=action.value,
@@ -641,7 +629,7 @@ class RigStopper:
                     Latch(
                         cause=RIG_STOP,
                         subjects=subjects([("rig", rig.name or "rig")]),
-                        by=actor.sub,
+                        actor=actor,
                         at_ns=at_ns,
                         reason=reason,
                     )
@@ -653,7 +641,7 @@ class RigStopper:
             )
         log.warning(
             "software stop by %s via %s (%s): program %s, %d controller(s) manual; %s",
-            actor.sub,
+            actor.principal,
             actor.via,
             reason or "no reason given",
             "interrupted" if report.program_interrupted else "not running",
@@ -696,7 +684,7 @@ class RigStopper:
                 if address.partition(".")[0] == name:
                     stop["message"] += f"; {error}"
         if stops:
-            _applied(rig, f"{why} by {actor.sub}" + (f": {reason}" if reason else ""), stops)
+            _applied(rig, f"{why} by {actor.principal}" + (f": {reason}" if reason else ""), stops)
         return StopReport(
             at_ns=at_ns,
             actor=actor,
@@ -799,7 +787,7 @@ def _manual(rig: Rig, why: str | None) -> dict[str, str]:
                 name,
                 Code.INTERRUPTED,
                 f"put in manual by the {why}",
-                {"was": was.value, "by": why},
+                {"was": was.value, "reason": why},
             )
     return failed
 

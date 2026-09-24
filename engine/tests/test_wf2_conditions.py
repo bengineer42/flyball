@@ -9,10 +9,10 @@ import threading
 import pytest
 
 from flyball.control.laws import P
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import Code, Committable, Demand, Sample, Severity, SubjectKind
 from flyball.record.migrate import available
 from flyball.record.sqlite import SqliteStore
-from flyball.rig.stopping import Actor
 from test_rig_devices import POWER, Furnace
 
 # region Migration
@@ -348,7 +348,7 @@ class TestProducers:
             rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: value})])
         broken["on"] = False
         assert controller.mode.value == "manual", "a law error takes at least on_fault: manual"
-        rig.stopping.reset(f"on_fault:{controller.name}", Actor("ben", "", "human", "http"))
+        rig.stopping.reset(f"on_fault:{controller.name}", Actor("ben", "human", "http"))
         controller.regulate(30.0)
         clock.advance(1.0)
         rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 22.0})])

@@ -23,6 +23,7 @@ from typing import Any
 import pytest
 
 from conftest import TestClient, free_port
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import Access
 from flyball.interfaces.server import create_app, principal, set_programmer, set_rig
 from flyball.interfaces.server.deps import current_stopper, get_dialect, set_stopper
@@ -30,7 +31,7 @@ from flyball.interfaces.server.dialect import program_from_document
 from flyball.model.controller import ControllerMode
 from flyball.rig import Rig
 from flyball.rig.stopping import RigStopper
-from flyball.runner.stopping import Actor, StopReport, install_break_glass
+from flyball.runner.stopping import StopReport, install_break_glass
 from flyball.runtime.config import AuthConfig, load_rig_config
 from flyball.sequencing import Programmer
 
@@ -232,7 +233,7 @@ def test_stop_needs_operate(monkeypatch, counting):
     assert wrong.status_code == 401, wrong.text
     assert allowed.status_code == 200, allowed.text
     (actor,) = counting.actors
-    assert actor.via == "http" and actor.kind == "service" and actor.sub == "token:bare"
+    assert actor.via == "http" and actor.kind == "service" and actor.principal == "token:bare"
 
 
 def test_stop_not_rate_limited(counting):
@@ -283,7 +284,7 @@ def test_stopper_is_thread_safe(oven, monkeypatch):
     _run_program(rig, programmer)
     writes = Writes(rig.devices["heater"], monkeypatch)
     stopper = RigStopper(rig, programmer)
-    actor = Actor(sub="t", sid="", kind="human", via="http")
+    actor = Actor(principal="t", kind="human", via="http")
     reports: list[StopReport] = []
     threads = [
         threading.Thread(target=lambda: reports.append(stopper.stop(actor, "t"))) for _ in range(8)
@@ -308,7 +309,7 @@ def test_a_failing_controller_is_reported_not_raised(oven, monkeypatch):
         raise RuntimeError("stuck")
 
     monkeypatch.setattr(controller, "manual", broken)
-    report = RigStopper(rig, programmer).stop(Actor("t", "", "human", "http"), "")
+    report = RigStopper(rig, programmer).stop(Actor("t", "human", "http"), "")
     assert report.controllers_manual == []
     assert "stuck" in report.devices["heater"]["message"]
 
@@ -329,7 +330,7 @@ def test_no_stopper_until_a_rig_is_set(oven):
 
 
 def test_actor_and_report_are_frozen():
-    actor = Actor(sub="local:signal", sid="", kind="human", via="signal")
+    actor = Actor(principal="local:signal", kind="human", via="signal")
     report = StopReport(
         at_ns=1,
         actor=actor,
@@ -341,7 +342,7 @@ def test_actor_and_report_are_frozen():
     )
     with pytest.raises(AttributeError):
         report.reason = "x"  # type: ignore[misc]
-    assert actor.detail == ""
+    assert actor.message == ""
 
 
 def test_break_glass_off_the_main_thread_is_a_no_op():
@@ -439,7 +440,7 @@ def test_sigusr1_stops_without_exit(tmp_path):
         assert after["output"] == demand  # held, not driven
         (line,) = err.matching("stop report")
         report = json.loads(line.split("stop report: ", 1)[1])
-        assert report["actor"]["via"] == "signal" and report["actor"]["sub"] == "local:signal"
+        assert report["actor"]["via"] == "signal" and report["actor"]["principal"] == "local:signal"
         assert report["reason"] == "SIGUSR1"
         assert report["program_interrupted"] is True
         assert report["controllers_manual"] == ["heater.drive"]

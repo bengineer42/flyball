@@ -251,7 +251,7 @@ describe("RigClient.login posts the credential the door offers", () => {
 
 describe("RigClient.stopRig", () => {
   it("posts to /api/rig/stop, with a reason when given", async () => {
-    const report: StopReport = { at_ns: 1, actor: { sub: "local:admin", sid: "s1", kind: "human", via: "http", detail: "" }, reason: "done", devices: {}, program_interrupted: true, controllers_manual: [], interim: true };
+    const report: StopReport = { at_ns: 1, actor: { principal: "local:admin", kind: "human", via: "http", sid: "s1", message: "" }, reason: "done", devices: {}, program_interrupted: true, controllers_manual: [], interim: true };
     const { transport, asked } = fakeTransport({ "POST /api/rig/stop": report });
     const rig = new RigClient(transport);
     expect(await rig.stopRig("done")).toEqual(report);

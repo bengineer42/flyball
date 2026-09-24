@@ -565,7 +565,7 @@ button in the UI and no `flyball` subcommand yet.
 - **The runner's audit**, the `audit` table in the rig's store: one row for
   every request that needs more than `read` from a caller who is not
   anonymous -- refused ones included -- and every stop, `SIGUSR1` included:
-  who (`sub`, session, kind, from where), what, and how it ended. It is
+  who (`principal`, session, kind, from where), what, and how it ended. It is
   append-only and outside retention, so what an unknown caller asks is not
   kept there, and one caller's refusals are kept to ten rows a minute (a
   refused demand to its first 16 signals); the runner's log counts the

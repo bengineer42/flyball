@@ -75,7 +75,7 @@ export function LatchBannerFor({ health, onReset }: { health: Health | undefined
           }
         >
           {cause === "stop" && stopped
-            ? `Rig stopped by ${stopped.by} at ${when(stopped.at_ns)}${stopped.reason ? `: ${stopped.reason}` : ""}. `
+            ? `Rig stopped by ${stopped.actor.principal} at ${when(stopped.at_ns)}${stopped.reason ? `: ${stopped.reason}` : ""}. `
             : `Latched by ${describeCause(cause)}${subjects.length ? ` (${subjects.join(", ")})` : ""}. `}
           Regulation and automatic writes stay refused until a person resets it.
           {!canOperate && " Sign in to operate to reset."}

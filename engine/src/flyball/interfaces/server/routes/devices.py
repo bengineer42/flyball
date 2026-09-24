@@ -19,6 +19,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, Request
 from pydantic import TypeAdapter, create_model
 
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import CommandSpec, Device, Node, Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.interfaces.server.deps import RigDep
@@ -32,7 +33,6 @@ from flyball.interfaces.server.schemas import (
 )
 from flyball.interfaces.server.wire import ArgumentsBase, wire_fields
 from flyball.rig import CommandRun, DeviceRun, Rig
-from flyball.rig.stopping import Actor
 
 _ARGUMENTS: dict[tuple[type[Device], str], type[ArgumentsBase]] = {}
 
@@ -191,7 +191,7 @@ def run(
     device: Device,
     command: str,
     body: dict[str, Any] | None,
-    by: Actor | None = None,
+    actor: Actor | None = None,
 ) -> CommandRun:
     """Run the command with the validated body, through the rig: its `CommandRun`."""
     spec = command_for(device, command)
@@ -199,7 +199,7 @@ def run(
     left_out = [n for n, p in spec.params.items() if p.link is not None and arguments[n] is None]
     for name in left_out:
         del arguments[name]  # the rig fills it from the demand's current value
-    return rig.invoke(device, command, arguments, actor=by)
+    return rig.invoke(device, command, arguments, actor=actor)
 
 
 def device_of(rig: Rig, name: str) -> Device:

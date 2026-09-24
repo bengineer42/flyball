@@ -83,7 +83,7 @@ describe("StopButton reports what the stop did, or why it failed", () => {
   it("confirms, then says what each device did and that the rig is latched", async () => {
     const report = {
       at_ns: 1,
-      actor: { sub: "local:console", sid: "s1", kind: "human", via: "http", detail: "" },
+      actor: { principal: "local:console", kind: "human", via: "http", sid: "s1", message: "" },
       reason: "",
       devices: { heater: { state: "stopped", message: "", written: { "heater.power": 0 } }, fan: { state: "unchanged", message: "keep", kept: { "fan.speed": 40 } }, valve: { state: "failed", message: "bus timeout" } },
       program_interrupted: false,
