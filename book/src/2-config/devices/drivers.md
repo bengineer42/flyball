@@ -142,12 +142,16 @@ rig file gives it a `stop:` value.
 
 ### `modbus`
 
-One device per unit, a register per signal. `value = raw * scale`.
+One device per unit, a register per signal. `value = raw * scale`. `kind` picks the
+Modbus table, and so the function code: `holding` (FC03 read, FC16 write -- the
+default), `input` (FC04, read-only), `coil` (FC01 read, FC05 write) and `discrete`
+(FC02, read-only). Coils and discrete inputs are plain booleans (0/1) and take no
+`scale`.
 
 | field | default | |
 | --- | --- | --- |
 | `link` | required | a [register link](../links.md#register-instruments) |
-| `registers` | required | `{signal: {address, kind?, unit, scale?, write?, role?}}` -- `kind` is `holding` (default), `input` or `coil`; `write: true` makes a `holding` register `[RPW]`, a demand (refused on `input`); `role: setting` makes a writable register a setting (a configuration register) rather than a demand, so no controller can drive it |
+| `registers` | required | `{signal: {address, kind?, unit, scale?, write?, role?}}` -- `kind` is `holding` (default), `input`, `coil` or `discrete`; `write: true` makes a `holding` or `coil` register `[RPW]`, a demand (refused on `input`/`discrete`); `role: setting` makes a writable register a setting (a configuration register) rather than a demand, so no controller can drive it |
 | `unit_id` | `1` | the Modbus unit (slave) id |
 
 ```yaml
@@ -157,6 +161,7 @@ chiller:
   registers:
     temperature: { address: 100, scale: 0.1, unit: "°C" }
     setpoint:    { address: 101, scale: 0.1, unit: "°C", write: true }
+    valve_open:  { address: 0, kind: coil, unit: "1", write: true }
 ```
 
 ## Wrapped instrument libraries

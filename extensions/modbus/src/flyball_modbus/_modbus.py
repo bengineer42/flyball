@@ -27,17 +27,18 @@ from flyball.hardware.links import RegisterLink
 from flyball.hardware.scan import Scan
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ._links import RegisterLinkConfig
-
-Kind = Literal["holding", "input", "coil"]
+from ._links import BOOLEAN_KINDS, READ_ONLY_KINDS, Kind, RegisterLinkConfig
 
 
 class ModbusRegister(BaseModel):
     """One line of a `modbus` device's tree: where a value lives, and how it converts.
 
-    `value = raw * scale`. Every register is readable and published; `write`
-    also makes it writable. `input` registers are read-only on real hardware,
-    so `write` on one is refused here too.
+    `value = raw * scale`. `kind` picks the Modbus table, and so the function code:
+    `holding` (FC03 read, FC16 write -- the default), `input` (FC04, read-only), `coil`
+    (FC01 read, FC05 write) and `discrete` (FC02, read-only) -- `input` and `discrete`
+    registers are read-only on real hardware, so `write` on either is refused here too.
+    Coils and discrete inputs are booleans (0/1), unaffected by `scale`. Every register
+    is readable and published; `write` also makes it writable.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -57,11 +58,13 @@ class ModbusRegister(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _input_is_read_only(self) -> ModbusRegister:
-        if self.kind == "input" and self.write:
-            raise ValueError("an input register cannot be written")
+    def _read_only_kind_is_read_only(self) -> ModbusRegister:
+        if self.kind in READ_ONLY_KINDS and self.write:
+            raise ValueError(f"a {self.kind} register cannot be written")
         if self.role is not None and not self.write:
             raise ValueError("only a writable register can be declared a setting")
+        if self.kind in BOOLEAN_KINDS and "scale" in self.model_fields_set:
+            raise ValueError(f"a {self.kind} register is a plain 0/1: no scale")
         return self
 
     @property
@@ -73,6 +76,16 @@ class ModbusRegister(BaseModel):
     @property
     def access(self) -> Access:
         return Access.RPW if self.write else Access.RP
+
+    def decode(self, words: list[int]) -> float:
+        if self.kind in BOOLEAN_KINDS:
+            return float(words[0])
+        return words[0] * self.scale
+
+    def encode(self, value: float) -> list[int]:
+        if self.kind in BOOLEAN_KINDS:
+            return [1 if value else 0]
+        return [round(value / self.scale)]
 
 
 class Modbus(Readable, Committable):
@@ -121,17 +134,16 @@ class Modbus(Readable, Committable):
         }
         for signal in self._scan.due(candidates, time_ns, whole=False):
             register = self.registers[candidates[signal]]
-            (word,) = self.link.read_registers(register.address, 1, self.unit_id)
-            value = word * register.scale
-            yield Sample(self.root, time_ns, {signal: value})
+            words = self.link.read_registers(register.address, 1, self.unit_id, register.kind)
+            yield Sample(self.root, time_ns, {signal: register.decode(words)})
 
     def commit(self, time_ns: int) -> None:
         """Write every staged register once; push back what the quantised word actually set."""
         for signal, value in self.staged.items():
             register = self.registers[signal.name]
-            word = round(value / register.scale)
-            self.link.write_registers(register.address, [word], self.unit_id)
-            actual = word * register.scale
+            words = register.encode(value)
+            self.link.write_registers(register.address, words, self.unit_id, register.kind)
+            actual = register.decode(words)
             if actual != value:
                 signal.push(actual, time_ns)
 
