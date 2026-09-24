@@ -69,24 +69,24 @@ def encode(code: int, power_down: int = 0) -> bytes:
 
 
 class Mcp4725Output:
-    """One chip at `address`: a fraction 0-1, written as a Fast Mode command."""
+    """One chip at `i2c_address`: a fraction 0-1, written as a Fast Mode command."""
 
-    __slots__ = ("address", "link")
+    __slots__ = ("i2c_address", "link")
 
-    def __init__(self, link: I2cLink, address: int = MCP4725_ADDRESS) -> None:
+    def __init__(self, link: I2cLink, i2c_address: int = MCP4725_ADDRESS) -> None:
         self.link = link
-        self.address = address
+        self.i2c_address = i2c_address
 
     def write(self, fraction: float) -> float:
         """Write `fraction` (0 to 1, clamped) of full scale; returns the fraction achieved."""
         fraction = min(1.0, max(0.0, fraction))
         code = round(fraction * FULL_SCALE)
-        self.link.write(self.address, encode(code))
+        self.link.write(self.i2c_address, encode(code))
         return code / FULL_SCALE
 
     def power_down(self) -> None:
         """Power the output down: `VOUT` to ground through 1 kΩ (`PD = 01`), code 0."""
-        self.link.write(self.address, encode(0, power_down=1))
+        self.link.write(self.i2c_address, encode(0, power_down=1))
 
 
 class Mcp4725(Committable):
@@ -96,7 +96,7 @@ class Mcp4725(Committable):
         self,
         name: str,
         link: I2cLink,
-        address: int = MCP4725_ADDRESS,
+        i2c_address: int = MCP4725_ADDRESS,
         unit: str | None = None,
         quantity: str | None = None,
         span: Bounds | None = None,
@@ -104,7 +104,7 @@ class Mcp4725(Committable):
     ) -> None:
         super().__init__(name, label)
         validate_span(unit, span, prefix=f"{name}: ")
-        self.output = Mcp4725Output(link, address)
+        self.output = Mcp4725Output(link, i2c_address)
         self.span = span
         self.bind((spanned_signal_spec("drive", unit, quantity, span, bare=DRIVE),))
         self._write(0.0)
@@ -114,7 +114,7 @@ class Mcp4725(Committable):
         signal = self.signals["drive"]
         return Mcp4725Config(
             link="",
-            address=self.output.address,
+            i2c_address=self.output.i2c_address,
             unit=None if self.span is None else signal.unit.symbol,
             quantity=None if self.span is None else signal.quantity.name,
             span=self.span,
@@ -143,10 +143,10 @@ class Mcp4725(Committable):
 
 
 class Mcp4725Config(DriverConfig[Mcp4725], type="mcp4725"):
-    """`driver: mcp4725`: `{ link, address }`, in a bare 0-1 fraction unless `unit` and `span`."""
+    """`driver: mcp4725`: `{ link, i2c_address }`, in a bare 0-1 fraction unless `unit` and `span`."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(default=MCP4725_ADDRESS, ge=0x03, le=0x77)
+    i2c_address: int = Field(default=MCP4725_ADDRESS, ge=0x03, le=0x77)
     unit: str | None = Field(
         default=None, description="The unit `drive` is set in; omitted, it is the fraction itself."
     )
@@ -166,7 +166,7 @@ class Mcp4725Config(DriverConfig[Mcp4725], type="mcp4725"):
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
         return Mcp4725(
-            name, resolve(self.link), self.address, self.unit, self.quantity, self.span, label=label
+            name, resolve(self.link), self.i2c_address, self.unit, self.quantity, self.span, label=label
         )
 
 

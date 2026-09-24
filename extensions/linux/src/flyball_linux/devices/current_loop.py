@@ -189,7 +189,7 @@ class CurrentLoopConfig(DriverConfig[CurrentLoop], type="current_loop"):
       adc:
         driver: ads1115
         link: i2c1
-        address: 0x48
+        i2c_address: 0x48
       channels:
         o2:
           channel: 0

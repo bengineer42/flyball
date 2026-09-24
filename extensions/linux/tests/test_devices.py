@@ -224,7 +224,7 @@ class TestDs18b20:
         }
         (sample,) = probe.read(3)
         assert sample.by_name() == {"temperature": pytest.approx(21.875)}
-        assert probe.config.device == "28-1"
+        assert probe.config.probe_id == "28-1"
 
 
 class TestDeclaredOff:

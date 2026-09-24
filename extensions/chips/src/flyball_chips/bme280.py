@@ -234,12 +234,12 @@ def max_measurement_s(osrs_t: Oversample, osrs_p: Oversample, osrs_h: Oversample
 class Bme280Sensor:
     """One chip: calibration read once at init, a forced-mode conversion per `read`."""
 
-    __slots__ = ("address", "cal", "has_humidity", "link", "osrs_h", "osrs_p", "osrs_t", "sleep")
+    __slots__ = ("i2c_address", "cal", "has_humidity", "link", "osrs_h", "osrs_p", "osrs_t", "sleep")
 
     def __init__(
         self,
         link: I2cLink,
-        address: int,
+        i2c_address: int,
         has_humidity: bool = True,
         osrs_t: Oversample = 1,
         osrs_p: Oversample = 1,
@@ -247,16 +247,16 @@ class Bme280Sensor:
         sleep: bool = True,
     ) -> None:
         self.link = link
-        self.address = address
+        self.i2c_address = i2c_address
         self.has_humidity = has_humidity
         self.osrs_t = osrs_t
         self.osrs_p = osrs_p
         self.osrs_h = osrs_h if has_humidity else 0
         self.sleep = sleep
-        t_p = self.link.read_register(address, _CALIB_T_P, 24)
+        t_p = self.link.read_register(i2c_address, _CALIB_T_P, 24)
         if has_humidity:
-            h1 = self.link.read_register(address, _CALIB_H1, 1)
-            h2_6 = self.link.read_register(address, _CALIB_H2_6, 7)
+            h1 = self.link.read_register(i2c_address, _CALIB_H1, 1)
+            h2_6 = self.link.read_register(i2c_address, _CALIB_H2_6, 7)
             self.cal = parse_calibration(t_p, h1, h2_6)
         else:
             self.cal = parse_calibration(t_p, None, None)
@@ -264,12 +264,12 @@ class Bme280Sensor:
     def read(self) -> tuple[float, float, float | None]:
         """(°C, Pa, %RH or `None`): one forced-mode conversion, one burst read."""
         if self.has_humidity:
-            self.link.write_register(self.address, CTRL_HUM, [ctrl_hum(self.osrs_h)])
-        self.link.write_register(self.address, CTRL_MEAS, [ctrl_meas(self.osrs_t, self.osrs_p)])
+            self.link.write_register(self.i2c_address, CTRL_HUM, [ctrl_hum(self.osrs_h)])
+        self.link.write_register(self.i2c_address, CTRL_MEAS, [ctrl_meas(self.osrs_t, self.osrs_p)])
         if self.sleep:
             time.sleep(max_measurement_s(self.osrs_t, self.osrs_p, self.osrs_h))
         length = 8 if self.has_humidity else 6
-        data = self.link.read_register(self.address, _DATA_BASE, length)
+        data = self.link.read_register(self.i2c_address, _DATA_BASE, length)
         adc_p = (data[0] << 12) | (data[1] << 4) | (data[2] >> 4)
         adc_t = (data[3] << 12) | (data[4] << 4) | (data[5] >> 4)
         temperature, t_fine = compensate_temperature(adc_t, self.cal)
@@ -293,7 +293,7 @@ class Bme280(Readable):
         self,
         name: str,
         link: I2cLink,
-        address: int = BME280_ADDRESS,
+        i2c_address: int = BME280_ADDRESS,
         has_humidity: bool = True,
         osrs_t: Oversample = 1,
         osrs_p: Oversample = 1,
@@ -331,13 +331,13 @@ class Bme280(Readable):
                 )
             )
         self.bind(specs)
-        self.sensor = Bme280Sensor(link, address, has_humidity, osrs_t, osrs_p, osrs_h, sleep)
+        self.sensor = Bme280Sensor(link, i2c_address, has_humidity, osrs_t, osrs_p, osrs_h, sleep)
 
     @property
     def config(self) -> Bme280Config:
         return Bme280Config(
             link="",
-            address=self.sensor.address,
+            i2c_address=self.sensor.i2c_address,
             has_humidity=self.has_humidity,
             osrs_t=self.sensor.osrs_t,
             osrs_p=self.sensor.osrs_p,
@@ -356,7 +356,7 @@ class Bme280Config(DriverConfig[Bme280], type="bme280"):
     """`has_humidity: false` for a BMP280 (no humidity registers or calibration)."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(default=BME280_ADDRESS, ge=0x03, le=0x77)
+    i2c_address: int = Field(default=BME280_ADDRESS, ge=0x03, le=0x77)
     has_humidity: bool = True
     osrs_t: Oversample = 1
     osrs_p: Oversample = 1
@@ -368,7 +368,7 @@ class Bme280Config(DriverConfig[Bme280], type="bme280"):
         return Bme280(
             name,
             resolve(self.link),
-            self.address,
+            self.i2c_address,
             self.has_humidity,
             self.osrs_t,
             self.osrs_p,

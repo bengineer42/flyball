@@ -26,7 +26,7 @@ devices:
     label: Turbidity
     poll_s: 2
     link: i2c1
-    address: 0x49                    # ADDR strapped to VDD: second ADS1115 on the bus
+    i2c_address: 0x49                # ADDR strapped to VDD: second ADS1115 on the bus
     gain: 1                          # +-4.096 V full scale covers the ~0-4.2 V clear-water reading
     channels:
       raw_v: { channel: 0, unit: V }

@@ -20,7 +20,7 @@ devices:
     poll_s: 30                              # a curing room moves slowly; no need to poll fast
     link: i2c1
     sensors:
-      chamber: { address: 0x44 }
+      chamber: { i2c_address: 0x44 }
     signals:
       chamber:
         label: Chamber

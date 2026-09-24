@@ -14,7 +14,7 @@ devices:
     channels: { voltage: { query: "MEAS:VOLT:DC?", unit: V } }
     signals:
       voltage: { range: [0, 30], precision: 3, warning: [0, 25] }
-  wet_supply: { driver: sht4x, link: i2c1, address: 0x46, poll_s: 5 }
+  wet_supply: { driver: sht4x, link: i2c1, i2c_address: 0x46, poll_s: 5 }
 ```
 
 | key | type | |

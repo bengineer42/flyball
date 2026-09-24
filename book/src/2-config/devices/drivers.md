@@ -277,14 +277,14 @@ MCP9808, INA219, LM75.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | required | the chip's bus address |
+| `i2c_address` | required | the chip's bus address |
 | `registers` | required | `{signal: {address, length, signed?, byteorder?, shift?, scale?, offset?, unit, write?, role?}}` -- `write: true` makes a register a demand; `role: setting` makes a writable one a setting instead (a configuration register), which no controller can drive |
 
 ```yaml
 board_temp:
   driver: i2c_table
   link: i2c1
-  address: 0x48
+  i2c_address: 0x48
   registers:
     temperature: { address: 0, length: 2, signed: true, scale: 0.0078125, unit: "°C" }
 ```
@@ -296,7 +296,7 @@ One Sensirion SHT40/41/45: `humidity` and `temperature`, both `[RP]`.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x44` | |
+| `i2c_address` | `0x44` | |
 | `precision` | `high` | `high`, `medium`, `low` -- conversion time against resolution |
 
 ### `sht4x_set`
@@ -307,7 +307,7 @@ read in one poll.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | |
-| `sensors` | required | `{name: {address}}` |
+| `sensors` | required | `{name: {i2c_address}}` |
 | `precision` | `high` | |
 
 ```yaml
@@ -315,7 +315,7 @@ hum_sensors:
   driver: sht4x_set
   link: i2c1
   poll_s: 1
-  sensors: { chamber: { address: 0x44 }, dry: { address: 0x45 }, wet: { address: 0x46 } }
+  sensors: { chamber: { i2c_address: 0x44 }, dry: { i2c_address: 0x45 }, wet: { i2c_address: 0x46 } }
 ```
 
 ### `ads1115`
@@ -325,7 +325,7 @@ TI 16-bit ADC, four single-ended channels.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x48` | |
+| `i2c_address` | `0x48` | |
 | `gain` | `1` | PGA gain: `2/3`, `1`, `2`, `4`, `8` or `16` |
 | `channels` | required | `{signal: {channel, scale?, unit?}}` -- volts unless `scale` and `unit` say otherwise |
 
@@ -394,7 +394,7 @@ A 1-Wire thermometer of the `w1_therm` family, in °C.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `onewire` link |
-| `device` | required | the probe's id under `/sys/bus/w1/devices` (`28-0316…`) |
+| `probe_id` | required | the probe's id under `/sys/bus/w1/devices` (`28-0316…`) |
 
 ### `sht31`
 
@@ -404,7 +404,7 @@ shape as `sht4x`, a different command/CRC family -- not a register table.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x44` | `0x45` on the -B variant |
+| `i2c_address` | `0x44` | `0x45` on the -B variant |
 | `precision` | `high` | `high`, `medium`, `low` |
 
 ### `htu21d`
@@ -415,7 +415,7 @@ TE Connectivity HTU21D(F) / Silicon Labs Si7021: `humidity` and
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x40` | fixed -- no address pin |
+| `i2c_address` | `0x40` | fixed -- no address pin |
 
 ### `ms5611`
 
@@ -425,7 +425,7 @@ TE MS5611 barometric pressure: `pressure` (Pa) and `temperature`, both
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x77` | `0x76` on the CSB-low variant |
+| `i2c_address` | `0x77` | `0x76` on the CSB-low variant |
 
 !!! note "Known issue"
     The PROM's CRC-4 checksum is read but not verified -- a corrupted
@@ -442,7 +442,7 @@ don't convert linearly.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x76` | `0x77` on SDO-high |
+| `i2c_address` | `0x76` | `0x77` on SDO-high |
 | `has_humidity` | `true` | `false` for a BMP280 (no humidity registers) |
 
 ### `scd30`
@@ -454,7 +454,7 @@ mode isn't wired up.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x61` | fixed |
+| `i2c_address` | `0x61` | fixed |
 | `pressure_mbar` | `0` | ambient pressure for the chip's own compensation; `0` turns it off |
 | `sleep` | `true` | wait for the chip's data-ready flag before each read (up to its timeout) rather than read whatever it last measured |
 
@@ -469,7 +469,7 @@ Same three-value CRC family as `scd30`, a different command set.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x62` | fixed |
+| `i2c_address` | `0x62` | fixed |
 | `variant` | `scd40` | `scd40` or `scd41` -- SCD41 adds a single-shot mode |
 | `low_power` | `false` | periodic measurement every 30 s instead of 5 s |
 | `single_shot` | `false` | SCD41 only: measure on demand at each read rather than periodically; refused on an SCD40 |
@@ -490,7 +490,7 @@ signals stay `pending`.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x58` | fixed |
+| `i2c_address` | `0x58` | fixed |
 | `baseline` | none | `[co2eq, tvoc]` IAQ baseline words to restore at startup, as read back earlier from `get_baseline`; omitted lets the chip's own algorithm re-settle from cold |
 
 ### `sgp40`
@@ -504,7 +504,7 @@ falls back to the datasheet's fixed default (50 %RH, 25 °C) for that input.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x59` | fixed |
+| `i2c_address` | `0x59` | fixed |
 | `humidity_source` | none | signal address to read humidity compensation from each read; omit for the fixed 50 %RH default |
 | `temperature_source` | none | signal address to read temperature compensation from each read; omit for the fixed 25 °C default |
 
@@ -517,7 +517,7 @@ new result is ready (`STATUS` without `DATA_READY`) reads nothing.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x5A` | `0x5B` on the ADDR-high variant |
+| `i2c_address` | `0x5A` | `0x5B` on the ADDR-high variant |
 
 ### `mhz19`
 
@@ -662,7 +662,7 @@ commanded directly in engineering units instead of a bare fraction.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x60` | `0x61` on the -A0T variant |
+| `i2c_address` | `0x60` | `0x61` on the -A0T variant |
 | `unit`, `quantity`, `span` | none | omitted, `drive` is the fraction itself (0-1). Given, `drive` is set in `unit` and `span: [lo, hi]` maps it linearly onto 0-100 % -- the same rule as `pwm_channel` |
 
 **Stop:** `drive` declares no `off`: 0 V is a setpoint for a positioner or

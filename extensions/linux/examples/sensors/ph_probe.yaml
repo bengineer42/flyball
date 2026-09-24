@@ -29,7 +29,7 @@ devices:
     label: pH
     poll_s: 2
     link: i2c1
-    address: 0x48
+    i2c_address: 0x48
     gain: 1                          # +-4.096 V full scale; probe boards are typically 0-3ish V
     channels:
       raw_v: { channel: 0, unit: V }

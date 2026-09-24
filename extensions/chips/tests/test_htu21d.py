@@ -57,7 +57,7 @@ def test_read_commands_then_collects_one_sample():
         "temperature": pytest.approx(23.0, abs=0.05),
     }
     assert bus.written == [(0x40, None, [0xF3]), (0x40, None, [0xF5])]
-    assert air.config.address == 0x40
+    assert air.config.i2c_address == 0x40
 
 
 def test_a_missing_chip_raises_so_the_device_goes_offline():
