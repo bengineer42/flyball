@@ -636,17 +636,50 @@ consulted.]
 
 ### `pulse_counter`
 
-A hall-effect flow meter (YF-S201-class): `rate` (L/min) and `count`
-(cumulative pulses), both `[RP]`. Native `gpiod` edge-event detection and
-debounce -- no hand-rolled polling loop.
+A pulse-train sensor: a hall-effect flow meter (YF-S201-class), a
+tachometer, any device whose pulse frequency is proportional to what it
+measures. Two `[RP]` signals: `rate` (in `unit`, since the previous read)
+and `count` (cumulative pulses, always a plain count regardless of `unit`).
+Native `gpiod` edge-event detection and debounce -- no hand-rolled polling
+loop.
 
 | field | default | |
 | --- | --- | --- |
 | `link` | required | a `gpio` link |
 | `line` | required | |
-| `pulses_per_litre` | required | the sensor's own calibration constant, e.g. 450 for a YF-S201 |
+| `unit` | required | `rate`'s unit: a plain frequency (`Hz`, `rpm`) or written `amount/time` (`L/min`, `mL/s`) |
+| `per_pulse` | required | the amount one pulse represents, in `unit`'s own terms -- see below |
 | `debounce_s` | `0` | passed straight to `gpiod`'s native debounce |
 | `pull_up` | omitted | the line's bias: `true` pulls up, `false` pulls down, omitted leaves it as the board has it |
+
+A plain frequency unit (`Hz`, `rpm`, ...) has a dimensionless numerator, so
+`per_pulse` is itself dimensionless -- a whole pulse (`1.0`), or a fraction
+of a revolution for a multi-pulse-per-turn encoder (`0.5` for two pulses a
+turn). Any other unit must be written `amount/time` (`L/min`, `mL/s`):
+`per_pulse` is then in the amount's own unit -- litres, millilitres. Either
+way, the division by elapsed time is by whichever time unit `unit` names --
+a minute for `rpm` or `L/min`, a second for `Hz` or `mL/s` -- so a flow
+meter reads naturally in litres/minute and a tachometer in rpm from the
+same driver:
+
+```yaml
+flow:
+  driver: pulse_counter
+  link: gpio0
+  line: 21
+  unit: L/min
+  per_pulse: 0.002222   # 1/450, a YF-S201's calibration constant
+tacho:
+  driver: pulse_counter
+  link: gpio0
+  line: 22
+  unit: rpm
+  per_pulse: 0.5        # two pulses per revolution
+```
+
+**Breaking (this release):** `pulses_per_litre` is gone, replaced by
+`unit`/`per_pulse` above; a rig file using it needs `unit: L/min` and
+`per_pulse: <1 / pulses_per_litre>`.
 
 ### `dosing_pump`
 

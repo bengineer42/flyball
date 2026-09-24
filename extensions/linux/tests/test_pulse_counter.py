@@ -1,4 +1,4 @@
-"""A pulse counter against the fake GPIO link, to pulses and litres/minute."""
+"""A pulse counter against the fake GPIO link: litres/minute and rpm from the same driver."""
 
 import pytest
 from flyball.model.catalog import get_catalog
@@ -11,13 +11,13 @@ NS = 1_000_000_000
 
 def test_claims_the_line_for_edge_detection():
     chip = FakeGpio()
-    PulseCounter("flow", chip, 21, pulses_per_litre=450)
+    PulseCounter("flow", chip, 21, unit="L/min", per_pulse=1 / 450)
     assert chip.claimed[21] == "edge"
 
 
 def test_first_read_has_no_rate_yet_but_counts_pulses():
     chip = FakeGpio()
-    meter = PulseCounter("flow", chip, 21, pulses_per_litre=450)
+    meter = PulseCounter("flow", chip, 21, unit="L/min", per_pulse=1 / 450)
     chip.pulse(21, 45)
     (sample,) = meter.read(0)
     assert sample.by_name() == {"rate": 0.0, "count": 45.0}
@@ -25,16 +25,52 @@ def test_first_read_has_no_rate_yet_but_counts_pulses():
 
 def test_rate_is_litres_per_minute_from_pulses_over_elapsed_time():
     chip = FakeGpio()
-    meter = PulseCounter("flow", chip, 21, pulses_per_litre=450)
+    meter = PulseCounter("flow", chip, 21, unit="L/min", per_pulse=1 / 450)
     list(meter.read(0))
     chip.pulse(21, 450)  # 1 litre
     (sample,) = meter.read(30 * NS)  # in 30 s -> 2 L/min
     assert sample.by_name() == pytest.approx({"rate": 2.0, "count": 450.0})
 
 
+def test_rate_in_millilitres_per_second():
+    chip = FakeGpio()
+    meter = PulseCounter("drip", chip, 21, unit="mL/s", per_pulse=0.1)
+    list(meter.read(0))
+    chip.pulse(21, 20)  # 2 mL
+    (sample,) = meter.read(2 * NS)  # in 2 s -> 1 mL/s
+    assert sample.by_name() == pytest.approx({"rate": 1.0, "count": 20.0})
+
+
+def test_rate_in_hertz_is_a_plain_pulse_frequency():
+    chip = FakeGpio()
+    meter = PulseCounter("tacho", chip, 21, unit="Hz", per_pulse=1.0)
+    list(meter.read(0))
+    chip.pulse(21, 10)
+    (sample,) = meter.read(2 * NS)  # 10 pulses in 2 s -> 5 Hz
+    assert sample.by_name() == pytest.approx({"rate": 5.0, "count": 10.0})
+
+
+def test_rate_in_rpm_from_a_two_pulse_per_revolution_encoder():
+    chip = FakeGpio()
+    meter = PulseCounter("tacho", chip, 21, unit="rpm", per_pulse=0.5)
+    list(meter.read(0))
+    chip.pulse(21, 20)  # 10 revolutions
+    (sample,) = meter.read(int(0.5 * NS))  # 10 rev in 0.5 s -> 1200 rpm
+    assert sample.by_name() == pytest.approx({"rate": 1200.0, "count": 20.0})
+
+
+def test_a_unit_with_no_time_and_not_a_frequency_is_refused_at_read():
+    chip = FakeGpio()
+    meter = PulseCounter("bad", chip, 21, unit="L", per_pulse=1.0)
+    list(meter.read(0))
+    chip.pulse(21, 1)
+    with pytest.raises(ValueError, match="not a plain frequency"):
+        list(meter.read(1 * NS))
+
+
 def test_count_keeps_rising_across_reads():
     chip = FakeGpio()
-    meter = PulseCounter("flow", chip, 21, pulses_per_litre=450)
+    meter = PulseCounter("flow", chip, 21, unit="L/min", per_pulse=1 / 450)
     list(meter.read(0))
     chip.pulse(21, 100)
     list(meter.read(1 * NS))
@@ -45,7 +81,7 @@ def test_count_keeps_rising_across_reads():
 
 def test_no_pulses_is_zero_rate():
     chip = FakeGpio()
-    meter = PulseCounter("flow", chip, 21, pulses_per_litre=450)
+    meter = PulseCounter("flow", chip, 21, unit="L/min", per_pulse=1 / 450)
     list(meter.read(0))
     (sample,) = meter.read(10 * NS)
     assert sample.by_name() == {"rate": 0.0, "count": 0.0}
