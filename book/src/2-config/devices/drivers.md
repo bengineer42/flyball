@@ -37,7 +37,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`sgp30`](#sgp30), [`sgp40`](#sgp40) | Sensirion eCO₂ / TVOC / VOC index | `i2c` | `flyball-chips` | partial |
 | [`ccs811`](#ccs811) | ams eCO₂ / TVOC | `i2c` | `flyball-chips` | partial |
 | [`mhz19`](#mhz19) | Winsen CO₂ | `uart` | `flyball-chips` | datasheet-checked |
-| [`ezo_ph`](#ezo_ph), [`ezo_ec`](#ezo_ec), [`ezo_orp`](#ezo_orp), [`ezo_do`](#ezo_do) | Atlas Scientific pH / EC / ORP / dissolved-oxygen circuits | `uart` | `flyball-chips` | partial (`ezo_ec`) |
+| [`ezo_ph`](#ezo_ph), [`ezo_ec`](#ezo_ec), [`ezo_orp`](#ezo_orp), [`ezo_do`](#ezo_do) | Atlas Scientific pH / EC / ORP / dissolved-oxygen circuits | `uart` or `i2c` | `flyball-chips` | partial (`ezo_ec`) |
 | [`hx711`](#hx711) | a load cell amplifier | two `gpio_line`s | `flyball-chips` | partial |
 | [`current_loop`](#current_loop) | a 4-20 mA instrument, over an existing ADC | `ads1115`/`mcp3008` | `flyball-linux` | partial |
 | [`pulse_counter`](#pulse_counter) | a hall-effect flow meter | `gpio` | `flyball-linux` | datasheet-checked |
@@ -637,14 +637,32 @@ ASCII -- a request/reply pair per read, checksummed.
 
 ### `ezo_ph`
 
-Atlas Scientific EZO-pH circuit: `ph`, `[RP]`. ASCII command/response,
-`\r`-terminated, a ~1 s wait per reading. Handles the circuit's
-default-enabled `*OK` acknowledgement frame -- the shared shape every
-`ezo_*` driver below builds on.
+Atlas Scientific EZO-pH circuit: `ph`, `[RP]`. **Transport picked by `link`**:
+a `uart` link (38400 8N1, `\r`-terminated ASCII, ~1 s wait per reading) or an
+`i2c` link (bare ASCII, a status byte then a NULL-terminated reply, no clock
+stretching); handles the circuit's default-enabled `*OK` acknowledgement
+frame either way -- the shared shape every `ezo_*` driver below builds on.
 
 | field | default | |
 | --- | --- | --- |
-| `link` | required | a `uart` link, 38400 8N1 |
+| `link` | required | a `uart` link (38400 8N1) or an `i2c` link |
+| `address` | `0x63` | I²C address; ignored on UART |
+
+**Calibration** (`@command`s, each `long` -- they wait): `calibrate_mid(ph)`
+(`cal,mid,<ph>`, required first), `calibrate_low(ph)`/`calibrate_high(ph)`
+(`cal,low`/`cal,high`, pH 1-6 / 8-14), `calibrate_clear()` (`cal,clear`),
+`calibration_status()` (`cal,?`, returns 0-3 points set). None declares
+`writes=`: they change the probe's own stored calibration, not an output.
+
+**Temperature compensation**: an optional `temperature` input
+(`inputs: {temperature: <address>}` or a number, in °C). Bound and valued,
+`T,<value>` is sent before each read; unbound, or with no value, the read is
+uncompensated (the circuit's own 25 °C default) and the device holds
+`uncompensated`.
+
+**Stop:** none -- EZO-pH has no demand for a controller to drive, so it is
+not stoppable; the calibration commands above are its only writes, and they
+run only when asked.
 
 ### `ezo_ec`
 
@@ -653,30 +671,79 @@ factory-default CSV reply (`EC,TDS,SAL,SG`) per the datasheet's
 quick-reference table. [Unverified] the same datasheet's own worked
 example shows a bare single value instead -- looks like a stale example
 from an older revision; worth checking against real hardware before
-trusting the CSV assumption.
+trusting the CSV assumption. **Transport picked by `link`**: a `uart` link
+or an `i2c` link (bare ASCII, a status byte then a NULL-terminated reply).
 
 | field | default | |
 | --- | --- | --- |
-| `link` | required | a `uart` link, 38400 8N1 |
+| `link` | required | a `uart` link (38400 8N1) or an `i2c` link |
+| `address` | `0x64` | I²C address; ignored on UART |
+
+**Calibration** (`@command`s, each `long`): `calibrate_dry()` (`cal,dry`),
+`calibrate_low(microsiemens)`/`calibrate_high(microsiemens)` (`cal,low`/
+`cal,high`), `calibrate_clear()` (`cal,clear`), `set_cell_constant(k)`
+(`K,<k>` -- the probe's own cell constant, not a calibration point but
+grouped here). None declares `writes=`: they change the probe's own
+calibration/constant, not an output.
+
+**Temperature compensation**: an optional `temperature` input (°C). Bound
+and valued, the combined `RT,<value>` command replaces the plain `R`
+(setting the compensation and reading in one round trip); unbound, or with
+no value, the read is uncompensated (25 °C default) and the device holds
+`uncompensated`.
+
+**Stop:** none -- EZO-EC has no demand for a controller to drive, so it is
+not stoppable; the calibration commands above are its only writes.
 
 ### `ezo_orp`
 
-Atlas Scientific EZO-ORP circuit: a single mV reading, `[RP]`.
+Atlas Scientific EZO-ORP circuit: a single mV reading, `[RP]`. **Transport
+picked by `link`**: a `uart` link or an `i2c` link (bare ASCII, a status
+byte then a NULL-terminated reply). No temperature compensation -- unlike
+its siblings, the datasheet has no `T`/`RT` command: ORP mV readings are
+not temperature-corrected by the circuit.
 
 | field | default | |
 | --- | --- | --- |
-| `link` | required | a `uart` link, 38400 8N1 |
+| `link` | required | a `uart` link (38400 8N1) or an `i2c` link |
+| `address` | `0x62` | I²C address; ignored on UART |
+
+**Calibration** (`@command`s, each `long`): `calibrate(mv)` (`cal,<mv>`,
+a single reference point -- no low/mid/high split), `calibrate_clear()`
+(`cal,clear`). Neither declares `writes=`: it changes the probe's own
+stored calibration, not an output.
+
+**Stop:** none -- EZO-ORP has no demand for a controller to drive, so it is
+not stoppable; the calibration commands above are its only writes.
 
 ### `ezo_do`
 
 Atlas Scientific EZO-DO circuit: dissolved oxygen in mg/L, `[RP]`.
 Decodes the factory-default single-value reply; raises rather than
 guessing if the circuit was reconfigured to also report % saturation
-(a comma in the reply).
+(a comma in the reply). **Transport picked by `link`**: a `uart` link or an
+`i2c` link (bare ASCII, a status byte then a NULL-terminated reply).
 
 | field | default | |
 | --- | --- | --- |
-| `link` | required | a `uart` link, 38400 8N1 |
+| `link` | required | a `uart` link (38400 8N1) or an `i2c` link |
+| `address` | `0x61` | I²C address; ignored on UART |
+
+**Calibration** (`@command`s, each `long`): `calibrate()` (`cal`, one-point
+atmospheric-saturation calibration), `calibrate_zero()` (`cal,0`, a
+separate, optional zero-oxygen point), `calibrate_clear()` (`cal,clear`).
+None declares `writes=`: they change the probe's own stored calibration,
+not an output.
+
+**Compensation**: three optional inputs. `temperature` (°C) -- bound and
+valued, the combined `RT,<value>` command replaces the plain `R`; unbound,
+or with no value, the read is uncompensated (25 °C default) and the device
+holds `uncompensated`. `salinity` (conductivity, µS/cm, `S,<value>`) and
+`pressure` (kPa, `P,<value>`) are sent before the read when bound and
+valued -- Atlas has no combined form for either.
+
+**Stop:** none -- EZO-DO has no demand for a controller to drive, so it is
+not stoppable; the calibration commands above are its only writes.
 
 ### `hx711`
 
