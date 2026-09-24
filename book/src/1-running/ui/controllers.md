@@ -25,7 +25,9 @@ controller as three aligned rows, each with a bar:
 
 - **Measured** — the measured value (PV), with a fill bar against the
   measured signal's range, warning/alarm band ticks, and a notch at the
-  setpoint; a caption below it reading "N °C above/below setpoint".
+  setpoint; a caption below it reading "N °C above/below setpoint". With no
+  value it reads `—` and why ("invalid: open circuit", "stale: device silent"),
+  the last usable value on hover, never the number before it.
 - **Setpoint** — the setpoint (SP), with the entry/Move control inline (one line,
   wrapping only below 900px) and a caption naming what it is following when
   it is a ramp.
@@ -36,8 +38,14 @@ controller as three aligned rows, each with a bar:
   is pinned against gets a 2px alarm end-cap — colour on the bar, not a text
   badge — and a **"requested …"** caption names what was asked for.
 
-A banner above the rows reads "measured offline", "output at limit" or "open
-loop" for the corresponding condition. Process and Drive mini trends (each
+A banner above the rows reads "measured offline", "frozen", "no recent
+reading", "output at limit" or "open loop" for the corresponding condition.
+"Frozen" is the rig's `frozen` condition on the controller: its measured
+signal has no value, so the law is not stepped and nothing is written until it
+reads again; it is information (ⓘ) for a benign `n/a`, a warning (⚠) for a
+fault. "No recent reading" is the rig's own `stale` reading on the measured
+signal. A re-apply between readings (a moving setpoint's feedforward) is joined
+across on the Process trend, not drawn as a gap. Process and Drive mini trends (each
 with a minimal axis pair: 3-4 y ticks at the signal's precision, sparse time
 labels, no legend or toolbar) sit beside the rows; the Drive trend's y-range
 is the output signal's `limits` when known, so "at limit" reads as the line
