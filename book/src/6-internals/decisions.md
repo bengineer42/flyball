@@ -57,6 +57,8 @@ are in `DECISIONS.md` at the repository root; this is the index.
 | **D-061** | A permissive always permits a write of the output's resolved stop value, a stop ignores it, and a controller whose output it refuses is held (frozen, `not_permitted`), not failed | decided; built |
 | **D-062** | Reset is allowed while its cause persists (unlike PackML's Clear), because Reset resumes nothing: controllers stay in manual and programs stay ended | decided; built |
 | **D-063** | A planned stop (`Stopper.stop(..., latch=False)`) for a rig edit before its restart (D-051): the same writes and controllers to manual, nothing latched, so the rig comes back passive | decided; built |
+| **D-077** | A name is a key and a label is its display text. A key is `^[a-z][a-z0-9_]{0,63}$`, checked by one `check_key` (`flyball.foundation.keys`) wherever a name enters: an address's segments (devices, links, namespaces, signals, controllers), tag axes and values, `values:` entries, and the rig, board, program, tuning and dashboard names; the daemon's runner names take the same grammar | decided; the grammar built (labels to follow) |
+| **D-079** | `-` and `_` are one character in a name: input and lookups may use either, `_` is what is stored and compared (`name: wet-pump` is found by `device: wet_pump`), and two names that differ only by `-`/`_` are refused as one. A system that allows only one of them gets that one at its edge (none today) | decided; built |
 
 Nothing in this book is settled unless `DECISIONS.md` says so. Where a
 chapter describes intent rather than fact, it says which.

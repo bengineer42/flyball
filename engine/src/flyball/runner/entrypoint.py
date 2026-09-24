@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from flyball.foundation.device import Code, Severity
+from flyball.foundation.keys import canonical
 from flyball.foundation.optional import require
 from flyball.model.catalog import Catalogs, set_catalog
 from flyball.rig.stopping import Stopper
@@ -133,7 +134,9 @@ def _main(args: Any, front: frontdir.FrontDir | None = None, mine: IO[str] | Non
         # the rig file may name a driver from there.
         section = RunnerConfig.model_validate(document.get("runner") or {})
         name = document.get("name")
-        settings = settle(section, args, first, name if isinstance(name, str) else None, files)
+        settings = settle(
+            section, args, first, canonical(name) if isinstance(name, str) else None, files
+        )
         logging.getLogger().setLevel(settings.log_level.upper())
         assert settings.store is not None and settings.drivers is not None
     except Exception as e:  # a bad file is the user's problem, not a traceback

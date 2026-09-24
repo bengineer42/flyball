@@ -35,6 +35,7 @@ from flyball.foundation.device import (
     WriteState,
 )
 from flyball.foundation.errors import ConflictError, NotFoundError
+from flyball.foundation.keys import canonical, check_key
 
 from .errors import (
     ConstraintError,
@@ -1451,6 +1452,7 @@ class SqliteStore:
         controller: str | None = None,
         notes: Any = None,
     ) -> TuningRow:
+        name = check_key(name, "tuning name")
         with self._transaction() as connection:
             cursor = connection.execute(
                 "INSERT INTO tuning (name, law, config, created_ns, session_id, controller, notes)"
@@ -1461,6 +1463,7 @@ class SqliteStore:
         return _tuning_row(self._query("SELECT * FROM tuning WHERE id = ?", (tuning_id,))[0])
 
     def tuning(self, name: str) -> TuningRow:
+        name = canonical(name)
         rows = self._query(
             "SELECT * FROM tuning WHERE name = ? ORDER BY created_ns DESC, id DESC LIMIT 1", (name,)
         )
@@ -1480,6 +1483,7 @@ class SqliteStore:
         ]
 
     def tuning_history(self, name: str) -> list[TuningRow]:
+        name = canonical(name)
         return [
             _tuning_row(r)
             for r in self._query(
@@ -1488,6 +1492,7 @@ class SqliteStore:
         ]
 
     def delete_tuning(self, name: str) -> None:
+        name = canonical(name)
         with self._transaction() as connection:
             if connection.execute("DELETE FROM tuning WHERE name = ?", (name,)).rowcount == 0:
                 raise TuningNotFoundError(name)
@@ -1504,6 +1509,7 @@ class SqliteStore:
         created_ns: int,
         notes: Any = None,
     ) -> ProgramRow:
+        name = check_key(name, "program name")
         digest = hashlib.sha256(body.encode()).hexdigest()
         with self._transaction() as connection:
             cursor = connection.execute(
@@ -1515,6 +1521,7 @@ class SqliteStore:
         return self.program_version(program_id)
 
     def program(self, name: str) -> ProgramRow:
+        name = canonical(name)
         rows = self._query(
             "SELECT * FROM program WHERE name = ? ORDER BY created_ns DESC, id DESC LIMIT 1",
             (name,),
@@ -1540,6 +1547,7 @@ class SqliteStore:
         ]
 
     def program_history(self, name: str) -> list[ProgramRow]:
+        name = canonical(name)
         return [
             _program_row(r)
             for r in self._query(
@@ -1548,11 +1556,13 @@ class SqliteStore:
         ]
 
     def delete_program(self, name: str) -> None:
+        name = canonical(name)
         with self._transaction() as connection:
             if connection.execute("DELETE FROM program WHERE name = ?", (name,)).rowcount == 0:
                 raise ProgramNotFoundError(name)
 
     def rename_program(self, name: str, new_name: str) -> list[ProgramRow]:
+        name, new_name = canonical(name), check_key(new_name, "program name")
         if name == new_name:
             return self.program_history(name)
         with self._transaction() as connection:
@@ -1573,6 +1583,7 @@ class SqliteStore:
     # region Dashboards
 
     def save_dashboard(self, name: str, rig: str, body: Any, created_ns: int) -> DashboardRow:
+        name = check_key(name, "dashboard name")
         text = json.dumps(body, separators=(",", ":"))  # a null body is still a document
         digest = hashlib.sha256(text.encode()).hexdigest()
         with self._transaction() as connection:
@@ -1584,6 +1595,7 @@ class SqliteStore:
             return self.dashboard_version(cursor.lastrowid)  # type: ignore[arg-type]
 
     def dashboard(self, name: str) -> DashboardRow:
+        name = canonical(name)
         rows = self._query(
             "SELECT * FROM dashboard WHERE name = ? ORDER BY created_ns DESC, id DESC LIMIT 1",
             (name,),
@@ -1612,6 +1624,7 @@ class SqliteStore:
         return [_dashboard_row(r) for r in rows]
 
     def dashboard_history(self, name: str) -> list[DashboardRow]:
+        name = canonical(name)
         return [
             _dashboard_row(r)
             for r in self._query(
@@ -1620,11 +1633,13 @@ class SqliteStore:
         ]
 
     def delete_dashboard(self, name: str) -> None:
+        name = canonical(name)
         with self._transaction() as connection:
             if connection.execute("DELETE FROM dashboard WHERE name = ?", (name,)).rowcount == 0:
                 raise DashboardNotFoundError(name)
 
     def rename_dashboard(self, name: str, new_name: str) -> list[DashboardRow]:
+        name, new_name = canonical(name), check_key(new_name, "dashboard name")
         if name == new_name:
             return self.dashboard_history(name)
         with self._transaction() as connection:

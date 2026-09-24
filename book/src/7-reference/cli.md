@@ -335,7 +335,7 @@ A manifest:
 
 | key | default | |
 | --- | --- | --- |
-| `name` | required | lower-case letters, digits, `-` and `_`, up to 64: it names the log file, the URL prefix, the rig in a scope (`operate:NAME`) and the runner's audience |
+| `name` | required | a key: lower-case letters, digits, `-` and `_`, starting with a letter, up to 64, `-` read as `_` (`humidity-sim` is the runner `humidity_sim`, found by either spelling): it names the log file, the URL prefix, the rig in a scope (`operate:NAME`) and the runner's audience |
 | `server_config` | required | the rig file |
 | `root_path` | `/NAME` | `/segments` of the same characters. One that contains another rig's, or is under `/api`, is refused |
 | `restart` | `on-failure` | below |

@@ -19,6 +19,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from flyball.foundation.files import SUFFIXES, loads
+from flyball.foundation.keys import is_key
 from flyball.interfaces.server.deps import (
     DialectDep,
     ProgrammerDep,
@@ -82,15 +83,16 @@ def load_tunings(rig: Rig, directory: Path) -> list[str]:
 def import_directory(store: Store, directory: Path, now_ns: int) -> list[ProgramRow]:
     """Bring every program file in `directory` into the library.
 
-    The file's stem is the name. A file whose text matches the newest stored
-    version is left alone; a changed file becomes a new version, so editing on
-    disk and in the UI share one history. Files that are not YAML, TOML or
-    JSON are ignored; one that does not parse is skipped, not fatal.
+    The file's stem is the name (`dry-then-hold.yaml` is `dry_then_hold`, D-079). A
+    file whose text matches the newest stored version is left alone; a changed file
+    becomes a new version, so editing on disk and in the UI share one history. Files
+    that are not YAML, TOML or JSON are ignored; one that does not parse, or whose
+    stem is not a key, is skipped, not fatal.
     """
     imported: list[ProgramRow] = []
     for path in sorted(directory.iterdir()):
         fmt = detect(None, path.name)
-        if fmt is None or not path.is_file():
+        if fmt is None or not path.is_file() or not is_key(path.stem):
             continue
         text = path.read_text(encoding="utf-8")
         try:
@@ -190,6 +192,8 @@ async def save_program(
     """
     raw = (await request.body()).decode()
     fmt = detect(content_type, name)
+    if detect(None, name) is not None:  # `x.toml` is the program `x`, written in TOML
+        name = name.rsplit(".", 1)[0]
     said: Any = notes
     if content_type and content_type.split(";")[0].strip() == "application/json":
         # Either a SaveProgram envelope or a bare JSON program: the envelope has `body`.

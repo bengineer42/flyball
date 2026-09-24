@@ -1,6 +1,8 @@
 # Devices
 
-What is on the rig, keyed by name. Every entry is the same **envelope**
+What is on the rig, keyed by name -- a key: lower-case letters, digits and
+`_`, starting with a letter, `-` read as `_` ([Names](../../7-reference/rig-file.md#names)).
+Every entry is the same **envelope**
 with the driver's own config flat beside it: every key that is not the
 envelope's is the driver's.
 

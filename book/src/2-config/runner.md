@@ -138,7 +138,7 @@ runner:
   port: 8001
   root_path: /humidity
   allow_shutdown: true
-  store_dir: stores          # stores/humidity-sim.sqlite
+  store_dir: stores          # stores/humidity_sim.sqlite: the rig name, `-` as `_`
   auth:
     anonymous: read          # anyone may watch
     token: …                 # or FLYBALL_TOKEN; needed to drive

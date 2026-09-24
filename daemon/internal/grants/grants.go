@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"flyballd/internal/names"
 )
 
 //go:embed vocabulary.json
@@ -130,22 +132,13 @@ func ParseScope(s string) (Scope, error) {
 		return Scope{}, fmt.Errorf("scope %q: %q is not a verb (the vocabulary is %s, or %q for management)",
 			s, verb, strings.Join(vocab.Vocabulary, ", "), vocab.Management)
 	}
-	if rig != AllRigs && !rigName(rig) {
-		return Scope{}, fmt.Errorf("scope %q: %q is not a rig name or *", s, rig)
+	if rig != AllRigs {
+		if !names.Valid(rig) {
+			return Scope{}, fmt.Errorf("scope %q: %q is not a rig name (%s) or *", s, rig, names.Grammar)
+		}
+		rig = names.Canonical(rig) // operate:humidity-sim is operate:humidity_sim (D-079)
 	}
 	return Scope{Verb: verb, Rig: rig}, nil
-}
-
-func rigName(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, c := range s {
-		if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '.' || c == '_' || c == '-') {
-			return false
-		}
-	}
-	return true
 }
 
 // NormalizeScopes parses every scope and returns their canonical forms,
@@ -175,7 +168,7 @@ func ForRig(scopes []string, rig string) []string {
 		if err != nil || p.Management() {
 			continue
 		}
-		if p.Rig == AllRigs || p.Rig == rig {
+		if p.Rig == AllRigs || p.Rig == names.Canonical(rig) {
 			out = append(out, p.Verb)
 		}
 	}

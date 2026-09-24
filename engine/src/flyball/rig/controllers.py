@@ -12,6 +12,7 @@ from collections.abc import ItemsView, Iterator
 
 from flyball.foundation.device import Signal
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
+from flyball.foundation.keys import canonical
 from flyball.model.controller import Controller, ControllerSpec, ControllerState, ControllerView
 
 
@@ -51,17 +52,17 @@ class Controllers:
         self._outputs = {}
 
     def __getitem__(self, name: str) -> Controller:
-        return self._controllers[name]
+        return self._controllers[canonical(name)]
 
     def get(self, name: str) -> Controller | None:
-        """By name, or None; one dict lookup, safe without the rig's lock."""
-        return self._controllers.get(name)
+        """By name (either spelling, D-079), or None; safe without the rig's lock."""
+        return self._controllers.get(canonical(name))
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._controllers)
 
     def __contains__(self, name: str) -> bool:
-        return name in self._controllers
+        return canonical(name) in self._controllers
 
     def __len__(self) -> int:
         return len(self._controllers)
@@ -86,7 +87,7 @@ class Controllers:
     def remove(self, name: str) -> Controller:
         """Detach a controller; its output and measured signal are free for another."""
         try:
-            controller = self._controllers.pop(name)
+            controller = self._controllers.pop(canonical(name))
         except KeyError as e:
             raise ControllerNotFoundError(name) from e
         self._outputs.pop(controller.output_signal, None)
@@ -109,7 +110,7 @@ class Controllers:
         if name is None:
             raise NoDefaultControllerError()
         try:
-            return self._controllers[name]
+            return self._controllers[canonical(name)]
         except KeyError as e:
             raise ControllerNotFoundError(name) from e
 

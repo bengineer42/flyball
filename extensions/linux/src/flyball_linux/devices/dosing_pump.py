@@ -183,7 +183,7 @@ class DosingPumpConfig(DriverConfig[DosingPump], type="dosing_pump"):
     def build(self, name: str, label: str | None = None) -> DosingPump:
         if isinstance(self.pump, str):
             raise TypeError(f"pump {self.pump!r} must be resolved to a chip before building")
-        pump = self.pump.build(f"{name}.pump")
+        pump = self.pump.build(f"{name}_pump")  # private: a key, never on the rig
         if not isinstance(pump, (PwmChannel, GpioLine)):
             raise TypeError(f"{name}: pump must build a PwmChannel or GpioLine")
         return DosingPump(

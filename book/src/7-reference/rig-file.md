@@ -32,11 +32,26 @@ Booleans are YAML 1.2's: only `true` and `false` (in any case). The YAML
 signal is a key and `on_stop: off` is the word `off`, not `false`. The same
 holds for a program file, a library upload and a `--set` value.
 
+## Names
+
+Every name the file declares is a **key**: lower-case letters, digits and
+`_`, starting with a letter, at most 64 characters (`^[a-z][a-z0-9_]{0,63}$`).
+That is the rig's `name`, a board's name, each link, device, namespace and
+signal, each segment of a controller's address, a tag's axis and value, and a
+`values:` entry; a program, tuning or dashboard is named the same way. `-` and
+`_` are the same character in a name: either may be written, and `_` is what
+is kept, so `name: wet-pump` is the device `wet_pump`, found by `wet-pump.flow`
+and `wet_pump.flow` alike, and a file that declares both `wet-pump` and
+`wet_pump` is refused. Anything else -- `Dry Pump`, `a.b`, `x/y`, an empty
+name, a leading digit -- is refused with a message naming it. Two demands
+whose synthesised `set_<path>` would be one command (`flows.dry` beside
+`flows_dry`) are refused too.
+
 ## Top level
 
 | key | type | |
 | --- | --- | --- |
-| `name` | string | optional |
+| `name` | key | optional; the rig's name ([Names](#names)) |
 | `board` | string | a board profile: a name on the board path (`$FLYBALL_BOARDS`, `boards/` beside or above the file, `~/.config/flyball/boards`, `/etc/flyball/boards`), or a path relative to the file; its `links` are added underneath the file's own, and `pin: "LABEL"` on a device resolves against its `pins` |
 | `recording` | bool | open a session when the runner starts |
 | `clock` | `{speed?, stepped?}` | run the rig's time faster (`speed`, default 1×), or only when stepped (`stepped`, for a batch run or a test); refused unless every link is `sim_*`/`fake_*` |

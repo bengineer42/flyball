@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from flyball.foundation.device import Access
 from flyball.foundation.files import SUFFIXES, load_document
+from flyball.foundation.keys import check_key
 from flyball.interfaces.server.deps import RigDep, StoreDep
 from flyball.record import DashboardRow
 from flyball.record.errors import DashboardNotFoundError
@@ -305,9 +306,10 @@ def import_directory(store: Store, directory: Path, rig: str, now_ns: int) -> li
         if not path.is_file():
             continue
         try:
+            name = check_key(path.stem, "dashboard name")
             document = Dashboard.model_validate({
                 **load_document(path),
-                "name": path.stem,
+                "name": name,
                 "rig": rig,
             })
         except (ValueError, TypeError) as e:
@@ -316,11 +318,11 @@ def import_directory(store: Store, directory: Path, rig: str, now_ns: int) -> li
         body = document.model_dump(mode="json")
         digest = hashlib.sha256(json.dumps(body, separators=(",", ":")).encode()).hexdigest()
         try:
-            if store.dashboard(path.stem).sha256 == digest:
+            if store.dashboard(name).sha256 == digest:
                 continue
         except DashboardNotFoundError:
             pass
-        imported.append(store.save_dashboard(path.stem, rig, body, now_ns))
+        imported.append(store.save_dashboard(name, rig, body, now_ns))
     return imported
 
 
@@ -367,6 +369,7 @@ def save_dashboard(
     store: StoreDep, rig: RigDep, name: str, body: Dashboard
 ) -> DashboardWithProblems:
     """Save a version under `name`; the document's `name` and `rig` are overwritten to match."""
+    name = check_key(name, "dashboard name")
     document = body.model_copy(update={"name": name, "rig": body.rig or rig.name})
     row = store.save_dashboard(
         name, document.rig, document.model_dump(mode="json"), rig.clock.now_ns()
@@ -377,14 +380,15 @@ def save_dashboard(
 @router.post("/{name}/rename")
 def rename_dashboard(store: StoreDep, name: str, body: Rename) -> list[DashboardRow]:
     """Move every version under a new name. 409 if taken."""
-    rows = store.rename_dashboard(name, body.name)
+    new_name = check_key(body.name, "dashboard name")
+    rows = store.rename_dashboard(name, new_name)
     # The document names itself too: keep the newest in step with its key.
     newest = rows[0]
-    if isinstance(newest.body, dict) and newest.body.get("name") != body.name:
+    if isinstance(newest.body, dict) and newest.body.get("name") != new_name:
         store.save_dashboard(
-            body.name, newest.rig, {**newest.body, "name": body.name}, newest.created_ns + 1
+            new_name, newest.rig, {**newest.body, "name": new_name}, newest.created_ns + 1
         )
-        rows = store.dashboard_history(body.name)
+        rows = store.dashboard_history(new_name)
     return rows
 
 

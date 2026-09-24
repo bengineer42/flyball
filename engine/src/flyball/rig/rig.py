@@ -54,6 +54,7 @@ from flyball.foundation.device import (
 )
 from flyball.foundation.device.values import Values
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
+from flyball.foundation.keys import Keyed, canonical
 from flyball.foundation.router import RECENT_READINGS, Latest, Router, Topic
 from flyball.foundation.time import Timer, Timers
 from flyball.foundation.typing import OrderedSet
@@ -286,13 +287,13 @@ class Rig:
 
     def __init__(self, name: str | None = None) -> None:
         self.name = name
-        self.links = {}
+        self.links = Keyed()
         self._clock = Clock()
         self._timers: Timers | None = None
         self._timers_lock = Lock()
         self._closed = False
-        self.devices = {}
-        self._claims = {}
+        self.devices = Keyed()
+        self._claims = Keyed()
         self._writers = {}
         self.lock = RLock()
         self.triggers = Triggers(lambda: self.clock)
@@ -334,8 +335,8 @@ class Rig:
         self._retries = {}
         self._staged_ns = {}
         self._reapplying = {}
-        self.entries = {}
-        self.link_entries = {}
+        self.entries = Keyed()
+        self.link_entries = Keyed()
         self.files = []
         self.header = {}
         self.loaded = None
@@ -859,7 +860,7 @@ class Rig:
             AddressNotFoundError: Naming the segment that failed and what
                 it was looked for under.
         """
-        name, dot, relative = address.partition(".")
+        name, dot, relative = canonical(address).partition(".")
         if (device := self.devices.get(name)) is None:
             raise AddressNotFoundError(address, name, None)
         if dot and not relative:  # "hum." names nothing; "hum" is the root

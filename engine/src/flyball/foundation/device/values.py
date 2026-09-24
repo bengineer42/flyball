@@ -30,6 +30,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ..keys import check_keys
 from ..quantities.quantity import Quantity
 from ..quantities.si import Unitless
 from .device import Committable, DriverConfig
@@ -118,6 +119,12 @@ class ValuesConfig(DriverConfig[Values], type="values"):
     values: dict[str, ValueEntry] = Field(
         default_factory=dict, description="Each value by name: `{initial, unit, label, limits}`."
     )
+
+    @field_validator("values", mode="before")
+    @classmethod
+    def _keys(cls, value: Any) -> Any:
+        """Each value's name is a key, canonical: `dry-supply` is `dry_supply`."""
+        return check_keys(value, "value") if isinstance(value, Mapping) else value
 
     def build(self, name: str, label: str | None = None) -> Values:
         return Values(name, self.values, label, self)

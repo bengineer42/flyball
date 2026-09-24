@@ -144,6 +144,13 @@ of disk -- is 503 `StoreUnavailableError`. Both carry sqlite's message in
 so a 500 is not worth retrying. A 503 usually is, though sqlite files a
 transaction begun inside another under the same error; `detail` says which.
 
+A name in a path or a body -- a device, a link, an address's segments, a
+program, tuning or dashboard -- is a [key](../7-reference/rig-file.md#names),
+and `-` is read as `_`: `/api/programs/library/dry-then-hold` is the program
+`dry_then_hold`, and every name the API answers with is in that spelling. A
+name to be created that is not a key (`Dry Then Hold`) is 422, the message
+naming it; one that is looked up simply is not found.
+
 ## Rig
 
 | | | |

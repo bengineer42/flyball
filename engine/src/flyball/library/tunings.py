@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from pydantic import SerializeAsAny
 
+from flyball.foundation.keys import canonical, check_key
 from flyball.model.law import ControlLaw, ControlLawBuilder, ControlLawConfig, ControlLawView
 
 
@@ -23,6 +24,9 @@ class Tuning:
     # Serialised by its runtime type: declared as the base, a response would
     # carry only `type` and drop every gain the law actually has.
     config: SerializeAsAny[ControlLawBuilder]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "name", check_key(self.name, "tuning"))
 
     def build(self) -> ControlLaw:
         return self.config.build()
@@ -45,7 +49,7 @@ class Tunings:
         self._tunings[tuning.name] = tuning.config
 
     def get(self, name: str) -> SerializeAsAny[ControlLawBuilder] | None:
-        return self._tunings.get(name)
+        return self._tunings.get(canonical(name))
 
     def all(self) -> dict[str, ControlLawConfig | ControlLawView]:
         return dict(self._tunings)

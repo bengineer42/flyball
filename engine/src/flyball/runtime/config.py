@@ -71,6 +71,8 @@ from flyball.foundation.device import RESERVED_NAMES, Device, DeviceEntry, Drive
 from flyball.foundation.device.entry import Reads
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, load_document
+from flyball.foundation.keys import Keyed, check_address, check_key, check_keys
+from flyball.foundation.keys import canonical as canonical_key
 from flyball.foundation.time import Clock
 from flyball.model.catalog import Catalogs, ensure_discovered, get_catalog
 from flyball.model.controller import OnFault
@@ -741,6 +743,13 @@ class RunnerConfig(BaseModel):
         return parse_size_bytes(self.max_store)
 
 
+def _canonical_link(entry: Any) -> Any:
+    """A device entry whose `link` names a link in either spelling, as the canonical name."""
+    if isinstance(entry, dict) and isinstance(entry.get("link"), str):
+        return {**entry, "link": canonical_key(entry["link"])}
+    return entry
+
+
 def is_simulated(links: dict[str, Any]) -> bool:
     """Whether every link is a fake or a simulation, so time may be played with."""
     return all(
@@ -861,6 +870,42 @@ class RigConfig(BaseModel):
             raise ValueError(LEGACY_MESSAGE)
         return data
 
+    @model_validator(mode="before")
+    @classmethod
+    def _keys(cls, data: Any) -> Any:
+        """Every name the file declares is a key, made canonical (D-077, D-079).
+
+        `wet-pump` and `wet_pump` are one name: either is accepted, `_` is kept, and a
+        file that declares both is refused naming them. A device's `link` and a
+        controller's `measured` are taken the same way, so either spelling finds it.
+        """
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        if isinstance(data.get("name"), str):
+            data["name"] = check_key(data["name"], "rig name")
+        board = data.get("board")
+        if isinstance(board, str) and not board.lower().endswith(SUFFIXES):
+            data["board"] = check_key(board, "board")
+        if isinstance(links := data.get("links"), dict):
+            data["links"] = check_keys(links, "link")
+        if isinstance(devices := data.get("devices"), dict):
+            data["devices"] = {
+                name: _canonical_link(entry)
+                for name, entry in check_keys(devices, "device").items()
+            }
+        if isinstance(controllers := data.get("controllers"), dict):
+            keyed: dict[str, Any] = {}
+            for output, entry in controllers.items():
+                address = check_address(output, "controller")
+                if address in keyed:
+                    raise ValueError(f"controller {output!r} is given twice: `-` and `_` are one")
+                if isinstance(entry, dict) and isinstance(entry.get("measured"), str):
+                    entry = {**entry, "measured": canonical_key(entry["measured"])}
+                keyed[address] = entry
+            data["controllers"] = keyed
+        return data
+
     @model_validator(mode="after")
     def _consistent(self) -> RigConfig:
         """Everything named in the file is declared in it, once, in one namespace.
@@ -927,7 +972,7 @@ class RigConfig(BaseModel):
             clock = SteppedClock() if entry.stepped else ScaledClock(entry.speed)
 
         rig = Rig(self.name)
-        rig.link_entries = dict(self.links)
+        rig.link_entries = Keyed.of(self.links)
         rig.files = list(self.files)
         rig.header = {
             k: v
@@ -947,7 +992,7 @@ class RigConfig(BaseModel):
         try:
             for name, config in self.links.items():
                 built_links[name] = config.build()
-            rig.links = built_links
+            rig.links = Keyed.of(built_links)
             for name, entry in self.devices.items():
                 device = entry.build(name, built_links, catalogs)
                 rig.add_device(device)
@@ -1257,10 +1302,14 @@ def find_board(name: str, near: Path | None = None) -> Path:
         if path.is_file():
             return path
         raise NotFoundError(f"board file {path} does not exist")
+    key = check_key(name, "board")
+    # A file name may have either spelling; the name is looked up in both (D-079).
+    stems = dict.fromkeys((key, key.replace("_", "-")))
     for directory in board_dirs(base):
-        for suffix in SUFFIXES:
-            if (candidate := directory / f"{name}{suffix}").is_file():
-                return candidate
+        for stem in stems:
+            for suffix in SUFFIXES:
+                if (candidate := directory / f"{stem}{suffix}").is_file():
+                    return candidate
     looked = ", ".join(str(d) for d in board_dirs(base))
     raise NotFoundError(f"no board {name!r}; looked in {looked}")
 

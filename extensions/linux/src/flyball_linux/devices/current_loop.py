@@ -210,7 +210,7 @@ class CurrentLoopConfig(DriverConfig[CurrentLoop], type="current_loop"):
         adc_config = self.adc.model_copy(update={"channels": generated})
         if isinstance(adc_config.link, str):
             raise TypeError(f"link {adc_config.link!r} must be resolved to a bus before building")
-        adc = adc_config.build(f"{name}.adc")
+        adc = adc_config.build(f"{name}_adc")  # private: a key, never on the rig
         return CurrentLoop(name, adc, self.channels, label=label)
 
 

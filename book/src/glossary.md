@@ -9,8 +9,8 @@ rig file may widen it instead. `P` implies `R`.
 on, that knows how to attach itself to the rig (a **prompt**, a **settle**
 test, a timed **wait**, a ramp's end).
 
-**address** — a signal's or node's path: `device[.namespace…].signal`; no
-dots inside a segment.
+**address** — a signal's or node's path: `device[.namespace…].signal`, each
+segment a **key**.
 
 **adoption** — a starting `flyballd` taking over a runner a previous
 `flyballd` left running: it finds the runner in its front-dir, checks it
@@ -141,6 +141,11 @@ correction should be at the instant of the switch (a `Transfer`).
 energised if it was: `stop: {drive: keep}` in the rig file, and what a
 stop does to an output with no `stop:` value and no driver **off**. Also
 `on_shutdown: keep`: write nothing on the way out.
+
+**key** — what a name is: lower-case letters, digits and `_`, starting with a
+letter, at most 64 characters. `-` is read as `_` (`wet-pump` is `wet_pump`),
+so two names that differ only by `-`/`_` are one name. A name is a key; its
+display text is a **label**.
 
 **latch** — what a software stop or an `on_fault` action leaves behind:
 a **cause** and the subjects it holds (the rig, a device, a signal, a
