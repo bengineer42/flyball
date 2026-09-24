@@ -38,10 +38,12 @@ waits its own processing delay (1.3s for `cal`/`cal,0`, 300ms for `clear`), so e
 pp.49-51): D.O. solubility depends on all three. If this driver's optional `temperature`
 input is bound and has a value, the combined `RT,<value>` command (900ms: set the
 compensation temperature *and* take a reading in one round trip) replaces the plain `R`
-(600ms); otherwise the reading is uncompensated (the circuit's own default, 25 C) and the
-device holds `uncompensated`. `salinity` (default: conductivity in µS/cm, the `S,<value>`
+(600ms); left unbound, the reading is uncompensated (the circuit's own default, 25 C).
+`salinity` (default: conductivity in µS/cm, the `S,<value>`
 form) and `pressure` (`P,<value>`, in kPa) are separate optional inputs, sent before the
 read when bound and valued -- Atlas has no combined form for either, unlike temperature.
+A bound input with no value leaves the D.O. with none either, carrying the input's quality,
+rather than quietly reading uncompensated.
 """
 
 from __future__ import annotations
@@ -53,10 +55,10 @@ from flyball.foundation.device import (
     DriverConfig,
     Input,
     Node,
+    NoValueError,
     Readable,
     Readout,
     Sample,
-    Severity,
     command,
 )
 from flyball.foundation.errors import HardwareError, NotReadyError
@@ -68,7 +70,7 @@ from pydantic import Field
 
 from flyball_chips._links import EzoLinkConfig
 
-from ._ezo import READ_COMMAND, EzoTransport, decode_text
+from ._ezo import READ_COMMAND, EzoTransport, compensation, decode_text
 
 READ_DELAY_S = 0.6
 """The datasheet's single-reading mode: the D.O. frame follows 600ms later (UART p.19,
@@ -166,8 +168,8 @@ class EzoDo(Readable):
         "dissolved_oxygen", quantity=DISSOLVED_OXYGEN, range=(0.0, 100.0), precision=2
     )
     temperature = Input("temperature", quantity=TEMPERATURE, optional=True)
-    """Bound and valued: `RT,<value>` replaces the plain `R`. Otherwise the reading is
-    uncompensated (the circuit's own default, 25 C) and `uncompensated` is held."""
+    """Bound and valued: `RT,<value>` replaces the plain `R`. Unbound: the reading is
+    uncompensated (the circuit's own default, 25 C)."""
     salinity = Input("salinity", quantity=SALINITY_COMPENSATION, optional=True)
     """Bound and valued: `S,<value>` (conductivity, µS/cm) is sent before the read."""
     pressure = Input("pressure", quantity=PRESSURE_COMPENSATION, optional=True)
@@ -191,31 +193,20 @@ class EzoDo(Readable):
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         try:
-            microsiemens = self.salinity.value
-        except NotReadyError:
-            microsiemens = None
-        if microsiemens is not None:
-            self.probe.set_salinity(microsiemens)
-        try:
-            kpa = self.pressure.value
-        except NotReadyError:
-            kpa = None
-        if kpa is not None:
-            self.probe.set_pressure(kpa)
-        try:
-            celsius = self.temperature.value
-        except NotReadyError:
-            celsius = None
-        if celsius is None:
-            self.set_condition(
-                "uncompensated",
-                Severity.INFO,
-                "reading without temperature compensation: the temperature input has no value",
-            )
-            value = self.probe.read()
+            given = compensation(self.temperature, self.salinity, self.pressure)
+        except NoValueError as error:  # a bound input has no value: nor does the D.O.
+            yield self.sample(time_ns, dissolved_oxygen=error.no_value)
+            return
+        except NotReadyError:  # a bound input has nothing yet: no reading this time
+            return
+        if "salinity" in given:
+            self.probe.set_salinity(given["salinity"])
+        if "pressure" in given:
+            self.probe.set_pressure(given["pressure"])
+        if "temperature" in given:
+            value = self.probe.read_at_temperature(given["temperature"])
         else:
-            self.clear_condition("uncompensated")
-            value = self.probe.read_at_temperature(celsius)
+            value = self.probe.read()
         yield self.sample(time_ns, dissolved_oxygen=value)
 
     @command(long=True)

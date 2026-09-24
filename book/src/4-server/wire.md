@@ -111,7 +111,7 @@ Kelvin against a °C signal converts before it reports.
 | type | JSON |
 | --- | --- |
 | `DeviceOut` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, consumers, sources, readable, writable, conditions, run}` — see [Devices](api.md#devices) |
-| `InputOut` | `{name, label, quantity, unit, bound, constant?, quality, reason?, age_s?}`: what an input follows (an address, or a number) and its quality now |
+| `InputOut` | `{name, label, quantity, unit, bound, constant?, quality, reason?, age_s?, optional?}`: what an input follows (an address, or a number) and its quality now; `optional: true` where the driver declares it optional, so an unbound one reads as "not bound (optional)" rather than an error |
 | `ValueSourceOut` | `{origin: rig_file \| restored \| written, initial, writer, written_ns}`: where a `values` device's value in force came from |
 | `CommandOut` | `{name, description, simulation, commit, mode, interrupts, writes, demand_of, links}` |
 | `CommandRunOut` (`POST .../commands/{command}`) | `{"result": any, "interrupted": [{"controller": str, "was": "regulating"}]}` — `result` what the method returned; `interrupted` the controllers an `interrupts` command put in manual once it had succeeded |

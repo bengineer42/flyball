@@ -49,8 +49,8 @@ for a calibration point, 300ms for `clear`/`K`), so each is `long=True`.
 varies strongly with temperature. If this driver's optional `temperature` input is bound
 and has a value, the combined `RT,<value>` command (900ms: set the compensation
 temperature *and* take a reading in one round trip) replaces the plain `R` (600ms);
-otherwise the reading is uncompensated (the circuit's own default, 25 C) and the device
-holds `uncompensated`.
+left unbound (it is optional), the reading is uncompensated (the circuit's own default,
+25 C); bound with no value, every output carries the input's quality instead.
 """
 
 from __future__ import annotations
@@ -62,10 +62,10 @@ from flyball.foundation.device import (
     DriverConfig,
     Input,
     Node,
+    NoValueError,
     Readable,
     Readout,
     Sample,
-    Severity,
     command,
 )
 from flyball.foundation.errors import HardwareError, NotReadyError
@@ -78,7 +78,7 @@ from pydantic import Field
 
 from flyball_chips._links import EzoLinkConfig
 
-from ._ezo import READ_COMMAND, EzoTransport, decode_text
+from ._ezo import READ_COMMAND, EzoTransport, compensation, decode_text
 
 READ_DELAY_S = 0.6
 """The datasheet's single-reading mode: the EC,TDS,SAL,SG frame follows 600ms later (UART
@@ -188,7 +188,8 @@ class EzoEc(Readable):
     )
     temperature = Input("temperature", quantity=TEMPERATURE, optional=True)
     """Bound and valued: `RT,<value>` replaces the plain `R`. Otherwise the reading is
-    uncompensated (the circuit's own default, 25 C) and `uncompensated` is held."""
+    uncompensated (the circuit's own default, 25 C) when unbound; bound with no value, every
+    output carries the input's quality."""
 
     def __init__(
         self,
@@ -208,19 +209,23 @@ class EzoEc(Readable):
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         try:
-            celsius = self.temperature.value
-        except NotReadyError:
-            celsius = None
-        if celsius is None:
-            self.set_condition(
-                "uncompensated",
-                Severity.INFO,
-                "reading without temperature compensation: the temperature input has no value",
+            given = compensation(self.temperature)
+        except NoValueError as error:  # bound, and its source has no value: nor do these
+            no_value = error.no_value
+            yield self.sample(
+                time_ns,
+                conductivity=no_value,
+                total_dissolved_solids=no_value,
+                salinity=no_value,
+                specific_gravity=no_value,
             )
-            ec, tds, sal, sg = self.probe.read()
+            return
+        except NotReadyError:  # bound, nothing read yet: no reading this time
+            return
+        if "temperature" in given:
+            ec, tds, sal, sg = self.probe.read_at_temperature(given["temperature"])
         else:
-            self.clear_condition("uncompensated")
-            ec, tds, sal, sg = self.probe.read_at_temperature(celsius)
+            ec, tds, sal, sg = self.probe.read()
         yield self.sample(
             time_ns,
             conductivity=ec,

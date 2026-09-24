@@ -8,8 +8,23 @@ compensated read with a bound `temperature` input, with and without a value on i
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
+from flyball.foundation.device import (
+    Node,
+    Quality,
+    Readable,
+    Readout,
+    Reason,
+    Sample,
+    invalid,
+    stale,
+)
 from flyball.foundation.errors import HardwareError
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Celsius
+from flyball.rig import Rig
 from flyball_sim.links import FakeI2c, FakeUart
 
 from flyball_chips import _ezo, ezo_do, ezo_ec, ezo_orp, ezo_ph
@@ -214,23 +229,30 @@ class TestTemperatureCompensation:
         assert sample.by_name()["ph"] == pytest.approx(6.850)
         assert device.held_conditions() == []
 
-    def test_ph_reads_uncompensated_with_no_temperature_value(self):
+    def test_ph_unbound_reads_uncompensated(self):
         uart = FakeUart([b"6.850\r"])
         device = ezo_ph.EzoPh("water", uart, sleep=False)
         (sample,) = device.read(9)
         assert uart.written == [b"R\r"]
         assert sample.by_name()["ph"] == pytest.approx(6.850)
-        codes = {c.code for c in device.held_conditions()}
-        assert "uncompensated" in codes
+        assert device.held_conditions() == [], "unbound is a choice, not a fault"
 
-    def test_ph_clears_uncompensated_once_a_value_arrives(self):
-        uart = FakeUart([b"6.850\r", b"*OK\r", b"6.850\r"])
-        device = ezo_ph.EzoPh("water", uart, sleep=False)
-        list(device.read(9))
-        assert "uncompensated" in {c.code for c in device.held_conditions()}
-        device.temperature.attach(20.0)
-        list(device.read(10))
-        assert device.held_conditions() == []
+    def test_ph_bound_then_stale_carries_the_input_s_quality(self):
+        rig, thermometer = _rig_with_thermometer()
+        device = ezo_ph.EzoPh("water", FakeUart([b"*OK\r", b"6.850\r"]), sleep=False)
+        rig.add_device(device)
+        rig.bind_inputs(device, {"temperature": thermometer.signals["celsius"].address})
+        assert list(device.read(9)) == [], "bound, not read yet: no reading this time"
+        _push(rig, thermometer, 21.0)
+        (sample,) = device.read(10)
+        assert sample.by_name()["ph"] == pytest.approx(6.850)
+        _push(rig, thermometer, stale(Reason.SILENT))
+        (sample,) = device.read(11)
+        ph = sample.by_name()["ph"]
+        assert ph.quality is Quality.STALE, "not quietly uncompensated"
+        _push(rig, thermometer, invalid("open_circuit"))
+        (sample,) = device.read(12)
+        assert sample.by_name()["ph"].quality is Quality.INVALID
 
     def test_do_uses_the_combined_rt_command_when_bound(self):
         uart = FakeUart([b"8.91\r"])
@@ -240,12 +262,23 @@ class TestTemperatureCompensation:
         assert uart.written == [b"RT,19.5\r"]
         assert sample.by_name()["dissolved_oxygen"] == pytest.approx(8.91)
 
-    def test_do_reads_uncompensated_with_no_temperature_value(self):
+    def test_do_unbound_reads_uncompensated(self):
         uart = FakeUart([b"7.82\r"])
         device = ezo_do.EzoDo("tank", uart, sleep=False)
         (sample,) = device.read(9)
         assert uart.written == [b"R\r"]
-        assert "uncompensated" in {c.code for c in device.held_conditions()}
+        assert sample.by_name()["dissolved_oxygen"] == pytest.approx(7.82)
+
+    def test_do_a_bound_salinity_with_no_value_leaves_the_do_with_none(self):
+        rig, thermometer = _rig_with_thermometer()
+        uart = FakeUart([])
+        device = ezo_do.EzoDo("tank", uart, sleep=False)
+        rig.add_device(device)
+        rig.bind_inputs(device, {"salinity": thermometer.signals["celsius"].address})
+        _push(rig, thermometer, invalid("crc"))
+        (sample,) = device.read(9)
+        assert sample.by_name()["dissolved_oxygen"].quality is Quality.INVALID
+        assert uart.written == [], "nothing sent: no value to compensate with"
 
     def test_do_salinity_and_pressure_inputs_are_sent_before_the_read(self):
         uart = FakeUart([b"*OK\r", b"*OK\r", b"7.82\r"])
@@ -263,9 +296,39 @@ class TestTemperatureCompensation:
         assert uart.written == [b"RT,25.0\r"]
         assert sample.by_name()["conductivity"] == pytest.approx(1413.000)
 
-    def test_ec_reads_uncompensated_with_no_temperature_value(self):
+    def test_ec_unbound_reads_uncompensated(self):
         uart = FakeUart([b"1413.000,706.500,0.700,1.000\r"])
         device = ezo_ec.EzoEc("water", uart, sleep=False)
         list(device.read(9))
         assert uart.written == [b"R\r"]
-        assert "uncompensated" in {c.code for c in device.held_conditions()}
+        assert device.held_conditions() == []
+
+    def test_ec_bound_with_no_value_leaves_every_output_with_none(self):
+        rig, thermometer = _rig_with_thermometer()
+        device = ezo_ec.EzoEc("water", FakeUart([]), sleep=False)
+        rig.add_device(device)
+        rig.bind_inputs(device, {"temperature": thermometer.signals["celsius"].address})
+        _push(rig, thermometer, stale(Reason.SILENT))
+        (sample,) = device.read(9)
+        assert {v.quality for v in sample.by_name().values()} == {Quality.STALE}
+
+
+class _Thermometer(Readable):
+    """A temperature to bind a compensation input to."""
+
+    celsius = Readout("celsius", quantity=Quantity("temperature", Celsius))
+
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        yield self.sample(time_ns, celsius=20.0)
+
+
+def _rig_with_thermometer() -> tuple[Rig, _Thermometer]:
+    rig = Rig()
+    thermometer = _Thermometer("thermometer")
+    rig.add_device(thermometer)
+    return rig, thermometer
+
+
+def _push(rig: Rig, device: _Thermometer, value: object) -> None:
+    signal = device.signals["celsius"]
+    rig.on_samples([Sample(signal.node, rig.clock.now_ns(), {signal: value})])

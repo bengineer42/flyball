@@ -126,6 +126,7 @@ def device_schema(
                 "unit": "" if (unit := binding.unit) is None else unit.symbol,
                 "bound": binding.address,
                 "constant": binding.constant,
+                "optional": spec is not None and spec.optional,
             }
             for name, binding in device.bound.items()
         },

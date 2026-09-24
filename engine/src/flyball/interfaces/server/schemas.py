@@ -567,11 +567,14 @@ class InputOut(BaseModel):
     """The source's reason for having no value, when it gives one."""
     age_s: float | None = None
     """Seconds since the rig received the source's newest reading with a value."""
+    optional: bool | None = None
+    """True when the driver declares it optional: left out, it is unbound by choice
+    ("not bound (optional)"), not an error. Absent otherwise."""
 
     @model_serializer(mode="wrap")
     def _sparse(self, handler: SerializerFunctionWrapHandler):
-        """`constant`, `reason` and `age_s` only when set."""
-        return _without_none(handler(self), ("constant", "reason", "age_s"))
+        """`constant`, `reason`, `age_s` and `optional` only when set."""
+        return _without_none(handler(self), ("constant", "reason", "age_s", "optional"))
 
     @classmethod
     def of(cls, binding: InputBinding, now_ns: int | None = None) -> InputOut:
@@ -590,6 +593,7 @@ class InputOut(BaseModel):
             quality=binding.quality,
             reason=binding.reason or None,
             age_s=binding.age_s(now_ns),
+            optional=True if declared is not None and declared.optional else None,
         )
 
 

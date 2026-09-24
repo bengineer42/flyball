@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import time
 
+from flyball.foundation.device import InputBinding, values_of
 from flyball.foundation.errors import HardwareError
 from flyball.hardware.i2c import I2cLink
 from flyball.hardware.uart import UartLink
@@ -192,3 +193,21 @@ __all__ = [
     "i2c_exchange",
     "read_frame",
 ]
+
+
+def compensation(*inputs: InputBinding) -> dict[str, float]:
+    """The bound compensation inputs' values, by input name; an unbound one is left out.
+
+    An optional input left out of the rig file is unbound and means "no compensation".
+    A bound one is used exactly as a required input is: it never quietly falls back to
+    reading uncompensated.
+
+    Raises:
+        NotReadyError: A bound input has nothing yet (`pending`): omit this read.
+        NoValueError: A bound input's source has no value: push its `no_value` on the
+            outputs, so the reading carries the input's quality.
+    """
+    bound = [binding for binding in inputs if binding.bound]
+    if not bound:
+        return {}
+    return {b.name: float(v) for b, v in zip(bound, values_of(*bound), strict=True)}

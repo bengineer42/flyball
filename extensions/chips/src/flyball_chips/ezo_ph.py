@@ -35,8 +35,9 @@ none), so they are `@command`s without `writes=`. Each waits its own processing 
 temperature (the Nernst equation, p.3), and the circuit cannot read a temperature itself
 -- "Another device must be used to read the temperature" (p.35). If this driver's
 optional `temperature` input is bound and has a value, `T,<value>` is sent (300ms) before
-every `R`; if not, the reading is taken uncompensated (the circuit's own default, 25 C)
-and the device holds `uncompensated` so that is visible rather than silent. EZO-pH has no
+every `R`. Left unbound (it is optional), the reading is uncompensated (the circuit's own
+default, 25 C). Bound but with no value, the pH has none either: it carries the input's
+quality rather than quietly falling back to uncompensated. EZO-pH has no
 combined "set temperature and read" command (unlike EZO-DO/EZO-EC's `RT,<value>`), so
 compensation costs a second round trip per read.
 """
@@ -50,10 +51,10 @@ from flyball.foundation.device import (
     DriverConfig,
     Input,
     Node,
+    NoValueError,
     Readable,
     Readout,
     Sample,
-    Severity,
     command,
 )
 from flyball.foundation.errors import HardwareError, NotReadyError
@@ -66,7 +67,7 @@ from pydantic import Field
 
 from flyball_chips._links import EzoLinkConfig
 
-from ._ezo import READ_COMMAND, EzoTransport, decode_text
+from ._ezo import READ_COMMAND, EzoTransport, compensation, decode_text
 
 READ_DELAY_S = 1.0
 """The datasheet's single-reading mode: the pH frame follows one second later (UART p.16,
@@ -160,8 +161,8 @@ class EzoPh(Readable):
     ph = Readout("ph", quantity=PH, range=(0.0, 14.0), precision=3)
     temperature = Input("temperature", quantity=TEMPERATURE, optional=True)
     """Bound (`inputs: {temperature: <address>}`, or a number): sent as `T,<value>` before
-    each read. Unbound, or with no value: the reading is uncompensated (the circuit's own
-    default, 25 C), and `uncompensated` is held so that is visible."""
+    each read. Unbound: the reading is uncompensated (the circuit's own default, 25 C).
+    Bound with no value: `ph` carries the input's quality."""
 
     def __init__(
         self,
@@ -181,18 +182,14 @@ class EzoPh(Readable):
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         try:
-            celsius = self.temperature.value
-        except NotReadyError:
-            celsius = None
-        if celsius is None:
-            self.set_condition(
-                "uncompensated",
-                Severity.INFO,
-                "reading without temperature compensation: the temperature input has no value",
-            )
-        else:
-            self.clear_condition("uncompensated")
-            self.probe.set_temperature(celsius)
+            given = compensation(self.temperature)
+        except NoValueError as error:  # bound, and its source has no value: nor does pH
+            yield self.sample(time_ns, ph=error.no_value)
+            return
+        except NotReadyError:  # bound, nothing read yet: no reading this time
+            return
+        if "temperature" in given:
+            self.probe.set_temperature(given["temperature"])
         yield self.sample(time_ns, ph=self.probe.read())
 
     @command(long=True)

@@ -184,6 +184,9 @@ class TestNumbersAndNoDefaults:
         assert not binding.bound
         with pytest.raises(NotReadyError):
             _ = binding.value
+        from flyball.interfaces.server.schemas import InputOut
+
+        assert InputOut.of(binding).model_dump()["optional"] is True
         schema = RigConfig.model_json_schema()
         variants = schema["properties"]["devices"]["additionalProperties"]["oneOf"]
         (variant,) = [v for v in variants if v.get("title") == tag]

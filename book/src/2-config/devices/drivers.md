@@ -658,9 +658,11 @@ frame either way -- the shared shape every `ezo_*` driver below builds on.
 
 **Temperature compensation**: an optional `temperature` input
 (`inputs: {temperature: <address>}` or a number, in °C). Bound and valued,
-`T,<value>` is sent before each read; unbound, or with no value, the read is
-uncompensated (the circuit's own 25 °C default) and the device holds
-`uncompensated`.
+`T,<value>` is sent before each read; unbound, the read is uncompensated
+(the circuit's own 25 °C default). Bound but with no value (`stale`,
+`invalid`), `ph` has none either and carries the input's quality -- it never
+quietly falls back to uncompensated; bound and not yet read, the probe skips
+that read.
 
 **Stop:** none -- EZO-pH has no demand for a controller to drive, so it is
 not stoppable; the calibration commands above are its only writes, and they
@@ -690,9 +692,9 @@ calibration/constant, not an output.
 
 **Temperature compensation**: an optional `temperature` input (°C). Bound
 and valued, the combined `RT,<value>` command replaces the plain `R`
-(setting the compensation and reading in one round trip); unbound, or with
-no value, the read is uncompensated (25 °C default) and the device holds
-`uncompensated`.
+(setting the compensation and reading in one round trip); unbound, the read
+is uncompensated (25 °C default). Bound but with no value, every output
+carries the input's quality instead.
 
 **Stop:** none -- EZO-EC has no demand for a controller to drive, so it is
 not stoppable; the calibration commands above are its only writes.
@@ -739,10 +741,10 @@ not an output.
 
 **Compensation**: three optional inputs. `temperature` (°C) -- bound and
 valued, the combined `RT,<value>` command replaces the plain `R`; unbound,
-or with no value, the read is uncompensated (25 °C default) and the device
-holds `uncompensated`. `salinity` (conductivity, µS/cm, `S,<value>`) and
+the read is uncompensated (25 °C default). `salinity` (conductivity, µS/cm, `S,<value>`) and
 `pressure` (kPa, `P,<value>`) are sent before the read when bound and
-valued -- Atlas has no combined form for either.
+valued -- Atlas has no combined form for either. Any of the three bound but
+with no value leaves the D.O. with none, carrying that input's quality.
 
 **Stop:** none -- EZO-DO has no demand for a controller to drive, so it is
 not stoppable; the calibration commands above are its only writes.

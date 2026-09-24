@@ -356,6 +356,8 @@ export interface InputOut {
   reason?: string;
   /** Seconds since the rig received the source's newest reading with a value. */
   age_s?: number;
+  /** True when the driver declares it optional: unbound by choice, not an error. Absent otherwise. */
+  optional?: true;
 }
 
 /**
@@ -481,6 +483,8 @@ export interface InputSchema {
   bound: Address | null;
   /** The number, for an input bound to one; null otherwise. */
   constant: number | null;
+  /** Whether the driver declares it optional: a rig file may leave it unbound. */
+  optional?: boolean;
 }
 
 /** `GET /api/devices/{name}/schema`: how a device is configured, its signals, inputs and commands. */
