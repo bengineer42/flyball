@@ -28,6 +28,10 @@ description is not printed under it: an ⓘ beside the label carries it on
 hover (and for a screen reader). A choice of two kinds is two equal halves,
 of three or more a stacked list.
 
+After a run the card shows what the command returned ("done" when it
+returned nothing) and, when it put a regulating controller in manual to do
+its work, which ones: "put chamber.rh in manual".
+
 In [Options › Rig file](rig.md), **Add link** builds a link — a bus, a simulated plant, anything a rig
 file's `links:` takes — from the rig's schema (`GET /api/rig/schema`): a kind picker, then a
 `SchemaForm` for its config. **Add device** builds a device on the rig the same way: a name, a
