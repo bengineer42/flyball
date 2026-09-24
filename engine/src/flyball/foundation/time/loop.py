@@ -9,6 +9,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from ..typing import Positive
+from .timer import WAKE_S
 
 if TYPE_CHECKING:
     from .clock import Clock
@@ -137,8 +138,16 @@ class PeriodicLoop:
     def _wait(self, seconds: float) -> None:
         if self._clock is None:
             self._event.wait(timeout=seconds)
-        else:
-            self._clock.wait(self._event, timeout=seconds)
+            return
+        # In steps of at most `WAKE_S` real seconds: a scaled clock's speed may change while
+        # it waits, and a wait sized at the old speed would stall the loop at the new one.
+        deadline = self._now() + seconds
+        while not self._event.is_set():
+            left = deadline - self._now()
+            if left <= 0:
+                return
+            cap = WAKE_S * float(getattr(self._clock, "speed", 1.0) or 1.0)
+            self._clock.wait(self._event, timeout=min(left, cap))
 
     def run(self) -> None:
         # On the rig's clock: a scaled clock polls proportionally faster.

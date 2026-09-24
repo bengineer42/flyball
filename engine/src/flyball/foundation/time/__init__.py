@@ -9,6 +9,7 @@ from .clock import (
     TimeUnit,
 )
 from .loop import PeriodicLoop
+from .timer import Timer, Timers
 
 __all__ = [
     "DURATION_KEYS",
@@ -20,4 +21,6 @@ __all__ = [
     "Speed",
     "Time",
     "TimeUnit",
+    "Timer",
+    "Timers",
 ]
