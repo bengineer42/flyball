@@ -37,6 +37,10 @@ beyond it and clears it only after readings have been back inside for
 button, `POST /api/programs/cancel`, a new program started with `cancel`,
 or cancelling what it waits on. Outputs are kept. Compare **interrupted**.
 
+**cause** — why a **latch** holds: `stop` (the rig stop) or
+`on_fault:<controller>` (a controller's `on_fault` action). Causes form a
+set per subject; each is cleared only by its own **Reset**.
+
 **command** — a non-value action on a device: a method marked `@command`,
 run by `POST /api/devices/{name}/commands/{command}`. One that moves a
 demand no argument is linked to declares it with `writes=`, and is refused,
@@ -124,12 +128,24 @@ tells the device and commits it, and it reads the value itself
 (`self.<input>.value`) — there is no callback.
 
 **interrupted** — how a program ends when the engine ends it (a software
-stop, a shutdown), with the reason; outputs are kept. A controller put in
+stop, a shutdown, a latching fault: `fault:<controller>`), with the reason;
+ending the program leaves outputs as they are and cancels the long device
+command its step is running (a stop then writes its own values). A controller put in
 manual by a device command is interrupted too -- only once the command has
 succeeded, and the command's response names it. Compare **cancelled**.
 
 **handover** — entering regulation, or changing a tuning: choosing what the
 correction should be at the instant of the switch (a `Transfer`).
+
+**keep** — the stop value that means "leave this output as it is",
+energised if it was: `stop: {drive: keep}` in the rig file, and what a
+stop does to an output with no `stop:` value and no driver **off**. Also
+`on_shutdown: keep`: write nothing on the way out.
+
+**latch** — what a software stop or an `on_fault` action leaves behind:
+a **cause** and the subjects it holds (the rig, a device, a signal, a
+controller), refusing writes and `regulate` until a person's **Reset**.
+Kept in the store, so a restart keeps it and writes its stop again.
 
 **label** — a display name, from the rig file; `None` shows the address or
 name instead.
@@ -163,13 +179,34 @@ then the rig is stopped and the runner restarts from that version, passive.
 regulates (ISA's PV), `measured:` in the rig file. Also the faceplate row
 and the wire field holding its last reading.
 
+**off** — a demand's inactive level, declared by its driver
+(`SignalSpec(off=...)`) only where it cannot be wrong: a PWM duty's 0 %.
+What a stop writes when the rig file gives no `stop:` value. Written even
+outside `limits`. Whether it de-energises the load depends on the wiring.
+
+**on_fault** — what a controller does once its measured signal has been
+faulty for its wait: `freeze` (the default: the law stays frozen, the
+output where it was, and it resumes by itself), `manual` (to manual,
+latched), `stop` (to manual, its output's **resolved stop** written, the
+output latched), `stop_device` (the output's whole device stopped and
+latched), or `{freeze_s, then}` (frozen that long, then one of the others).
+
 **output** — a controller's output: the demand it writes (ISA's OP); the
 controller is named by its address. Also the faceplate row and the wire
 field holding the last value asked of it. Not a role: a signal a device
 produces is a **readout**.
 
+**permissive** — a condition on a demand (`permissive:` on the device):
+a write is refused unless another signal's value is inside a band; it
+fails closed, always permits the demand's **resolved stop** value, and
+holds (not fails) a controller driving it (`not_permitted`).
+
 **plant** — the thing being controlled, as a model: gain, time constant,
 dead time (simulation only).
+
+**planned stop** — the stop a rig edit runs before its restart: the same
+writes and controllers to manual as a **software stop**, but nothing
+latched, so the rig comes back passive.
 
 **principal** — who a request is for, as the front signs it for one
 runner: the caller's id (`sub`), session, verbs on that rig (`scp`), kind
@@ -234,6 +271,15 @@ in a row have one. Not a mode.
 not_applicable, stale, stale with the device offline), 16/17 the mark
 `at_limit` low/high on a value.
 
+**Reset** — a person's `POST /api/rig/reset {cause}`: lets one **latch**
+go. Needs `operate`, and a person (never an agent or a service token).
+Resumes nothing: controllers stay in manual, programs stay ended.
+
+**resolved stop** — what a stop does to a device: its **stop command**
+if the driver has one; otherwise, per writable demand, the rig file's
+`stop:` value, else the driver's **off**, else **keep**.
+`GET /api/rig/stop` lists it per output.
+
 **readout** — a signal the device produces and nothing outside writes: a
 measurement, a derived value, a mode (`Role.READOUT`, `RP`, the `Readout`
 descriptor). A role; not the same thing as a demand's **readback**.
@@ -285,10 +331,21 @@ loopback only), `password` (an admin password and named tokens) or
 **signal** — one named value of one quantity on one device; has an address,
 a role and an access set.
 
-**software stop** — interrupting any running program and putting every
-controller in manual, for everyone at once (`POST /api/rig/stop`, `flyball
-stop`, the **Software stop** button, `SIGUSR1`). A control function, not
-an emergency stop; in this release it writes nothing to any device.
+**software stop** — the **Software stop** button, `POST /api/rig/stop`,
+`flyball stop`, MCP `stop_rig` or `SIGUSR1`, all one: the rig **latched**,
+running long commands cancelled, the program interrupted, every controller
+to manual, then each device's **resolved stop** applied. A control
+function: it sets only the outputs whose level it knows
+([What flyball does not do](0-overview/limits.md)).
+
+**stop command** — a device command marked `@command(stops=True)`: the
+device's stop, run by a software stop, a shutdown and `on_fault: stop`
+instead of writing values (the humidity blender's `stop`, `mcp4725`'s
+`power_down`). At most one per driver; never `long`.
+
+**stopped** — the rig while the software stop's **latch** holds (the
+condition `stopped`): flyball refuses its own automatic writes. It does
+not mean the outputs are off.
 
 **step** — one entry of a program, keyed by its name: `regulate`, `ramp`,
 `wait`, `settle`, `manual`, `set`, `command`, `prompt` (the Python base

@@ -235,6 +235,16 @@ inputs: an input has no default any more (C12), so every
 the old built-in default (0 and 100 %RH) -- and loses `supply`, which would
 no longer load.
 
+Migration 0025 added `latch`: one row per latch cause held -- the rig
+stop (`stop`) or a controller's `on_fault` action (`on_fault:<controller>`)
+-- with `subjects` as JSON `[{scope, subject}]` (`rig`, `device`, `signal`,
+`controller`), `by` (the principal's `sub`, or `on_fault`), `at_ns` (wall
+time), `reason` and `action` (a fault's). A row is written when the latch
+is set and deleted by its Reset. At start, before serving,
+`Stopping.attach` restores every row and re-applies the stop it implies: a
+rig stop's stops every device again, a fault's `stop` or `stop_device`
+stops what it held ([the latch](../1-running/runner/access.md#the-latch)).
+
 The scratch record and retention (D-008) are migration 0010: `session.kind`,
 `origin_ns`, `pinned`, `continues`, `bytes`. Trimming a scratch session
 deletes rows and moves `start_ns` without rewriting offsets: they stay

@@ -155,7 +155,8 @@ Seven things to note:
    [`hold_reason`][flyball.rig.rig.Rig.hold_reason], injected like `write`
    -- whether the rig would refuse its write: `stale_input` (the measured signal is
    older than `stale_after_s`), `limit_unknown` (a limit on the output
-   follows a signal with no finite value, D-030) or `frozen` (the measured
+   follows a signal with no finite value, D-030), `not_permitted` (the
+output's `permissive:` does not allow a write now) or `frozen` (the measured
    signal's newest reading is a `NoValue`; the controller holds `frozen`
    on such a reading by itself too, with no rig in front of it). If so the tick returns
    there: the law does not step, `correction`, `output`, `expected` and
@@ -177,6 +178,22 @@ Seven things to note:
    Unattached, `hold` is `Controller._never_held`. `last_value` is None
    while the newest reading has no value, so `regulate(ValueSource.MEASURED)`
    refuses, and a `TRACK`/`CARRY` handover seeds as if nothing had been read.
+8. **Resuming re-seeds a trajectory.** A generator is a function of
+   absolute time, so its clock ran on through the hold. On the first step
+   after one, `_reseed(time_ns, reading)` asks the `SetpointGenerator` to
+   `reseed(now_s, value)`: the segment in force walks on from the reading
+   at its own rate, never faster, and so ends later if it has further to
+   go. A dwell is left alone; a profile re-seeds its current segment and
+   shifts the later ones. When the end moves, `on_reseed(was, end)` -- the
+   rig's, injected like `hold` -- raises a `reseeded` event on the
+   controller (`{end_was_s, end_s}`).
+9. **`regulate` asks a guard first.** `self.guard()` -- the rig's
+   `stopping.regulate_refusal`, injected at attach -- names a latch that
+   holds the controller, its output or the rig; `regulate` then raises
+   `ConflictError` (409) before anything changes. Nothing that regulates
+   can clear a latch: only a person's Reset, or the HTTP route's own
+   shortcut for a controller's `on_fault: manual` latch. Unattached, the
+   guard is `Controller._never_refused`.
 
 ## Between readings: `reapply`
 
@@ -212,9 +229,32 @@ entry into fault-class a one-shot is armed for the wait still to go
 (`max(2·poll_s, 1 s)` for a single observation, 0 for staleness by age or a
 law that raises); a reading that is not a fault cancels it. When it comes
 up it takes the rig's lock, checks again, and releases the outage -- once,
-and only while `REGULATING` -- to `faults.on_fault`, the hook `on_fault`'s
-actions will use. The arithmetic ([`Accrual`][flyball.rig.faults.Accrual])
-is shared with the bands' `invalid` grace.
+and only while `REGULATING` -- to `faults.on_fault`, which the rig sets to
+[`Stopping.on_fault`][flyball.rig.stopping.Stopping.on_fault]. The
+arithmetic ([`Accrual`][flyball.rig.faults.Accrual]) is shared with the
+bands' `invalid` grace.
+
+Freezing and acting are two separate things. The freeze is the tick's
+own hold (7): immediate, per reading, and undone by itself after
+`RESUME_AFTER` readings with a value. The release is the rig's, once per
+outage, and acts on the controller's `OnFault`:
+
+- `freeze` (the default) is never released: `on_fault` returns at once.
+- `{freeze_s: d, then: a}` (`OnFault(action, freeze_s)`) arms the one-shot
+  for `d` of accrued fault time instead of the reason's wait.
+- A law that raises is released at once with the reason `law_error`, and
+  takes `OnFault.escalated()`: the stricter of the configured action and
+  `manual`.
+- `manual`, `stop` and `stop_device` put the controller in manual, set a
+  `Latch` with the cause `on_fault:<controller>` (holding the controller;
+  and the output signal for `stop`, or the device where a command stops
+  it; the device for `stop_device`), then write the stop under the lock
+  already held (`stop_locked`: a blocking device's writer is handed it and
+  not waited for), and raise an `on_fault` event. A latch on the store's
+  `latch` table survives a restart; `Stopping.attach` re-applies it.
+
+The one-shot runs inside the runner. If the process is stuck or dead,
+nothing is released: no bound on a freeze is kept outside flyball.
 
 ## The feedforward
 

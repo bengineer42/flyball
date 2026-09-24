@@ -58,6 +58,13 @@ or the MCP `search_drivers` tool, the same catalogue over a running server.
 these plus anything from a `drivers/` directory or another installed
 package.
 
+**What a stop does** to a device is said in each driver's section: a stop
+command, or an `off` its outputs declare, or nothing (`keep`: a stop leaves
+the output as it is). A driver not named below declares none, so a stop
+keeps its outputs unless the rig file's
+[`stop:`](index.md#stop-what-a-stop-writes) gives a value -- today that is
+every `modbus`, `i2c_table`, `qcodes` and `pymeasure` writable entry.
+
 ## When a driver has no value
 
 What a driver yields for a value it has not got is its contract with the
@@ -104,6 +111,7 @@ both `[RPW]`. Replies are parsed as a number (`+1.2E-3 V` → 0.0012).
 | --- | --- | --- |
 | `link` | required | a [text link](../links.md#text-instruments), by name |
 | `channels` | required | `{signal: {query?, write?, unit, quantity?, scale?, role?}}` -- `write` is a template with `{value}` (`"SOUR:VOLT {value:.3f}"`); `scale` multiplies a reply and divides a demand; `quantity` names the quantity when it differs from the signal's name; `role: setting` makes a signal with `write` a setting (a range, a mode) rather than a demand, so no controller can drive it -- only with `write` |
+| `stop_command` | none | the text a stop sends (`"OUTP OFF"`, `"INP OFF"`): the instrument's own stop, run as its `stop` command. Omitted: no stop -- a stop leaves its outputs as they are, since the right string differs by instrument |
 
 ```yaml
 psu:
@@ -115,6 +123,7 @@ psu:
     output_voltage: { query: "MEAS:VOLT?", unit: V }                # [RP]
   signals:
     set_voltage: { limits: [0, 30] }
+  stop_command: "OUTP OFF"      # a stop switches the output off
 ```
 
 Adds two commands for bring-up, `write` and `query`, that send any text
@@ -126,6 +135,10 @@ numbers: `9.91E37` is `invalid("not_a_number")` and `±9.9E37`
 `invalid("overrange")` on that side. A signal with both `query` and
 `write` is read back from the instrument (`readback: sensed`). Replies that
 are not a number need a `parse=` in Python: [Writing a sensor](../../3-extending/device/sensor.md#talking-to-an-instrument).
+
+**Stop:** with `stop_command`, the `stop` command sends it, and `stop:`
+values are refused on the device. Without it, each demand keeps unless the
+rig file gives it a `stop:` value.
 
 ### `modbus`
 
@@ -234,6 +247,10 @@ Drives chosen inputs of a plant from `[W]` signals.
 | --- | --- | --- |
 | `link` | required | the same plant |
 | `ports` | required | `{signal-path: port}`, or `{signal-path: {port, demand, quantity?, unit?, limits?}}`. `demand: input` (default) maps the signal linearly onto the port's 0–1 drive; `demand: output` declares the signal in the plant's own output unit and lets `commit` invert the plant's static model -- a heater commanded in °C. One signal per port: two on the same port are refused when the device is built |
+
+**Stop:** a linear port (`demand: input`) declares `off` at `limits[0]`, 0 %
+drive, and a stop writes it. A `demand: output` port (a setpoint in the
+plant's unit) and a span across 0 declare none: a stop keeps them.
 
 ```yaml
 heaters:
@@ -344,6 +361,12 @@ As an input: a `[RP]` signal `level`.
 | `initial` | `false` | an output's level at start |
 | `pull_up` | none | an input's bias: `true` up, `false` down, omitted as-is |
 
+**Stop:** an output's `on` declares `off` at 0, and a stop writes it --
+except with `invert: true`, where whether logical 0 is the load's off
+depends on why it was inverted, so it declares none (keep). A direction or
+select line, where 0 is a position rather than off, should say
+`stop: {on: keep}`.
+
 ### `pwm_channel`
 
 One PWM output, a `[W]` signal `drive`, and an `off` command (duty to zero,
@@ -356,6 +379,13 @@ channel disabled) that is refused while a controller drives `drive`.
 | `frequency_hz` | `1000` | |
 | `invert` | `false` | |
 | `unit`, `quantity`, `span` | none | omitted, `drive` is the duty itself (0–1). Given, `drive` is set in `unit` (say °C) and `span: [lo, hi]` maps it linearly onto 0–100 % -- a static feedforward inside the device, so a controller may drive it with `feedforward: {type: identity}` |
+
+**Stop:** `drive` declares `off` at 0 % duty (0, or `span[0]`), and a stop
+writes it; the channel stays enabled. The `off` command, which also
+disables the channel, is not the stop. With `invert: true`, or a span that
+straddles 0 (full reverse at one end: an H-bridge, a Peltier), it declares
+none, and a stop keeps `drive`. A fan or a coolant pump that must keep
+running after a stop says `stop: {drive: 1}` or `stop: {drive: keep}`.
 
 ### `ds18b20`
 
@@ -614,6 +644,10 @@ with your own dispense logic instead.
 | `max_dispense_ml` | none | an optional per-call cap |
 | `drive_fraction` | `1.0` | the duty to run a `pwm_channel` pump at during a dispense; refused on a `gpio_line` pump unless left at `1.0` |
 
+**Stop:** the `stop` command is the device's stop: a rig stop cancels a
+dispense in progress and runs it, cutting the pump. `stop:` values are
+refused on the device.
+
 ### `mcp4725`
 
 Microchip MCP4725: single-channel, 12-bit buffered I²C DAC. The write-side
@@ -631,6 +665,12 @@ commanded directly in engineering units instead of a bare fraction.
 | `address` | `0x60` | `0x61` on the -A0T variant |
 | `unit`, `quantity`, `span` | none | omitted, `drive` is the fraction itself (0-1). Given, `drive` is set in `unit` and `span: [lo, hi]` maps it linearly onto 0-100 % -- the same rule as `pwm_channel` |
 
+**Stop:** `drive` declares no `off`: 0 V is a setpoint for a positioner or
+a VFD, not off. The device's stop is its `power_down` command, which puts
+the chip in power-down with its output pulled to ground through 1 kΩ
+(`PD = 01`); the next demand powers it up again. `stop:` values are refused
+on the device.
+
 ### `stepper`
 
 A step/direction stepper motor -- the interface almost every real driver
@@ -639,8 +679,8 @@ would be exactly the kind of fragile Python timing `hx711` is already
 flagged for. A motorized valve, damper, vent or linear actuator. A
 `move(steps)` command (not `move_to(position)` -- no homing/limit-switch
 story to trust an absolute target against) clocks out a pulse train at
-`steps_per_s`, always leaving the driver safe (direction settled,
-`enable_line` released) even on an error mid-move. A move runs off the
+`steps_per_s`, always leaving the driver IC with its direction settled and
+`enable_line` released, even on an error mid-move. A move runs off the
 rig lock, its gaps between pulses timed on the rig's clock: the `stop`
 command ends it after the pulse in progress and releases `enable_line`.
 
@@ -653,6 +693,11 @@ command ends it after the pulse in progress and releases `enable_line`.
 | `enable_active_low` | `true` | the common driver-IC convention |
 | `steps_per_unit` | none | lets `move()` take engineering units (degrees, mm) instead of raw steps |
 | `pulse_width_s` | `0.0005` | how long the step line is held high per pulse |
+
+**Stop:** the `stop` command is the device's stop: a rig stop cancels a
+move in progress and runs it, which releases `enable_line`. Without an
+`enable_line` it only ends the move, and the coils stay as they were.
+`stop:` values are refused on the device.
 
 `position` -- the raw step count -- is `[R]` only (readable on demand,
 never published/recorded by default): internal plumbing for the move
@@ -723,7 +768,9 @@ runs on hardware (`pwm`) and on the simulated chamber alike. Its fields
 (`dry`, `wet`, `blend_flow`, `frequency_hz`), its two inputs (`dry` and
 `wet`, the supply lines' humidity: a sensor's address or a number each) and
 the physics are in
-[the humidity book](https://bengineer42.github.io/humctrl/3-devices/blender/); the class is `examples/humidity/src/humidity/blender.py`,
+[the humidity book](https://bengineer42.github.io/humctrl/3-devices/blender/).
+Its stop is its `stop` command, both pumps off at once; `stop:` values are
+refused on it. The class is `examples/humidity/src/humidity/blender.py`,
 the worked example of a composite device in
 [Writing an actuator](../../3-extending/device/actuator.md).
 

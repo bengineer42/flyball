@@ -20,3 +20,7 @@
 ::: flyball.rig.triggers
 
 ::: flyball.rig.values
+
+::: flyball.rig.stopping
+
+::: flyball.rig.latches

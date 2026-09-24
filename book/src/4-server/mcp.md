@@ -37,6 +37,13 @@ one exists.
 | `author` | saving programs, dashboards and tunings to the store | "write me a program that…", "make a dashboard for the blender" |
 | `operate` | one tool per device command (`blender-set_humidity`), demands, controllers, running programs, recording, a simulation's knobs, and `stop_rig` (the [software stop](../1-running/runner/access.md#stopping-the-rig)) | driving the rig |
 
+`stop_rig` runs the same stop as the button: the rig latched, every
+controller to manual, each device's resolved stop written. An agent can
+stop the rig but never undo a stop: while the rig is latched its writes,
+commands and `regulate` are refused, and a Reset
+(`POST /api/rig/reset`) needs a person
+([the latch](../1-running/runner/access.md#the-latch)).
+
 Entering a mode needs a verb (pending D-034): `read` for `/mcp/read`,
 `operate` for `/mcp/author` and `/mcp/operate`. Every call a tool makes
 then carries the caller's own verbs cut to what the mode allows, so a

@@ -414,8 +414,8 @@ Behind a proxy, use `flyball run`.
 
 ## Stopping the rig
 
-A **software stop** interrupts any program and puts every controller in
-manual, for everyone at once. Anyone holding `operate` can do it:
+A **software stop** stops the whole rig for everyone at once. Anyone
+holding `operate` can do it:
 
 - the **Software stop** button in the dashboard's app bar;
 - `flyball stop` (or `flyball stop --all` on every rig a `flyballd` runs);
@@ -429,27 +429,120 @@ manual, for everyone at once. Anyone holding `operate` can do it:
   answers at `$FLYBALL_URL`, and a `503` or `404` there does not block
   them.
 
-It is never rate-limited, and it answers with a report: what happened to
-each device, whether a program was interrupted, which controllers are in
-manual. **In this release it writes nothing to any device**: outputs are
-left at whatever they were last told, and each device is reported
-`unchanged` (`interim: true` in the report). A `SIGUSR1` stop writes its
-report to the runner's log (`stop report: {…}`) and does not end the
-process. One that arrives while the rig is still being built (from the
-moment the lock file names the runner; 20 s or so on a Raspberry Pi) finds
-nothing to stop yet: the log says so (`SIGUSR1: no rig attached yet`), the
-runner carries on starting, and the stop is sent again once it serves. Every stop is in the [audit](#what-is-recorded), the `SIGUSR1` one
-as `local:signal`; the signal's sender is not recorded.
+All five run the same stop, in this order:
 
-!!! warning "Not an emergency stop"
-    The software stop is a control function, not an emergency stop in the
-    sense of IEC 60204-1 or ISO 13850, and flyball is not a safety system.
-    Put the protection outside it: thermal cut-outs, a hardware emergency
-    stop that removes power, and wiring such that de-energised is safe. A
-    crash, `kill -9`, a power loss or a hung machine leaves each output at
-    its last value, and so does this stop. Before the first unattended run,
+1. **The rig is latched** (the condition `stopped` on the rig), so nothing
+   automatic writes from here on ([the latch](#the-latch)).
+2. **Every running long command is cancelled**: a dose or a move ends now,
+   and its own clean-up still runs.
+3. **The program is interrupted**, with a bounded wait for it to unwind.
+4. **Every controller goes to manual**, with an `interrupted` event each.
+5. **Every device is stopped at once**, each on its own thread, all within
+   5 s. A device whose driver has a stop command runs it (the humidity
+   blender's `stop`, `mcp4725`'s `power_down`); any other device has each
+   writable demand's [resolved stop](../../2-config/devices/index.md#stop-what-a-stop-writes)
+   written -- the rig file's `stop:` value, else the driver's `off`, else
+   nothing (`keep`: left as it is, energised if it was). These writes go
+   past latches, holds, permissives and `max_rate`. A `driver: values`
+   device is never stopped: its numbers stay writable.
+
+What was staged -- a value a failed write kept for its retry -- is dropped,
+and its retry cancelled. A device that does not finish within the 5 s -- a
+stuck rig lock, a bus that does not answer -- does not hold the stop up: it
+is reported `failed`, with "may still act" when the time ran out. If a
+device's stop command raises, each output's declared `off` is written
+instead, and the device is still reported `failed` ("fallback wrote each
+declared off", or "fallback: none effective").
+
+It is never rate-limited, and it answers with a report: for each device
+its `state` (`stopped`, `unchanged` -- every output kept -- or `failed`),
+a `detail`, what it `written` and what it `kept`, by address, with the
+value each holds; whether a program was interrupted; which controllers are
+in manual; and `latched: true`. A `stop_applied` event lists every output
+left energised with its value. A second stop latches nothing new and writes
+the stops again.
+
+`GET /api/rig/stop` says, before you need it, what a stop would do to each
+output: its stop value (a number, `keep`, or the device's stop command),
+where that came from (`off`, `you said`, `nobody said`, `command`), the
+controller that drives it, and warnings -- a controller's output nobody
+gave a stop, which a stop leaves energised with its controller in manual,
+and an unbounded `on_fault: freeze` on an output whose stop is its driver's
+`off`. The runner logs the same warnings at start. Every output is
+`covered_if_flyball_dies: false`.
+
+A `SIGUSR1` stop writes its report to the runner's log
+(`stop report: {…}`) and does not end the process. One that arrives while
+the rig is still being built (from the moment the lock file names the
+runner; 20 s or so on a Raspberry Pi) finds nothing to stop yet: the log
+says so (`SIGUSR1: no rig attached yet`), the runner carries on starting,
+and the stop is sent again once it serves. Every stop is in the
+[audit](#what-is-recorded), the `SIGUSR1` one as `local:signal`; the
+signal's sender is not recorded.
+
+A [rig edit](building.md) runs the same stop before its restart, as a
+*planned stop*: the same writes and controllers to manual, but nothing
+latched, so the rig comes back passive rather than stopped.
+
+!!! warning "What a stop is not"
+    The software stop is a control function, and protection belongs
+    outside flyball: wire a hardware stop that removes power, interlocks
+    and thermal cut-outs independently of it. It sets only the outputs
+    whose inactive level is known, and a crash, `kill -9`, a power loss or
+    a hung machine leaves each output at its last value.
+    [What flyball does not do](../../0-overview/limits.md) has the full
+    list. Before the first unattended run,
     [test a stop, a killed runner and a power cut](index.md#unattended-runs)
     on the real hardware.
+
+### The latch
+
+"Stopped" means flyball refuses its own automatic writes; it does not mean
+the outputs are off. While the rig is latched:
+
+- **Refused:** a controller's write (the controller is held, not failed),
+  a program step, a trigger, an agent's write or command through MCP, a
+  bound input's commit (the device's commit is skipped), and `regulate` --
+  so a program's `ramp` or `regulate` step, or an agent, can never clear
+  the latch.
+- **Allowed:** a person's write or command under `operate`, from the UI or
+  the HTTP API (not MCP, not a service token). It goes through, logged as a
+  `written_while_stopped` event, and the rig stays latched. A command that
+  drives nothing (a setting such as `set_frequency`), a simulation's
+  commands and a device's own stop command are never refused; nor are
+  writes to a `driver: values` device.
+
+A controller's [`on_fault`](../../2-config/controllers.md#on_fault-what-a-controller-does-about-a-faulty-source)
+latches too, with the cause `on_fault:<controller>`: `manual` holds the
+controller, `stop` its output as well, `stop_device` the output's whole
+device; `stop` and `stop_device` refuse every write to what they hold, a
+person's included. Each thing held shows the condition `latched`. The
+causes are a set: a thing is free only when no cause holds it, and each
+cause is cleared only by its own Reset. `GET /api/rig/latches` lists every
+latch held, and `GET /api/health` carries `stopped` and `latches`.
+
+Latches are kept in the store. A runner started again on that store
+restores them before it serves and writes the stop they imply again: a
+rig stop stops every device, a fault's `stop` or `stop_device` stops what
+it held. A runner that crashed with no latch comes back passive: each
+driver writes only its build value.
+
+### Reset
+
+```
+curl -X POST http://127.0.0.1:8000/api/rig/reset -d '{"cause": "stop"}'
+curl -X POST http://127.0.0.1:8000/api/rig/reset -d '{"cause": "on_fault:heaters.heater2"}'
+```
+
+`POST /api/rig/reset` lets one cause go (`stop` when the body names none).
+It needs `operate` and a person: a service token or an agent through MCP
+gets `403`. `404` when nothing holds that cause. It is allowed while the
+cause persists, because a Reset resumes nothing: controllers stay in
+manual, programs stay ended, outputs stay where the stop left them. A
+fault's Reset also clears its controller's law state. The one other way a
+latch lets go: a person's `regulate` over HTTP clears the controller's own
+`on_fault: manual` latch, which holds nothing else. There is no Reset
+button in the UI and no `flyball` subcommand yet.
 
 ## What is recorded
 

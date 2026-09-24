@@ -33,8 +33,10 @@ document added, a version restored -- goes the same four steps:
    build exactly that version. The overlay it replaces is kept as
    `added.yaml.prev`. A runner started with no file, or with `--resume`,
    keeps the change in the store alone.
-3. **Stopped,** as `POST /api/rig/stop` stops it: a program running is
-   cancelled, outputs go to their stop states, controllers go to manual.
+3. **Stopped,** as `POST /api/rig/stop` stops it, but as a *planned
+   stop*: a program running is interrupted, each device's
+   [resolved stop](../../2-config/devices/index.md#stop-what-a-stop-writes)
+   is written, controllers go to manual, and nothing is latched.
 4. **Restarted:** the runner replaces its own process, with the same
    command line (a bare or resumed one with `--resume` added), and builds
    the version saved. It comes up passive: every controller in manual,

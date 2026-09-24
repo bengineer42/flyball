@@ -41,7 +41,7 @@ holds for a program file, a library upload and a `--set` value.
 | `recording` | bool | open a session when the runner starts |
 | `clock` | `{speed?, stepped?}` | run the rig's time faster (`speed`, default 1×), or only when stepped (`stepped`, for a batch run or a test); refused unless every link is `sim_*`/`fake_*` |
 | `extends` | `[path, …]` | this file's own bases, resolved and merged (in order) before this file's own keys are layered on top; the command line's own overlay list still wins |
-| `runner` | `RunnerConfig` | how the process serves -- port, who may reach a bare runner (`auth`), how `flyball run`'s front serves it ([`front`](#the-front)), what the API may do, where the store and the directories are, the default `reads: {fail_after: 3, backoff_s: [1, 2, 5, 15, 60]}` for every device; not part of the rig (not in its document or versions; a save over an existing file keeps that file's own section), overridden by the flags of the same names. Every key: [The runner section](../2-config/runner.md) |
+| `runner` | `RunnerConfig` | how the process serves -- port, who may reach a bare runner (`auth`), how `flyball run`'s front serves it ([`front`](#the-front)), what the API may do, where the store and the directories are, the default `reads: {fail_after: 3, backoff_s: [1, 2, 5, 15, 60]}` for every device; what shutting down does to outputs (`on_shutdown: stop | keep`, default `stop`); not part of the rig (not in its document or versions; a save over an existing file keeps that file's own section), overridden by the flags of the same names. Every key: [The runner section](../2-config/runner.md) |
 | `links` | `{name: Link}` | declared once, referred to by name |
 | `devices` | `{name: DeviceEntry}` | the envelope + the driver's own config, [flat beside it](#devices) |
 | `controllers` | `{output-address: ControllerEntry}` | keyed by the demand driven, the controller's output |
@@ -100,6 +100,9 @@ field named like an envelope key). A nested `config:` is refused.
 | `inputs` | `{input: address \| number}` | what each input follows: an address on another device, resolved once at build to its `Signal` (which must publish) or `Node` (something under it must), or a finite number, a constant. The device reads it through its `InputBinding` (`self.<input>.value`). Every input the driver declares must be given one and no other name -- an input has no default; a cycle through `inputs:` is refused, the path named. [Devices: binding one device to another](../2-config/devices/index.md#binding-one-device-to-another) |
 | `reads` | `{fail_after?, backoff_s?, give_up_after_s?}`, optional | reads that raise in a row before the device is `offline` (integer ≥ 1), the waits between retries while offline (non-empty, each finite and > 0; the last repeats), and how long after going offline to stop retrying (finite, > 0; `null`: never). A key left out is `runner.reads`', then `3` / `[1, 2, 5, 15, 60]` / never. [Devices: `reads`](../2-config/devices/index.md#reads) |
 | `retry_max_age_s` | number, optional | how long a value a failed write kept may wait to be sent again (finite, > 0); older is dropped with a `write_dropped` event, not sent. Unset: 60 s. [Devices: a write that fails](../2-config/devices/index.md#a-write-that-fails) |
+| `stop` | `{path: number \| "keep"}`, optional | what a stop writes to each writable demand (by path under the device): a finite number inside the signal's static limits, or `keep` (leave it as it is); overrides the driver's `off`. Refused whole on a device whose driver has a stop command. [Devices: `stop`](../2-config/devices/index.md#stop-what-a-stop-writes) |
+| `on_shutdown` | `stop` \| `keep`, optional | what the runner's shutdown does to this device; unset: `runner.on_shutdown`. [Devices: `on_shutdown`](../2-config/devices/index.md#on_shutdown-what-shutting-down-does) |
+| `permissive` | `{path: {signal, above?, below?}}`, optional | a write to the demand at `path` is refused unless `signal`'s value is `> above` and `< below` (at least one; finite; `above < below`); fails closed; the demand's stop value is always permitted. [Devices: `permissive`](../2-config/devices/index.md#permissive-a-write-only-while-another-signal-allows-it) |
 
 ```yaml
 devices:
@@ -194,6 +197,7 @@ a setting, or an `RP` demand, is refused when the rig is built.
 | `default` | bool | the controller a command means when it names none; at most one per file |
 | `min_period_s` | number, optional | update the law at most this often |
 | `setpoint_period_s` | number, optional | while following a moving setpoint, re-apply its feedforward this often between readings (> 0); unset: `max(0.1 s, poll_s / 4)` from the measured signal's `poll_s`. [Controllers](../2-config/controllers.md#a-setpoint-that-moves-faster-than-its-sensor) |
+| `on_fault` | `freeze` \| `manual` \| `stop` \| `stop_device` \| `{freeze_s, then}`, optional | what it does once its measured signal has been faulty for its wait; default `freeze`. `freeze_s` finite, ≥ 0; `then` one of `manual`, `stop`, `stop_device`. `stop` on an output whose stop resolves to `keep` is refused when the rig is built. [Controllers: `on_fault`](../2-config/controllers.md#on_fault-what-a-controller-does-about-a-faulty-source) |
 
 ```yaml
 controllers:

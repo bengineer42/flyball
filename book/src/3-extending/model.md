@@ -215,6 +215,21 @@ clamp, a quantised duty) pushes it itself (`signal.push(value)`). There is
 no dirty flag for a driver to maintain — the rig tracks which devices a
 delivery touched.
 
+### What a stop writes
+
+Every device has a **resolved stop**. A driver whose command is marked
+`@command(stops=True)` is stopped by that command (`Device.stops_by()`
+names it, and a driver whose stop depends on its config overrides it).
+Otherwise each writable demand takes the rig file's `stop:` value, else
+the `off` its `SignalSpec` declares (`SignalSpec(off=...)`: the inactive
+level, a logical value before `invert`, written even outside `limits`),
+else `keep`: `Signal.stop` holds the rig file's value, `KEEP` (`"keep"`)
+meaning leave it. A driver declares `off` only where it cannot be wrong.
+A stop's values go through the rig's force path, past latches, holds,
+permissives and `max_rate`. Declaring either:
+[Writing an actuator](device/actuator.md#what-a-stop-does-to-it); what the
+rig file says: [`stop:`](../2-config/devices/index.md#stop-what-a-stop-writes).
+
 ## Controller
 
 A **controller** regulates one published signal, its **measured** signal,
@@ -286,11 +301,12 @@ self.clear_condition("railed")                                        # when it 
 `set_condition` returns whether it raised the condition (it was not held
 before). The code is any stable string the driver chooses; the runtime's
 own are `Code` members (`offline`, `hung`, `slow`, `write_failed`,
-`stale_input`, `limit_unknown`, `frozen`, `step_failed`, `recording_failed`, and
+`stale_input`, `limit_unknown`, `frozen`, `step_failed`, `recording_failed`,
+`stopped`, `latched`, `not_permitted`, and
 `band_warning`/`band_alarm` on a signal whose reading is outside its
 `warning`/`alarm` band, `band_unknown` on one with no value --
 [Bands](../2-config/devices/index.md#bands)). Both
-calls are safe from any thread, `read` and `commit` included. Before the
+calls may be made from any thread, `read` and `commit` included. Before the
 device is on a rig they go to a store of its own; adding it to a rig
 raises what it holds there, on the rig's clock. `device.held_conditions()`
 is what is held on the device and its signals now.

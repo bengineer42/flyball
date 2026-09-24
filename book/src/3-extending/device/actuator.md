@@ -227,8 +227,9 @@ the lock back only to record what ran. Such a command waits with
 `self.wait(seconds)`, never `time.sleep`: the wait is in the rig's time
 (a scaled or stepped sim clock scales or steps it) and returns `True` at
 once when `self.cancel()` is called. The device's `stop` command calls
-`self.cancel()` first, so a stop ends the long command straight away;
-the long command's `finally` leaves the hardware safe:
+`self.cancel()` first, so a stop ends the long command straight away (a
+rig stop, and the end of a program whose step is running it, cancel it
+too); the long command's `finally` switches the hardware off:
 
 ```python
 @command(long=True)
@@ -240,7 +241,7 @@ def dispense(self, volume_ml: float) -> None:
     finally:
         self._run(False)
 
-@command
+@command(stops=True)
 def stop(self) -> None:
     """Stop the pump now: a dose in progress ends."""
     self.cancel()
@@ -251,6 +252,48 @@ A device runs one long command at a time: a second is refused (409)
 until the first ends. A long command cannot be run by a caller already
 holding the rig lock (refused, 409); a program's `command` step does not
 hold it.
+
+## What a stop does to it
+
+A [software stop](../../1-running/runner/access.md#stopping-the-rig), a
+shutdown and a controller's `on_fault: stop` apply each device's
+[resolved stop](../../2-config/devices/index.md#stop-what-a-stop-writes).
+A driver says what that is in one of two ways, or neither.
+
+**A stop command.** `@command(stops=True)` makes a command the device's
+stop: a stop runs it instead of writing values, and the rig file's `stop:`
+values are refused on the device. At most one per driver (two are refused
+when the class is defined). It runs under the rig's lock, so it must
+return promptly and cannot be `long`; a running long command has already
+been cancelled when it runs. Use it when the device has one action that
+stops it whole -- a blender's pumps off together, a DAC's power-down, a
+stepper's enable line released. A driver whose stop depends on its config
+overrides `stops_by()`, returning the command's name or `None`
+(`scpi` returns `stop` only when a `stop_command:` is configured). If the
+stop command raises, the stop writes each demand's declared `off` instead
+and reports the device `failed`.
+
+**An `off` on a demand.** `SignalSpec(off=...)`, or `off=` on the
+descriptor, is the demand's inactive level: what a stop writes when the
+rig file says nothing for it.
+
+```python
+drive = Demand("drive", "Drive", quantity=DRIVE, limits=(0.0, 1.0), off=0.0)
+```
+
+Declare it only where it cannot be wrong. A PWM duty's 0 % is off; a DAC's
+0 V is a setpoint for a positioner or a VFD, so `mcp4725` declares none.
+Never on an inverted output (whether logical 0 is the load's off depends on
+why it was inverted), and never on a span that straddles 0, where one end
+is full reverse. `off` is a logical value, before any `invert`, in the
+signal's unit. It is written even outside `limits`, which bound regulation,
+not switching an output off. `spanned_signal_spec(..., off_at_zero=True)`
+(`flyball.hardware.spanned_demand`) declares 0, or `span[0]`, for a spanned
+demand, and none across 0; its default is none.
+
+**Neither.** The output is kept: a stop leaves it where it is, energised if
+it was, unless the rig file gives it a `stop:` value. That is the right
+answer wherever the driver cannot know what off means for the load.
 
 ## Conditions
 

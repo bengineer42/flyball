@@ -23,6 +23,7 @@ controllers:
     law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
     feedforward: { type: table, rate_gain: 3000, points: [[20, 0], [200, 289.4]] }
     default: true
+    on_fault: { freeze_s: 30, then: stop }                  # frozen 30 s of fault time, then its stop
 ```
 
 | key | type | |
@@ -32,6 +33,7 @@ controllers:
 | `feedforward` | `{type, …}` | `identity` (the setpoint passed through, in the measured unit); `none`; `affine {gain, bias, rate_gain}`; `table {points, rate_gain}`. Omit: `identity` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one |
 | `min_period_s` | number | update the law at most this often |
+| `on_fault` | `freeze` \| `manual` \| `stop` \| `stop_device` \| `{freeze_s, then}` | what the controller does once its measured signal has been faulty long enough; default `freeze`. [Below](#on_fault-what-a-controller-does-about-a-faulty-source) |
 | `setpoint_period_s` | number | while following a moving setpoint (a ramp, a profile), re-apply its feedforward this often between readings, [below](#a-setpoint-that-moves-faster-than-its-sensor). Above zero; unset: `max(0.1 s, poll_s / 4)` from the measured signal's `poll_s` (1 s for a pushed one) |
 
 ## Feedforward and units
@@ -89,7 +91,7 @@ A measured signal that stops arriving goes `stale` at its threshold
 [liveness](devices/index.md#liveness-a-signal-that-stops-arriving)), pushed
 by the rig on its own clock, so the controller freezes then even though no
 reading comes. Until then it holds its last output: for a heater, or any
-loop whose held output is unsafe, keep the measured signal's `poll_s` well
+loop whose held output can do harm, keep the measured signal's `poll_s` well
 inside the plant's time to harm, and set `stale_after_s` near
 `2 × poll_s` (lower lets one late read declare it stale).
 
@@ -100,9 +102,9 @@ the accrued time reaches the wait -- `max(2 × poll_s, 1 s)` for a single
 bad observation (`invalid`, `stale(device_offline | device_hung |
 write_failed)`), none for staleness by age, none for a law that raises --
 the outage is *released*, once, by a timer on the rig clock: a source that
-delivers nothing is released all the same. Nothing acts on a release yet;
-it is where `on_fault` (freeze for a while, then manual or a stop) will
-plug in. A benign `not_applicable` or `pending` accrues nothing.
+delivers nothing is released all the same. What a release does is the
+controller's [`on_fault`](#on_fault-what-a-controller-does-about-a-faulty-source).
+A benign `not_applicable` or `pending` accrues nothing and never releases.
 
 Then:
 
@@ -147,6 +149,17 @@ A re-apply writes only when the output would change, goes through the same
 write as a tick (`limits`, `max_rate`), and is skipped in `MANUAL`, while
 held or frozen, and while the rig would hold the write. The recorder keeps
 it as a tick with `reapplied: true` and no measured value.
+
+### Resuming a ramp after a hold
+
+A trajectory's clock keeps running while the controller is held or
+frozen, so by the time it resumes the setpoint has moved on without it. On
+resume the controller re-seeds what is left of the ramp from the current
+reading, at the ramp's own rate -- never faster -- so a step that has
+further to go lands later rather than the law chasing the whole jump. A
+`reseeded` event on the controller gives the old and the new end time. A
+dwell is unchanged; a profile re-seeds its current segment and shifts the
+later ones by the same amount.
 
 ### Why the law returns a correction
 
@@ -204,6 +217,77 @@ oversampled sensor, a fast bus. `min_period_s` lets every reading update
 `controller.measured` (so a client watching it always sees the latest
 value) while the law only steps, and the output only changes, at that
 minimum interval.
+
+## `on_fault`: what a controller does about a faulty source
+
+A controller whose measured signal has no value freezes at once
+([One tick](#one-tick)): the law does not step and the output keeps its
+last demand. `on_fault` says what happens after that, once the fault time
+it has accrued reaches its wait. The cost of every choice: until the
+action fires, the output stays at its last demand. Keep the measured
+signal's `poll_s` well inside the plant's time to harm.
+
+| `on_fault` | once the wait is reached | latched |
+| --- | --- | --- |
+| `freeze` (the default) | nothing: the law stays frozen, the output where it was, and the controller resumes by itself after 3 readings in a row with a value | no |
+| `manual` | the controller goes to manual; the output keeps its last value | the controller: its `regulate` is refused |
+| `stop` | the controller goes to manual, and its output's [resolved stop](devices/index.md#stop-what-a-stop-writes) is written (the whole device's stop, where a command stops the device) | the controller and its output signal (or its device): every write to them is refused, a person's included |
+| `stop_device` | the controller goes to manual, and its output's whole device is stopped | the controller and the output's device: every write to it is refused |
+| `{freeze_s: 30, then: stop}` | frozen until 30 s of fault time has accrued, then `then` (`manual`, `stop` or `stop_device`) | as `then` |
+
+**The wait.** `manual`, `stop` and `stop_device` fire once per outage, when
+the accrued fault time reaches `max(2 × poll_s, 1 s)` for a single bad
+observation (`invalid`, a device offline or hung, a failed write), and at
+once for staleness by age (the signal's `stale_after_s` was the grace).
+`{freeze_s: d, then: a}` waits `d` seconds of accrued fault time instead: a
+reading with a value in between pauses the count but never resets it, so a
+flickering source is not held forever. They act only while the controller
+is regulating; `pending` and `not_applicable` never fire. Plain `freeze`
+never acts.
+
+**A law that raises** fires at once and takes at least `manual`: `freeze`
+becomes `manual`; the others act as written.
+
+**Refused at load.** `on_fault: stop` on an output whose stop resolves to
+`keep` -- no `stop:` value, no driver `off`, no stop command -- is refused:
+it would do nothing and look as if it did. Give the output a
+[`stop:`](devices/index.md#stop-what-a-stop-writes) value, or choose
+another action.
+
+**The latch.** Each action but `freeze` latches, with the cause
+`on_fault:<controller>` (`on_fault:heaters.heater2`): a condition `latched`
+on each thing it holds, an `on_fault` event on the controller
+(`{action, reason, accrued_s, was, stop}`), and the latch kept in the store,
+so a restart keeps it and writes the stop again. While any latch holds the
+controller, its output or the rig, `regulate` is refused (409) -- a program's
+`ramp` or `regulate` step and an agent cannot clear one. A latching fault
+also interrupts a running program, with the reason `fault:<controller>`,
+whatever the program names.
+
+**Reset.** Each latch is cleared only by its own Reset, by a person holding
+`operate`: `POST /api/rig/reset {"cause": "on_fault:heaters.heater2"}`
+([Stopping the rig](../1-running/runner/access.md#reset)). A fault's Reset
+also clears the controller's law state, so a NaN that made the law raise
+does not persist. Nothing resumes: the controller stays in manual. The one
+shortcut: a person's `regulate` through HTTP clears the controller's own
+`on_fault: manual` latch, which holds nothing else.
+
+**Not a guarantee.** The wait and `freeze_s` are timed inside the runner,
+best-effort: if flyball is stuck or dead, nothing acts
+([What flyball does not do](../0-overview/limits.md)). `GET /api/rig/stop`
+warns about a controller on plain `freeze` whose output's stop is its
+driver's `off`, since that output is held indefinitely while the source is
+faulty.
+
+Per-reason actions (a different action for `invalid` than for `stale`) and
+presets are not built.
+
+## A permissive on the output
+
+A controller whose output has a
+[`permissive:`](devices/index.md#permissive-a-write-only-while-another-signal-allows-it)
+that does not allow the write is held (frozen, condition `not_permitted`)
+rather than refused, and resumes when the permissive allows it again.
 
 Next: [Programs](../1-running/programs/index.md).
 

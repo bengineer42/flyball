@@ -26,6 +26,7 @@ paths in the file to the first rig file.
 | `--compose` | | `compose` | let the API change a hardware rig (each change restarts it) |
 | `--allow-save` | | `allow_save` | let the API write rig files |
 | `--allow-shutdown` | | `allow_shutdown` | let the API stop or restart the runner (a rig edit's own restart does not need it) |
+| `--on-shutdown stop\|keep` | `FLYBALL_ON_SHUTDOWN` | `on_shutdown` | what shutting down (and a restart) does to outputs: `stop` (default) writes each device's resolved stop, best-effort, not latched; `keep` writes nothing, leaving outputs energised with no process watching them. Not `--keep`, which is the scratch record's window |
 | `--store PATH` | | `store` | the SQLite store; default `<rig>.sqlite` beside the file |
 | -- | | `store_dir` | `<dir>/<rig name>.sqlite` instead (file only) |
 | `--programs DIR` | | `programs` | program files to import; default `programs/` |
@@ -51,7 +52,9 @@ could not serve (its socket or port not bound, its server not started).
 codes beside them. A restart asked over the API replaces the
 process with the same command line; so does a rig edit's, with `--resume`
 added for a runner with no rig file ([Building a rig while it
-runs](../1-running/runner/building.md)). `SIGUSR1` [stops the rig](../1-running/runner/access.md#stopping-the-rig) without ending the process.
+runs](../1-running/runner/building.md)). `SIGUSR1` [stops the rig](../1-running/runner/access.md#stopping-the-rig) without ending the process; a shutdown applies each device's
+[resolved stop](../2-config/devices/index.md#stop-what-a-stop-writes)
+unless `--on-shutdown keep`.
 
 What each does in practice: [Starting a rig](../1-running/runner/index.md);
 the keys with their meanings: [The runner section](../2-config/runner.md).

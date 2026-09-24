@@ -26,6 +26,9 @@ devices:
 | `inputs` | `{input: address or number}` | what each of this device's inputs follows: another device's signal, or a number. Every input the driver declares must be given one -- an input has no default, [below](#binding-one-device-to-another) |
 | `reads` | `{fail_after, backoff_s, give_up_after_s}` | when failed reads put it `offline`, and how it is retried, [below](#reads) |
 | `retry_max_age_s` | number (seconds) | how long a value a failed write kept may wait to be sent again; older is dropped, not sent, [below](#a-write-that-fails). Finite and above zero; unset: 60 s |
+| `stop` | `{demand path: number or keep}` | what a stop writes to each writable demand, overriding the driver's `off`; `keep` leaves it as it is. Refused on a device whose driver stops it with a command, [below](#stop-what-a-stop-writes) |
+| `on_shutdown` | `stop` \| `keep` | what the runner's shutdown does to this device. Unset: the [runner's `on_shutdown`](../runner.md), [below](#on_shutdown-what-shutting-down-does) |
+| `permissive` | `{demand path: {signal, above, below}}` | a write to the demand is refused unless `signal`'s value is inside the band, [below](#permissive-a-write-only-while-another-signal-allows-it) |
 | any other key | | the driver's own fields, listed per driver in [Supported drivers](drivers.md) and explained in [Where a device's options come from](generated.md); `link` names an entry under `links`, `pin: LABEL` resolves through the `board`. A nested `config:` is refused |
 
 ## `signals`
@@ -251,7 +254,99 @@ devices:
 
 Retrying sends the latest value of a demand again. That suits a level (a
 power, a flow); a demand that is not idempotent (a dose) should not rely on
-it.
+it. A stop, or a latch on the device, replaces what was kept: the kept
+values are dropped and their retry cancelled.
+
+## `stop`: what a stop writes
+
+Every device has a **resolved stop**: what a
+[software stop](../../1-running/runner/access.md#stopping-the-rig), a
+shutdown or a controller's [`on_fault: stop`](../controllers.md#on_fault-what-a-controller-does-about-a-faulty-source)
+does to it.
+
+- **A stop command.** A device whose driver has one (the humidity blender's
+  `stop`, `dosing_pump` and `stepper`'s `stop`, `mcp4725`'s `power_down`,
+  `scpi` with a `stop_command:`) is stopped by running it. `stop:` values
+  are refused at load on such a device.
+- **Otherwise, per writable demand,** the first that applies: the rig
+  file's `stop:` value (a number, or `keep`); else the driver's declared
+  **`off`**, the output's inactive level (a PWM duty's 0 %); else `keep`
+  -- left as it is, energised if it was.
+
+A driver declares `off` only where it cannot be wrong: never on an inverted
+output, never on a span that straddles 0. Each driver's is in its section
+of [Supported drivers](drivers.md). A declared `off` is written even
+outside `limits`: limits bound regulation, not switching the output off. A
+`stop:` number is checked against the signal's limits at load.
+
+```yaml
+devices:
+  heaters:
+    driver: pwm_channel
+    link: pwm0
+    channel: 0
+    stop: { drive: keep }       # left as it is on a stop
+  fan:
+    driver: pwm_channel
+    link: pwm0
+    channel: 1
+    stop: { drive: 1 }          # a fan that must keep running after a stop
+  direction:
+    driver: gpio_line
+    link: gpio0
+    line: 17
+    direction: output
+    stop: { on: keep }          # a direction or select line: 0 is not "off"
+```
+
+The driver cannot tell a heater from a fan. A fan or a coolant pump that
+must keep running after a stop needs `stop: {drive: 1}` or `keep`. Run-on
+(the fan for a minute, then off) is not supported:
+[What flyball does not do](../../0-overview/limits.md).
+
+`GET /api/rig/stop` lists every writable output with what a stop would do
+to it and why (`off`, `you said`, `nobody said`, `command`), and warns about
+a controller's output nobody gave a stop, which a stop leaves energised and
+open loop. The runner logs the same warnings at start. `flyball rig check`
+checks the file's schema only and cannot see a driver's `off`, so this
+list needs a running rig.
+
+## `on_shutdown`: what shutting down does
+
+When the runner shuts down or restarts, it applies each device's resolved
+stop, best-effort within the supervisor's stop window. `on_shutdown: keep`
+on a device leaves that device as it is; the runner's own
+[`on_shutdown: keep`](../runner.md) (or `--on-shutdown keep`) leaves every
+device as it is. `keep` means flyball writes nothing on the way out, so the
+outputs stay energised with no process watching them. The next start
+builds each driver again, which writes its build value (0 or `initial`
+for `pwm_channel`, `gpio_line`, `mcp4725`, `stepper`).
+
+```yaml
+devices:
+  circulator: { driver: gpio_line, link: gpio0, line: 22, direction: output, on_shutdown: keep }
+```
+
+## `permissive`: a write only while another signal allows it
+
+```yaml
+devices:
+  heaters:
+    driver: pwm_channel
+    link: pwm0
+    channel: 0
+    permissive:
+      drive: { signal: chamber.flow, above: 0.5 }   # heat only with air flowing
+```
+
+A write to `drive` is refused (409) unless `chamber.flow` reads above 0.5.
+`above` and `below` are strict bounds; give either or both. It fails
+closed: a signal with no reading yet, or none with a value (`stale`,
+`invalid`, `pending`), refuses the write. A write of the demand's resolved
+stop value is always permitted, and a stop ignores the permissive. A
+controller driving the demand is held (frozen, condition `not_permitted`)
+rather than refused, and resumes when the permissive allows it. Only
+`{signal, above, below}` is built; richer conditions are not.
 
 ## What a device gives you
 

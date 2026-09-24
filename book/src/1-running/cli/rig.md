@@ -5,7 +5,7 @@
 
 | command | |
 | --- | --- |
-| `flyball rig check FILE… [--set KEY=VALUE] [--print]` | validate rig files (later overlays earlier) against the schema built into the binary -- `flyball`'s own drivers, not extras such as `flyball-linux`, whose tags it does not know (start the runner to check those); `--print` prints the merged document. No runner needed |
+| `flyball rig check FILE… [--set KEY=VALUE] [--print]` | validate rig files (later overlays earlier) against the schema built into the binary -- `flyball`'s own drivers, not extras such as `flyball-linux`, whose tags it does not know (start the runner to check those); `--print` prints the merged document. No runner needed. It cannot see a driver's `off`: what a stop would write to each output is `GET /api/rig/stop` on a running rig |
 | `flyball rig schema` | the rig file's JSON Schema, for an editor |
 | `flyball sim` | a simulated rig's clock and every plant's parameters (`GET /api/sim`) |
 | `flyball sim clock N` | run the rig's time at N× (`PUT /api/sim/clock`) |
@@ -32,16 +32,19 @@ runner itself, without it
 ## Stopping the rig
 
 ```
-flyball stop --reason "door open"           # the software stop: program interrupted, controllers to manual
+flyball stop --reason "door open"           # the software stop: latched, controllers to manual, each device's stop written
 flyball -s furnace stop                     # one rig behind flyballd
 flyball stop --all                          # every rig flyballd runs that this credential may operate
 flyball stop --front-dir /run/flyball/furnace   # on the rig's host: SIGUSR1 to the runner, no HTTP
 flyball stop furnace.yaml                   # the same, for a rig started with `flyball run furnace.yaml`
 ```
 
-Over HTTP it needs `operate`, prints what happened to each device, and in
-this release writes nothing to any device: outputs are left as they were
-([the software stop](../runner/access.md#stopping-the-rig)). The
+Over HTTP it needs `operate` and prints what happened to each device
+(`stopped`, `unchanged` or `failed`, with what it wrote or kept), whether a
+program was interrupted, the controllers now in manual, and a `latched`
+line: automatic writes are refused until a person resets the rig with
+`POST /api/rig/reset` ([the software stop](../runner/access.md#stopping-the-rig)).
+There is no `reset` subcommand yet. The
 `--front-dir` and rig-file forms signal the runner instead, which works
 with no front, no credential and no network; the report goes to the
 runner's log, or the run's `run.log`

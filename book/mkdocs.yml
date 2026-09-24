@@ -73,6 +73,7 @@ nav:
   - Overview:
       - 0-overview/index.md
       - What you will see: 0-overview/concepts.md
+      - What flyball does not do: 0-overview/limits.md
       - Worked examples: 0-overview/examples.md
   - Running a rig:
       - 1-running/index.md

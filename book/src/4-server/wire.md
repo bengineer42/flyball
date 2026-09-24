@@ -128,7 +128,7 @@ Kelvin against a °C signal converts before it reports.
 | a law config | `{"type": "PI", "kp": 0.5, "ki": 0.05, "tt": 0.0}`; the union discriminates on `type` |
 | a law view | the config plus the law's state fields (`integral`, `last_raw`, …) |
 | `Tuning` | `{"name": name, "config": law config}` |
-| `ControllerOut` | `{name, label, output_signal, measured_signal, default, mode, law, feedforward, output_unit, reference, setpoint, arrived, correction, output, expected, delivered_correction, measured}` — `name` is `output_signal`; `measured` is a `ReadingOut`; see [Controllers](api.md#controllers) |
+| `ControllerOut` | `{name, label, output_signal, measured_signal, default, mode, law, feedforward, output_unit, reference, setpoint, arrived, correction, output, expected, delivered_correction, measured, on_fault, latched}` — `name` is `output_signal`; `measured` is a `ReadingOut`; `on_fault` the rig file's form (`"freeze"`, `"manual"`, `"stop"`, `"stop_device"` or `{freeze_s, then}`); `latched` the causes of every latch that refuses its `regulate` now (`["stop"]`, `["on_fault:heaters.heater2"]`), `[]` when none; see [Controllers](api.md#controllers) |
 | `mode` | `"manual"`, `"regulating"` (open loop is the `open_loop` law under `"regulating"`) |
 | `Transfer` | `"none"`, `"carry"`, `"track"`, `"cold"` |
 | `ValueSource` | `"measured"`, `"setpoint"`, `"output"` |
@@ -141,6 +141,16 @@ config or the name of a stored tuning instead.
 | type | JSON |
 | --- | --- |
 | `RigEditOut` (202 from every [rig edit](api.md#composition)) | `{version, previous, reason, saved, restarting, stop, detail}` -- `version` the edit's rig version, now the head; `previous` the head before it (what a start that cannot build it goes back to); `reason` `edited: added device probe` or `restored from 3`; `saved` the overlay it was written to, or `null` for a bare or resumed rig (the store alone); `stop` the stop's report (`POST /api/rig/stop`'s), or `null` if the stop failed. The runner is restarting: the next request may find it down for a moment |
+
+## Stopping and latches
+
+| type | JSON |
+| --- | --- |
+| `StopReport` (`POST /api/rig/stop`) | `{at_ns, actor, reason, devices, program_interrupted, controllers_manual, interim, latched}` -- `at_ns` wall-clock ns; `actor` `{sub, sid, kind, via, detail}` (`via` `http`, `mcp` or `signal`); `devices` `{name: DeviceStop}`; `interim` `false` (`true` only from the earlier stop that wrote nothing); `latched` whether the rig is latched stopped now |
+| `DeviceStop` | `{state, detail, written, kept}` -- `state` `stopped`, `unchanged` or `failed`; `written` `{address: value}` what it wrote (a driver's readback where it gave one); `kept` `{address: value \| null}` what it left as it was, with the value it holds (`null`: not known) |
+| `LatchOut` (`GET /api/rig/latches`, `POST /api/rig/reset`) | `{cause, subjects, by, at_ns, reason, action}` -- `cause` `stop` or `on_fault:<controller>`; `subjects` `[{scope, subject}]` (`scope` `rig`, `device`, `signal` or `controller`); `by` the principal's `sub` for a stop, `on_fault` for a fault; `action` the fault's `manual`, `stop` or `stop_device`, `""` for a stop |
+| `StopPlan` (`GET /api/rig/stop`) | `{stopped, outputs}` -- `stopped` the rig stop's `LatchOut` or `null`; `outputs` `[{address, device, stop, source, command, controller, covered_if_flyball_dies, warnings}]`: `stop` a number, `"keep"`, or `null` when `command` runs; `source` `off`, `you said`, `nobody said` or `command`; `covered_if_flyball_dies` always `false`; `warnings` `[str]` |
+| `Health.stopped`, `Health.latches` (`GET /api/health`) | `stopped` `{by, at_ns, reason}` or `null`; `latches` `[{scope, subject, cause}]`, one row per subject a latch holds |
 
 ## Sessions
 

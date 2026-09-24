@@ -23,6 +23,7 @@ relative to the first rig file's directory.
 | `compose` | bool | `false` | `--compose` | let the API change a *hardware* rig (add or remove links and devices, restore a version; each change restarts the rig); a simulated or bare rig always may |
 | `allow_save` | bool | `false` | `--allow-save` | let the API write rig files: `/api/rig/save` to a path, `/api/sim/save`. The overlay save (`<rig>.d/added.yaml`) needs no flag |
 | `allow_shutdown` | bool | `false` | `--allow-shutdown` | let the API stop or restart the runner (`/api/runner/shutdown`, `/restart`); a rig edit's own restart does not need it |
+| `on_shutdown` | `stop` / `keep` | `stop` | `--on-shutdown`, `FLYBALL_ON_SHUTDOWN` | what the runner's shutdown (and restart) does to outputs: `stop` writes each device's [resolved stop](devices/index.md#stop-what-a-stop-writes), best-effort within the supervisor's stop window (`flyballd` kills the runner after 10 s), not latched; `keep` writes nothing, leaving outputs energised with no process watching them. A device's own [`on_shutdown: keep`](devices/index.md#on_shutdown-what-shutting-down-does) wins over `stop`. For one run: `--on-shutdown keep` |
 | `store` | path | `<rig>.sqlite` beside the file | `--store` | the SQLite store: sessions, versions, programs, dashboards |
 | `store_dir` | path | none | -- | put the store at `<store_dir>/<name>.sqlite` instead, so several runners keep theirs in one place; `store` wins |
 | `programs` | path | `programs/` beside the file | `--programs` | program files imported into the library at start |
