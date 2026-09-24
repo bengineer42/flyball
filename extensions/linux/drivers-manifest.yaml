@@ -331,6 +331,23 @@ sensors:
       - label: note
         url: "K-type only, positive Celsius only (unsigned 12-bit field, no cold-junction linearisation choice); max31855/max31856 supersede it for anything else"
 
+  - type: max31855
+    part_number: MAX31855
+    manufacturer: Maxim Integrated / Analog Devices
+    category: temp
+    interface: spi
+    tier: bespoke_driver
+    file: extensions/chips/src/flyball_chips/max31855.py
+    loc_estimate: "80-120"
+    loc_actual: 108
+    status: done
+    datasheet_checked: true
+    hardware_tested: false
+    price_approx: "~$8-15 module [Unverified]"
+    domains: [brewing, distillery, industrial_process]
+    links:
+      - label: note
+        url: "Register map (14-bit thermocouple, 12-bit cold junction, D16 fault + OC/SCG/SCV bits) matches the Adafruit MAX31855 library's decode"
 
 
 

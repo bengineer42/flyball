@@ -24,6 +24,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`ads1115`](#ads1115) | TI 16-bit ADC | `i2c` | `flyball-chips` | — |
 | [`mcp3008`](#mcp3008) | Microchip 10-bit ADC | `spi` | `flyball-chips` | — |
 | [`max6675`](#max6675) | Maxim K-type thermocouple | `spi` | `flyball-chips` | — |
+| [`max31855`](#max31855) | Maxim thermocouple + cold junction | `spi` | `flyball-chips` | — |
 | [`gpio_line`](#gpio_line) | a relay, a switch | `gpio` | `flyball-linux` | datasheet-checked |
 | [`pwm_channel`](#pwm_channel) | a PWM output | `pwm` | `flyball-linux` | — |
 | [`ds18b20`](#ds18b20) | 1-Wire thermometers | `onewire` | `flyball-linux` | — |
@@ -86,6 +87,7 @@ driver here follows it:
 | `sim_drive`, `pwm_channel`, `mcp4725`, `dosing_pump`, `stepper` | n/a: write-only, or internal state | the bus |
 | `i2c_table`, `ads1115`, `mcp3008`, `gpio_line`, `pulse_counter`, `hx711` | none: every read is a number | the bus; `hx711` a conversion not ready |
 | `max6675` | an open thermocouple → `invalid("open_circuit")` | the bus |
+| `max31855` | a fault (open circuit, or a short to VCC/GND) → `temperature` `invalid`, naming every fault bit set; `cold_junction` always reads | the bus |
 | `sht4x`, `sht4x_set`, `sht31`, `htu21d`, `scd30`, `scd40`, `sgp40`, `mhz19`, `ms5611` | none (humidity is cropped to 0-100 %, as the datasheets say) | a CRC failure, a short frame, a sensor not ready in time; in an `sht4x_set` one sensor's failure fails that read of the set |
 | `bme280` | a BMP280 has no `humidity` signal at all | the bus |
 | `ezo_*` | none | a `*` status reply, a malformed one |
@@ -361,6 +363,21 @@ temperatures -- for either, use `max31855` or `max31856` instead.
 **Stop:** `temperature` is read-only, so a rig stop does nothing to this
 device; `stop:` values are refused on it.
 
+### `max31855`
+
+Maxim cold-junction-compensated thermocouple to digital, SPI, read-only:
+`temperature [RP]` (the thermocouple, 0.25 °C steps) and `cold_junction
+[RP]` (the chip's own junction, 0.0625 °C steps), both in °C. A fault (open
+circuit, or a short to VCC/GND) reads `temperature` `invalid`, naming every
+fault bit that is set; `cold_junction` has no fault bit of its own and is
+always published.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `spi` link |
+
+**Stop:** both signals are read-only, so a rig stop does nothing to this
+device; `stop:` values are refused on it.
 
 
 
