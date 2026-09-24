@@ -2904,6 +2904,86 @@
       "title": "Channel",
       "type": "object"
     },
+    "CurveModel": {
+      "discriminator": {
+        "mapping": {
+          "linear": "#/$defs/LinearCurve",
+          "table": "#/$defs/TableCurve"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/LinearCurve"
+        },
+        {
+          "$ref": "#/$defs/TableCurve"
+        }
+      ]
+    },
+    "LinearCurve": {
+      "additionalProperties": false,
+      "description": "`scale * x + offset`, everywhere `x` is finite.",
+      "properties": {
+        "type": {
+          "const": "linear",
+          "title": "Type",
+          "type": "string"
+        },
+        "scale": {
+          "description": "Output units per input unit.",
+          "title": "Scale",
+          "type": "number"
+        },
+        "offset": {
+          "default": 0.0,
+          "description": "The output at `x` = 0.",
+          "title": "Offset",
+          "type": "number"
+        }
+      },
+      "required": [
+        "type",
+        "scale"
+      ],
+      "title": "LinearCurve",
+      "type": "object"
+    },
+    "TableCurve": {
+      "additionalProperties": false,
+      "description": "Piecewise-linear `[x, y]` breakpoints; no value outside the first and last `x`.",
+      "properties": {
+        "type": {
+          "const": "table",
+          "title": "Type",
+          "type": "string"
+        },
+        "points": {
+          "description": "`[x, y]` pairs, in any order: at most 1024, each finite. Two sharing an `x` are a step, the smaller `y` taken at it.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "points"
+      ],
+      "title": "TableCurve",
+      "type": "object"
+    },
     "GpioLineConfig": {
       "description": "`driver: gpio_line`: `{ link, line }`, or `pin: GPIO18` from the board profile.",
       "properties": {
@@ -3069,6 +3149,51 @@
       "title": "PwmChannelConfig",
       "type": "object"
     },
+    "InitWrite": {
+      "additionalProperties": false,
+      "description": "One write sent when the device is built: a config or reset register with no signal.",
+      "properties": {
+        "address": {
+          "description": "The register address on the chip.",
+          "maximum": 255,
+          "minimum": 0,
+          "title": "Address",
+          "type": "integer"
+        },
+        "value": {
+          "title": "Value",
+          "type": "integer"
+        },
+        "length": {
+          "default": 1,
+          "description": "Bytes.",
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Length",
+          "type": "integer"
+        },
+        "byteorder": {
+          "default": "big",
+          "enum": [
+            "big",
+            "little"
+          ],
+          "title": "Byteorder",
+          "type": "string"
+        },
+        "signed": {
+          "default": false,
+          "title": "Signed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "address",
+        "value"
+      ],
+      "title": "InitWrite",
+      "type": "object"
+    },
     "Register": {
       "additionalProperties": false,
       "description": "Where a value lives and how it converts: one line of an `i2c_table` device's tree.",
@@ -3108,6 +3233,35 @@
           "minimum": 0,
           "title": "Shift",
           "type": "integer"
+        },
+        "mask": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "AND with the shifted raw value: a bit-field inside a wider register.",
+          "title": "Mask"
+        },
+        "sign_bit": {
+          "anyOf": [
+            {
+              "maximum": 63,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The masked value's own sign bit (0-based): two's-complement at that width, not the register's. A bit-field register (`mask` or `sign_bit` set) is read-only here -- there is no safe read-modify-write of the other bits.",
+          "title": "Sign Bit"
         },
         "scale": {
           "default": 1.0,
@@ -3166,7 +3320,7 @@
     },
     "ModbusRegister": {
       "additionalProperties": false,
-      "description": "One line of a `modbus` device's tree: where a value lives, and how it converts.\n\n`value = raw * scale`. Every register is readable and published; `write`\nalso makes it writable. `input` registers are read-only on real hardware,\nso `write` on one is refused here too.",
+      "description": "One line of a `modbus` device's tree: where a value lives, and how it converts.\n\n`value = decode(words) * scale + offset`. `kind` picks the Modbus table, and so the\nfunction code: `holding` (FC03/FC16, the default), `input` (FC04, read-only), `coil`\n(FC01/FC05) and `discrete` (FC02, read-only) -- `input` and `discrete` registers are\nread-only on real hardware, so `write` on either is refused here too. Coils and\ndiscrete inputs are booleans (0/1); `format` and `word_order` do not apply to them.\nEvery register is readable and published; `write` also makes it writable.",
       "properties": {
         "address": {
           "title": "Address",
@@ -3177,7 +3331,8 @@
           "enum": [
             "holding",
             "input",
-            "coil"
+            "coil",
+            "discrete"
           ],
           "title": "Kind",
           "type": "string"
@@ -3186,9 +3341,37 @@
           "title": "Unit",
           "type": "string"
         },
+        "format": {
+          "default": "u16",
+          "description": "How the word(s) decode: `u16` (default, one unsigned word), `i16`, or the 32-bit `u32`/`i32`/`f32`, which span two registers ordered by `word_order`. Named `format`, not `type`, so it cannot clash with a device config's own `type:` discriminator.",
+          "enum": [
+            "u16",
+            "i16",
+            "u32",
+            "i32",
+            "f32"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "word_order": {
+          "default": "big",
+          "description": "Which register holds the high word of a 32-bit value: `big` (default, Alicat-style float32 MFCs) or `little`. Ignored for `u16`/`i16`.",
+          "enum": [
+            "big",
+            "little"
+          ],
+          "title": "Word Order",
+          "type": "string"
+        },
         "scale": {
           "default": 1.0,
           "title": "Scale",
+          "type": "number"
+        },
+        "offset": {
+          "default": 0.0,
+          "title": "Offset",
           "type": "number"
         },
         "write": {
@@ -4643,6 +4826,205 @@
           },
           {
             "type": "object",
+            "title": "curve",
+            "description": "A signal through a calibration curve: one input `x`, one readout `value`.",
+            "properties": {
+              "label": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Label"
+              },
+              "poll_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Poll S"
+              },
+              "signals": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SignalMeta"
+                    },
+                    {
+                      "$ref": "#/$defs/NamespaceMeta"
+                    }
+                  ]
+                },
+                "title": "Signals",
+                "type": "object"
+              },
+              "inputs": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
+                "title": "Inputs",
+                "type": "object",
+                "required": [
+                  "x"
+                ],
+                "propertyNames": {
+                  "enum": [
+                    "x"
+                  ]
+                }
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
+              "driver": {
+                "const": "curve"
+              },
+              "link": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "A transport (or a simulated plant), by name.",
+                "title": "Link"
+              },
+              "curve": {
+                "$ref": "#/$defs/CurveModel",
+                "description": "`{type: linear, scale, offset}` or `{type: table, points: [[x, y], ...]}`."
+              },
+              "unit": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "The unit symbol of `value` (`NTU`, `pH`, `kPa`); omit for none.",
+                "title": "Unit"
+              },
+              "quantity": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What `value` is (`turbidity`); default: the device's name.",
+                "title": "Quantity"
+              }
+            },
+            "required": [
+              "driver",
+              "curve",
+              "inputs"
+            ],
+            "not": {
+              "required": [
+                "config"
+              ]
+            }
+          },
+          {
+            "type": "object",
             "title": "dosing_pump",
             "description": "`driver: dosing_pump`: `{ pump, ml_per_s }`, `pump` a nested `pwm_channel` or `gpio_line`.\n\n`drive_fraction` (pwm only) is the duty the pump runs at during a dispense, default full\ndrive. `max_dispense_ml` optionally caps a single `dispense` call.",
             "properties": {
@@ -5022,7 +5404,7 @@
           {
             "type": "object",
             "title": "ezo_do",
-            "description": "One EZO-DO circuit, alone on its UART.",
+            "description": "One EZO-DO circuit, on its own UART or at an I2C `address` (default 0x61).",
             "properties": {
               "label": {
                 "anyOf": [
@@ -5075,7 +5457,14 @@
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
-                "type": "object"
+                "type": "object",
+                "propertyNames": {
+                  "enum": [
+                    "temperature",
+                    "salinity",
+                    "pressure"
+                  ]
+                }
               },
               "reads": {
                 "anyOf": [
@@ -5160,11 +5549,15 @@
                   {
                     "discriminator": {
                       "mapping": {
+                        "fake_i2c": "#/$defs/FakeI2cConfigTagged",
                         "fake_uart": "#/$defs/FakeUartConfigTagged"
                       },
                       "propertyName": "type"
                     },
                     "oneOf": [
+                      {
+                        "$ref": "#/$defs/FakeI2cConfigTagged"
+                      },
                       {
                         "$ref": "#/$defs/FakeUartConfigTagged"
                       }
@@ -5175,6 +5568,14 @@
                   }
                 ],
                 "title": "Link"
+              },
+              "address": {
+                "default": 97,
+                "description": "The I2C address; ignored when the circuit is wired for UART.",
+                "maximum": 119,
+                "minimum": 3,
+                "title": "Address",
+                "type": "integer"
               }
             },
             "required": [
@@ -5190,7 +5591,7 @@
           {
             "type": "object",
             "title": "ezo_ec",
-            "description": "One EZO-EC circuit, alone on its UART.",
+            "description": "One EZO-EC circuit, on its own UART or at an I2C `address` (default 0x64).",
             "properties": {
               "label": {
                 "anyOf": [
@@ -5243,7 +5644,12 @@
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
-                "type": "object"
+                "type": "object",
+                "propertyNames": {
+                  "enum": [
+                    "temperature"
+                  ]
+                }
               },
               "reads": {
                 "anyOf": [
@@ -5328,11 +5734,15 @@
                   {
                     "discriminator": {
                       "mapping": {
+                        "fake_i2c": "#/$defs/FakeI2cConfigTagged",
                         "fake_uart": "#/$defs/FakeUartConfigTagged"
                       },
                       "propertyName": "type"
                     },
                     "oneOf": [
+                      {
+                        "$ref": "#/$defs/FakeI2cConfigTagged"
+                      },
                       {
                         "$ref": "#/$defs/FakeUartConfigTagged"
                       }
@@ -5343,6 +5753,14 @@
                   }
                 ],
                 "title": "Link"
+              },
+              "address": {
+                "default": 100,
+                "description": "The I2C address; ignored when the circuit is wired for UART.",
+                "maximum": 119,
+                "minimum": 3,
+                "title": "Address",
+                "type": "integer"
               }
             },
             "required": [
@@ -5358,7 +5776,7 @@
           {
             "type": "object",
             "title": "ezo_orp",
-            "description": "One EZO-ORP circuit, alone on its UART.",
+            "description": "One EZO-ORP circuit, on its own UART or at an I2C `address` (default 0x62).",
             "properties": {
               "label": {
                 "anyOf": [
@@ -5496,11 +5914,15 @@
                   {
                     "discriminator": {
                       "mapping": {
+                        "fake_i2c": "#/$defs/FakeI2cConfigTagged",
                         "fake_uart": "#/$defs/FakeUartConfigTagged"
                       },
                       "propertyName": "type"
                     },
                     "oneOf": [
+                      {
+                        "$ref": "#/$defs/FakeI2cConfigTagged"
+                      },
                       {
                         "$ref": "#/$defs/FakeUartConfigTagged"
                       }
@@ -5511,6 +5933,14 @@
                   }
                 ],
                 "title": "Link"
+              },
+              "address": {
+                "default": 98,
+                "description": "The I2C address; ignored when the circuit is wired for UART.",
+                "maximum": 119,
+                "minimum": 3,
+                "title": "Address",
+                "type": "integer"
               }
             },
             "required": [
@@ -5526,7 +5956,7 @@
           {
             "type": "object",
             "title": "ezo_ph",
-            "description": "One EZO-pH circuit, alone on its UART.",
+            "description": "One EZO-pH circuit, on its own UART or at an I2C `address` (default 0x63).",
             "properties": {
               "label": {
                 "anyOf": [
@@ -5579,7 +6009,12 @@
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
-                "type": "object"
+                "type": "object",
+                "propertyNames": {
+                  "enum": [
+                    "temperature"
+                  ]
+                }
               },
               "reads": {
                 "anyOf": [
@@ -5664,11 +6099,15 @@
                   {
                     "discriminator": {
                       "mapping": {
+                        "fake_i2c": "#/$defs/FakeI2cConfigTagged",
                         "fake_uart": "#/$defs/FakeUartConfigTagged"
                       },
                       "propertyName": "type"
                     },
                     "oneOf": [
+                      {
+                        "$ref": "#/$defs/FakeI2cConfigTagged"
+                      },
                       {
                         "$ref": "#/$defs/FakeUartConfigTagged"
                       }
@@ -5679,6 +6118,14 @@
                   }
                 ],
                 "title": "Link"
+              },
+              "address": {
+                "default": 99,
+                "description": "The I2C address; ignored when the circuit is wired for UART.",
+                "maximum": 119,
+                "minimum": 3,
+                "title": "Address",
+                "type": "integer"
               }
             },
             "required": [
@@ -6284,7 +6731,7 @@
           {
             "type": "object",
             "title": "i2c_table",
-            "description": "`driver: i2c_table`. `registers` is the driver's own tree -- see `Register`.\n\n```yaml\nboard_temp:\n  driver: i2c_table\n  link: i2c1\n  address: 0x48\n  registers:\n    temperature: { address: 0, length: 2, signed: true, scale: 0.0078125, unit: \"\u00b0C\" }\n```",
+            "description": "`driver: i2c_table`. `registers` is the driver's own tree -- see `Register`.\n\n```yaml\nboard_temp:\n  driver: i2c_table\n  link: i2c1\n  address: 0x48\n  init:\n    - { address: 0x01, value: 0x60 }   # one-shot mode, per the datasheet\n  registers:\n    temperature: { address: 0, length: 2, signed: true, scale: 0.0078125, unit: \"\u00b0C\" }\n```",
             "properties": {
               "label": {
                 "anyOf": [
@@ -6455,6 +6902,14 @@
                 },
                 "title": "Registers",
                 "type": "object"
+              },
+              "init": {
+                "description": "Writes sent once, in order, when the device is built.",
+                "items": {
+                  "$ref": "#/$defs/InitWrite"
+                },
+                "title": "Init",
+                "type": "array"
               }
             },
             "required": [
@@ -6462,6 +6917,760 @@
               "link",
               "address",
               "registers"
+            ],
+            "not": {
+              "required": [
+                "config"
+              ]
+            }
+          },
+          {
+            "type": "object",
+            "title": "max31855",
+            "description": "`driver: max31855`: a thermocouple with cold-junction compensation over SPI.",
+            "properties": {
+              "label": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Label"
+              },
+              "poll_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Poll S"
+              },
+              "signals": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SignalMeta"
+                    },
+                    {
+                      "$ref": "#/$defs/NamespaceMeta"
+                    }
+                  ]
+                },
+                "title": "Signals",
+                "type": "object"
+              },
+              "inputs": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
+                "title": "Inputs",
+                "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
+              "driver": {
+                "const": "max31855"
+              },
+              "link": {
+                "anyOf": [
+                  {
+                    "discriminator": {
+                      "mapping": {
+                        "fake_spi": "#/$defs/FakeSpiConfigTagged"
+                      },
+                      "propertyName": "type"
+                    },
+                    "oneOf": [
+                      {
+                        "$ref": "#/$defs/FakeSpiConfigTagged"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "title": "Link"
+              }
+            },
+            "required": [
+              "driver",
+              "link"
+            ],
+            "not": {
+              "required": [
+                "config"
+              ]
+            }
+          },
+          {
+            "type": "object",
+            "title": "max31856",
+            "description": "`driver: max31856`: a precision thermocouple, register-configured, over SPI (mode 1 or 3).",
+            "properties": {
+              "label": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Label"
+              },
+              "poll_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Poll S"
+              },
+              "signals": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SignalMeta"
+                    },
+                    {
+                      "$ref": "#/$defs/NamespaceMeta"
+                    }
+                  ]
+                },
+                "title": "Signals",
+                "type": "object"
+              },
+              "inputs": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
+                "title": "Inputs",
+                "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
+              "driver": {
+                "const": "max31856"
+              },
+              "link": {
+                "anyOf": [
+                  {
+                    "discriminator": {
+                      "mapping": {
+                        "fake_spi": "#/$defs/FakeSpiConfigTagged"
+                      },
+                      "propertyName": "type"
+                    },
+                    "oneOf": [
+                      {
+                        "$ref": "#/$defs/FakeSpiConfigTagged"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "title": "Link"
+              },
+              "thermocouple_type": {
+                "default": "K",
+                "enum": [
+                  "B",
+                  "E",
+                  "J",
+                  "K",
+                  "N",
+                  "R",
+                  "S",
+                  "T"
+                ],
+                "title": "Thermocouple Type",
+                "type": "string"
+              },
+              "averaging": {
+                "default": 1,
+                "enum": [
+                  1,
+                  2,
+                  4,
+                  8,
+                  16
+                ],
+                "title": "Averaging",
+                "type": "integer"
+              },
+              "filter_hz": {
+                "default": 60,
+                "description": "Mains frequency to reject.",
+                "enum": [
+                  50,
+                  60
+                ],
+                "title": "Filter Hz",
+                "type": "integer"
+              },
+              "mode": {
+                "default": "continuous",
+                "enum": [
+                  "continuous",
+                  "one_shot"
+                ],
+                "title": "Mode",
+                "type": "string"
+              }
+            },
+            "required": [
+              "driver",
+              "link"
+            ],
+            "not": {
+              "required": [
+                "config"
+              ]
+            }
+          },
+          {
+            "type": "object",
+            "title": "max31865",
+            "description": "`driver: max31865`: a PT100/PT1000 RTD, register-configured, over SPI.",
+            "properties": {
+              "label": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Label"
+              },
+              "poll_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Poll S"
+              },
+              "signals": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SignalMeta"
+                    },
+                    {
+                      "$ref": "#/$defs/NamespaceMeta"
+                    }
+                  ]
+                },
+                "title": "Signals",
+                "type": "object"
+              },
+              "inputs": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
+                "title": "Inputs",
+                "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
+              "driver": {
+                "const": "max31865"
+              },
+              "link": {
+                "anyOf": [
+                  {
+                    "discriminator": {
+                      "mapping": {
+                        "fake_spi": "#/$defs/FakeSpiConfigTagged"
+                      },
+                      "propertyName": "type"
+                    },
+                    "oneOf": [
+                      {
+                        "$ref": "#/$defs/FakeSpiConfigTagged"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "title": "Link"
+              },
+              "rtd_type": {
+                "default": "pt100",
+                "enum": [
+                  "pt100",
+                  "pt1000"
+                ],
+                "title": "Rtd Type",
+                "type": "string"
+              },
+              "ref_resistor": {
+                "default": 430.0,
+                "description": "The precision bias resistor.",
+                "exclusiveMinimum": 0,
+                "title": "Ref Resistor",
+                "type": "number"
+              },
+              "wires": {
+                "default": 2,
+                "enum": [
+                  2,
+                  3,
+                  4
+                ],
+                "title": "Wires",
+                "type": "integer"
+              },
+              "filter_hz": {
+                "default": 60,
+                "description": "Mains frequency to reject.",
+                "enum": [
+                  50,
+                  60
+                ],
+                "title": "Filter Hz",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "driver",
+              "link"
+            ],
+            "not": {
+              "required": [
+                "config"
+              ]
+            }
+          },
+          {
+            "type": "object",
+            "title": "max6675",
+            "description": "`driver: max6675`: a K-type thermocouple over SPI, no other fields.",
+            "properties": {
+              "label": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Label"
+              },
+              "poll_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Poll S"
+              },
+              "signals": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SignalMeta"
+                    },
+                    {
+                      "$ref": "#/$defs/NamespaceMeta"
+                    }
+                  ]
+                },
+                "title": "Signals",
+                "type": "object"
+              },
+              "inputs": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
+                "title": "Inputs",
+                "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
+              "driver": {
+                "const": "max6675"
+              },
+              "link": {
+                "anyOf": [
+                  {
+                    "discriminator": {
+                      "mapping": {
+                        "fake_spi": "#/$defs/FakeSpiConfigTagged"
+                      },
+                      "propertyName": "type"
+                    },
+                    "oneOf": [
+                      {
+                        "$ref": "#/$defs/FakeSpiConfigTagged"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "title": "Link"
+              }
+            },
+            "required": [
+              "driver",
+              "link"
             ],
             "not": {
               "required": [
@@ -7412,7 +8621,7 @@
           {
             "type": "object",
             "title": "pulse_counter",
-            "description": "`driver: pulse_counter`: `{ link, line, pulses_per_litre }`, or `pin:` from a board profile.\n\n`pulses_per_litre` is the sensor's datasheet constant (450 for a\nYF-S201); `debounce_s` guards against contact bounce or electrical\nnoise on the pulse line.",
+            "description": "`driver: pulse_counter`: `{ link, line, unit, per_pulse }`, or `pin:` from a board profile.\n\n`per_pulse` is the sensor's datasheet constant, the amount one pulse\nrepresents in `unit`'s own terms: `1/450` for a YF-S201 (`unit: L/min`,\n450 pulses/litre), or `0.5` for a two-pulse-per-revolution tachometer\n(`unit: rpm`). `debounce_s` guards against contact bounce or electrical\nnoise on the pulse line.",
             "properties": {
               "label": {
                 "anyOf": [
@@ -7575,9 +8784,15 @@
                 "title": "Line",
                 "type": "integer"
               },
-              "pulses_per_litre": {
+              "unit": {
+                "description": "`rate`'s unit: a plain frequency (Hz, rpm) or amount/time.",
+                "title": "Unit",
+                "type": "string"
+              },
+              "per_pulse": {
+                "description": "The amount one pulse represents, in `unit`.",
                 "exclusiveMinimum": 0,
-                "title": "Pulses Per Litre",
+                "title": "Per Pulse",
                 "type": "number"
               },
               "debounce_s": {
@@ -7604,7 +8819,8 @@
               "driver",
               "link",
               "line",
-              "pulses_per_litre"
+              "unit",
+              "per_pulse"
             ],
             "not": {
               "required": [
