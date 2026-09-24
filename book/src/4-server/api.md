@@ -208,7 +208,7 @@ it was built on (or null), `signals` the tree, `commands` `[CommandOut]`,
 `inputs` `{role: InputOut}` — what the device follows, and what is bound to
 it — `readable`/`writable` whether it implements `read`/`commit`,
 `conditions` what the rig's condition store holds on the device and its
-signals (`offline`, `slow`, `write_failed`, `commit_failed`, and the
+signals (`offline`, `hung`, `slow`, `write_failed`, and the
 driver's own, such as the sim's `broken`), and `run` `{period_s, running,
 last_read_ns, read_s, missed, reading_since_ns, consecutive_failures,
 next_retry_ns}` for a polled device (null otherwise): `read_s` is how long
@@ -224,8 +224,11 @@ stopped, or that gave up (`reads.give_up_after_s`).
 
 A signal in the tree is `{name, address, access, role, tags, label,
 quantity, unit, dimension, dtype, shape, range, precision, warning, alarm,
-poll_s, limits, initial, quality, readback, on_no_value, latest,
-last_usable, write}`: `access` is the set in force as letters (`rp`, `w`,
+poll_s, stale_after_s, limits, initial, quality, readback, on_no_value,
+latest, last_usable, write}`: `stale_after_s` the liveness threshold the rig
+judges it by now (its own, else `max(3·poll_s, 5 s)` while its device is
+polled; null when it is not judged --
+[Liveness](../2-config/devices/index.md#liveness-a-signal-that-stops-arriving)), `access` is the set in force as letters (`rp`, `w`,
 `rw`, `rpw`), `role` one of `demand`, `readout`, `setting`, `config`,
 `tags` the section as `{axis: name}` (empty without one), `limits` the
 numbers in force now, `quality` `pending` before the first reading and
@@ -282,7 +285,7 @@ is named by its output's address.
 | `GET` | `/api/controllers/default` | `ControllerOut`; 503 when there is none |
 | `GET` | `/api/controllers/{address}` | `ControllerOut` |
 | `GET` | `/api/controllers/schema` | what a form needs to make a controller: `measured` and `outputs` (`[{address, device, label, unit, dimension, range, limits}]`: every published signal, every writable one), `laws`, `feedforwards` and `generators` (JSON Schema unions on `type`), `tunings` (`{name, law, config}`), `regulated` (`{measured: controller}`), `driven` (`{output: controller}`) |
-| `POST` | `/api/controllers` | `{output, measured, law?, feedforward?, default?, min_period_s?}` (the rig file's keys); 201 `ControllerOut`; 409 if the output is already driven or the measured signal already regulated, or `feedforward: "setpoint"` across units; 404 for an unknown address |
+| `POST` | `/api/controllers` | `{output, measured, law?, feedforward?, default?, min_period_s?, setpoint_period_s?}` (the rig file's keys); 201 `ControllerOut`; 409 if the output is already driven or the measured signal already regulated, or `feedforward: "setpoint"` across units; 404 for an unknown address |
 | `DELETE` | `/api/controllers/{address}` | 204; put in manual first, so the output holds its last value; manual demands may drive it again |
 | `POST` | `/api/controllers/{address}/regulate` | `{at, start?, tuning?, transfer?}`; `at` a value, `measured`/`setpoint`/`output`, or a generator spec (`{type, ...its own arguments}`, e.g. `{type: "linear_ramp_setpoint", pace, end}`, discriminated by `type` against the `generators` union); `start` says where a generator starts from -- a value, `setpoint` or `measured` (the last reading) -- and defaults to the controller's current setpoint, or its last reading if it has none yet; `output` is converted back to the measured unit through the feedforward's inverse, 422 if it has none; the handover's output is committed at once; 503 if a generator is given and there is neither a setpoint nor a reading to start it from |
 | `POST` | `/api/controllers/{address}/manual` | stop regulating; the output keeps its last value |
@@ -358,7 +361,7 @@ Reads the store, never the rig.
 | `GET` | `/api/history/sessions/{id}/controllers` | `[ControllerRow {name, measured, law, feedforward}]` |
 | `GET` | `/api/history/sessions/{id}/series/{address}` | `Series {signal: SignalRow, points, downsample}`, a point `{offset_ns, value, flag}`: `value` `null` where the reading had none, with `flag` its code (1 `invalid`, 2 `not_applicable`, 3 `stale`, 4 `stale` with the device offline), else `flag` the value's mark (16/17 `at_limit` low/high) or `null` ([no value](wire.md#a-reading-with-no-value)); query `start_ns`, `end_ns`, and one of `every` (every nth, and every reading with no value), `bucket_ns`, `max_points` (averaged: a bucket with any reading with no value is `null`, with the lowest code in it) |
 | `GET` | `/api/history/sessions/{id}/writes/{address}` | `[WriteStateRow {offset_ns, value, requested, at_limit, controller}]`; query `start_ns`, `end_ns` |
-| `GET` | `/api/history/sessions/{id}/ticks/{controller}` | `[Tick {controller, offset_ns, mode, correction, measured, setpoint, output, expected, delivered_correction}]`; query `start_ns`, `end_ns`. A tick's `correction` is `null` when the law's output was not a number (a NaN integral) |
+| `GET` | `/api/history/sessions/{id}/ticks/{controller}` | `[Tick {controller, offset_ns, mode, correction, measured, setpoint, output, expected, delivered_correction, reapplied}]`; query `start_ns`, `end_ns`. A tick's `correction` is `null` when the law's output was not a number (a NaN integral); `reapplied` is true on a re-apply of a moving setpoint's feedforward between readings, which has no reading (`measured` null) and did not step the law |
 | `GET` | `/api/history/sessions/{id}/events` | `[Event]`; query `start_ns`, `end_ns`, `code` |
 | `GET` | `/api/history/sessions/{id}/spans` | `[Span]`, in start order; nest by `parent_id` |
 | `GET` | `/api/history/sessions/{id}/export?format=csv\|json\|zip&layout=wide\|long&step_s=` | the session as a file: `wide` one column per signal (each row holds every signal's last value; `step_s` resamples onto a grid), `long` one row per value (`device, signal, unit, value`), `zip` both (`signals-wide.csv`, `signals-long.csv`) plus each controller's ticks (`controller-{name}.csv`), each write's states (`write-{address}.csv`), `events.csv` and `session.json` (`devices`, `signals`, `controllers`) |
@@ -480,32 +483,41 @@ message: one `raised` per outage, never one per poll or per step.
 
 | scope | conditions (raised / cleared) | point events |
 | --- | --- | --- |
-| `device` | `offline` (after `reads.fail_after` failed reads in a row; cleared by the first read that succeeds), `slow`, `write_failed`, `commit_failed`, and a driver's own | `delivery_failed`, `demand_ignored`, `not_revived` (a command succeeded but its hung poll was not restarted), `gave_up` (retries ran past `reads.give_up_after_s`; polling stopped) |
+| `device` | `offline` (after `reads.fail_after` failed reads in a row; cleared by the first read that succeeds), `hung` (`error`: a poll's read in flight past `max(3·poll_s, 5 s)`; cleared when it returns; `details: {reading_s, bound_s}`), `slow`, `write_failed`, and a driver's own | `delivery_failed`, `demand_ignored`, `not_revived` (a command succeeded but its hung poll was not restarted), `gave_up` (retries ran past `reads.give_up_after_s`; polling stopped), `resent` (a commit set a value a failed write had kept), `write_dropped` (a kept value waited past `retry_max_age_s`: not sent) |
 | `signal` | `band_warning`, `band_alarm`, `band_unknown` ([Bands](../2-config/devices/index.md#bands)), a driver's own (the sim's `broken`) | |
 | `controller` | `step_failed` (a law that raised), `stale_input`, `limit_unknown`, `frozen` (its measured signal has no value: `info` for `not_applicable`, `warning` for a fault; cleared after 3 readings with a value) | `interrupted` |
 | `program` | | `started`, `step`, `step_timed_out`, `step_still_running` (a cancel or a stop gave up waiting for the step, which may still act), `step_failed`, `succeeded`, `failed`, `cancelled` (a person), `interrupted` (the engine, with `details.reason`), `run_from_library` |
 | `rig` | `recording_failed` (cleared by the next recording) | `delivery_failed`, `restored` |
 
 There is no separate "recovered" code: `offline` cleared is what
-`restarted` was, and `write_failed`, `commit_failed`, `step_failed` and
-`limit_unknown` cleared are what `write_recovered`, `commit_recovered`,
-`step_recovered` and `limit_known` were. `restarted` is kept for the
+`restarted` was, and `write_failed`, `step_failed` and
+`limit_unknown` cleared are what `write_recovered` (and `commit_recovered`),
+`step_recovered` and `limit_known` were. `commit_failed` is `write_failed`
+now, in the store too. `restarted` is kept for the
 runner's own restart (not raised yet). Removing a device or detaching a
 controller clears what it held, one `cleared` edge each (`details.reason`
 `removed` or `detached`). A [`Condition`](wire.md#devices) carries the same
 code, its `scope` and `subject`, and `since_ns`; a driver's own may use any
 string.
 
-`commit_failed` (`error`) is a device's `commit` that raised on the delivery
-path: raised once per outage, with the demands it dropped in
-`details.signals`, and held on the device until a commit succeeds
-(cleared, `info`). The dropped demands are not sent later; the
-controller driving one hears `expected: null` for that tick, and the rest
-of the delivery -- other devices' commits, the recorder -- goes on. A
-manual demand or a command whose commit raises also gets the error back.
-`write_failed` is the same for a blocking device's
-writer thread; a write that reached the device but whose report to the rig
-raised is a `write_failed` too (logged; the thread goes on writing).
+`write_failed` (`error`) is a device's `commit` that raised -- on the
+delivery path, or on a blocking device's writer thread: raised once per
+outage, with the demands it carried in `details.signals` (the delivery
+path's), and held on the device until a commit succeeds (cleared, `info`).
+The demands it carried are **kept** (A6): they go out with the device's
+next commit, a newer demand on a signal replacing its own, and the rig
+retries on its clock with no other traffic -- first after `min(poll_s, 5
+s)`, then doubling up to 60 s -- until the value is older than the device's
+`retry_max_age_s` (60 s), when it is dropped with a `write_dropped` event
+(`details: {signal, value, age_s}`). A commit that sets a kept value raises
+`resent` (`re-sent <address>=<value>, staged at <t> s`; `details: {signal,
+value, staged_ns}`). The controller driving a failed demand hears
+`expected: null` for that tick, and the rest of the delivery -- other
+devices' commits, the recorder -- goes on. A manual demand or a command
+whose commit raises also gets the error back; its value is kept all the
+same. A write that reached the device but whose report to the rig raised is
+a `write_failed` too, and its values are sent again (logged; the thread
+goes on writing).
 
 While either is held, every **echo demand** on the device (`readback:
 echo`, the default: its reading is what the rig committed) reads
@@ -513,11 +525,14 @@ echo`, the default: its reading is what the rig committed) reads
 limit or a settle wait that follows it fails closed and a chart breaks,
 its last value kept as `last_usable`. A demand never set yet stays
 `pending`. The first commit that succeeds gives every one of them its
-last value back, except a demand whose own write was lost in the failure:
-it stays stale until a demand of its own commits. A device whose reads go
-`offline` gives what its polled reads delivered (readouts, `sensed`
-demands) `stale`, reason `device_offline`, at once; each is `ok` again
-with its next read.
+last value back; the kept values went out in that same commit. A demand
+whose kept value was dropped for its age stays stale until a demand of its
+own commits. A device whose reads go `offline`, or whose poll hangs,
+gives what its polled reads delivered (readouts, `sensed` demands)
+`stale`, reason `device_offline` or `device_hung`, at once; each is `ok`
+again with its next read. A published measurement that stops arriving goes
+`stale` (`silent`, `last_read`, `never_read`) at its threshold, pushed by
+the rig ([Liveness](../2-config/devices/index.md#liveness-a-signal-that-stops-arriving)).
 
 `demand_ignored` (`warning`) is a demand the driver's `commit` never read
 (`details: {signal, demand}`): nothing was set, so the demand is not

@@ -97,6 +97,13 @@ way. Devices and links, by contrast, are checked against whatever is
 registered when the file is read. Until laws get the same treatment, a law
 of your own is usable only from Python.
 
+A law is stepped only on readings. A controller following a setpoint
+generator (a ramp, a profile) re-applies the feedforward of the moving
+setpoint, plus the law's last correction, between readings
+([A setpoint that moves faster than its sensor](../2-config/controllers.md#a-setpoint-that-moves-faster-than-its-sensor)):
+a generator's `generate` and `rate` are called at those instants too, and
+`finished` ends the re-applies.
+
 ## Tunings
 
 A `Tuning` is a named law config. The rig holds a registry (`rig.tunings`),

@@ -47,9 +47,11 @@ and `GET /api/controllers/{address}` carry it as `ControllerOut`.
 
 A measured signal's node delivers a sample; the rig calls `controller.on_reading(reading)`
 for the controller regulating it, which asserts the reading is on
-`self.measured_signal` and calls `tick(reading)`. A controller with no fresh reading —
-the rig re-applying after a manual demand elsewhere, `apply()` — calls
-`tick(None)`.
+`self.measured_signal` and calls `tick(reading)`. `apply()` -- a caller
+putting the output back after a manual demand elsewhere -- calls
+`tick(None)`. Between readings the rig's timer calls
+[`reapply`](#between-readings-reapply) instead, never `tick(None)`: a
+`tick(None)` clears `held` and would use up a resume.
 
 ```python
 # flyball/control/controller.py, trimmed
@@ -175,6 +177,44 @@ Seven things to note:
    Unattached, `hold` is `Controller._never_held`. `last_value` is None
    while the newest reading has no value, so `regulate(ValueSource.MEASURED)`
    refuses, and a `TRACK`/`CARRY` handover seeds as if nothing had been read.
+
+## Between readings: `reapply`
+
+E25 (D-052). While a controller is `REGULATING` on a generator that has not
+finished, through a feedforward other than `none` (`Controller.follows`),
+the rig runs `reapply(time_ns)` every `setpoint_period_s` (default
+`max(0.1 s, poll_s / 4)`) on its timers. It writes `feedforward(setpoint_at(now),
+rate_at(now)) + correction` -- the last correction, unchanged -- and returns
+whether it wrote. It returns at once in `MANUAL`, off a moving setpoint,
+while `held` is set (it tests `held`, never assigns or clears it), when the
+last measured reading has no value, when `hold()` gives a reason, and when
+the output would not change. It never touches `_last_step_ns`,
+`_step_interval_ns` or `offset_ns`, so the next reading steps the law as it
+would have.
+
+The controller tells the rig when its reference or mode changes
+(`on_reference`, injected like `write` and `hold`, called by `regulate`,
+`set_setpoint` and `manual`); the rig arms the periodic call then, and
+cancels it off a moving setpoint without taking its lock (a stop puts every
+controller in `MANUAL` without waiting behind a delivery). The call itself is
+serialised like a delivery: under `rig.lock`, in its own `_touched`, one
+commit, `controller_states` updated, and a tick recorded with `reapplied`
+and no reading. A re-apply at the same instant as a reading's tick gives
+way to it in the store.
+
+## Fault time
+
+The rig's `faults` ([`Faults`][flyball.rig.faults.Faults]) keeps, per
+controller, the outage of its measured signal (A5): every delivery to the
+controller (`Rig._step`) starts, pauses or ends it, and fault time accrues
+on the rig clock only while the source is `invalid` or `stale`. On each
+entry into fault-class a one-shot is armed for the wait still to go
+(`max(2·poll_s, 1 s)` for a single observation, 0 for staleness by age or a
+law that raises); a reading that is not a fault cancels it. When it comes
+up it takes the rig's lock, checks again, and releases the outage -- once,
+and only while `REGULATING` -- to `faults.on_fault`, the hook `on_fault`'s
+actions will use. The arithmetic ([`Accrual`][flyball.rig.faults.Accrual])
+is shared with the bands' `invalid` grace.
 
 ## The feedforward
 

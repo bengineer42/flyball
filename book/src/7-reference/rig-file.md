@@ -90,6 +90,7 @@ field named like an envelope key). A nested `config:` is refused.
 | `signals` | `{name: SignalMeta \| NamespaceMeta}` | per-signal metadata and access restriction — never adds access the driver did not declare |
 | `inputs` | `{input: address}` | what this device follows on another device: an input's name from the driver's `Input` declarations, resolved to the address's `Signal`/`Node` and read as `self.<input>.value` in `commit` |
 | `reads` | `{fail_after?, backoff_s?, give_up_after_s?}`, optional | reads that raise in a row before the device is `offline` (integer ≥ 1), the waits between retries while offline (non-empty, each finite and > 0; the last repeats), and how long after going offline to stop retrying (finite, > 0; `null`: never). A key left out is `runner.reads`', then `3` / `[1, 2, 5, 15, 60]` / never. [Devices: `reads`](../2-config/devices/index.md#reads) |
+| `retry_max_age_s` | number, optional | how long a value a failed write kept may wait to be sent again (finite, > 0); older is dropped with a `write_dropped` event, not sent. Unset: 60 s. [Devices: a write that fails](../2-config/devices/index.md#a-write-that-fails) |
 
 ```yaml
 devices:
@@ -113,11 +114,14 @@ A `SignalMeta` is `{label, range, precision, warning, alarm, on_no_value, poll_s
 stale_after_s, limits, max_rate, tags, access, readable, published, writable}`:
 the first group replaces metadata the driver declared (`tags` are added to the
 driver's: `{line: dry}`, a grouping across the tree the UI titles and
-filters by; `stale_after_s` is seconds since the last reading beyond which a
-controller regulated from the signal is held -- its law does not step and
-its demand is not applied; `on_no_value` is `fire` or `ignore`, what a
+filters by; `stale_after_s` is seconds without a reading after which the
+rig pushes `stale` on the signal (default `max(3·poll_s, 5 s)` while its
+device is polled; a pushed signal is judged only with its own --
+[Liveness](../2-config/devices/index.md#liveness-a-signal-that-stops-arriving)),
+and a controller regulated from it holds on a reading that arrives older
+than this; `on_no_value` is `fire` or `ignore`, what a
 banded signal does while it has no value because of a fault (`fire`:
-`band_unknown` after `max(2·poll_s, 1 s)`; unset: `fire` with an `alarm`
+`band_unknown` after `max(2·poll_s, 1 s)` of fault time; unset: `fire` with an `alarm`
 band, `ignore` with only `warning` --
 [Bands](../2-config/devices/index.md#a-banded-signal-with-no-value));
 `max_rate` is `{per_second: N}` (or `per_minute`, `per_hour`, ...), the
@@ -173,6 +177,7 @@ a setting, or an `RP` demand, is refused when the rig is built.
 | `feedforward` | `{type, ...}` | maps the measured signal's unit to the output's: `identity`, `none`, `affine {gain, bias, rate_gain?}`, `table {points, rate_gain?}`; omit for `identity` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one per file |
 | `min_period_s` | number, optional | update the law at most this often |
+| `setpoint_period_s` | number, optional | while following a moving setpoint, re-apply its feedforward this often between readings (> 0); unset: `max(0.1 s, poll_s / 4)` from the measured signal's `poll_s`. [Controllers](../2-config/controllers.md#a-setpoint-that-moves-faster-than-its-sensor) |
 
 ```yaml
 controllers:

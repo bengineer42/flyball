@@ -21,7 +21,7 @@ another, and either can be replaced without the other noticing.
 | `sample` | every reading, by signal, under one node's instant: `reading.value` and its `flag` (below) |
 | `write_state` | what a writable signal was set to: one row per commit that touched it |
 | `controller` | what was driven, named by its output's address, with its `measured` signal, law and feedforward |
-| `tick` | one controller step: `measured` (the reading it stepped on), setpoint, correction, `output`, expected. `correction` is NULL when the law's output was not a number (a NaN integral), so the tick is kept rather than ending the recording |
+| `tick` | one controller step: `measured` (the reading it stepped on), setpoint, correction, `output`, expected. `correction` is NULL when the law's output was not a number (a NaN integral), so the tick is kept rather than ending the recording. `reapplied` is 1 on a re-apply of a moving setpoint's feedforward between readings (no reading: `measured` NULL); one at the same instant as a reading's tick is not written |
 | `event` | something non-numeric that happened: a fault, a retune, a flag |
 | `span` | a labelled interval, nestable by `parent_id`: program, run, command, note |
 | `tuning` | named law configs, versioned; independent of sessions |
@@ -200,6 +200,12 @@ besides every nth, so thinning never hides a break; an averaged bucket
 with any NULL in it is NULL, with the lowest code in it; `samples` gives
 each row its `flags`. Which stale reason (other than an offline device)
 is not kept; the device's `write_failed` edges say when its writes failed.
+
+Migration 0022 renamed the stored `commit_failed` events to `write_failed`
+(A6 made them one code: a failed commit on the delivery path and a
+blocking device's failed write are the same condition), and added
+`tick.reapplied` (`INTEGER NOT NULL DEFAULT 0`, 0 or 1) for the ticks a
+controller records when it re-applies a moving setpoint between readings.
 
 The scratch record and retention (D-008) are migration 0010: `session.kind`,
 `origin_ns`, `pinned`, `continues`, `bytes`. Trimming a scratch session

@@ -112,7 +112,7 @@ independently.
 
 | model | of | shape |
 | --- | --- | --- |
-| `SignalOut` | a `Signal` in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warning, alarm, poll_s, limits, initial, latest, write}` |
+| `SignalOut` | a `Signal` in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warning, alarm, poll_s, stale_after_s, limits, initial, quality, readback, on_no_value, latest, last_usable, write}`; `stale_after_s` from `rig.liveness.threshold_s` |
 | `NamespaceOut` | a `Node` | `{name, address, atomic, label, poll_s, signals: [...]}`, nesting `SignalOut`/`NamespaceOut` |
 | `WriteOut` | a `WriteState` | `{value, requested, at_limit, controller}` -- a signal's `write` (`GET /api/devices`) only, now |
 | `WriteMetaOut` | a demand's `Reading` | `{requested, at_limit, controller}` -- `WriteOut` without `value`, already in `SampleOut.values` |

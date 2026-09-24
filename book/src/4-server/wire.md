@@ -28,7 +28,7 @@ first; convert the small result second.
 | type | JSON |
 | --- | --- |
 | `Quantity` | not carried on its own; a signal's `unit` and `dimension` fields say what it is |
-| a signal in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warning, alarm, poll_s, limits, initial, quality, readback, on_no_value, latest, last_usable, write}` — see [Devices](api.md#devices) |
+| a signal in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warning, alarm, poll_s, stale_after_s, limits, initial, quality, readback, on_no_value, latest, last_usable, write}` — see [Devices](api.md#devices) |
 | `access` | the set in force as lowercase letters: `"rp"`, `"w"`, `"rpw"` |
 | `role` | `"demand"`, `"output"`, `"setting"` or `"config"` |
 | `Reading` | `{"signal": address, "time_ns": int, "value": float \| null, "quality": Quality, "reason"?: str, "caveats"?: Caveats, "last_usable"?: LatestOut, "age_s"?: float}` — the optional keys only when there is something to say; see [no value](#a-reading-with-no-value) |
@@ -52,7 +52,13 @@ one. Its **quality** says why, and every surface carries it:
 
 `reason` is what the driver gave (`ne43_low`, `sensor_failed`, `not
 finite`) or, on `stale`, the rig's: `device_offline` (the device's reads
-fail) or `write_failed` (an echo demand whose device's writes fail).
+fail), `device_hung` (its poll is stuck in a read), `write_failed` (an echo
+demand whose device's writes fail), or, when nothing arrives within the
+signal's `stale_after_s`, `silent` (nor from its device), `last_read` (its
+device delivers other signals) or `never_read` (never read, past its
+deadline). The last three are pushed by the rig at the threshold, as a
+reading stamped then: the chart breaks at the rig's threshold, not a
+client's guess, so a client needs no timing rule of its own.
 First match wins when more than one applies: `stale` (`device_offline`) >
 `pending` > `stale` (other reasons) > `invalid` / `not_applicable` > `ok`.
 
@@ -65,9 +71,10 @@ On `/ws/samples` a sample's `values` carry the `null`, with the sparse
 `quality`/`reason` maps beside them; a chart breaks there. `GET
 /api/read/{address}` answers a reading with no value with `value: null`,
 its `quality` and `reason`, `last_usable` (the newest reading that had a
-value) and `age_s` (how long ago that was, on the rig's clock). A signal
-in `GET /api/devices` carries its `quality` (`pending` before its first
-reading) and, with no value now, its `last_usable`.
+value) and `age_s` (how long ago the rig received that, on the rig's
+clock). A signal in `GET /api/devices` carries its `quality` (`pending`
+before its first reading), with no value now its `last_usable`, and the
+threshold it is judged by, `stale_after_s` (null: not judged).
 
 In a recorded session a reading with no value is kept, as `null` with a
 **flag** ([`Point.flag`](api.md#history)): 1 `invalid`, 2

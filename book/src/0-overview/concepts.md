@@ -22,9 +22,11 @@ export's column, the program step, the CLI. Some signals are only read;
 some can be **written** (a box on the card); a **demand** -- a signal whose
 writing takes control of the process -- is what a controller drives.
 A signal may have **no value** -- a sensor with nothing valid to give, a
-blend's humidity with no flow, a device gone offline -- and then it shows
-"—" and why (its **quality**: `invalid`, `n/a`, `stale`), never a number
-standing in; its chart breaks there.
+blend's humidity with no flow, a device gone offline, a sensor that has
+stopped reporting -- and then it shows "—" and why (its **quality**:
+`invalid`, `n/a`, `stale`), never a number standing in; its chart breaks
+there. The rig decides when a reading is late, on its own clock, and says
+so itself.
 
 **A controller** -- a control loop, not a device -- holds one **measured**
 signal at a **setpoint** by writing an **output**, a demand on a device: the

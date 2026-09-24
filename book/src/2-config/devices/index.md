@@ -25,6 +25,7 @@ devices:
 | `signals` | `{name: metadata}` | per-signal metadata, [below](#signals) |
 | `inputs` | `{input: address}` | what this device follows on another, by the input's name: `{dry_humidity: hum_sensors.dry.humidity}` |
 | `reads` | `{fail_after, backoff_s, give_up_after_s}` | when failed reads put it `offline`, and how it is retried, [below](#reads) |
+| `retry_max_age_s` | number (seconds) | how long a value a failed write kept may wait to be sent again; older is dropped, not sent, [below](#a-write-that-fails). Finite and above zero; unset: 60 s |
 | any other key | | the driver's own fields, listed per driver in [Supported drivers](drivers.md) and explained in [Where a device's options come from](generated.md); `link` names an entry under `links`, `pin: LABEL` resolves through the `board`. A nested `config:` is refused |
 
 ## `signals`
@@ -47,7 +48,7 @@ null`, which drops only the file's narrowing, never the driver's limits.
 | `limits` | `[lo, hi]` | narrows what a writable signal may be commanded to; it never widens the driver's. A demand is clamped to the intersection of the driver's limits and these, worked out at each demand; a signal the driver left unlimited takes these as they are. An end reaching past a driver end that is a number is refused at load (`limits (0, 5000) reach outside the driver's (0, 2500)`). A driver may declare an end that follows another of the device's signals (a supply's humidity, a max flow read from the device): it is intersected with that signal's value at each demand, and until that signal has a finite value (none yet, or NaN or infinite, counts as not known), a demand is refused (503, "limit not known yet") and a controller's write is held -- never passed unclamped, nor clamped to the other end. If the limits come out inverted at a demand (a dry supply read wetter than the wet one, or these clear of the driver's live band), the demand is refused (`LimitsInvertedError`, 422) and a controller's write is held. `null`: no narrowing -- the driver's limits stay |
 | `max_rate` | `{per_second: N}` | how fast a demand may move; a faster one is clamped to the largest step the elapsed time allows, not refused. The elapsed time counts up to one update period -- the signal's `poll_s`, else the driving controller's `min_period_s`, else 1 s -- so a demand after a hold or a quiet spell moves one period's worth, not everything banked meanwhile. Unset: unlimited |
 | `poll_s` | number | this signal's own rate; finite and above zero |
-| `stale_after_s` | number (seconds) | finite and above zero; checked when a reading is delivered or the controller is regulated; a sensor that stops reporting is not caught. When it trips, a controller regulated from this signal is held: its law does not step and its demand is not applied, until a fresh reading. Unset: never checked |
+| `stale_after_s` | number (seconds) | how long the signal may go without a reading before the rig marks it `stale`, [below](#liveness-a-signal-that-stops-arriving). Finite and above zero. Unset: `max(3 × poll_s, 5 s)` from its own `poll_s` while its device is polled; a pushed signal is then not judged at all. A controller also holds (`stale_input`) on a reading that arrives already older than this |
 | `tags` | `{key: value}` | added to the driver's: `{line: dry}` groups signals across devices in the UI |
 | `access` | `"r"`, `"rp"`, … | keep only these of the flags the driver declared |
 | `readable`, `published`, `writable` | `false` | drop one flag each; only `false` is accepted |
@@ -103,17 +104,20 @@ is unknown. What happens depends on why there is no value and on
 
 | the signal is | with `on_no_value: fire` | with `ignore` |
 | --- | --- | --- |
-| `invalid` (a NAMUR fault current, a failed sensor, a NaN) | `band_unknown` once it has lasted `max(2 × poll_s, 1 s)` | nothing |
+| `invalid` (a NAMUR fault current, a failed sensor, a NaN) | `band_unknown` once it has accrued `max(2 × poll_s, 1 s)` of fault time, judged on the rig clock: a signal that goes quiet after one `invalid` still raises it | nothing |
+| `stale` by age (`silent`, `last_read`, `never_read`) | `band_unknown` at once: the threshold was its grace | nothing |
 | `not_applicable`, `pending` | nothing: benign | nothing |
-| `stale` because its device is offline or its writes fail | nothing: the device's own `offline` / `write_failed` already counts | nothing |
+| `stale` because its device is offline or hung, or its writes fail | nothing: the device's own `offline` / `hung` / `write_failed` already counts | nothing |
 
 `band_unknown` is `error` with an `alarm` band and `warning` with only a
 `warning` band; its details are `{quality, reason, side}` (`side` when the
 driver said which way it failed, as a NAMUR current does). It is counted in
 `/api/health`'s `alarms.unknown`, never in `alarm`, and whatever band the
 signal held before stays held meanwhile. It clears once 3 readings in a row
-have a value; the band is judged again from the first of them. A single
-bad reading therefore raises nothing: it would need to last the grace.
+have a value; the band is judged again from the first of them. Fault time
+accrues only while the signal has no value: a reading with a value pauses
+it without resetting it. A single bad reading therefore raises nothing,
+while one that keeps flickering does.
 
 ```yaml
 devices:
@@ -122,6 +126,37 @@ devices:
       o2: { alarm: [18, 23] }                         # fire: a broken loop is an alarm
       trend: { warning: [0, 5], on_no_value: fire }   # a warning band that fires too
 ```
+
+### Liveness: a signal that stops arriving
+
+The rig judges, on its own clock, whether each measurement is still
+arriving -- a readout, or a demand read back from the hardware
+(`readback: sensed`), that publishes. Its threshold is its `stale_after_s`,
+else `max(3 × poll_s, 5 s)` from its own `poll_s` while its device is
+polled. When nothing has arrived for that long, the rig pushes a reading
+with no value on it, `stale`, stamped at that instant: a chart breaks at the
+threshold, a controller regulating on it freezes, a limit that follows it
+fails closed, and its band is unknown. The reason says which:
+
+| reason | what happened |
+| --- | --- |
+| `silent` | it had readings, and its device has delivered nothing within the threshold either |
+| `last_read` | its device still delivers other signals, but not this one (a driver leaving out one failed sensor of a set) |
+| `never_read` | nothing has arrived since its device's first successful read (or since polling began, if there has been none): `pending` past its deadline |
+| `device_offline`, `device_hung` | its device holds `offline` or `hung`: its read path went `stale` at once, not after the threshold |
+
+The next reading ends it. Not judged: settings, configs, a demand whose
+reading is the committed value (`readback: echo`: its liveness is its
+writes', `stale(write_failed)`), a record such as `last.<command>`, a signal
+whose newest reading is `not_applicable` (undefined, not late), and a
+pushed signal with no `stale_after_s`. The threshold in force is
+`stale_after_s` on the signal in `GET /api/devices/{name}` (null: not
+judged).
+
+A poll's read still in flight `max(3 × poll_s, 5 s)` after it began is stuck
+in its driver: the device holds `hung` (`error`), and what its reads
+delivered is `stale(device_hung)` at once. The read returning, however it
+returns, clears `hung`.
 
 ## Binding one device to another
 
@@ -163,6 +198,32 @@ a raise ends that call whichever namespace it came from. A driver whose
 namespaces fail on their own (one sensor of a set) can catch that one's
 error and leave it out of the sample -- its last value stands until it goes
 stale -- rather than raise, so the others keep being read.
+
+## A write that fails
+
+A commit that raises -- on the delivery path, or on a blocking device's
+writer thread -- holds `write_failed` on the device until a commit
+succeeds, and every `readback: echo` demand on it reads
+`stale(write_failed)` meanwhile. The values it carried are **kept**, not
+dropped: they go out with the next commit of the device (a newer demand on
+the same signal replaces its own), and the rig retries on its clock without
+waiting for other traffic -- first after `min(poll_s, 5 s)` (5 s for a device
+with no `poll_s`), then each after twice the last, up to 60 s. A commit
+that sets a kept value raises a `resent` event (`re-sent heater.power=40,
+staged at 12.500 s`). A kept value older than `retry_max_age_s` is dropped
+with a `write_dropped` event, not sent: that demand stays
+`stale(write_failed)` until a new demand of it commits. A manual demand
+whose commit fails still answers with the error; its value is kept and
+retried all the same.
+
+```yaml
+devices:
+  pumps: { driver: pwm_pair, link: pwm0, retry_max_age_s: 20 }   # a stale flow is worse than none
+```
+
+Retrying sends the latest value of a demand again. That suits a level (a
+power, a flow); a demand that is not idempotent (a dose) should not rely on
+it.
 
 ## What a device gives you
 

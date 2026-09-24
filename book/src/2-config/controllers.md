@@ -32,6 +32,7 @@ controllers:
 | `feedforward` | `{type, …}` | `identity` (the setpoint passed through, in the measured unit); `none`; `affine {gain, bias, rate_gain}`; `table {points, rate_gain}`. Omit: `identity` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one |
 | `min_period_s` | number | update the law at most this often |
+| `setpoint_period_s` | number | while following a moving setpoint (a ramp, a profile), re-apply its feedforward this often between readings, [below](#a-setpoint-that-moves-faster-than-its-sensor). Above zero; unset: `max(0.1 s, poll_s / 4)` from the measured signal's `poll_s` (1 s for a pushed one) |
 
 ## Feedforward and units
 
@@ -81,8 +82,27 @@ reason}`). The law is never called with a missing value, and no number
 stands in for one. It steps again, bumplessly, once 3 readings in a row
 have a value. `regulate` from `measured` is refused while the newest
 reading has none; any other `at` still regulates, and the law is seeded
-as if nothing had been read (`cold`). What the controller does beyond
-freezing when the fault lasts (`on_fault`) is not here yet.
+as if nothing had been read (`cold`).
+
+A measured signal that stops arriving goes `stale` at its threshold
+(`stale_after_s`, default `max(3 × poll_s, 5 s)`:
+[liveness](devices/index.md#liveness-a-signal-that-stops-arriving)), pushed
+by the rig on its own clock, so the controller freezes then even though no
+reading comes. Until then it holds its last output: for a heater, or any
+loop whose held output is unsafe, keep the measured signal's `poll_s` well
+inside the plant's time to harm, and set `stale_after_s` near
+`2 × poll_s` (lower lets one late read declare it stale).
+
+**Fault time.** While the measured signal is a fault (`invalid`, `stale`
+for any reason), the rig accrues fault time on its clock; a reading with a
+value pauses it without resetting it, and 3 in a row end the outage. When
+the accrued time reaches the wait -- `max(2 × poll_s, 1 s)` for a single
+bad observation (`invalid`, `stale(device_offline | device_hung |
+write_failed)`), none for staleness by age, none for a law that raises --
+the outage is *released*, once, by a timer on the rig clock: a source that
+delivers nothing is released all the same. Nothing acts on a release yet;
+it is where `on_fault` (freeze for a while, then manual or a stop) will
+plug in. A benign `not_applicable` or `pending` accrues nothing.
 
 Then:
 
@@ -113,6 +133,20 @@ measured unit for the setpoint and the output's unit for the output throughout;
 the **feedforward** is what maps one to the other (`Setpoint`, the
 identity, when the units agree; an `Affine` or `Table` curve; `NoFeedforward`
 when there is none — an output with no static relationship to its measured signal).
+
+### A setpoint that moves faster than its sensor
+
+A reading arrives every `poll_s`, and the setpoint is sampled at each. For a
+ramp or a profile, that would move the output in `poll_s` steps even where
+the feedforward alone could follow the setpoint smoothly. So while a
+controller is `REGULATING` on a generator that has not finished, through a
+feedforward (not `none`), the rig re-applies `feedforward(setpoint,
+rate) + correction` every `setpoint_period_s` between readings. The law
+steps only on real readings: nothing is integrated without a measurement.
+A re-apply writes only when the output would change, goes through the same
+write as a tick (`limits`, `max_rate`), and is skipped in `MANUAL`, while
+held or frozen, and while the rig would hold the write. The recorder keeps
+it as a tick with `reapplied: true` and no measured value.
 
 ### Why the law returns a correction
 

@@ -184,8 +184,28 @@ number standing in; a chart breaks there.
 **quality** — what a signal's value is worth now: `ok`, `pending` (nothing
 read yet), `not_applicable` (undefined now; shown "n/a"), `invalid` (read,
 not a valid measurement) or `stale` (the last value is no longer trusted,
-with a reason: `device_offline`, `write_failed`, …). `pending` and
-`not_applicable` are benign; `invalid` and `stale` are faults.
+with a reason: `device_offline`, `device_hung`, `silent`, `last_read`,
+`never_read`, `write_failed`). `pending` and `not_applicable` are benign;
+`invalid` and `stale` are faults.
+
+**liveness** — whether a published measurement is still arriving, judged
+by the rig on its own clock: nothing for its **stale_after_s** (default
+`max(3·poll_s, 5 s)` while polled) and the rig pushes `stale` on it
+(`silent`, `last_read`, `never_read`).
+
+**hung** — a condition on a device whose poll is stuck in a read past
+`max(3·poll_s, 5 s)`; what its reads delivered is `stale(device_hung)`
+until the read returns.
+
+**fault time** — how long a controller's measured signal has been a fault
+(`invalid`, `stale`) in one outage, accrued on the rig clock; a reading
+with a value pauses it, 3 in a row end the outage. Reaching its wait
+*releases* the outage, where `on_fault` will act.
+
+**re-apply** — a controller following a moving setpoint writing its
+feedforward plus the last correction between readings, every
+`setpoint_period_s`; the law steps only on readings. Recorded as a tick
+with `reapplied`.
 
 **frozen** — a condition on a regulating controller whose measured signal
 has no value: the law does not step, nothing is written, until 3 readings

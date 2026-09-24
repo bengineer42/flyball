@@ -151,10 +151,16 @@ warm-up placeholder) is left out -- the signal stays `pending` -- or is
 **Readback.** A demand declares where its reading comes from:
 `readback=Readback.ECHO` (the default) when the rig pushes back the value
 it committed, `Readback.SENSED` when the driver reads it back from the
-hardware. While a device's writes fail (`commit_failed`, `write_failed`)
-its echo demands read `stale`, reason `write_failed`; when its reads fail
-(`offline`) what its polled reads delivered -- readouts and sensed demands
--- reads `stale`, reason `device_offline`.
+hardware. While a device's writes fail (`write_failed`) its echo demands
+read `stale`, reason `write_failed`, and the failed values are kept and
+retried; when its reads fail (`offline`) or hang (`hung`) what its polled
+reads delivered -- readouts and sensed demands -- reads `stale`, reason
+`device_offline` or `device_hung`. A published readout or sensed demand
+that stops arriving goes `stale` at its `stale_after_s` (default
+`max(3·poll_s, 5 s)` while polled), pushed by the rig: a driver never
+pushes `stale` itself. Each reading the rig delivers carries
+`received_ns`, when the rig took it on its own clock, beside `time_ns`, when
+it was read.
 
 ## Demands are a sample in reverse
 
@@ -237,7 +243,7 @@ self.clear_condition("railed")                                        # when it 
 
 `set_condition` returns whether it raised the condition (it was not held
 before). The code is any stable string the driver chooses; the runtime's
-own are `Code` members (`offline`, `slow`, `write_failed`, `commit_failed`,
+own are `Code` members (`offline`, `hung`, `slow`, `write_failed`,
 `stale_input`, `limit_unknown`, `frozen`, `step_failed`, `recording_failed`, and
 `band_warning`/`band_alarm` on a signal whose reading is outside its
 `warning`/`alarm` band, `band_unknown` on one with no value --

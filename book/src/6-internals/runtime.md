@@ -163,7 +163,12 @@ A device's `give_up_after_s`, once `offline` has been held that long,
 stops the loop from inside (`running: false`) with a `gave_up` event;
 `offline` stays. `DeviceRun.reading_since_ns` is set on the rig's clock
 while a poll's `read` is in flight, and pushed, so a read that never
-returns shows on the runs stream.
+returns shows on the runs stream. Each poll also arms a one-shot on the
+rig's timers at `max(3·period, 5 s)` ([hung_after_s][flyball.rig.liveness.hung_after_s]);
+if that read is still in flight when it comes up, the device holds `hung`
+and `Rig.device_hung` delivers `stale(device_hung)` on its read path, as
+`device_offline` does. The read returning cancels the one-shot and clears
+`hung`.
 
 `restart` stops the loop and starts a new one on the period (its first
 read one period later), clearing nothing: `offline` and the count stay
@@ -181,17 +186,25 @@ controller whose law raises is kept to itself: a `step_failed` condition on
 the controller, raised on the first failure and cleared when it steps
 again, its mode left as it was, and every other controller, commit,
 reading and the recorder carry on. A device whose `commit` raises is
-likewise kept to itself: its demands are dropped rather than left staged,
-and a `commit_failed` condition names it, raised once per outage and
-cleared when a commit succeeds again; the other commits and the recorder
-carry on. Meanwhile `Rig._writes_failing` gives every echo demand on the
-device (with a reading) a `stale(write_failed)` no-value and remembers the
-demands of the failed commit in `_write_lost`; the commit that clears the
-condition calls `_writes_recovered`, which pushes each still-stale echo
-demand's `router.last_usable` value back, except those in `_write_lost`
-(a demand of theirs has to commit first). A blocking device's `Writer`
-does the same through `Rig.writes_failed` / `writes_recovered`, which take
-the rig lock from the writer thread. A sample from any source goes through
+likewise kept to itself: its demands stay staged (`Rig._commit_failed`
+keeps `staged`, each `_requested` record and `at_limit`, and forgets only
+which the driver read), a `write_failed` condition names it, raised once
+per outage and cleared when a commit succeeds again, and `_retry_later`
+arms a retry on the rig's timers (`min(poll_s, 5 s)`, doubling to 60 s);
+the other commits and the recorder carry on. The retry (`_retry_due`,
+under the rig lock) drops what is older than `retry_max_age_s`
+(`write_dropped`, the demand added to `_write_lost`) and commits the rest
+as a manual demand would. Meanwhile `Rig._writes_failing` gives every echo
+demand on the device (with a reading) a `stale(write_failed)` no-value and
+remembers the demands of the failed commit in `_write_lost`; the commit
+that clears the condition carries the kept values (each a `resent` event),
+takes them out of `_write_lost`, and calls `_writes_recovered`, which pushes
+each still-stale echo demand's `router.last_usable` value back, except
+those still in `_write_lost` (a dropped one: a demand of its own has to
+commit first). A blocking device's `Writer` merges a failed write's values
+back into its queue (a newer value on a signal wins), and does the rest
+through `Rig.writes_failed` / `writes_recovered` / `resent`, which take the
+rig lock from the writer thread; its retry calls `Writer.retry`. A sample from any source goes through
 the value gate first (`normalised`, in `on_samples`): `None`, NaN and
 infinities become `invalid` no-values and a `railed` value its number plus
 a `Sample.marks` entry; `router.last_usable` keeps each signal's newest
@@ -222,10 +235,12 @@ tick — is arithmetic under the lock. What leaves it:
 | the recorder's writes | the recorder's own thread, every `flush_s`; a store that fails ends the recording with a `recording_failed` event and control is unaffected |
 | a device's `read` | the poll loop's thread, or the fresh reader's (`rig.read(..., fresh=True)`), under the device's `read_lock` and never the rig's; the delivery after it takes the rig's. A fresh read asked for by a caller already holding the rig lock is refused |
 | a simulated device's `commit` | in the delivery — it is arithmetic, and a stepped clock stays deterministic |
+| a deadline on the rig clock: a signal's liveness, a hung read's watchdog, a write retry, a fault's wait, a band's `invalid` grace, a controller's re-apply | the rig's [Timers][flyball.foundation.time.timer.Timers] (`rig.timers`, `rig.after`, `rig.every`): one thread, waiting on the rig's clock, for wall time and a scaled sim; on a stepped clock, whoever advances it. Each call is short and takes the rig lock itself if it needs it; one that raises is logged and counted (`rig.timers.errors`), never the end of the thread |
 | a long command (`@command(long=True)`: `dosing_pump.dispense`, `stepper.move`) | the caller's thread, off the lock: `Rig.run_command` makes its checks and claims the device's one long-command slot under it (a second is refused), runs the method without it, and takes it back to push `mode`, the linked readings and `last.<command>` and to commit. The method waits with `Device.wait`, on the rig's clock and an event `Device.cancel` sets, so the device's `stop` (a short command, under the lock) ends it at once. A caller already holding the lock is refused rather than made to wait under it; a program's `command` step runs without it (`Step.locked = False`). Removing the device, or closing the rig, cancels it |
 
-`rig.close()` stops all of it: polling, writers, recording, then closes the
-rig's links. It waits for reads in progress for `STOP_JOIN_S` (2 s) in
+`rig.close()` stops all of it: the timers first (nothing armed fires while
+the rig comes down; a call in progress is waited on for at most 1 s), then
+polling, writers, recording, then closes the rig's links. It waits for reads in progress for `STOP_JOIN_S` (2 s) in
 total; a poll thread still in its driver's `read` after that is abandoned
 -- it is a daemon thread -- and logged once by device name. A link whose
 `close` raises is logged and skipped; the rest still close.
@@ -264,6 +279,35 @@ of its own, taken after the rig's and never held across a join, so a run
 noted by a poll thread cannot put back one a `stop` just removed; `stop_all`
 and `rig.close` walk copies of the loops, writers and links, as a request
 may add one while the rig shuts down.
+
+## Timers and liveness
+
+[Timers][flyball.foundation.time.timer.Timers] is the one rig-clock timer:
+`after(seconds, fn)` for a one-shot, `every(seconds, fn)` for a periodic
+call, each returning a `Timer` to `cancel`. The calls live in one heap;
+a thread runs them for a clock that runs by itself, waiting with
+`Clock.wait` (so a scaled clock's deadlines come at the scaled time, and
+in steps of at most 0.5 s of real time, so a speed change is followed), and
+a `SteppedClock` runs them itself, in time order with its polls, through one
+call kept on it (`call_later`) at the earliest due time. `SteppedClock`
+does not hold its schedule's lock while it runs a call, so a thread holding
+the rig's lock may arm a timer while a call waits for that lock. The rig
+makes its timers on first use, on the clock it has then; swapping
+`rig.clock` rebuilds them. `PeriodicLoop` stays the poll loop -- a device's
+read may block, so each device has its own thread -- and its backoff
+(`defer`) is not on the timers.
+
+[Liveness][flyball.rig.liveness.Liveness] (`rig.liveness`) keeps one record
+per judged signal (a published readout or `sensed` demand, with a
+threshold: its `stale_after_s`, else `max(3·poll_s, 5 s)` while polled),
+built when its device's polling starts. A delivery notes each arrival
+(`received_ns`, stamped on the reading by `Router.note`) and does nothing
+else unless the record has no one-shot armed; the one-shot, when it comes
+up, re-arms for the true deadline or, under the rig lock, delivers a
+`stale` reading on every signal of the device due by then, stamped at that
+instant. The reason is the device's (`device_offline`, `device_hung`) if it
+holds one, else `never_read`, `last_read` (the device's other signals
+still arrive) or `silent`.
 
 ## Controllers
 

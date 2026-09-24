@@ -44,9 +44,12 @@ not echo it as a reading, reports it with the reading unchanged and the
 demand as `requested`, and raises a `demand_ignored` event once until one
 is read again. A composite that drives from its target and has no use for a
 line demand in its present mode gets exactly this for that demand. If
-`commit` raises, the device's staged demands are dropped (not sent with a
-later commit) and a `commit_failed` event names it; the rest of the
-delivery goes on.
+`commit` raises, the device's staged demands are kept for its next commit
+and retried on the rig's clock, a `write_failed` condition names the
+device until a commit succeeds, and the rest of the delivery goes on
+([A write that fails](../../2-config/devices/index.md#a-write-that-fails)).
+Retrying sends a demand's latest value again: `commit` should set levels,
+which a second send does not change.
 
 There is no dirty flag to maintain in a driver: the rig tracks which
 devices a delivery touched and calls `commit` once per device, however many

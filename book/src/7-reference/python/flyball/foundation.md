@@ -27,6 +27,8 @@
 
 ::: flyball.foundation.time.loop
 
+::: flyball.foundation.time.timer
+
 ::: flyball.foundation.router.router
 
 ::: flyball.foundation.router.topic
