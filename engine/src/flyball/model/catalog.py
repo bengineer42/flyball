@@ -26,7 +26,11 @@ and declares it in `pyproject.toml`::
 installed package's entry point and calls its `register`, so `Catalogs()`
 followed by `discover()` is enough to load everything installed -- engine's
 own built-in laws included, through the same mechanism, no special-cased
-"what's compiled in" path.
+"what's compiled in" path. One package that fails to import or to register
+is logged, left out whole and named in
+[discovery_errors][flyball.model.catalog.Catalogs.discovery_errors]; the
+rest load, and a rig that names one of its types fails as for any unknown
+type.
 
 This replaces `Config`'s old `__init_subclass__`-based auto-registration
 (`Config.registry`, removed): registering used to be a side effect of a
@@ -42,7 +46,8 @@ bare `ClassVar` dict.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import logging
+from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -51,6 +56,8 @@ if TYPE_CHECKING:
     from flyball.model.feedforward import Feedforward
     from flyball.model.generator import SetpointGenerator
     from flyball.model.law import ControlLaw
+
+log = logging.getLogger(__name__)
 
 
 class Catalog[T]:
@@ -131,6 +138,12 @@ class Catalogs:
     # `model` in the Layers contract -- even a `TYPE_CHECKING`-only import back
     # down would be a real edge (import-linter reads the AST, guard or not).
     steps: Catalog[Any] = field(default_factory=lambda: Catalog("step"))
+    discovery_errors: dict[str, str] = field(default_factory=dict)
+    """Entry name -> why [discover][flyball.model.catalog.Catalogs.discover] left it out
+    (`"ImportError: ..."`); empty when every installed package registered."""
+
+    def _catalogs(self) -> list[Catalog[Any]]:
+        return [v for f in fields(self) if isinstance(v := getattr(self, f.name), Catalog)]
 
     def register_device(self, cls: type[DriverConfig[Any]], *, name: str | None = None) -> None:
         self.devices.register(cls, name=name)
@@ -162,13 +175,36 @@ class Catalogs:
         pointing at a module with a `def register(catalog) -> None`. Returns
         the entry names loaded. Safe to call more than once -- registering
         the same class under the same type twice is not a collision.
+
+        An entry that fails -- its module does not import, has no
+        `register`, or `register` raises, a type already registered to
+        another class among them -- is logged, and whatever it registered
+        before failing is taken back out, so the package is left out whole;
+        `discovery_errors` names it and why. The others load: one broken
+        package does not take every rig down, and a rig that names one of
+        its types fails as for any unknown type.
         """
         from importlib.metadata import entry_points
 
         loaded = []
         for entry in entry_points(group=group):
-            module = entry.load()
-            module.register(self)
+            before = [(c, dict(c._by_type)) for c in self._catalogs()]
+            try:
+                entry.load().register(self)
+            except Exception as e:
+                for catalog, by_type in before:
+                    catalog._by_type = by_type
+                self.discovery_errors[entry.name] = f"{type(e).__name__}: {e}"
+                log.error(
+                    "%s entry point %r (%s) skipped, none of its types are registered: %s",
+                    group,
+                    entry.name,
+                    entry.value,
+                    self.discovery_errors[entry.name],
+                )
+                log.debug("%s entry point %r", group, entry.name, exc_info=True)
+                continue
+            self.discovery_errors.pop(entry.name, None)
             loaded.append(entry.name)
         return loaded
 
@@ -199,8 +235,8 @@ def get_catalog() -> Catalogs:
     """`current_catalog()`, or raise. For code that cannot build or validate a rig without one."""
     if _catalog is None:
         raise RuntimeError(
-            "no Catalogs is set; call flyball.model.catalog.set_catalog(Catalogs().discover())"
-            " first (runner.py does this at startup)"
+            "no Catalogs is set; call flyball.model.catalog.ensure_discovered() first"
+            " (flyball-runner sets one at startup)"
         )
     return _catalog
 

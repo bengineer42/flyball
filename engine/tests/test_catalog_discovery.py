@@ -10,7 +10,13 @@ so `make test`/CI already runs it -- not a separate CI-level script.
 
 from __future__ import annotations
 
-from importlib.metadata import entry_points
+import importlib.metadata
+import logging
+import sys
+from importlib.metadata import EntryPoint, entry_points
+from types import ModuleType
+
+import pytest
 
 from flyball.model.catalog import Catalogs
 
@@ -52,6 +58,7 @@ def test_discover_populates_the_kinds_engine_itself_ships() -> None:
     """
     catalogs = Catalogs()
     catalogs.discover()
+    assert catalogs.discovery_errors == {}, "an installed entry point failed to load"
     assert catalogs.laws.names(), "engine's own built-in laws (control/configs.py) did not load"
     assert set(catalogs.laws.names()) >= {
         "open_loop",
@@ -80,3 +87,86 @@ def test_discover_populates_the_kinds_engine_itself_ships() -> None:
         "settle",
         "manual",
     }, "engine's own built-in commands (sequencing/configs.py) did not all load"
+
+
+class _Fake:
+    """A stand-in class for the fake packages below to register."""
+
+
+def _module(monkeypatch: pytest.MonkeyPatch, name: str, register) -> None:
+    module = ModuleType(name)
+    module.register = register  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, name, module)
+
+
+def test_discover_skips_and_reports_a_broken_or_clashing_entry_point(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """One bad package is logged and left out whole; every other one still loads."""
+    real = list(entry_points(group="flyball.configs"))
+    reference = Catalogs()
+    reference.discover()
+    taken = next(iter(reference.links))  # a link type an installed package already registers
+
+    def clashing(catalog: Catalogs) -> None:
+        catalog.register_device(_Fake, name="fake_before_the_clash")
+        catalog.register_link(_Fake, name=taken)
+
+    def good(catalog: Catalogs) -> None:
+        catalog.register_device(_Fake, name="fake_good")
+
+    _module(monkeypatch, "fake_flyball_clash", clashing)
+    _module(monkeypatch, "fake_flyball_good", good)
+    fakes = [
+        EntryPoint("broken", "fake_flyball_no_such_module", "flyball.configs"),
+        EntryPoint("clash", "fake_flyball_clash", "flyball.configs"),
+        EntryPoint("good", "fake_flyball_good", "flyball.configs"),
+    ]
+    monkeypatch.setattr(importlib.metadata, "entry_points", lambda group: [*real, *fakes])
+
+    catalogs = Catalogs()
+    with caplog.at_level(logging.ERROR, logger="flyball.model.catalog"):
+        loaded = catalogs.discover()
+
+    assert loaded == [*(e.name for e in real), "good"]
+    assert set(catalogs.discovery_errors) == {"broken", "clash"}
+    assert catalogs.discovery_errors["broken"].startswith("ModuleNotFoundError: ")
+    assert catalogs.discovery_errors["clash"] == (
+        f"ValueError: link type {taken!r} is already {reference.links[taken].__name__}"
+    )
+    # the clashing package is left out whole: what it registered before the clash is gone
+    assert "fake_before_the_clash" not in catalogs.devices
+    assert catalogs.links[taken] is reference.links[taken]
+    assert "fake_good" in catalogs.devices
+    assert set(reference.devices) <= set(catalogs.devices)
+    logged = caplog.text
+    assert "'broken' (fake_flyball_no_such_module) skipped" in logged
+    assert "'clash' (fake_flyball_clash) skipped" in logged
+    assert taken in logged
+
+    # a type the skipped package would have provided is the usual unknown type
+    with pytest.raises(KeyError, match="device type 'fake_before_the_clash' is not registered"):
+        catalogs.devices["fake_before_the_clash"]
+
+
+def test_discover_again_clears_an_entry_that_now_loads(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"n": 0}
+
+    def flaky(catalog: Catalogs) -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("not yet")
+        catalog.register_device(_Fake, name="fake_flaky")
+
+    _module(monkeypatch, "fake_flyball_flaky", flaky)
+    monkeypatch.setattr(
+        importlib.metadata,
+        "entry_points",
+        lambda group: [EntryPoint("flaky", "fake_flyball_flaky", "flyball.configs")],
+    )
+    catalogs = Catalogs()
+    assert catalogs.discover() == []
+    assert catalogs.discovery_errors == {"flaky": "RuntimeError: not yet"}
+    assert catalogs.discover() == ["flaky"]
+    assert catalogs.discovery_errors == {}
+    assert "fake_flaky" in catalogs.devices
