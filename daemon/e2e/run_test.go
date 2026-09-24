@@ -285,7 +285,7 @@ func TestRunLocal(t *testing.T) {
 		fr.waitOutput(`software stop by local:console via http \(e2e-http\)`, 5*time.Second)
 		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "principal": "local:console", "via": "http",
 			"status": "200", "details": "e2e-http"})
-		for _, sql := range []string{"update audit set sub = 'x'", "delete from audit"} {
+		for _, sql := range []string{"update audit set principal = 'x'", "delete from audit"} {
 			out, err := execPython(store, sql)
 			if err == nil || !strings.Contains(out, "append-only") {
 				t.Errorf("%s: %v %s, want refused (append-only)", sql, err, out)
