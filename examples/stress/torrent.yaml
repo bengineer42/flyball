@@ -167,6 +167,6 @@ devices:
 controllers:
   drive1.drive:
     measured: channel1.signal1
-    law: { type: P, kp: 0.5 }
+    law: { type: p, kp: 0.5 }
     feedforward: { type: affine, gain: 1.0, bias: 0.0 }
     default: true

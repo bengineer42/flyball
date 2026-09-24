@@ -34,5 +34,5 @@ devices:
 controllers:
   heater.drive:
     measured: zone.temperature
-    law: { type: PI, kp: 1.0, ki: 0.05 }
+    law: { type: pi, kp: 1.0, ki: 0.05 }
     default: true

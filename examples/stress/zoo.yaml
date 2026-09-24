@@ -396,18 +396,18 @@ devices:
 controllers:
   celsius_heater.drive:
     measured: celsius.temperature
-    law: { type: PI, kp: 0.05, ki: 0.002 }
+    law: { type: pi, kp: 0.05, ki: 0.002 }
     feedforward: { type: affine, gain: 1.0, bias: -20.0 }
     default: true
   voltage_source.drive:
     measured: voltage.voltage
-    law: { type: PI, kp: 0.001, ki: 0.00033333333 }
+    law: { type: pi, kp: 0.001, ki: 0.00033333333 }
     feedforward: { type: affine, gain: 0.033333333, bias: -0.4 }
   length_motor.drive:
     measured: length.length
-    law: { type: P, kp: 0.1 }
+    law: { type: p, kp: 0.1 }
     feedforward: { type: affine, gain: 0.2, bias: 0.0 }
   flow_pump.drive:
     measured: flow.flow
-    law: { type: PI, kp: 0.0005, ki: 0.000125 }
+    law: { type: pi, kp: 0.0005, ki: 0.000125 }
     feedforward: { type: affine, gain: 0.025, bias: 0.0 }

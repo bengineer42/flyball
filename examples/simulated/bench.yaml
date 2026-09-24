@@ -40,5 +40,5 @@ devices:
 controllers:
   psu.set_voltage:
     measured: dmm.voltage
-    law: { type: PI, kp: 0.5, ki: 0.1 }
+    law: { type: pi, kp: 0.5, ki: 0.1 }
     default: true

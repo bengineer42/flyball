@@ -60,10 +60,10 @@ devices:
 controllers:
   heater.drive:
     measured: temp.temperature
-    law: { type: PI, kp: 0.000125, ki: 2.5e-06 }
+    law: { type: pi, kp: 0.000125, ki: 2.5e-06 }
     feedforward: { type: affine, gain: 0.0125, bias: -0.1875 }
     default: true
   pump.drive:
     measured: cistern_level.volume
-    law: { type: PI, kp: 0.02, ki: 0.005 }
+    law: { type: pi, kp: 0.02, ki: 0.005 }
     feedforward: { type: affine, gain: 0.01 }
