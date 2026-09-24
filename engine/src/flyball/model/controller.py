@@ -269,6 +269,8 @@ class Controller:
     """The feedforward's part of the last output, so a deferred delivery can split the rest."""
     held: Code | None = None
     """Why the last tick was held (`stale_input`, `limit_unknown`); None when it stepped."""
+    declared_label: str | None = None
+    """The display name the rig file's entry gave (`label`), or None; `label` resolves it."""
 
     def __init__(
         self,
@@ -283,6 +285,7 @@ class Controller:
         write: Callable[[float], float | None] | None = None,
         hold: Callable[[], Code | None] | None = None,
         on_fault: OnFault | None = None,
+        label: str | None = None,
     ) -> None:
         if output_signal.role is not Role.DEMAND:
             raise ConflictError(
@@ -296,6 +299,7 @@ class Controller:
                 f"{measured_signal.address} [{measured_signal.access}] is not published"
             )
         self.clock = clock
+        self.declared_label = label or None
         self.output_signal = output_signal
         self.measured_signal = measured_signal
         same_unit = measured_signal.unit == output_signal.unit
@@ -359,6 +363,11 @@ class Controller:
     def name(self) -> str:
         """A controller is known by what it drives: its output's address."""
         return self.output_signal.address
+
+    @property
+    def label(self) -> str:
+        """What a person reads: the declared label, else its output signal's (D-086)."""
+        return self.declared_label or self.output_signal.label
 
     @property
     def output_unit(self) -> str:

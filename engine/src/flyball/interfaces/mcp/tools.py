@@ -891,7 +891,7 @@ def _device_tools(rig: Rig, simulated: bool) -> list[Tool]:
             tools.append(
                 Tool(
                     f"{name}-{command}",
-                    f"[{device.get('label') or name}] {description}",
+                    f"[{device.get('label', name)}] {description}",
                     spec["arguments"],
                     Tier.DRIVE,
                     _command(name, command),

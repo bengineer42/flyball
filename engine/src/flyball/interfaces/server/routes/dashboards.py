@@ -81,7 +81,8 @@ class Dashboard(BaseModel):
     name: str = Field(min_length=1)
     label: str | None = Field(
         default=None,
-        description="What its tab and its row in a list show; none: the name. Renaming edits it.",
+        description="What its tab and its row in a list show; none: the name, humanised."
+        " Renaming edits it.",
     )
     rig: str
     description: str | None = None
@@ -131,6 +132,9 @@ class DashboardWithProblems(BaseModel):
 
     id: int
     name: str
+    label: str
+    """What a person reads: the document's `label`, else the name humanised; the document
+    (`body`) keeps the one it declared, or none."""
     rig: str
     body: Any
     created_ns: int
@@ -143,6 +147,7 @@ class DashboardWithProblems(BaseModel):
         return cls(
             id=row.id,
             name=row.name,
+            label=row.label,
             rig=row.rig,
             body=body,
             created_ns=row.created_ns,

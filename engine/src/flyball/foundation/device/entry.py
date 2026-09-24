@@ -92,7 +92,7 @@ class SignalMeta(BaseModel):
     narrows the driver's: a demand is clamped to both.
 
     A key left out leaves the driver's value; a key given as `null` clears
-    it back to the unset default (`label: null` is the titlecased name,
+    it back to the unset default (`label: null` is the name humanised,
     `warning: null` no band). `limits: null` clears only the file's narrowing,
     never the driver's limits.
     """
@@ -374,7 +374,7 @@ class DeviceEntry(BaseModel):
             config = config.model_copy(update={"link": links[config.link]})
         device = config.build(name, self.label)
         if self.label is not None:
-            device.label = self.label
+            device.declared_label = self.label or None
         if self.poll_s is not None:
             device.poll_s = self.poll_s
         _set_meta_under(device.root, self.signals)

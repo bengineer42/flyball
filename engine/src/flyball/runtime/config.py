@@ -155,6 +155,10 @@ class ControllerEntry(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    label: str | None = Field(
+        default=None,
+        description="What a person reads; none: the output signal's label.",
+    )
     measured: str = Field(description="The measured signal's address (a P signal).")
     law: LawConfig | None = None  # type: ignore[valid-type]
     feedforward: FeedforwardConfig | None = Field(  # type: ignore[valid-type]
@@ -799,6 +803,9 @@ class RigConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = None
+    label: str | None = Field(
+        default=None, description="What a person reads for the rig; none: its name, humanised."
+    )
     board: str | None = Field(
         default=None,
         description="A board profile: a name on the board path, or a path to the file.",
@@ -1032,6 +1039,7 @@ class RigConfig(BaseModel):
                     min_period_s=controller.min_period_s,
                     setpoint_period_s=controller.setpoint_period_s,
                     on_fault=controller.fault_policy(),
+                    label=controller.label,
                 )
         except Exception:
             for device in built_devices:
@@ -1195,7 +1203,7 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
 def render_document(loaded: dict[str, Any]) -> dict[str, Any]:
     """A rig as a rig file, in the form [Rig.document][flyball.rig.rig.Rig.document] gives.
 
-    `loaded` holds `name`, the header keys (`board`, `clock`, `recording`), `links` as the
+    `loaded` holds `name`, the header keys (`label`, `board`, `clock`, `recording`), `links` as the
     file writes them (`{type, ...}`), `devices` as entries and `controllers` as
     [ControllerEntry][flyball.runtime.config.ControllerEntry]s. Defaults are left out, as a
     hand-written file leaves them; a law's or feedforward's `type` is kept, since the file

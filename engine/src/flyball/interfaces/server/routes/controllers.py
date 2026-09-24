@@ -66,6 +66,8 @@ class NewController(BaseModel):
     `max(0.1 s, poll_s / 4)`."""
     on_fault: OnFaultEntry = "freeze"
     """What it does once its source has been faulty for its wait (the rig file's `on_fault`)."""
+    label: str | None = None
+    """What a person reads; omitted: the output signal's label."""
 
 
 class Regulate(BaseModel):
@@ -91,6 +93,7 @@ class SignalChoice(BaseModel):
     address: str
     device: str
     label: str
+    """The signal's label, resolved: never empty."""
     unit: str
     dimension: str | None
     range: tuple[float, float] | None = None
@@ -251,6 +254,7 @@ def make_controller(rig: RigDep, body: NewController) -> ControllerOut:
             min_period_s=body.min_period_s,
             setpoint_period_s=body.setpoint_period_s,
             on_fault=ControllerEntry(measured=body.measured, on_fault=body.on_fault).fault_policy(),
+            label=body.label,
         )
     return _out(rig, controller.name)
 

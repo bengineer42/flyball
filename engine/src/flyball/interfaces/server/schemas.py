@@ -324,6 +324,7 @@ class SignalOut(BaseModel):
     address: str
     access: str
     label: str
+    """What a person reads: the declared label, else the name humanised; never empty."""
     quantity: str
     unit: str
     dimension: str | None = None
@@ -369,7 +370,7 @@ class SignalOut(BaseModel):
             name=signal.name,
             address=signal.address,
             access=str(signal.access),
-            label=spec.label,
+            label=signal.label,
             quantity=spec.quantity.name,
             unit=signal.unit.symbol,
             dimension=signal.unit.dimension.label,
@@ -403,6 +404,7 @@ class NamespaceOut(BaseModel):
     address: str
     atomic: bool
     label: str
+    """What a person reads: the declared label, else the name humanised; never empty."""
     poll_s: float | None = None
     signals: list[SignalOut | NamespaceOut]
 
@@ -445,6 +447,8 @@ def tree_out(
 
 class CommandOut(BaseModel):
     name: str
+    label: str
+    """What a person reads: the driver's `@command(label=...)`, else the name humanised."""
     description: str | None = None
     simulation: bool = False
     commit: bool = False
@@ -463,6 +467,7 @@ class CommandOut(BaseModel):
     def of(cls, spec: CommandSpec) -> CommandOut:
         return cls(
             name=spec.name,
+            label=spec.label,
             description=spec.doc,
             simulation=spec.simulation,
             commit=spec.commit,
@@ -502,7 +507,7 @@ class InputOut(BaseModel):
 
     name: str
     label: str
-    """The declared input's label; `""` for a name only the rig file gives."""
+    """The declared input's label, else the name humanised; never empty."""
     quantity: str
     """The declared input's quantity, else the source signal's; `""` when neither says."""
     unit: str
@@ -531,7 +536,7 @@ class InputOut(BaseModel):
         unit = binding.unit
         return cls(
             name=binding.name,
-            label="" if declared is None else declared.label,
+            label=binding.label,
             quantity=declared.quantity.name
             if declared is not None
             else ("" if source is None else source.quantity.name),
@@ -613,7 +618,8 @@ class DeviceOut(BaseModel):
     """
 
     name: str
-    label: str | None = None
+    label: str
+    """What a person reads: the rig file's `label`, else the name humanised; never empty."""
     kind: str
     driver: str | None = None
     class_name: str
@@ -733,8 +739,8 @@ class ControllerOut(BaseModel):
     """
 
     name: str
-    label: str | None = None
-    """The output signal's display name; None: show `name`."""
+    label: str
+    """What a person reads: the rig file's `label` for it, else its output signal's."""
     output_signal: str
     measured_signal: str
     is_default: bool
@@ -785,7 +791,7 @@ class ControllerOut(BaseModel):
         reference = view.reference
         return cls(
             name=view.name,
-            label=controller.output_signal.label or None,
+            label=controller.label,
             output_signal=controller.output_signal.address,
             measured_signal=controller.measured_signal.address,
             is_default=is_default,

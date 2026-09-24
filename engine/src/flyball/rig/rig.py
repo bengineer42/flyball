@@ -54,7 +54,7 @@ from flyball.foundation.device import (
 )
 from flyball.foundation.device.values import Values
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
-from flyball.foundation.keys import Keyed, canonical
+from flyball.foundation.keys import Keyed, canonical, humanise
 from flyball.foundation.router import RECENT_READINGS, Latest, Router, Topic
 from flyball.foundation.time import Timer, Timers
 from flyball.foundation.typing import OrderedSet
@@ -270,8 +270,8 @@ class Rig:
     files: list[Path]
     """The rig files the runner loaded, if any; provenance for a version."""
     header: dict[str, Any]
-    """The loaded document's keys that are not links, devices or controllers (`board`, `clock`,
-    `recording`), carried into the rendered document unchanged."""
+    """The loaded document's keys that are not links, devices or controllers (`label`, `board`,
+    `clock`, `recording`), carried into the rendered document unchanged."""
     loaded: dict[str, Any] | None
     """The rig as it was when this run started, rendered: what `changes` are measured from."""
     saved_overlay: dict[str, Any]
@@ -343,6 +343,15 @@ class Rig:
         self.saved_overlay = {}
         self.on_change = None
         self.on_recording_stopped = None
+
+    @property
+    def label(self) -> str:
+        """What a person reads for the rig: the rig file's `label`, else its name humanised.
+
+        "Rig" for a rig with no name (one built in code).
+        """
+        declared = self.header.get("label")
+        return declared or (humanise(self.name) if self.name else "Rig")
 
     @property
     def clock(self) -> Clock:
@@ -2072,6 +2081,7 @@ class Rig:
         with self.lock:  # a consistent view: nothing added or removed while it is read
             controllers = {
                 name: ControllerEntry(
+                    label=c.declared_label,
                     measured=c.measured_signal.address,
                     law=c.law.config if c.law is not None else None,
                     # The file's default: the identity. Left out, as a file would.
@@ -2389,6 +2399,7 @@ class Rig:
         min_period_s: float | None = None,
         setpoint_period_s: float | None = None,
         on_fault: OnFault | None = None,
+        label: str | None = None,
     ) -> Controller:
         """Regulate `measured` through `output`; the controller is named by `output`'s address.
 
@@ -2404,6 +2415,7 @@ class Rig:
             setpoint_period_s: Re-apply a moving setpoint's feedforward this often between
                 readings; default `max(0.1 s, poll_s / 4)` from `measured`'s `poll_s`.
             on_fault: What it does once its source's outage is released; default `freeze`.
+            label: What a person reads; default: the output signal's label.
 
         Raises:
             SignalClaimedError: `output` is already driven, or `measured`
@@ -2446,6 +2458,7 @@ class Rig:
                 write=write,
                 hold=lambda: self.hold_reason(controller),
                 on_fault=on_fault,
+                label=label,
             )
             controller.on_reference = lambda: self._reference_changed(controller)
             controller.guard = lambda: self.stopping.regulate_refusal(controller)

@@ -148,6 +148,19 @@
       "additionalProperties": false,
       "description": "A controller and how it regulates its output; keyed by the output's address in the file.",
       "properties": {
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What a person reads; none: the output signal's label.",
+          "title": "Label"
+        },
         "measured": {
           "description": "The measured signal's address (a P signal).",
           "title": "Measured",
@@ -2083,7 +2096,7 @@
     },
     "SignalMeta": {
       "additionalProperties": false,
-      "description": "A signal's metadata in the rig file, and the access to remove.\n\n`access` names the set to keep (`\"r\"`); `readable`, `published` and\n`writable` drop one flag each and take only `false` -- the driver\ndeclares what it can honour, the file cannot add to it. `limits` only\nnarrows the driver's: a demand is clamped to both.\n\nA key left out leaves the driver's value; a key given as `null` clears\nit back to the unset default (`label: null` is the titlecased name,\n`warning: null` no band). `limits: null` clears only the file's narrowing,\nnever the driver's limits.",
+      "description": "A signal's metadata in the rig file, and the access to remove.\n\n`access` names the set to keep (`\"r\"`); `readable`, `published` and\n`writable` drop one flag each and take only `false` -- the driver\ndeclares what it can honour, the file cannot add to it. `limits` only\nnarrows the driver's: a demand is clamped to both.\n\nA key left out leaves the driver's value; a key given as `null` clears\nit back to the unset default (`label: null` is the name humanised,\n`warning: null` no band). `limits: null` clears only the file's narrowing,\nnever the driver's limits.",
       "properties": {
         "label": {
           "anyOf": [
@@ -3733,7 +3746,7 @@
         },
         "label": {
           "default": "",
-          "description": "The display text; default: the titled name.",
+          "description": "The display text; blank: the name, humanised.",
           "title": "Label",
           "type": "string"
         },
@@ -3770,6 +3783,19 @@
       ],
       "default": null,
       "title": "Name"
+    },
+    "label": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "What a person reads for the rig; none: its name, humanised.",
+      "title": "Label"
     },
     "board": {
       "anyOf": [

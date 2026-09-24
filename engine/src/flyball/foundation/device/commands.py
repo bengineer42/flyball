@@ -15,6 +15,8 @@ from pydantic.errors import (
 )
 from pydantic.json_schema import JsonSchemaMode
 
+from ..keys import humanise
+
 RESERVED_NAMES = frozenset({"schema"})
 """Route segments the server uses after a device's name; no device or command may take them."""
 
@@ -111,10 +113,17 @@ class CommandSpec:
     demand_of: str | None = None
     """For a synthesised `set_<name>`: the path of the demand it sets; the rig routes it through
     its demand path."""
+    declared_label: str = ""
+    """The display text the driver declared (`@command(label=...)`), or `""`."""
 
     @property
     def doc(self) -> str | None:
         return self.method.__doc__
+
+    @property
+    def label(self) -> str:
+        """What a person reads: the declared label, else the name humanised (D-086)."""
+        return self.declared_label or humanise(self.name)
 
 
 @overload
@@ -123,6 +132,7 @@ def command[F: Callable[..., Any]](fn: F, /) -> F: ...
 def command[F: Callable[..., Any]](
     *,
     name: str | None = None,
+    label: str = "",
     simulation: bool = False,
     commit: bool = False,
     sets_mode: Any = None,
@@ -136,6 +146,7 @@ def command(
     /,
     *,
     name: str | None = None,
+    label: str = "",
     simulation: bool = False,
     commit: bool = False,
     sets_mode: Any = None,
@@ -146,7 +157,9 @@ def command(
 ) -> Any:
     """Mark a device method as a command, under the method's name or `name`.
 
-    `@command` or `@command(name="stop")`. The method's signature is the
+    `@command` or `@command(name="stop")`. `label` is what a person reads (a button, a
+    form's heading); left blank, the name humanised (`dose_volume` -> "Dose volume").
+    The method's signature is the
     command's; an argument annotated `Annotated[<type>, <descriptor>]` (or
     named like a descriptor) is a value for that demand -- legal in the
     class body, since the descriptor's name is already bound there. `sets_mode`
@@ -189,6 +202,7 @@ def command(
             "long": long,
             "writes": paths,
             "stops": stops,
+            "declared_label": label,
         }
         return f
 

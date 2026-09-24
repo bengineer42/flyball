@@ -64,7 +64,8 @@ class DeviceRow:
     address: str
     driver: str | None
     config: Any
-    label: str | None
+    label: str
+    """What a person read for it: its label as resolved when the session declared it."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -80,7 +81,8 @@ class SignalRow:
     """The wire form: `"rp"`, `"w"`, `"rpw"`."""
     dtype: str = "float"
     shape: list[int] = field(default_factory=list)
-    label: str | None = None
+    label: str = ""
+    """Its label as resolved when the session declared it (never empty from a store)."""
     range: Bounds | None = None
     precision: int | None = None
     warning: Bounds | None = None
@@ -211,7 +213,11 @@ class ProgramRow:
 
 @dataclass(frozen=True, slots=True)
 class DashboardRow:
-    """A stored dashboard: the document as the UI saved it, for one rig."""
+    """A stored dashboard: the document as the UI saved it, for one rig.
+
+    `label` is what a person reads: the document's own `label`, else the name humanised. The
+    document keeps the one it declared (or none), so saving it back writes no fallback.
+    """
 
     id: int
     name: str
@@ -219,6 +225,7 @@ class DashboardRow:
     body: Any
     created_ns: int
     sha256: str
+    label: str = ""
 
 
 # endregion

@@ -13,6 +13,7 @@ from flyball_sim.clock import SteppedClock
 from conftest import TestClient
 from flyball.control import PI
 from flyball.foundation.device import Access, Device, Role, Sample, SignalSpec, WriteState
+from flyball.foundation.keys import humanise
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.interfaces.server import create_app, set_rig
@@ -156,7 +157,7 @@ def test_session_long_json_and_zip(client):
             "address": probe,
             "driver": "Probe",
             "config": {"link": None},
-            "label": None,
+            "label": humanise(probe),
         }
         assert [s["address"] for s in meta["signals"]] == [
             f"{probe}.temperature",
@@ -219,7 +220,7 @@ def test_history_routes_read_by_address(client):
         "access": "rp",
         "dtype": "float",
         "shape": [],
-        "label": None,
+        "label": "Temperature",
         "range": None,
         "precision": None,
         "warning": None,

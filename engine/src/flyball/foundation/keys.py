@@ -12,6 +12,10 @@ form, the one stored and compared, has `_`. So `name: wet-pump` is found by
 `device: wet_pump`, and two names that differ only by `-`/`_` are one name.
 [canonical][flyball.foundation.keys.canonical] is that mapping alone, for a lookup,
 where a name that is not a key simply finds nothing.
+
+A key is what a machine matches on; what a person reads is a *label*. Every label may be
+left blank, and a blank one is [humanise][flyball.foundation.keys.humanise]d from the key
+(D-086): `dry_pump_flow` shows as "Dry pump flow".
 """
 
 from __future__ import annotations
@@ -77,6 +81,18 @@ def check_keys[V](mapping: Mapping[str, V], what: str = "name") -> dict[str, V]:
     return out
 
 
+def humanise(key: str) -> str:
+    """The label a blank one resolves to: `key` in sentence case (D-086).
+
+    Underscores (and dashes) become spaces, the first letter is capitalised, and the rest
+    stays as written: `dry_pump_flow` -> "Dry pump flow", `tvoc` -> "Tvoc" (a driver that
+    means "TVOC" declares it). The one fallback: devices, namespaces, signals, inputs,
+    commands, controllers, the rig and a JSON Schema field's title all use it.
+    """
+    words = " ".join(part for part in re.split(r"[_-]+", key) if part)
+    return words[:1].upper() + words[1:]
+
+
 class Keyed[V](dict[str, V]):
     """A dict keyed by names, found by either spelling: every key is taken as `canonical`.
 
@@ -124,5 +140,6 @@ __all__ = [
     "check_address",
     "check_key",
     "check_keys",
+    "humanise",
     "is_key",
 ]
