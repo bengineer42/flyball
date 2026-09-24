@@ -1,6 +1,6 @@
 """A QCoDeS instrument's parameters as a flyball device.
 
-Nothing here imports qcodes at module load: `QCoDeSConfig.build` does, so the
+Nothing here imports qcodes at module load: validating a `QCoDeSConfig` does, so the
 `qcodes` extra is only needed where it is actually used. A fake with the
 same attributes drives the tests.
 """

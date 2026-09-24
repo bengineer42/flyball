@@ -297,6 +297,11 @@ class TestChecks:
         with pytest.raises(ValueError, match="device 'x': driver 'sim_plant' is not registered"):
             RigConfig.model_validate({"devices": {"x": {"driver": "sim_plant"}}})
 
+    def test_a_driver_config_it_refuses_is_refused_before_build(self, daq_tag):
+        """The driver's own fields are validated with the file, not first at build."""
+        with pytest.raises(ValueError, match="device 'f': zones: Input should be a valid integer"):
+            RigConfig.model_validate({"devices": {"f": {"driver": daq_tag, "zones": "many"}}})
+
     def test_a_reserved_device_name_is_refused(self, daq_tag):
         with pytest.raises(ConflictError, match="Name 'schema' is reserved as a route segment"):
             RigConfig.model_validate({"devices": {"schema": {"driver": daq_tag}}})

@@ -865,7 +865,9 @@ class RigConfig(BaseModel):
 
         Device names are the table's keys, so a duplicate is the loader's
         to refuse; what is checked here is a reserved name, an unknown
-        driver, an undeclared link, and a controller address without a dot.
+        driver, a driver's own fields its config refuses (a `pymeasure`
+        `instrument` outside the library, say), an undeclared link, and a
+        controller address without a dot.
         Before anything is built, so the file fails with one clear message
         instead of a build-time error part-way through.
         """
@@ -880,6 +882,14 @@ class RigConfig(BaseModel):
                 raise ValueError(
                     f"device {name!r}: {entry.driver!r} is a {driver.__name__}, not a device driver"
                 )
+            try:  # the driver's own fields, as build() will take them
+                driver.model_validate(entry.driver_config)
+            except ValidationError as e:
+                problems = "; ".join(
+                    f"{'.'.join(map(str, error['loc'])) or entry.driver}: {error['msg']}"
+                    for error in e.errors()
+                )
+                raise ValueError(f"device {name!r}: {problems}") from e
             link = entry.driver_config.get("link")
             if isinstance(link, str) and link not in self.links:
                 raise ValueError(f"link {link!r} is not declared; links are {sorted(self.links)}")
