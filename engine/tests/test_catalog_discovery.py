@@ -73,7 +73,7 @@ def test_discover_populates_the_kinds_engine_itself_ships() -> None:
     assert set(catalogs.steps.names()) >= {
         "prompt",
         "set",
-        "command",
+        "run",
         "regulate",
         "ramp",
         "wait",

@@ -736,7 +736,6 @@ export interface ClockOut {
   start_time_ns: Nanoseconds;
   now_ns: Nanoseconds;
   elapsed_ns: Nanoseconds;
-  tags: Record<string, Nanoseconds>;
   /** How fast the rig's time runs against wall time; only a simulated rig is ever not 1. */
   speed: number;
 }
@@ -1320,7 +1319,7 @@ export interface ProgrammerState {
   running: boolean;
   step: number;
   steps: number;
-  command: string | null;
+  type: string | null;
   failed: boolean;
   error: string | null;
 }

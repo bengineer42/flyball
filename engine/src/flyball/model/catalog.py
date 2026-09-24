@@ -63,20 +63,15 @@ class Catalog[T]:
     def register(self, cls: type[T], *, name: str | None = None) -> None:
         """Register `cls` under `name`.
 
-        By default its `type_name` (a config), `type` (a law, feedforward or
-        generator) or `tag` (a program step).
+        By default its `type_name` (a config) or `type` (a law, feedforward,
+        generator or program step).
 
         Raises:
             ValueError: `name` is already registered to a different class. Not
                 raised on re-registering the same class under the same name
                 (safe to call `discover()` more than once).
         """
-        resolved = (
-            name
-            or getattr(cls, "type_name", None)
-            or getattr(cls, "type", None)
-            or getattr(cls, "tag", None)
-        )
+        resolved = name or getattr(cls, "type_name", None) or getattr(cls, "type", None)
         if not resolved:
             raise ValueError(f"{cls.__name__} has no type; pass one or declare it on the class")
         clash = self._by_type.get(resolved)

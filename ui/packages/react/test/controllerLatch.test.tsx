@@ -13,13 +13,13 @@ afterEach(cleanup);
 const transport: Transport = {
   base: "",
   async request({ path }: Request): Promise<Response> {
-    if (path === "/api/clock") return { status: 200, json: { start_time_ns: 0, now_ns: 0, elapsed_ns: 0, tags: {}, speed: 1 } };
+    if (path === "/api/clock") return { status: 200, json: { start_time_ns: 0, now_ns: 0, elapsed_ns: 0, speed: 1 } };
     return { status: 200, json: [] };
   },
   stream: () => ({ close: () => undefined }),
 };
 
-const SOURCE = { name: "temp", address: "chamber.temp", access: "r", label: "", quantity: "temperature", unit: "°C", dimension: null, dtype: "float", shape: [], role: "measurement", tags: {}, initial: null, range: null, precision: 1, warning: null, alarm: null, poll_s: 1, limits: null, latest: null, write: null } as unknown as SignalOut;
+const SOURCE = { name: "temp", address: "chamber.temp", access: "r", label: "", quantity: "temperature", unit: "°C", dimension: null, dtype: "float", shape: [], role: "measurement", initial: null, range: null, precision: 1, warning: null, alarm: null, poll_s: 1, limits: null, latest: null, write: null } as unknown as SignalOut;
 const BASE = { name: "heater.demand", label: null, output_signal: "heater.demand", measured_signal: "chamber.temp", default: false, mode: "manual", law: null, feedforward: { type: "none" }, output_unit: "W", reference: 50, setpoint: 50, correction: 0, output: 0, expected: 0, delivered_correction: 0, measured: null } as unknown as ControllerOut;
 
 const panel = (controller: ControllerOut, extra: Record<string, unknown> = {}) =>

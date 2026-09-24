@@ -52,13 +52,13 @@ class Step:
 
     `primary` names the field a bare scalar means in a program file, so
     `- flag: "loaded"` stands for `- flag: {flag: "loaded"}`; None means no
-    shorthand. Subclassing sets `tag`/`primary`; `tag` is required and a
+    shorthand. Subclassing sets `type`/`primary`; `type` is required and a
     subclass that omits it raises at class creation. Registering it so a
     program file can use it is a separate, explicit step -- see
     [Catalogs.register_step][flyball.model.catalog.Catalogs.register_step].
     """
 
-    tag: ClassVar[str] = ""
+    type: ClassVar[str] = ""
     primary: ClassVar[str | None] = None
     locked: ClassVar[bool] = True
     """`run` runs under the rig lock, so what the step reads and writes lands between two
@@ -67,17 +67,17 @@ class Step:
 
     def __init_subclass__(
         cls,
-        tag: str | None = None,
+        type: str | None = None,
         primary: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init_subclass__(**kwargs)
-        resolved = tag or cls.__dict__.get("tag")
+        resolved = type or cls.__dict__.get("type")
         if not resolved:
             raise TypeError(
-                f"{cls.__name__} must declare a tag, e.g. class {cls.__name__}(Step, tag=...)"
+                f"{cls.__name__} must declare a type, e.g. class {cls.__name__}(Step, type=...)"
             )
-        cls.tag = resolved
+        cls.type = resolved
         if primary is not None:
             cls.primary = primary
 

@@ -71,7 +71,6 @@ class ClockOut(BaseModel):
     start_time_ns: int
     now_ns: int
     elapsed_ns: int
-    tags: dict[str, int]
     speed: float = 1.0
     """How fast the rig's time runs against wall time; only a simulated rig is ever not 1."""
 
@@ -82,7 +81,6 @@ class ClockOut(BaseModel):
             now_ns=clock.now_ns(),
             speed=float(getattr(clock, "speed", 1.0)),
             elapsed_ns=clock.elapsed_ns(),
-            tags={label: clock.elapsed_ns(label) for label in clock.tags_ns if label is not None},
         )
 
 

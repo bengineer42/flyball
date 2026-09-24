@@ -36,11 +36,10 @@ class TestScaledClock:
         with pytest.raises(ValueError):
             clock.set_speed(0)
 
-    def test_elapsed_and_tags_are_in_clock_time(self):
+    def test_elapsed_is_in_clock_time(self):
         clock = ScaledClock(50)
-        clock.tag("run")
         clock.sleep(0.5)
-        assert clock.elapsed_s("run") >= 0.5 and clock.elapsed_s() >= 0.5
+        assert clock.elapsed_s() >= 0.5
 
 
 class TestSteppedClock:

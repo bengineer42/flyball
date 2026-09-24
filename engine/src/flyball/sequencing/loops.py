@@ -40,7 +40,7 @@ def _missing_controllers(rig: Rig, which: ControllerNames) -> list[str]:
 
 
 @dataclass(frozen=True)
-class Regulate(Step, tag="regulate", primary="setpoint"):
+class Regulate(Step, type="regulate", primary="setpoint"):
     """Aim a controller at a setpoint and let its law drive; returns at once."""
 
     setpoint: float
@@ -62,7 +62,7 @@ class Regulate(Step, tag="regulate", primary="setpoint"):
 
 
 @dataclass(frozen=True)
-class Ramp(Step, tag="ramp", primary="to"):
+class Ramp(Step, type="ramp", primary="to"):
     """Walk a controller's setpoint to `to` at `pace`, and wait until it arrives.
 
     `pace` is a rate (`per_minute: 5`) or how long the whole ramp should take
@@ -111,7 +111,7 @@ class Ramp(Step, tag="ramp", primary="to"):
 
 
 @dataclass(frozen=True)
-class Wait(Step, tag="wait", primary="duration"):
+class Wait(Step, type="wait", primary="duration"):
     """Keep everything as it is for `duration`; the controllers go on regulating.
 
     `timeout`, like `prompt`'s, ends the program instead if `duration` itself
@@ -133,7 +133,7 @@ class Wait(Step, tag="wait", primary="duration"):
 
 
 @dataclass(frozen=True)
-class Settle(Step, tag="settle", primary="controllers"):
+class Settle(Step, type="settle", primary="controllers"):
     """Wait until the named controllers have settled within `within` of their setpoints.
 
     Judged on `count` consecutive readings per controller; a ramp started
@@ -166,7 +166,7 @@ class Settle(Step, tag="settle", primary="controllers"):
 
 
 @dataclass(frozen=True)
-class Manual(Step, tag="manual", primary="controllers"):
+class Manual(Step, type="manual", primary="controllers"):
     """Stop a controller regulating; its output keeps its last value and takes demands directly."""
 
     controllers: ControllerNames = None

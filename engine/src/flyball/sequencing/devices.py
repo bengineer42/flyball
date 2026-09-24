@@ -17,7 +17,7 @@ from .step import Activity, Step
 
 
 @dataclass(frozen=True)
-class Set(Step, tag="set"):
+class Set(Step, type="set"):
     """Put `values` on `device`'s writable signals, as one demand -- `rig.write` in a step."""
 
     device: str
@@ -52,17 +52,17 @@ class Set(Step, tag="set"):
 
 
 @dataclass(frozen=True)
-class RunCommand(Step, tag="command"):
-    """Call one of `device`'s own commands, exactly as `POST /api/devices/{name}/{tag}` would.
+class RunCommand(Step, type="run"):
+    """Call one of `device`'s own commands, exactly as `POST /api/devices/{name}/{command}` would.
 
-    `device_command`, not `command`: every step's wire form reserves `command`
-    for its own tag (`"command"`, here), so the device command it should run
-    needs a different name.
+    `command` names the device command to run: the step's own wire form
+    discriminator is `type` (`"run"`, here), not `command`, so `command` is
+    free for this.
     """
 
     locked: ClassVar[bool] = False  # `run_command` takes the rig lock; a long one waits off it
 
-    device_command: str
+    command: str
     device: str
     args: dict[str, Any] | None = None
 
@@ -71,7 +71,7 @@ class RunCommand(Step, tag="command"):
             found = rig.devices[self.device]
         except KeyError:
             raise NotFoundError(f"device {self.device!r} not found") from None
-        rig.run_command(found, self.device_command, self.args)
+        rig.run_command(found, self.command, self.args)
         rig.polling.revive(found.name)  # as the HTTP route does: a command that succeeds is the fix
         return None
 
@@ -79,8 +79,8 @@ class RunCommand(Step, tag="command"):
         device = rig.devices.get(self.device)
         if device is None:
             return [f"device {self.device!r} is not on the rig"]
-        if self.device_command not in device.commands:
-            return [f"{self.device!r} has no command {self.device_command!r}"]
+        if self.command not in device.commands:
+            return [f"{self.device!r} has no command {self.command!r}"]
         return []
 
 

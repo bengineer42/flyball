@@ -87,8 +87,8 @@ const programSchema: JsonSchema = {
 
 describe("programDoc: timeout is never the folded field (C14)", () => {
   const commands = commandsOf(programSchema);
-  const wait = commands.find((c) => c.tag === "wait")!;
-  const prompt = commands.find((c) => c.tag === "prompt")!;
+  const wait = commands.find((c) => c.type === "wait")!;
+  const prompt = commands.find((c) => c.type === "prompt")!;
 
   it("finds `duration`, not `timeout`, as wait's composite time field", () => {
     expect(wait.time?.name).toBe("duration");
@@ -134,7 +134,7 @@ describe("programDoc: timeout is never the folded field (C14)", () => {
  */
 describe("programDoc: a timed wait with a message nests its duration (C9)", () => {
   const commands = commandsOf(programSchema);
-  const wait = commands.find((c) => c.tag === "wait")!;
+  const wait = commands.find((c) => c.type === "wait")!;
 
   it("a wait WITH a message serialises duration nested, with timeout nested too", () => {
     const flat: Record<string, unknown> = { minutes: 20, message: "soak", timeout: { minutes: 10 } };
@@ -159,7 +159,7 @@ describe("programDoc: a timed wait with a message nests its duration (C9)", () =
 
   it("parsing a doc round-trips both spellings: nested with a message, flat without one", () => {
     const nestedStep = { wait: { duration: { minutes: 5 }, message: "x", timeout: { minutes: 10 } } };
-    const { tag: nestedTag, value: nestedValue } = splitStep(nestedStep, commands);
+    const { type: nestedTag, value: nestedValue } = splitStep(nestedStep, commands);
     expect(nestedTag).toBe("wait");
     const nestedCurrent = argsOf(nestedValue, wait);
     const nestedForm = toForm(nestedValue, wait);
@@ -171,7 +171,7 @@ describe("programDoc: a timed wait with a message nests its duration (C9)", () =
     expect(nestedRoundTripped.timeout).toEqual({ minutes: 10 });
 
     const flatStep = { wait: { minutes: 5, timeout: { minutes: 10 } } };
-    const { tag: flatTag, value: flatValue } = splitStep(flatStep, commands);
+    const { type: flatTag, value: flatValue } = splitStep(flatStep, commands);
     expect(flatTag).toBe("wait");
     const flatCurrent = argsOf(flatValue, wait);
     const flatForm = toForm(flatValue, wait);

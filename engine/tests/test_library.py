@@ -108,7 +108,7 @@ def test_check_and_run_and_delete(client):
         "/api/programs/library/dry", content=YAML, headers={"content-type": "application/yaml"}
     )
     check = client.get("/api/programs/library/dry/check").json()
-    assert check["ok"] is True and check["normalised"]["steps"][0]["command"]["command"] == "prompt"
+    assert check["ok"] is True and check["normalised"]["steps"][0]["command"]["type"] == "prompt"
 
     run = client.post("/api/programs/library/dry/run")
     assert run.status_code == 200

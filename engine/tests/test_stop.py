@@ -75,7 +75,7 @@ def oven() -> Iterator[tuple[Rig, Programmer]]:
 
 def _run_program(rig: Rig, programmer: Programmer) -> None:
     programmer.start(program_from_document(PROGRAM, get_dialect()))
-    assert programmer.state.running and programmer.state.command == "prompt"
+    assert programmer.state.running and programmer.state.type == "prompt"
     assert rig.controllers["heater.drive"].mode is ControllerMode.REGULATING
 
 
@@ -426,7 +426,7 @@ def test_sigusr1_stops_without_exit(tmp_path):
 
         _until(up, 30)
         running = _call(port, "POST", "/api/programs/run", PROGRAM)
-        assert running["running"] is True and running["command"] == "prompt"
+        assert running["running"] is True and running["type"] == "prompt"
         controller = _call(port, "GET", "/api/controllers/heater.drive")
         assert controller["mode"] == "regulating"
         demand = controller["output"]

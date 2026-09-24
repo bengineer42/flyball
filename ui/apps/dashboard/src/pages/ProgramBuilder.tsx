@@ -66,7 +66,7 @@ export interface ProgramBuilderProps {
 export function ProgramBuilder({ tree, onChange, programSchema, controllers, devices, stepErrors, stepWarnings = {}, revision, nameEditable, hideDescription }: ProgramBuilderProps) {
   const commands = useMemo(() => commandsOf(programSchema), [programSchema]);
   const modifierSchemas = useMemo(() => modifiersOf(programSchema), [programSchema]);
-  const byTag = useMemo(() => Object.fromEntries(commands.map((c) => [c.tag, c])), [commands]);
+  const byTag = useMemo(() => Object.fromEntries(commands.map((c) => [c.type, c])), [commands]);
   // Structural edits (insert, move, delete) remount the cards' forms; argument edits do not. So does the dialect
   // arriving: a card mounted before it reads a shorthand step (`manual: blender.humidity`) as no arguments at all.
   const [structure, setStructure] = useState(0);
@@ -161,7 +161,7 @@ export function ProgramBuilder({ tree, onChange, programSchema, controllers, dev
           </Typography>
         )}
         {steps.map((step, i) => {
-          const { tag, value, modifiers } = splitStep(step, commands);
+          const { type: tag, value, modifiers } = splitStep(step, commands);
           const command = tag ? byTag[tag] : undefined;
           return (
             <Box key={`${revision}-${structure}-${commands.length}-${i}`} sx={{ position: "relative" }}>
@@ -197,7 +197,7 @@ export function ProgramBuilder({ tree, onChange, programSchema, controllers, dev
                   const before = fromForm(toForm(value, command), command);
                   let args = fromForm(data, command);
                   if (sameValue(args, before)) return; // nothing the user changed (RJSF reports its initial state too)
-                  if (tag === "command" || tag === "set") {
+                  if (tag === "run" || tag === "set") {
                     // the command, args and values picks follow the device: a new one remounts the form with the new picks
                     const next = onDeviceChange(args, before);
                     args = next.args;
@@ -263,7 +263,7 @@ function Palette({ commands, onPick }: { commands: CommandInfo[]; onPick(c: Comm
       </Typography>
       <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
         {commands.map((c) => (
-          <Tooltip key={c.tag} title={c.short ?? c.tag} placement="top">
+          <Tooltip key={c.type} title={c.short ?? c.type} placement="top">
             <Chip
               label={c.title}
               variant="outlined"
@@ -271,9 +271,9 @@ function Palette({ commands, onPick }: { commands: CommandInfo[]; onPick(c: Comm
               icon={<DragIndicatorIcon fontSize="small" />}
               onClick={() => onPick(c)}
               draggable
-              data-command={c.tag}
+              data-command={c.type}
               onDragStart={(e: DragEvent<HTMLDivElement>) => {
-                e.dataTransfer.setData(COMMAND_TYPE, c.tag);
+                e.dataTransfer.setData(COMMAND_TYPE, c.type);
                 e.dataTransfer.effectAllowed = "copy";
               }}
               sx={{ cursor: "grab", fontFamily: "inherit" }}
@@ -304,7 +304,7 @@ function AddStepButton({ commands, onPick, label, icon, iconOnly, title }: { com
       <Menu open={Boolean(anchor)} anchorEl={anchor} onClose={() => setAnchor(null)}>
         {commands.map((c) => (
           <MenuItem
-            key={c.tag}
+            key={c.type}
             onClick={() => {
               setAnchor(null);
               onPick(c);
@@ -468,15 +468,15 @@ function StepCard({ index, count, tag, value, modifiers, command, commands, modi
             <Select
               labelId={`step-${index}-command-label`}
               label="command"
-              value={tag && commands.some((c) => c.tag === tag) ? tag : ""}
+              value={tag && commands.some((c) => c.type === tag) ? tag : ""}
               inputProps={{ "aria-label": `step ${index + 1} command` }}
               onChange={(e) => {
-                const next = commands.find((c) => c.tag === e.target.value);
-                if (next && next.tag !== tag) onCommand(next);
+                const next = commands.find((c) => c.type === e.target.value);
+                if (next && next.type !== tag) onCommand(next);
               }}
             >
               {commands.map((c) => (
-                <MenuItem key={c.tag} value={c.tag}>
+                <MenuItem key={c.type} value={c.type}>
                   {c.title}
                 </MenuItem>
               ))}

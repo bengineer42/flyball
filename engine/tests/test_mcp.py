@@ -63,17 +63,17 @@ def client(tmp_path, rig, fresh):
 
 @pytest.fixture
 def setpoint(fresh) -> str:
-    """One program command, under a tag of its own."""
-    tag = fresh("setpoint")
+    """One program command, under a type of its own."""
+    type_ = fresh("setpoint")
 
     @dataclass(frozen=True)
-    class Setpoint(Step, tag=tag, primary="at"):
+    class Setpoint(Step, type=type_, primary="at"):
         at: float
 
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     get_catalog().register_step(Setpoint)
-    return tag
+    return type_
 
 
 def names(tools) -> set[str]:

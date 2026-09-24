@@ -54,7 +54,7 @@ const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComp
           </Typography>
         )}
         <Typography variant="body2" noWrap color={failed ? "error" : "text.secondary"} sx={{ minWidth: 0 }}>
-          {!p ? "…" : running ? `step ${stepOf(p)}${p.command ? ` · ${humanise(p.command)}` : ""}` : failed ? `failed${p.error ? ` · ${p.error}` : ""}` : "nothing is running"}
+          {!p ? "…" : running ? `step ${stepOf(p)}${p.type ? ` · ${humanise(p.type)}` : ""}` : failed ? `failed${p.error ? ` · ${p.error}` : ""}` : "nothing is running"}
         </Typography>
         {running && config.cancel !== false && (
           <Button size="small" variant="outlined" color="error" startIcon={<CancelIcon />} onClick={cancel} disabled={busy || !canWrite} sx={{ ml: "auto", flex: "none" }}>

@@ -231,7 +231,7 @@ export function Status({ recording, programmer, streams, byStream, eventsUnread 
           icon={PAGE_ICONS.programs}
           full={
             programmer.data.running
-              ? `program: ${programmer.data.command ?? "…"} step ${stepOf(programmer.data)}`
+              ? `program: ${programmer.data.type ?? "…"} step ${stepOf(programmer.data)}`
               : `program failed${programmer.data.error ? ` · ${truncate(programmer.data.error, 60)}` : ""}`
           }
           short={programmer.data.running ? stepOf(programmer.data) : "failed"}
