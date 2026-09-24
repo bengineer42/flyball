@@ -368,8 +368,16 @@
         },
         "inputs": {
           "additionalProperties": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
           },
+          "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
           "title": "Inputs",
           "type": "object"
         },
@@ -2079,6 +2087,19 @@
           "default": null,
           "title": "Tags"
         },
+        "record": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "false: left out of a recording started with the default selection (a raw value a derived signal is computed from). Default: recorded.",
+          "title": "Record"
+        },
         "access": {
           "anyOf": [
             {
@@ -3512,6 +3533,66 @@
       ],
       "title": "DrivePort",
       "type": "object"
+    },
+    "ValueEntry": {
+      "additionalProperties": false,
+      "description": "One operator-entered value: its starting number, unit and what it may be set to.",
+      "properties": {
+        "initial": {
+          "description": "Its value from build, and after a restart unless one was written since while this stayed the same.",
+          "title": "Initial",
+          "type": "number"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The unit symbol (`%`, `\u00b0C`, `L/min`); omit for none.",
+          "title": "Unit"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What it is (`humidity`); default: the value's name.",
+          "title": "Quantity"
+        },
+        "label": {
+          "default": "",
+          "description": "The display text; default: the titled name.",
+          "title": "Label",
+          "type": "string"
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Bounds"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What a write is clamped to, `[low, high]`, in its unit."
+        }
+      },
+      "required": [
+        "initial"
+      ],
+      "title": "ValueEntry",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -3704,8 +3785,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -3834,8 +3923,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -3970,8 +4067,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -4086,8 +4191,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -4207,8 +4320,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -4349,8 +4470,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -4467,8 +4596,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -4576,8 +4713,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -4685,8 +4830,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -4794,8 +4947,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -4903,8 +5064,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -5056,8 +5225,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -5172,8 +5349,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -5316,8 +5501,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -5445,8 +5638,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -5569,8 +5770,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -5723,8 +5932,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -5832,8 +6049,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -5962,8 +6187,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -6090,8 +6323,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -6234,8 +6475,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -6402,8 +6651,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -6527,8 +6784,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -6664,8 +6929,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -6791,8 +7064,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -6931,8 +7212,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -7056,8 +7345,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -7195,8 +7492,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -7337,8 +7642,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -7463,8 +7776,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -7589,8 +7910,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -7716,8 +8045,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -7824,8 +8161,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -7932,8 +8277,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
@@ -8057,6 +8410,122 @@
           },
           {
             "type": "object",
+            "title": "values",
+            "description": "Operator-entered numbers, each a writable setting other devices' inputs may follow.",
+            "properties": {
+              "label": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Label"
+              },
+              "poll_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Poll S"
+              },
+              "signals": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SignalMeta"
+                    },
+                    {
+                      "$ref": "#/$defs/NamespaceMeta"
+                    }
+                  ]
+                },
+                "title": "Signals",
+                "type": "object"
+              },
+              "inputs": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
+                "title": "Inputs",
+                "type": "object"
+              },
+              "reads": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reads"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "retry_max_age_s": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
+                "title": "Retry Max Age S"
+              },
+              "driver": {
+                "const": "values"
+              },
+              "link": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "A transport (or a simulated plant), by name.",
+                "title": "Link"
+              },
+              "values": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/ValueEntry"
+                },
+                "description": "Each value by name: `{initial, unit, label, limits}`.",
+                "title": "Values",
+                "type": "object"
+              }
+            },
+            "required": [
+              "driver"
+            ],
+            "not": {
+              "required": [
+                "config"
+              ]
+            }
+          },
+          {
+            "type": "object",
             "title": "overlay of a device declared in a base",
             "properties": {
               "label": {
@@ -8099,8 +8568,16 @@
               },
               "inputs": {
                 "additionalProperties": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
+                "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
                 "title": "Inputs",
                 "type": "object"
               },
