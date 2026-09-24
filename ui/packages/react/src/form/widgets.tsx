@@ -19,7 +19,7 @@ import {
   optionId,
 } from "@rjsf/utils";
 import type { JsonSchema } from "@flyball/client";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 const labelId = (id: string) => `${id}-label`;
 
@@ -332,7 +332,21 @@ export function SegmentedWidget(props: WidgetProps) {
   );
 }
 
+/**
+ * A `const` field (`keep: true`, the marker of a union's branch): nothing to
+ * draw or edit, but its value set -- RJSF leaves it out when a union
+ * switches to its branch, and the rig then refuses the object.
+ */
+export function ConstantWidget({ schema, value, onChange }: WidgetProps) {
+  const fixed = (schema as JsonSchema).const;
+  useEffect(() => {
+    if (fixed !== undefined && value !== fixed) onChange(fixed);
+  }, [fixed, value, onChange]);
+  return null;
+}
+
 export const widgets = {
+  constant: ConstantWidget,
   text: TextWidget,
   unitNumber: UnitNumberWidget,
   slider: SliderNumberWidget,
