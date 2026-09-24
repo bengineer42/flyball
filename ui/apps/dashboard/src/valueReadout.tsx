@@ -1,14 +1,14 @@
 /**
  * A non-numeric signal's value as a compact readout: bool on/off, str/enum a
  * chip, json a compact block -- never a gauge or a series (those are for
- * float/int only). Shared between Overview's tiles and the Readout widget,
+ * float/int only). Shared by the Readout widget,
  * which differ only in how they frame it (a `PanelFrame` of their own, or
  * chrome handed up through `useWidgetChrome`).
  */
 import type { ReactNode } from "react";
 import { Chip, Typography } from "@mui/material";
-import { useFreshness, useLatestValue, type PanelSeverity } from "@flyball/react";
-import { alarmLevel, humanise, type SignalOut } from "@flyball/client";
+import { QualityBadge, noValue, useReading, type PanelSeverity } from "@flyball/react";
+import { alarmLevel, formatValue, humanise, type SignalOut } from "@flyball/client";
 
 export interface ValueReadout {
   level: PanelSeverity;
@@ -19,13 +19,13 @@ export interface ValueReadout {
 /** Whether a signal's value belongs on a chart axis or a gauge dial; the rest are a chip or a block. */
 export const isNumeric = (signal: Pick<SignalOut, "dtype">): boolean => signal.dtype === "float" || signal.dtype === "int";
 
-/** A scalar inside a json value, as a person would write it: a tag or a mode as a word, a number as itself. */
+/** A scalar inside a json value, as a person would write it: a type or a mode as a word, a number as itself. */
 const scalar = (v: unknown): string => (typeof v === "string" ? humanise(v) : typeof v === "number" || typeof v === "boolean" ? String(v) : v === null ? "—" : JSON.stringify(v));
 
 /**
- * A json value as a reading. A flat object -- a tagged config such as a
+ * A json value as a reading. A flat object -- a config such as a
  * blend flow `{flow: 1, on_overdrive: "clamp"}`, a command record -- is a
- * row per key (`Flow 1`, `On overdrive Clamp`), its `tag` first as the
+ * row per key (`Flow 1`, `On overdrive Clamp`), its `type` first as the
  * kind; anything deeper is shown as JSON, since that is what it is.
  */
 export function JsonValue({ value }: { value: unknown }) {
@@ -37,14 +37,14 @@ export function JsonValue({ value }: { value: unknown }) {
       </Typography>
     );
   const entries = Object.entries(value as Record<string, unknown>);
-  const tag = entries.find(([k]) => k === "tag");
-  const rest = entries.filter(([k]) => k !== "tag");
+  const type = entries.find(([k]) => k === "type");
+  const rest = entries.filter(([k]) => k !== "type");
   return (
     <dl className="fb-json-rows">
-      {tag && (
+      {type && (
         <div>
           <dt>kind</dt>
-          <dd>{scalar(tag[1])}</dd>
+          <dd>{scalar(type[1])}</dd>
         </div>
       )}
       {rest.map(([k, v]) => (
@@ -58,15 +58,18 @@ export function JsonValue({ value }: { value: unknown }) {
   );
 }
 
-/** `signal`'s live value, dtype-rendered, with the same staleness a numeric `Readout` would show. */
+/** `signal`'s live value, dtype-rendered, stale when the rig says so, as a numeric `Readout` would be. */
 export function useValueReadout(signal: SignalOut | undefined): ValueReadout {
-  const point = useLatestValue(signal?.address);
-  const fresh = useFreshness(signal?.address);
-  const level = signal ? alarmLevel(null, signal, fresh) : "ok";
-  const ageS = fresh.lastSampleS != null && fresh.nowS != null ? Math.round(fresh.nowS - fresh.lastSampleS) : null;
-  const footer = level === "stale" ? `last sample ${ageS} s ago` : undefined;
-  const value = point?.value;
-  const body =
+  const reading = useReading(signal?.address);
+  const level = signal ? alarmLevel(null, signal, undefined, reading?.quality) : "ok";
+  const none = noValue(reading, (v) => formatValue(v, signal));
+  const footer = undefined;
+  const value = reading?.value;
+  const body = none ? (
+    <span className="fb-readout-value" title={none.hint}>
+      <Chip size="small" label={none.glyph} variant="outlined" className="fb-muted" /> <QualityBadge state={none} />
+    </span>
+  ) :
     value === undefined || value === null ? (
       // The same chip a value takes, so a tile keeps its height with nothing to show (before the first sample, or at a paused moment with none).
       <Chip size="small" label="—" variant="outlined" className="fb-muted" />

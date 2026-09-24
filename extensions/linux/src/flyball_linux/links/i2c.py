@@ -19,6 +19,8 @@ class SmbusI2c:
     with another's read.
     """
 
+    blocking = True
+
     def __init__(self, bus: int) -> None:
         from smbus2 import SMBus
 
@@ -52,7 +54,7 @@ class SmbusI2c:
         self._bus.close()
 
 
-class I2cConfig(Config[I2cLink], tag="i2c"):
+class I2cConfig(Config[I2cLink], type="i2c"):
     """A kernel I2C bus: `bus = 1` is `/dev/i2c-1`."""
 
     bus: int = Field(ge=0)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from collections.abc import Iterator
@@ -105,7 +106,7 @@ def test_declarations_carry_the_device_and_signal_metadata(rig, furnace, clock):
     assert device.config == {"link": None}
     signals = {s.address: s for s in store.signals(session.id)}
     assert set(signals) == {
-        f"{furnace.name}.{n}" for n in ("conditions", "zone1", "zone2", "heater", "setpoint")
+        f"{furnace.name}.{n}" for n in ("zone1", "zone2", "heater", "setpoint")
     }, "by default everything that publishes or can be written"
     zone1 = signals[f"{furnace.name}.zone1"]
     assert (zone1.quantity, zone1.unit, zone1.access, zone1.range) == (
@@ -122,14 +123,14 @@ def test_declarations_carry_the_device_and_signal_metadata(rig, furnace, clock):
     assert setpoint_write.signal.access == "rw" and setpoint_write.limits is None
     (row,) = store.controllers(session.id)
     assert row.name == controller.name == heater.address
-    assert row.source == zone1.address and row.law["tag"] == "PI" and row.feedforward is not None
+    assert row.measured == zone1.address and row.law["type"] == "PI" and row.feedforward is not None
 
 
 def test_a_manual_demand_is_a_write_state_row(rig, furnace, clock):
     store = SqliteStore(":memory:")
     rig.start_recording(store)
     clock.advance(1.0)
-    rig.demand(furnace.root, {"heater": 3000.0, "setpoint": 200.0})
+    rig.write(furnace.root, {"heater": 3000.0, "setpoint": 200.0})
     rig.stop_recording()
     session = store.sessions()[0]
     (state,) = store.write_states(session.id, f"{furnace.name}.heater")
@@ -208,7 +209,7 @@ def test_a_failing_store_stops_recording_and_raises_an_event(rig, furnace, clock
         time.sleep(0.005)
     assert isinstance(recorder.failed, OSError)
     assert rig.recorder is None, "detached: control goes on unrecorded"
-    assert rig.recent[-1].kind == "recording_failed" and "disk full" in rig.recent[-1].message
+    assert rig.recent[-1].code == "recording_failed" and "disk full" in rig.recent[-1].message
     rig.on_samples([_sample(furnace, clock.now_ns(), 2.0)])  # still delivers
 
 
@@ -368,14 +369,14 @@ def test_migration_maps_a_0006_session_onto_the_device_model(tmp_path):
     assert [p.value for p in store.series(1, "probe.temperature").points] == [20.5, 21.0]
     assert store.samples(1, "meter")[0].values == {"meter.power": 100.0}
     (controller,) = store.controllers(1)
-    assert (controller.name, controller.source, controller.law) == (
+    assert (controller.name, controller.measured, controller.law) == (
         "heater",
         "probe.temperature",
         {"tag": "PI"},
     )
     (tick,) = store.ticks(1, "heater")
     assert (tick.controller, tick.offset_ns, tick.setpoint) == ("heater", 20, 25.0)
-    assert store.writes(1) == [] and store.events(1)[0].kind == "note"
+    assert store.writes(1) == [] and store.events(1)[0].code == "note"
     assert store.tuning("warm").controller == "heater"
     # The new tables work on the migrated database, and a delete cascades through them.
     store.delete_session(1)
@@ -384,6 +385,172 @@ def test_migration_maps_a_0006_session_onto_the_device_model(tmp_path):
     for table in ("device", "signal", "sample", "reading", "controller", "tick"):
         assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone() == (0,), table
     connection.close()
+
+
+def test_a_failed_version_write_rolls_the_migration_back(tmp_path, monkeypatch):
+    """The migration and its version bump are one transaction: neither lands alone."""
+    from flyball.record import migrate
+    from flyball.record.errors import SchemaError
+
+    every = migrate.available()
+    last = max(every)
+    monkeypatch.setattr(migrate, "available", lambda: {v: p for v, p in every.items() if v < last})
+    connection = sqlite3.connect(
+        tmp_path / "half.db", isolation_level=None
+    )  # as the store opens it
+    assert migrate.migrate(connection) == last - 1
+    connection.execute(
+        f"CREATE TRIGGER refuse BEFORE INSERT ON schema_version WHEN NEW.version = {last} "
+        "BEGIN SELECT RAISE(ABORT, 'version write refused'); END"
+    )
+    connection.commit()
+    monkeypatch.setattr(migrate, "available", lambda: every)
+    with pytest.raises(SchemaError, match="version write refused"):
+        migrate.migrate(connection)
+    assert migrate.current(connection) == last - 1
+    connection.execute("DROP TRIGGER refuse")
+    connection.commit()
+    assert migrate.migrate(connection) == last, "the failed migration left nothing half-applied"
+    connection.close()
+
+
+def _migrated_rig_version(tmp_path, monkeypatch, before: int, document: dict) -> dict:
+    """`document` stored as a rig version at schema `before`, read back after every migration."""
+    from flyball.record import migrate
+
+    every = migrate.available()
+    monkeypatch.setattr(
+        migrate, "available", lambda: {v: p for v, p in every.items() if v <= before}
+    )
+    connection = sqlite3.connect(tmp_path / "old.db", isolation_level=None)
+    assert migrate.migrate(connection) == before
+    connection.execute(
+        "INSERT INTO rig_version (time_ns, reason, files, document) VALUES (1, 'loaded', '[]', ?)",
+        (json.dumps(document),),
+    )
+    connection.close()
+    monkeypatch.setattr(migrate, "available", lambda: every)
+    store = SqliteStore(tmp_path / "old.db")
+    (row,) = store.rig_versions()
+    return row.document
+
+
+def test_a_stored_rig_version_spells_the_discriminator_type(tmp_path, monkeypatch):
+    document = _migrated_rig_version(
+        tmp_path,
+        monkeypatch,
+        14,
+        {
+            "links": {"p": {"tag": "sim_plant", "model": "lag"}},
+            "controllers": {
+                "d.u": {
+                    "measured": "p.x",
+                    "law": {"tag": "PI", "kp": 1.0},
+                    "feedforward": {"tag": "none"},
+                }
+            },
+            "devices": {"note": {"driver": "sim_daq", "label": "a tag: stays a value"}},
+        },
+    )
+    assert document["links"]["p"] == {"type": "sim_plant", "model": "lag"}
+    assert document["controllers"]["d.u"]["law"] == {"type": "PI", "kp": 1.0}
+    assert document["controllers"]["d.u"]["feedforward"] == {"type": "none"}
+    assert document["devices"]["note"]["label"] == "a tag: stays a value"
+
+
+def test_a_stored_rig_version_has_its_device_fields_flat(tmp_path, monkeypatch):
+    document = _migrated_rig_version(
+        tmp_path,
+        monkeypatch,
+        15,
+        {
+            "devices": {
+                "zone": {"driver": "sim_daq", "label": "Zone", "config": {"link": "p", "zones": 2}},
+                "flat": {"driver": "sim_daq", "link": "p"},
+            }
+        },
+    )
+    assert document["devices"] == {
+        "zone": {"driver": "sim_daq", "label": "Zone", "link": "p", "zones": 2},
+        "flat": {"driver": "sim_daq", "link": "p"},
+    }
+    assert list(document["devices"]) == ["zone", "flat"], "the devices keep their order"
+
+
+def test_a_stored_rig_version_names_a_device_s_inputs(tmp_path, monkeypatch):
+    document = _migrated_rig_version(
+        tmp_path,
+        monkeypatch,
+        16,
+        {
+            "devices": {
+                "blender": {"driver": "dual_pump_blender", "bound": {"dry": "s.dry.humidity"}},
+                "s": {"driver": "sht4x_set", "link": "i2c1"},
+            }
+        },
+    )
+    assert document["devices"]["blender"] == {
+        "driver": "dual_pump_blender",
+        "inputs": {"dry": "s.dry.humidity", "wet": 100.0},
+    }, "0017 renamed `bound`; 0024 bound the unbound `wet` to its old built-in default"
+    assert document["devices"]["s"] == {"driver": "sht4x_set", "link": "i2c1"}
+
+
+def test_a_stored_blender_s_supply_becomes_its_inputs_numbers(tmp_path, monkeypatch):
+    document = _migrated_rig_version(
+        tmp_path,
+        monkeypatch,
+        23,
+        {
+            "devices": {
+                "blender": {
+                    "driver": "dual_pump_blender",
+                    "link": "pwm0",
+                    "supply": {"dry": 36.5, "wet": 88.5},
+                },
+                "bare": {"driver": "dual_pump_blender", "link": "pwm0"},
+                "bound": {
+                    "driver": "dual_pump_blender",
+                    "inputs": {"dry": "s.dry.humidity", "wet": "s.wet.humidity"},
+                    "supply": {"dry": 1.0, "wet": 2.0},
+                },
+                "s": {"driver": "sht4x_set", "link": "i2c1", "supply": {"dry": 1.0}},
+            }
+        },
+    )
+    devices = document["devices"]
+    assert devices["blender"] == {
+        "driver": "dual_pump_blender",
+        "link": "pwm0",
+        "inputs": {"dry": 36.5, "wet": 88.5},
+    }
+    assert devices["bare"]["inputs"] == {"dry": 0.0, "wet": 100.0}, "the old built-in default"
+    assert devices["bound"] == {
+        "driver": "dual_pump_blender",
+        "inputs": {"dry": "s.dry.humidity", "wet": "s.wet.humidity"},
+    }, "an input bound already keeps its address"
+    assert devices["s"]["supply"] == {"dry": 1.0}, "another driver's key is left alone"
+    assert list(devices) == ["blender", "bare", "bound", "s"], "the devices keep their order"
+
+
+def test_a_stored_rig_version_s_pass_through_feedforward_is_identity(tmp_path, monkeypatch):
+    document = _migrated_rig_version(
+        tmp_path,
+        monkeypatch,
+        17,
+        {
+            "controllers": {
+                "a.u": {"measured": "a.x", "feedforward": {"type": "setpoint"}},
+                "b.u": {"measured": "b.x", "feedforward": {"type": "affine", "gain": 2.0}},
+                "c.u": {"measured": "c.x"},
+            }
+        },
+    )
+    assert document["controllers"] == {
+        "a.u": {"measured": "a.x", "feedforward": {"type": "identity"}},
+        "b.u": {"measured": "b.x", "feedforward": {"type": "affine", "gain": 2.0}},
+        "c.u": {"measured": "c.x"},
+    }
 
 
 # endregion

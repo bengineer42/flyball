@@ -37,7 +37,7 @@ export function ChartOverlay({ title, onClose, children }: ChartOverlayProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
   // What opened us was a click, and the *second* click of a double-click lands here, on the
   // backdrop, the instant we mount -- opening and closing again so fast it reads as "nothing
-  // happened" (Ben, 22 Sep, double-clicking a controller's trend). A backdrop dismissal counts
+  // happened" (double-clicking a controller's trend). A backdrop dismissal counts
   // only once the pointer has had time to be lifted and put down again.
   const openedAt = useRef(Date.now());
   const dismiss = useCallback(() => {

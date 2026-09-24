@@ -2,8 +2,9 @@
 
 A device is a Python class with *descriptors* for its signals and, where it
 does something, a `read` and/or a `commit`. A *driver config* beside it
-registers a tag so a rig file can say `driver: <tag>`. Check what you wrote
-with `check_driver`, attach it with `attach_device`, keep it with `save_rig`.
+registers a type so a rig file can say `driver: <type>`. Check what you wrote
+with `check_driver`, attach it with `attach_device`: the change is saved and the
+rig restarts with it.
 
 ## First: does it need code at all?
 
@@ -15,7 +16,7 @@ Probably not. Two generic drivers take everything from the rig-file entry:
 - `modbus` -- registers over TCP or RTU: each signal is an address, a type
   and a scale.
 
-`list_drivers` shows every tag the runner has and each config's schema;
+`list_drivers` shows every type the runner has and each config's schema;
 `rig_schema` shows the whole file. Write the entry, `check_rig` the file,
 `attach_device` the entry, `read` its signals. Only reach for code when the
 protocol is neither, or the device does arithmetic across its signals (a
@@ -35,8 +36,8 @@ from flyball.foundation.device import (
     Demand,
     DriverConfig,
     Node,
-    Output,
     Readable,
+    Readout,
     Sample,
     command,
 )
@@ -51,7 +52,7 @@ TEMP = Quantity("temperature", Celsius)
 class Foo200(Readable, Committable):
     """What it measures and drives, in one line; the rest of the docstring is for people."""
 
-    bath = Output("bath", "Bath temperature", TEMP, range=(-20.0, 200.0), precision=2)
+    bath = Readout("bath", "Bath temperature", TEMP, range=(-20.0, 200.0), precision=2)
     setpoint = Demand("setpoint", "Bath setpoint", TEMP, limits=(-20.0, 200.0))
 
     def __init__(self, name: str, link: TextLink, label: str | None = None) -> None:
@@ -64,7 +65,7 @@ class Foo200(Readable, Committable):
 
     def commit(self, time_ns: int) -> None:
         """Everything recorded since the last commit, to the hardware, once."""
-        if (target := self.setpoint.pending) is not None:
+        if (target := self.setpoint.staged) is not None:
             self._link.write(f"SET {target:.2f}")
 
     @command
@@ -73,8 +74,8 @@ class Foo200(Readable, Committable):
         self._link.write("STOP")
 
 
-class Foo200Config(DriverConfig[Foo200], tag="foo200"):
-    """The rig-file entry: `driver: foo200`, settings flat beside it or under `config:`."""
+class Foo200Config(DriverConfig[Foo200], type="foo200"):
+    """The rig-file entry: `driver: foo200`, its fields flat beside it."""
 
     link: TextLinkConfig | str  # a link declared under `links:` by name, or inline
 
@@ -90,19 +91,19 @@ class Foo200Config(DriverConfig[Foo200], tag="foo200"):
 
 | descriptor | what | who sets it |
 |---|---|---|
-| `Output(name, label, quantity, range=, precision=, warn=, alarm=)` | a value the device produces | the driver, by `push` or in a `Sample` |
+| `Readout(name, label, quantity, range=, precision=, warning=, alarm=)` | a value the device produces | the driver, by `push` or in a `Sample` |
 | `Demand(name, label, quantity, limits=)` | a value someone asks for; its readback is what the device is doing | a controller, a command, `set_demand` |
-| `Namespace(name, label)` then `ns.output(...)` / `ns.demand(...)` / `ns.config(...)` / `ns.input(...)` | a subtree, one address segment | -- |
-| `ns.config(section, label, quantity)` | a value fixed at build from the config (a max flow) | `build`, by `self.x.push(...)` |
-| `ns.input(section, label, quantity, default=)` | another device's signal the rig binds to this role (`bound:` in the rig file) | the rig |
-| `Section(name, label)` | a tag across the tree (`dry`/`wet`); supplies the segment name to `ns.<kind>(section, ...)` | -- |
+| `Namespace(name, label)` then `ns.readout(...)` / `ns.demand(...)` / `ns.config(...)` / `ns.input(...)` | a subtree, one address segment | -- |
+| `ns.config(name, label, quantity)` | a value fixed at build from the config (a max flow) | `build`, by `self.x.push(...)` |
+| `ns.input(name, label, quantity, default=)` | another device's signal the rig binds to this input (`inputs:` in the rig file) | the rig |
+| `tags={"line": "dry"}` on any descriptor | a grouping across the tree (`dry`/`wet`), never part of the address | -- |
 
 Rules: `name` is the address segment, `label` the display text. `limits`
 may be numbers, a config descriptor (resolved at build) or an input
-(resolved live). An `Output` with a non-float `vtype` (an enum, `initial=`)
+(resolved live). An `Readout` with a non-float `vtype` (an enum, `initial=`)
 is how a device reports its mode. On the class a descriptor is the spec; on
 the instance `self.bath` is the bound signal: `.value`, `.push(value,
-time_ns)`, and for a demand `.pending` (what was asked and not yet
+time_ns)`, and for a demand `.staged` (what was asked and not yet
 committed) and `.at_limit`.
 
 ## Read and commit
@@ -139,9 +140,9 @@ line what it does, then what the arguments mean.
 
 ## The config and the link
 
-`DriverConfig[Device]` with `tag="..."` is a pydantic model: its fields are
+`DriverConfig[Device]` with `type="..."` is a pydantic model: its fields are
 the rig-file settings, validated and schema-published. It may not use an
-envelope key (`driver`, `label`, `poll_s`, `signals`, `bound`, `config`).
+envelope key (`driver`, `label`, `poll_s`, `signals`, `inputs`) or `config`.
 `build(name, label)` makes the device. A transport is a *link*: declare
 the field as `SomeLinkConfig | str`; a string names an entry under
 `links:` that the rig resolves to the config before `build`. Existing
@@ -153,13 +154,16 @@ fakes are how a driver is tested without hardware.
 
 1. Write the module where the runner runs, in its drivers directory.
 2. `check_driver(path)`: imports it in a fresh interpreter and reports the
-   tag, the config schema, the device's descriptors and commands, or the
+   type, the config schema, the device's descriptors and commands, or the
    error.
-3. `reload_drivers`, then `list_drivers` shows the tag.
-4. `attach_device(name, entry)` with `{"driver": "<tag>", "link": "...",
-   ...}`; `read` or `view_device` to see it live; `set_demand` or its
-   commands to drive it.
-5. `save_rig` writes the entry into the rig file so it survives a restart.
+3. `reload_drivers`, then `list_drivers` shows the type.
+4. `attach_device(name, entry)` with `{"driver": "<type>", "link": "...",
+   ...}`. It is saved (a new rig version, and the overlay beside the rig
+   file), then the rig is stopped and the runner restarts with it: wait for
+   the runner to answer again, then `read` or `view_device` to see it live,
+   `set_demand` or its commands to drive it. Controllers come back in manual.
+5. It survives a restart already. `save_rig` with a `path` writes the whole
+   rig into a rig file of your choosing.
 
 A driver package that ships is registered with an entry point instead:
 `[project.entry-points."flyball.configs"] name = "package.module"`.

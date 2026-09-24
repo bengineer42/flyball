@@ -30,7 +30,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.errors import HardwareError
 from flyball.foundation.quantities import Quantity, Unit
 from flyball.hardware.uart import UartLink
@@ -87,7 +87,7 @@ class EzoDoProbe:
 class EzoDo(Readable):
     """One EZO-DO probe on the device root: `dissolved_oxygen [RP]`, one UART round trip."""
 
-    dissolved_oxygen = Output(
+    dissolved_oxygen = Readout(
         "dissolved_oxygen", quantity=DISSOLVED_OXYGEN, range=(0.0, 100.0), precision=2
     )
 
@@ -110,7 +110,7 @@ class EzoDo(Readable):
         yield self.sample(time_ns, dissolved_oxygen=self.probe.read())
 
 
-class EzoDoConfig(DriverConfig[EzoDo], tag="ezo_do"):
+class EzoDoConfig(DriverConfig[EzoDo], type="ezo_do"):
     """One EZO-DO circuit, alone on its UART."""
 
     link: UartLinkConfig | str  # type: ignore[valid-type]

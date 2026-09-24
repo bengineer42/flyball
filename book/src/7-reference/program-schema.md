@@ -27,52 +27,51 @@ declares. Any other key is an error.
 | number, string, bool | as in YAML |
 | `Duration` | `{seconds: 90}`, `{minutes: 1, seconds: 30}`, `{hours: 2}`, or a bare number of seconds. Keys are the plural of `nanosecond`, `microsecond`, `millisecond`, `second`, `minute`, `hour`, `day`; they add |
 | `Rate` | one key: `{per_second: 0.01}`, `{per_minute: 2}`, … |
-| `Duration \| Rate` (a pace) | either form; **may be written flat** beside the other arguments when it is the command's only such field (`foldable()` in `flyball.interfaces.server.dialect`) |
-| `ValueSource \| float` | a number, or `process`, `setpoint`, `demand` |
-| a controller name | the address of the writable signal it drives, e.g. `heaters.heater1` — a controller is named by its target |
-| a law (`tuning`) | the name of a registered tuning, or `{tag: PI, kp: …, ki: …, tt: …}` |
-| `Transfer` | `track`, `carry`, `reset`, `none` |
+| `Duration \| Rate` (a pace) | either form; **may be written flat** beside the other arguments when it is the command's only such field, `timeout` aside (`foldable()` in `flyball.interfaces.server.dialect`). `timeout` is always a `Duration` named `timeout` and is never itself a fold candidate; a step whose only time field is `timeout` (`prompt`, `settle`) takes no flat keys. `wait`'s `duration` folds flat only when the step has no `message`: `wait: {minutes: 20, message: "…"}` is refused (that is what an old operator prompt with a flat timeout looked like) -- write `wait: {duration: {minutes: 20}, message: "…"}` |
+| `ValueSource \| float` | a number, or `measured`, `setpoint`, `output` |
+| a controller name | the address of the demand it drives, e.g. `heaters.heater1` — a controller is named by its output |
+| a law (`tuning`) | the name of a registered tuning, or `{type: PI, kp: …, ki: …, tt: …}` |
+| `Transfer` | `track`, `carry`, `cold`, `none` |
 
-## The library's commands
+## The library's steps
 
-Every rig has these; `loop` (kept as the field name — a controller is what
-today's `Loop` is called, but the argument is unchanged) is one address, a
-list of addresses, or omitted for the rig's default controller. Source:
+Every rig has these; `controllers` is one address, a list of addresses, or
+omitted for the rig's default controller. Source:
 `flyball.sequencing.{loops,devices,activities}`.
 
 | tag | field | type | default |
 | --- | --- | --- | --- |
 | `regulate` | `setpoint` (primary) | number | — |
-| | `loop` | address, list, or omitted | rig default |
+| | `controllers` | address, list, or omitted | rig default |
 | | `tuning` | law name | keep the current |
 | `ramp` | `to` (primary) | number | — |
 | | `pace` | `Duration \| Rate`, foldable | — |
-| | `loop` | address, list, or omitted | rig default |
+| | `controllers` | address, list, or omitted | rig default |
 | | `wait` | bool | `true` |
-| `hold` | `duration` (primary), foldable | `Duration` | — |
+| `wait` | `duration` (primary), foldable without `message` | `Duration` | — |
 | | `message` | string | none |
-| | `timeout` | number of seconds | none |
-| `arrive` | `loop` (primary) | address, list, or omitted | rig default |
+| | `timeout` | `Duration` | none |
+| `settle` | `controllers` (primary) | address, list, or omitted | rig default |
 | | `within` | number | `1.0` |
-| | `readings` | integer ≥ 1 | `3` |
+| | `count` | integer ≥ 1 | `3` |
 | | `timeout` | `Duration` | none |
 | | `message` | string | none |
-| `manual` | `loop` (primary) | address, list, or omitted | rig default |
+| `manual` | `controllers` (primary) | address, list, or omitted | rig default |
 | `set` | `device` | name | — |
 | | `values` | `{name: value}` | — |
-| `command` | `device_command` | tag | — |
+| `command` | `device_command` | string | — |
 | | `device` | name | — |
 | | `args` | `{name: value}` | none |
-| `wait` | `message` (primary) | string | — |
-| | `name` | string | `"wait"` |
+| `prompt` | `message` (primary) | string | — |
+| | `name` | string | `"prompt"` |
 | | `timeout` | `Duration` | none |
 
-`regulate`/`ramp`/`hold`/`arrive`/`manual` are steps on a **controller**
+`regulate`/`ramp`/`wait`/`settle`/`manual` are steps on a **controller**
 (named by its target's address); `set` and `command` reach a **device**
-directly — `set` is one demand (`rig.demand`) on its writable signals,
+directly — `set` is one demand (`rig.write`) on its writable signals,
 `command` calls one of its `@command` methods, `device_command` naming the
-tag rather than `command` because a step's own wire form reserves
-`command` for its own tag. See [Programs](../1-running/programs/index.md) for
+device command rather than `command` because a step's own wire form reserves
+`command` for its own key. See [Programs](../1-running/programs/index.md) for
 the concepts and [Writing programs](../1-running/programs/writing.md) for the full
 worked example.
 

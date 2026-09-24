@@ -2,36 +2,76 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import secrets
+import signal
+import socket
+import stat
 import sys
+import threading
+import time
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from flyball.record.store import Store
 from flyball.rig import Rig
-from flyball.runtime.config import RigConfig, RunnerConfig
+from flyball.runtime.config import Exposure, RigConfig, RunnerConfig, settle_exposure
+from flyball.runtime.edits import Origin
 from flyball.runtime.retention import Retention
 
+from . import logs
+from .locking import redacted
+
 if TYPE_CHECKING:
+    from fastapi import FastAPI
+
+    from flyball.interfaces.client import Rig as Client
+
     # A structural type, not an import: `flyball-sim` is an optional package
     # (see `flyball.interfaces.server.deps.Simulation`), so `runner`/`server` never
     # import the concrete `flyball_sim.simulation.Simulation` at module load.
     from flyball.interfaces.server.deps import Simulation
+    from flyball.interfaces.server.principal import Claims
+
+    from .frontdir import FrontDir
 
 log = logging.getLogger("flyball.runner")
+
+
+EDIT_ENV = "FLYBALL_EDIT"
+"""Set for the start after a rig edit: `<version>:<previous>:<record>`, the edit's rig
+version, the head before it (empty for none), and `1` if a session was recording (the start
+opens a new one). If that start cannot build the rig, it rolls the edit back (`entrypoint`).
+Not a flag: nothing but the runner itself sets it."""
+
+EDIT_FAILED_ENV = "FLYBALL_EDIT_FAILED"
+"""Set for the start after a rollback: `{"version", "previous", "error"}` as JSON, which that
+start raises as an `edit_not_built` condition on the rig."""
 
 
 class Handle:
     """What the server may do to the process: read how it was started, stop it, restart it."""
 
-    def __init__(self, settings: RunnerConfig, files: Sequence[Path], stop: Callable[[], None]):
+    def __init__(
+        self,
+        settings: RunnerConfig,
+        files: Sequence[Path],
+        stop: Callable[[], None],
+        exposure: Exposure | None = None,
+        origin: Origin | None = None,
+    ):
         self.settings = settings
         self.files = list(files)
         self._stop = stop
         self.restarting = False
+        self.resume = False
+        """Start again with `--resume`: an edit to a bare or resumed rig lives in the store."""
+        self.exposure = exposure
+        self.origin = origin or Origin()
 
     def shutdown(self) -> None:
         """Stop serving; `serve` returns once the rig is stopped."""
@@ -42,6 +82,185 @@ class Handle:
         self.restarting = True
         self._stop()
 
+    def restart_for_edit(self, version: int, previous: int | None, record: bool = False) -> None:
+        """`restart`, to build rig version `version`, which an edit has just saved.
+
+        A rig from files builds it from the overlay the edit wrote; a bare or resumed one
+        starts again with `--resume`. `previous` is what a start that cannot build it rolls
+        back to; `record`, whether that start opens a recording session (one was open).
+        """
+        before = "" if previous is None else previous
+        os.environ[EDIT_ENV] = f"{version}:{before}:{1 if record else ''}"
+        self.resume = self.origin.stored
+        self.restart()
+
+
+GRACEFUL_SHUTDOWN_S = 5
+"""How long uvicorn waits for open connections at shutdown before cancelling them."""
+
+
+def _interrupt(signum: int, frame: object) -> None:
+    raise KeyboardInterrupt
+
+
+def _terminate_as_interrupt() -> signal.Handlers | Callable[..., object] | int | None:
+    """Make SIGTERM stop the runner the way Ctrl-C does; the handler it replaced, if any.
+
+    uvicorn shuts down gracefully on either signal, then restores the handler it found
+    and raises the signal again. For SIGINT that is Python's KeyboardInterrupt, so
+    `serve`'s cleanup runs; for SIGTERM it was the default -- the process died by the
+    signal and the rig was never stopped (the session left open, the programmer not
+    interrupted). flyballd and systemd both stop with SIGTERM. Main thread only.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return None
+    return signal.signal(signal.SIGTERM, _interrupt)
+
+
+def _ignore_hangup() -> None:
+    """Make SIGHUP a no-op (D-038): a dropped terminal must not kill the runner.
+
+    `flyball run` puts the runner in its own process group and the front ignores SIGHUP
+    too, but a bare `flyball-runner` run directly in a terminal gets the same protection
+    here -- there is no other place its signal handling is set up. Logged once so a
+    hangup is visible in the log without stopping anything. Main thread only, and a
+    no-op on a platform with no SIGHUP.
+    """
+    hup = getattr(signal, "SIGHUP", None)
+    if hup is None or threading.current_thread() is not threading.main_thread():
+        return
+
+    def handler(signum: int, frame: object) -> None:
+        log.info("terminal hung up; the rig keeps running")
+
+    signal.signal(hup, handler)
+
+
+class ServeFailed(Exception):
+    """The runner could not serve: its socket or port was not bound, or its server not started.
+
+    Not a busy rig (no lock is held by another), so another try may work.
+    """
+
+
+def _owner_socket(path: str) -> tuple[socket.socket, str, int]:
+    """A unix socket bound at `path`, mode 0600, not yet listening; `path` and its inode.
+
+    Only this uid (and root) can connect, whatever the directory's mode; nobody can connect
+    before the chmod, since nothing connects to a socket that does not listen yet. A stale
+    socket at `path` (a runner before this one) is replaced, as uvicorn would.
+    """
+    with contextlib.suppress(FileNotFoundError):
+        if stat.S_ISSOCK(os.lstat(path).st_mode):
+            os.unlink(path)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.bind(path)
+        os.chmod(path, 0o600)
+        return sock, path, os.lstat(path).st_ino
+    except OSError:
+        sock.close()
+        raise
+
+
+def _remove_socket(sock: socket.socket, path: str, inode: int) -> None:
+    """Close `sock` and unlink `path` if it is still the socket bound there (not a successor's)."""
+    sock.close()
+    with contextlib.suppress(OSError):
+        if os.lstat(path).st_ino == inode:
+            os.unlink(path)
+
+
+# region The MCP mount: its tools call the runner back, as whoever called them
+
+
+def mcp_client(settings: RunnerConfig, front: FrontDir | None) -> Client:
+    """The client the MCP tools call the runner back with.
+
+    Over the front-dir's endpoint when fronted (its unix socket, or its loopback port);
+    over loopback TCP when bare.
+    """
+    from flyball.interfaces.client import Rig as Client
+
+    root = settings.root_path or ""
+    if front is not None and front.network == "unix":
+        return Client(f"http://localhost{root}", token="", uds=front.address)
+    if front is not None:
+        return Client(f"http://{front.address}{root}", token="")
+    return Client(f"http://127.0.0.1:{settings.port}{root}", token="")
+
+
+def mcp_caps() -> dict[str, frozenset[str]]:
+    """Per MCP mode, the verbs a tool's call may carry: the mode's own and every lower mode's.
+
+    A mode serves its tier's tools and every tier below (`mcp.tools.MODES`), so its cap is
+    the union of `verbs.MCP_MODES` over those modes -- `MCP_MODES` alone says who may
+    enter, and with the placeholder vocabulary `operate` would lose `read`.
+    """
+    from flyball.interfaces.mcp.tools import MODES
+    from flyball.interfaces.server.verbs import MCP_MODES
+
+    return {
+        mode: frozenset().union(*(MCP_MODES[m] for m, t in MODES.items() if t <= tier))
+        for mode, tier in MODES.items()
+    }
+
+
+def mcp_signer(key: bytes, aud: str) -> Callable[[Claims | None, str], str]:
+    """`sign(caller, mode)` for [mount][flyball.interfaces.mcp.http.mount].
+
+    Each call mints a principal now, for one request, with `key` for `aud` (the door's own).
+    For a caller: its `sub`, `sid`, `kind`, `nm`, `cip` and `sch`, `scp` = its verbs ∩ the
+    mode's cap (`mcp_caps`), `via: "mcp"`. For None, the runner's own read: `runner:mcp`,
+    a service with `read` only. No principal is kept: each lives 60 s and is used once.
+    """
+    from flyball.interfaces.server.principal import LIFETIME, Claims, mint
+    from flyball.interfaces.server.verbs import READ
+
+    caps = mcp_caps()
+    sid = f"mcp-{secrets.token_urlsafe(12)}"
+
+    def sign(caller: Claims | None, mode: str) -> str:
+        now = int(time.time())
+        if caller is None:
+            claims = Claims(
+                sub="runner:mcp", sid=sid, scp=frozenset({READ}), kind="service",
+                aud=aud, cip="", sch="http", iat=now, exp=now + LIFETIME,
+            )  # fmt: skip
+        else:
+            scp = caller.scp & caps[mode]
+            claims = replace(caller, scp=scp, aud=aud, via="mcp", iat=now, exp=now + LIFETIME)
+        return mint(key, claims)
+
+    return sign
+
+
+def mount_mcp(
+    app: FastAPI, name: str | None, settings: RunnerConfig, front: FrontDir | None
+) -> None:
+    """`/mcp/<mode>` on `app`, its tools calling back as their caller (`mcp_signer`)."""
+    from flyball.interfaces.mcp.http import mount
+
+    door = app.state.door
+    mount(app, mcp_client(settings, front), name=name, sign=mcp_signer(door.key, door.aud))
+
+
+# endregion
+
+
+def _print_link(nonce: str, host: str, settings: RunnerConfig) -> None:
+    """The one-time sign-in link, on stderr: open it once in the browser, within ten minutes."""
+    if host in ("", "0.0.0.0", "::"):
+        host = "127.0.0.1"
+    shown = f"[{host}]" if ":" in host else host
+    root = (settings.root_path or "").rstrip("/")
+    url = f"http://{shown}:{settings.port}{root}/api/auth/link?n={nonce}"
+    print(
+        f"flyball-runner: sign in to the UI once, within 10 minutes: {url}",
+        file=sys.stderr,
+        flush=True,
+    )
+
 
 def serve(
     rig: Rig,
@@ -50,6 +269,9 @@ def serve(
     simulation: Simulation | None = None,
     store: Store | None = None,
     config: RigConfig | None = None,
+    insecure_open: bool = False,
+    front: FrontDir | None = None,
+    origin: Origin | None = None,
 ) -> None:
     """Serve `rig` until interrupted. The rig's devices must already be polling.
 
@@ -68,17 +290,28 @@ def serve(
             and where the scratch record goes while nothing is being recorded;
             None leaves those routes answering 503 and keeps no scratch.
         config: What the rig was built from, for `/api/rig/config`.
+        insecure_open: Serve an open runner (no token) on the address
+            asked for even beyond loopback (`--insecure-open`). Without it such a
+            runner is served on 127.0.0.1, the same port, with one line on stderr
+            saying why; `/api/auth` and `/api/health` report it either way
+            ([settle_exposure][flyball.runtime.config.settle_exposure]).
+        front: The front-dir a front started this runner with (`--front-dir`): bind its
+            endpoint only, take only the principal it signs, serve no UI. `runner.auth`,
+            `host` and `port` are then ignored, with one line on stderr if they said
+            anything. None: a bare runner, whose token (if any) gets a one-time sign-in
+            link printed at start.
+        origin: The rig files and `--set`s the command line named, and whether it
+            resumed: where a rig edit is saved (`flyball.runtime.edits`). None: a bare
+            runner, whose edits live in the store.
 
-    A restart asked for over the API (`POST /api/runner/restart`) stops the
-    rig and replaces this process with the same command line, once `serve`
-    has unwound.
+    A restart asked for over the API (`POST /api/runner/restart`, or a rig edit) stops
+    the rig and replaces this process with the same command line, once `serve` has
+    unwound; after an edit to a bare or resumed rig, with `--resume` added.
     """
     import uvicorn
 
-    from flyball.interfaces.client import Rig as Client
-    from flyball.interfaces.mcp.http import mount
     from flyball.interfaces.server import create_app, set_programmer, set_rig, set_simulation
-    from flyball.interfaces.server.auth import signing_secret
+    from flyball.interfaces.server.auth import Fronted
     from flyball.interfaces.server.deps import (
         set_compose,
         set_drivers_dir,
@@ -94,6 +327,15 @@ def serve(
     from flyball.sequencing import Programmer
 
     settings = settings or RunnerConfig()
+    exposure = settle_exposure(
+        settings, insecure_open, endpoint=None if front is None else front.endpoint
+    )
+    if exposure.warning and (exposure.open or exposure.notes):  # loudly: exposure changed
+        print(f"flyball-runner: WARNING: {exposure.warning}", file=sys.stderr, flush=True)
+    elif exposure.warning:
+        log.warning("%s", exposure.warning)
+    if exposure.restricted:
+        settings = settings.model_copy(update={"host": exposure.host})
     programs, tunings, drivers = settings.programs, settings.tunings, settings.drivers
     programmer = Programmer(rig)
     ensure_discovered()  # a caller that built `rig` without going through `main()` first
@@ -116,35 +358,71 @@ def serve(
         rows = dashboards.import_directory(store, boards, rig.name or "rig", rig.clock.now_ns())
         log.info("dashboards from %s: %d imported", boards, len(rows))
     auth = settings.auth
-    # The MCP mount calls the runner back over loopback; on a password-only runner it
-    # needs a token of its own, made here and never shown.
-    internal = secrets.token_urlsafe(32) if auth.enabled and not auth.token else None
     app = create_app(
         auth,
         settings.root_path,
-        secret=signing_secret(auth, settings.store),
-        internal_token=internal,
+        front=None if front is None else Fronted(front.key, front.aud),
+        port=settings.port,
+        open_network=exposure.open_network,
     )
+    bound = None
+    if front is not None and front.network == "unix":
+        # uvicorn would make the socket itself, 0666; bound here, it is 0600 before it listens.
+        try:
+            bound = _owner_socket(front.address)
+        except OSError as e:
+            raise ServeFailed(f"binding {front.address}: {e}") from None
+        bind: dict[str, Any] = {"fd": bound[0].fileno()}
+    elif front is not None:
+        bind = {"host": front.host, "port": front.port}
+    else:
+        bind = {"host": settings.host, "port": settings.port}
     if settings.mcp:  # `/mcp/<mode>`: a model's way in
-        base = f"http://127.0.0.1:{settings.port}{settings.root_path or ''}"
-        mount(app, Client(base, token=auth.token or internal), name=rig.name)
+        mount_mcp(app, rig.name, settings, front)
     server = uvicorn.Server(
-        uvicorn.Config(app, host=settings.host, port=settings.port, log_level=settings.log_level)
+        uvicorn.Config(
+            app,
+            **bind,
+            log_level=settings.log_level,
+            proxy_headers=False,  # the peer is the peer: no X-Forwarded-For past the limiter
+            # A websocket or a download left open would hold the shutdown -- and the
+            # recording's close -- for ever; after this uvicorn cancels them (D-045).
+            timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_S,
+        )
     )
+    if front is None and auth.enabled:
+        _print_link(app.state.door.mint_link(), exposure.host, settings)
+    logs.stamp_uvicorn()  # its handlers exist once the Config is made
 
     def stop() -> None:
         server.should_exit = True
 
-    handle = Handle(settings, rig.files, stop)
+    handle = Handle(settings, rig.files, stop, exposure, origin)
     set_runner(handle)
     retention = None if store is None else Retention(rig, store, settings)
     set_retention(retention)
     if retention is not None:
         retention.start()
+    from flyball.interfaces.server.deps import current_stopper
+    from flyball.runner.stopping import install_break_glass
+
+    install_break_glass(current_stopper)  # SIGUSR1: stop the rig, without exiting
+    previous = _terminate_as_interrupt()
+    _ignore_hangup()  # SIGHUP: log it, keep running (D-038)
+    from uvicorn.config import STARTUP_FAILURE
+
     try:
         server.run()
+    except SystemExit as e:
+        # uvicorn's exit when it cannot start (a port taken, its app's startup failed) is 3,
+        # which is flyball's "rig busy": said as what it is instead.
+        if e.code != STARTUP_FAILURE:
+            raise
+        raise ServeFailed("the server could not start; its error is logged above") from None
     finally:
-        programmer.interrupt()
+        if bound is not None:
+            _remove_socket(*bound)
+        programmer.interrupt("the runner shut down")
         if retention is not None:
             retention.stop()
         set_retention(None)
@@ -157,7 +435,14 @@ def serve(
         set_simulation(None)
         set_programmer(None)
         set_rig(None)
-        rig.stop()  # polling, writers, recording
+        rig.close()  # polling, writers, recording, links
+        if previous is not None:
+            signal.signal(signal.SIGTERM, previous)
     if handle.restarting:
-        log.info("restarting: %s", " ".join(sys.argv))
-        os.execv(sys.executable, [sys.executable, *sys.argv])
+        # The interpreter's own argv, so `python -m flyball.runner` restarts as `-m` too (and
+        # `--front-dir` comes back with the rest: fronted stays fronted).
+        argv = [sys.executable, *sys.orig_argv[1:]]
+        if handle.resume and "--resume" not in argv:
+            argv.append("--resume")
+        log.info("restarting: %s", " ".join(redacted(argv)))
+        os.execv(sys.executable, argv)

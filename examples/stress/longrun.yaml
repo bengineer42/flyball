@@ -10,7 +10,7 @@ clock: { speed: 600 }
 
 links:
   drum:
-    tag: sim_plant
+    type: sim_plant
     model: fopdt
     tau_s: 1800.0
     dead_s: 60.0
@@ -20,7 +20,7 @@ links:
     noise: 0.1
     seed: 5
   cistern:
-    tag: sim_plant
+    type: sim_plant
     model: integrator
     gain: 1.0
     leak: 0.01
@@ -32,38 +32,38 @@ devices:
     driver: sim_daq
     label: Drum temperature
     poll_s: 30.0
-    config:
-      link: drum
-      ports:
-        temperature: { port: output, quantity: temperature, unit: "°C" }
+    link: drum
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
     signals:
       temperature: { range: [0, 120], precision: 2 }
   cistern_level:
     driver: sim_daq
     label: Cistern level
     poll_s: 60.0
-    config:
-      link: cistern
-      ports:
-        volume: { port: output, quantity: volume, unit: L }
+    link: cistern
+    ports:
+      volume: { port: output, quantity: volume, unit: L }
     signals:
       volume: { range: [0, 1000], precision: 1 }
   heater:
     driver: sim_drive
     label: Drum heater
-    config: { link: drum, ports: { drive: input } }
+    link: drum
+    ports: { drive: input }
   pump:
     driver: sim_drive
     label: Cistern pump
-    config: { link: cistern, ports: { drive: input } }
+    link: cistern
+    ports: { drive: input }
 
 controllers:
   heater.drive:
-    signal: temp.temperature
-    law: { tag: PI, kp: 0.000125, ki: 2.5e-06 }
-    feedforward: { tag: affine, gain: 0.0125, bias: -0.1875 }
+    measured: temp.temperature
+    law: { type: PI, kp: 0.000125, ki: 2.5e-06 }
+    feedforward: { type: affine, gain: 0.0125, bias: -0.1875 }
     default: true
   pump.drive:
-    signal: cistern_level.volume
-    law: { tag: PI, kp: 0.02, ki: 0.005 }
-    feedforward: { tag: affine, gain: 0.01 }
+    measured: cistern_level.volume
+    law: { type: PI, kp: 0.02, ki: 0.005 }
+    feedforward: { type: affine, gain: 0.01 }

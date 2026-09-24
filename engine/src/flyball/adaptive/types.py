@@ -8,39 +8,39 @@ from flyball.foundation import Labelled, NonNegative, Positive, Signal
 from .errors import ModelRejectedError
 
 
-class Role(Labelled):
-    """What a signal does in a loop's model."""
+class ModelTerm(Labelled):
+    """A signal's part in a loop's model."""
 
-    CONTROLLED = "controlled", "The quantity being held"
-    MANIPULATED = "manipulated", "The demand the loop commands"
-    DISTURBANCE = "disturbance", "A measured input the loop cannot command"
+    MEASURED = "measured", "The quantity being regulated"
+    OUTPUT = "output", "The demand the loop writes"
+    DISTURBANCE = "disturbance", "A measured input the loop cannot write"
 
 
 @dataclass(frozen=True, slots=True)
 class Term:
-    """One input to a plant model, and what it is."""
+    """One input to a plant model, and its part in it."""
 
     signal: Signal
-    role: Role
+    part: ModelTerm
 
 
 @dataclass(frozen=True, slots=True)
 class Schema:
-    """Which signals a loop's model is built from: controlled, manipulated, disturbances.
+    """Which signals a loop's model is built from: measured, output, disturbances.
 
     The order is fixed here so regressors and parameter vectors line up.
     """
 
-    controlled: Signal
-    manipulated: Signal
+    measured: Signal
+    output: Signal
     disturbances: tuple[Signal, ...] = ()
 
     @property
     def terms(self) -> tuple[Term, ...]:
         return (
-            Term(self.controlled, Role.CONTROLLED),
-            Term(self.manipulated, Role.MANIPULATED),
-            *(Term(signal, Role.DISTURBANCE) for signal in self.disturbances),
+            Term(self.measured, ModelTerm.MEASURED),
+            Term(self.output, ModelTerm.OUTPUT),
+            *(Term(signal, ModelTerm.DISTURBANCE) for signal in self.disturbances),
         )
 
     @property
@@ -58,7 +58,7 @@ class Arx:
     rests at with no input -- a room's temperature under a heater, a chiller's
     ambient -- folded into one term: `(1 - a) * ambient`. Without it a plant
     that does not rest at zero cannot be fitted at all, and a loop whose
-    demand is already in the controlled quantity's units (a "smart" drive) has
+    demand is already in the measured quantity's units (a "smart" drive) has
     an offset near zero and loses nothing.
     [plant][flyball.adaptive.types.Arx.plant] gives the continuous form.
     """

@@ -5,7 +5,7 @@ their signals, the polling, and the recorder. It has no opinion about what
 any controller regulates. Assembly is a handful of calls:
 
 ```python
---8<-- "oven.py:46:66"
+--8<-- "oven.py:build"
 ```
 
 ## Devices
@@ -13,7 +13,7 @@ any controller regulates. Assembly is a handful of calls:
 `rig.add_device(device)` makes it reachable by name — one namespace
 rig-wide; a second device with the same name is a `ConflictError`.
 `rig.start_polling(device)` polls it on the smallest `poll_s` over its
-publishing signals (`None` anywhere: never polled). `rig.read(node,
+published signals (`None` anywhere: never polled). `rig.read(node,
 fresh=True)` reads once, now, on the calling thread — the way to drive a
 rig by hand with a stepped clock, as `oven.py`'s `__main__` block does.
 
@@ -23,11 +23,12 @@ rig by hand with a stepped clock, as `oven.py`'s `__main__` block does.
 rig.attach_controller(heater.signals["demand"], probe.signals["temperature"], law=PI(kp=0.5, ki=0.05), default=True)
 ```
 
-binds one writable signal to one publishing signal through a law (and an
-optional feedforward), and registers it under the target's address — a
-controller is *named by what it drives*. A writable signal has at most one
-controller: a second `attach_controller` on the same target or source
-raises. `default=True` makes it what a command means when it names none;
+regulates one published signal (its measured signal) by writing one
+demand (its output) through a law (and an optional feedforward), and
+registers it under the output's address — a controller is *named by what
+it drives*. A demand has at most one controller: a second
+`attach_controller` on the same output or measured signal raises
+`SignalClaimedError`. `default=True` makes it what a command means when it names none;
 `rig.controllers.resolve(name | None)` looks one up.
 
 `law` may be a built `ControlLaw`, its config, or the name of a tuning
@@ -43,8 +44,8 @@ When a device delivers — a poll, a push, or a fresh read —
 2. Devices with a bound `Input` on one of the signals are added to the
    delivery's touched set — there is no callback; a touched device reads
    the value itself (`self.<input>.value`) when its `commit` runs, in step 4.
-3. Controllers whose source is in the delivery tick: the law steps, and the
-   demand is written to the target.
+3. Controllers whose measured signal is in the delivery tick: the law
+   steps, and the output value is written to the output.
 4. Every device touched — by a tick's write or by a bound input landing —
    has `commit` called once, however many signals on it changed.
 5. The recorder, if any, is given the published samples, the ticks, and the
@@ -73,7 +74,7 @@ one list append per tick. See [Storage](../6-internals/db.md).
 ## Serving
 
 ```python
---8<-- "serve.py:1:15"
+--8<-- "serve.py"
 ```
 
 `set_rig` attaches the rig to the FastAPI app and the observer that feeds

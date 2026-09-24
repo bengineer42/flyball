@@ -239,7 +239,7 @@
     {
       "kind": "loop",
       "label": "Controller",
-      "description": "A controller's faceplate: reading, target and output rows, with the Process/Drive trends beside them.",
+      "description": "A controller's faceplate: measured, setpoint and output rows, with the Process/Drive trends beside them.",
       "category": "control",
       "default_size": {
         "w": 8,
@@ -266,7 +266,7 @@
             "oneOf": [
               {
                 "const": "compact",
-                "title": "compact: reading/target/output rows only"
+                "title": "compact: measured/setpoint/output rows only"
               },
               {
                 "const": "full",
@@ -370,9 +370,9 @@
             "maximum": 50,
             "description": "How many program events to list under the status; 0 for none."
           },
-          "interrupt": {
+          "cancel": {
             "type": "boolean",
-            "title": "Interrupt button",
+            "title": "Cancel button",
             "default": true
           }
         }
@@ -408,7 +408,7 @@
     {
       "kind": "events",
       "label": "Events",
-      "description": "The rig's latest events, newest first, from a level up; optionally one scope only.",
+      "description": "The rig's latest events, newest first, from a severity up; optionally one scope only.",
       "category": "status",
       "default_size": {
         "w": 12,
@@ -423,17 +423,17 @@
       "config": {
         "type": "object",
         "properties": {
-          "level": {
+          "severity": {
             "type": "string",
-            "title": "From level",
-            "default": "INFO",
+            "title": "From severity",
+            "default": "info",
             "enum": [
-              "DEBUG",
-              "INFO",
-              "WARNING",
-              "ERROR"
+              "debug",
+              "info",
+              "warning",
+              "error"
             ],
-            "description": "This level and above."
+            "description": "This severity and above."
           },
           "limit": {
             "type": "integer",
@@ -455,7 +455,7 @@
     {
       "kind": "health",
       "label": "Health",
-      "description": "The rig's condition at a glance: fault or ok, recording, devices polling, controllers, conditions, waits, uptime.",
+      "description": "The rig's condition at a glance: fault or ok, recording, devices polling, controllers, conditions, activities, uptime.",
       "category": "status",
       "default_size": {
         "w": 24,
@@ -497,8 +497,8 @@
                   "title": "conditions"
                 },
                 {
-                  "const": "waits",
-                  "title": "waits"
+                  "const": "activities",
+                  "title": "activities"
                 },
                 {
                   "const": "events",
@@ -647,15 +647,15 @@
           "page": {
             "type": "string",
             "title": "Page",
-            "default": "overview",
+            "default": "dashboards",
             "oneOf": [
               {
                 "const": "dashboards",
                 "title": "Dashboards"
               },
               {
-                "const": "overview",
-                "title": "Overview"
+                "const": "readings",
+                "title": "Readings"
               },
               {
                 "const": "devices",
@@ -686,8 +686,8 @@
                 "title": "Simulation"
               },
               {
-                "const": "rig",
-                "title": "Config"
+                "const": "options",
+                "title": "Options"
               },
               {
                 "const": "url",
@@ -705,7 +705,8 @@
             "type": "string",
             "title": "URL",
             "default": "",
-            "description": "When the page is \"a URL\"."
+            "description": "When the page is \"a URL\".",
+            "pattern": "^$|^(https?:|mailto:|#|/)"
           },
           "label": {
             "type": "string",

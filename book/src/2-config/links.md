@@ -1,21 +1,21 @@
 # Links
 
 A link is something devices are built *on*: a bus, an instrument connection,
-or a simulated plant. Each is a tagged config under `links:`, declared once
+or a simulated plant. Each is a typed config under `links:`, declared once
 and named from a device's `link` field. A link is shared: several devices
 may sit on one I²C bus, and a `sim_daq` and a `sim_drive` read and drive
 one plant.
 
 ```yaml
 links:
-  psu:  { tag: visa, resource: "TCPIP::10.0.0.5::INSTR" }
-  i2c1: { tag: i2c, bus: 1 }
-  tube: { tag: sim_furnace, zones: 2, power_w: [1500, 1500] }
+  psu:  { type: visa, resource: "TCPIP::10.0.0.5::INSTR" }
+  i2c1: { type: i2c, bus: 1 }
+  tube: { type: sim_furnace, zones: 2, power_w: [1500, 1500] }
 ```
 
 Every real link has a `fake_*` twin that answers from a script, so the same
 devices run with nothing plugged in; see [Simulation](simulation.md#the-overlay-pattern).
-`GET /api/drivers` lists every tag the running runner can build.
+`GET /api/drivers` lists every type the running runner can build.
 
 ## Text instruments
 
@@ -47,6 +47,9 @@ A serial port, one command per line.
 
 A scripted instrument: `replies: {command: reply}`. An unknown command
 raises, so a typo in a `scpi` table fails on the fake before the bench.
+`blocking` (default `false`) makes a device built on it run its writes on
+the Writer thread, as a real instrument does -- for a test that exercises
+that path without real hardware.
 
 ## Register instruments
 
@@ -59,6 +62,7 @@ A **register link** reads and writes numbered registers. The
 | --- | --- | --- |
 | `host` | required | |
 | `port` | `502` | |
+| `timeout_s` | `3.0` | the pymodbus client's socket timeout |
 
 ### `modbus_rtu`
 
@@ -70,7 +74,9 @@ A **register link** reads and writes numbered registers. The
 ### `fake_registers`
 
 `registers: {address: value}`; a write updates the table, so a readback
-round-trips.
+round-trips. `blocking` (default `false`) makes a device built on it run
+its writes on the Writer thread, as a real link does -- for a test that
+exercises that path without real hardware.
 
 ## Simulated plants
 
@@ -130,13 +136,16 @@ and are usually declared by a board profile rather than by hand: [Boards
 and Linux I/O](boards.md). `fake_i2c`/`fake_spi`/`fake_gpio`/`fake_uart`
 come with `flyball-sim` instead (real, rig-file-usable features, not
 test-only fixtures -- the same package `sim_plant`/`sim_daq`/`sim_drive`
-ship in); `fake_pwm` and `fake_onewire` are still `flyball-linux`'s. `uart` (tag
-`uart`, not `serial` -- that tag is the text-instrument link above) is a
+ship in); `fake_pwm` and `fake_onewire` are still `flyball-linux`'s. `uart` (type
+`uart`, not `serial` -- that type is the text-instrument link above) is a
 raw byte-level serial port: `write`, `read` an exact length, or `read_until`
 a terminator, for chips with their own binary or ASCII framing (`mhz19`,
 `ezo_ph`) rather than the line-based text protocol `serial` speaks. Its
 `port` (e.g. `/dev/ttyUSB0`) is refused at config time if it is empty or
-contains a byte no device path can (a NUL or a newline).
+contains a byte no device path can (a NUL or a newline). `fake_i2c`
+also takes `blocking` (default `false`), so a device built on it runs
+its writes on the Writer thread, as `SmbusI2c` does -- for a test that
+exercises that path without real hardware.
 
 ## From a package
 

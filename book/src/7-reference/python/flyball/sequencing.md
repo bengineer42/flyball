@@ -7,7 +7,7 @@
 
 ::: flyball.sequencing.activities
 
-::: flyball.sequencing.command
+::: flyball.sequencing.step
 
 ::: flyball.sequencing.devices
 

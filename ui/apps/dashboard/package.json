@@ -1,12 +1,14 @@
 {
   "name": "@flyball/dashboard",
   "private": true,
+  "license": "MIT",
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "vite build && node ../../scripts/third-party-licences.mjs dist/third-party-licences.txt",
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -16,12 +18,16 @@
     "@mui/icons-material": "^6.5.0",
     "@mui/material": "^6.5.0",
     "@rjsf/mui": "^5.24.13",
-    "lucide-react": "^1.46.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-grid-layout": "^2.2.4",
     "smol-toml": "^1.8.0",
     "uplot": "^1.6.31",
     "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^14.3.1",
+    "jsdom": "^30.1.0",
+    "vitest": "^2.1.9"
   }
 }

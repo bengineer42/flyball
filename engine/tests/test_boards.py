@@ -35,9 +35,9 @@ from flyball.runtime.config import (
 BOARD = """
 name = "Test board"
 [links.bus]
-tag = "fake_registers"
+type = "fake_registers"
 [links.plant]
-tag = "sim_plant"
+type = "sim_plant"
 [pins]
 OUT1 = { link = "bus", unit_id = 7 }
 """
@@ -68,7 +68,7 @@ class RelayConfig(DriverConfig[Relay]):
 def relay_tag(fresh, _catalog) -> str:
     tag = fresh("relay")
 
-    class Tagged(RelayConfig, tag=tag):
+    class Tagged(RelayConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -100,21 +100,19 @@ def test_find_board_by_name_and_by_path(tmp_path, monkeypatch):
         find_board("nowhere.toml", rig_dir)
 
 
-def test_apply_board_merges_links_and_resolves_pins_flat_or_layered():
+def test_apply_board_merges_links_and_resolves_pins():
     board = Board.model_validate(__import__("tomllib").loads(BOARD))
     document = {
-        "links": {"bus": {"tag": "fake_registers", "registers": {"1": 5}}},
+        "links": {"bus": {"type": "fake_registers", "registers": {"1": 5}}},
         "devices": {
             "flat": {"driver": "relay", "pin": "OUT1", "label": "Flat"},
             "own": {"driver": "relay", "pin": "OUT1", "unit_id": 2},
-            "layered": {"driver": "relay", "config": {"pin": "OUT1"}},
-            "beside": {"driver": "relay", "pin": "OUT1", "config": {"unit_id": 3}},
             "plain": {"driver": "relay", "unit_id": 4},
         },
     }
     out = apply_board(document, board)
-    assert out["links"]["bus"] == {"tag": "fake_registers", "registers": {"1": 5}}, "file wins"
-    assert out["links"]["plant"] == {"tag": "sim_plant"}
+    assert out["links"]["bus"] == {"type": "fake_registers", "registers": {"1": 5}}, "file wins"
+    assert out["links"]["plant"] == {"type": "sim_plant"}
     assert out["devices"]["flat"] == {
         "driver": "relay",
         "label": "Flat",
@@ -122,11 +120,6 @@ def test_apply_board_merges_links_and_resolves_pins_flat_or_layered():
         "unit_id": 7,
     }
     assert out["devices"]["own"]["unit_id"] == 2, "an entry's own field wins over the pin's"
-    assert out["devices"]["layered"] == {"driver": "relay", "config": {"link": "bus", "unit_id": 7}}
-    assert out["devices"]["beside"] == {
-        "driver": "relay",
-        "config": {"link": "bus", "unit_id": 3},
-    }, "a pin beside `config` resolves into it, so the entry stays layered"
     assert out["devices"]["plain"] == {"driver": "relay", "unit_id": 4}
     assert document["devices"]["flat"]["pin"] == "OUT1", "the input is untouched"
     with pytest.raises(NotFoundError, match="devices.x: pin 'NOPE' is not on this board"):
@@ -143,7 +136,7 @@ def test_a_rig_file_with_a_board_validates_builds_and_reports_it(tmp_path, monke
     assert board_path == tmp_path / "profiles" / "test.toml"
     config = RigConfig.model_validate(document)
     assert config.board == "test" and set(config.links) == {"bus", "plant"}
-    assert config.devices["valve"].config == {"link": "bus", "unit_id": 7}
+    assert config.devices["valve"].driver_config == {"link": "bus", "unit_id": 7}
     rig = config.build(start=False)
     valve = rig.devices["valve"]
     assert isinstance(valve, Relay) and valve.unit_id == 7
@@ -161,7 +154,7 @@ def test_a_link_registered_later_is_valid_in_a_file(fresh, _catalog):
     tag = fresh("late_bus")
     before = rig_model(_catalog)
 
-    class LateBus(Config[object], tag=tag):
+    class LateBus(Config[object], type=tag):
         """Registered after the module was imported."""
 
         baud: int = 9600
@@ -170,7 +163,7 @@ def test_a_link_registered_later_is_valid_in_a_file(fresh, _catalog):
             return object()
 
     _catalog.register_link(LateBus)
-    config = RigConfig.model_validate({"links": {"b": {"tag": tag, "baud": 115200}}})
+    config = RigConfig.model_validate({"links": {"b": {"type": tag, "baud": 115200}}})
     assert isinstance(config, RigConfig) and isinstance(config.links["b"], LateBus)
     assert config.links["b"].baud == 115200
     assert rig_model(_catalog) is not before, "a new tag means a new model"
@@ -193,10 +186,10 @@ class DaqConfig(DriverConfig[Daq]):
 def test_a_build_that_fails_part_way_leaves_nothing_running_or_registered(fresh, _catalog):
     daq_tag, relay_tag = fresh("daq"), fresh("relay")
 
-    class TaggedDaq(DaqConfig, tag=daq_tag):
+    class TaggedDaq(DaqConfig, type=daq_tag):
         pass
 
-    class TaggedRelay(RelayConfig, tag=relay_tag):
+    class TaggedRelay(RelayConfig, type=relay_tag):
         pass
 
     _catalog.register_device(TaggedDaq)
@@ -207,10 +200,10 @@ def test_a_build_that_fails_part_way_leaves_nothing_running_or_registered(fresh,
             name: {"driver": daq_tag, "poll_s": 0.01},
             "h": {"driver": relay_tag, "unit_id": 1},
         },
-        "controllers": {"h.power": {"signal": f"{name}.t"}},
+        "controllers": {"h.power": {"measured": f"{name}.t"}},
     }
     config = RigConfig.model_validate(document)
-    document["controllers"] = {"h.power": {"signal": f"{name}.nope"}}  # fails after the devices
+    document["controllers"] = {"h.power": {"measured": f"{name}.nope"}}  # fails after the devices
     broken = RigConfig.model_validate(document)
     with pytest.raises(NotFoundError, match="nope"):
         broken.build()
@@ -218,4 +211,4 @@ def test_a_build_that_fails_part_way_leaves_nothing_running_or_registered(fresh,
     try:
         assert rig.polling.run(name).running is True and list(rig.controllers) == ["h.power"]
     finally:
-        rig.stop()
+        rig.close()

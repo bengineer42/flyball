@@ -12,10 +12,10 @@ datasheet has the host read the baseline periodically (about once an hour)
 and write it back after a power cycle, so `Sgp30Sensor.get_baseline` /
 `set_baseline` are part of the API, not an omission.
 
-[Unverified] The write order of the two baseline words in `set_baseline`
-(CO2eq then TVOC, mirroring the order `get_baseline` returns them) follows
-the common convention of Sensirion's own embedded-sgp driver rather than a
-directly re-read datasheet table; treat it as unconfirmed.
+The two baseline words go back in the reverse of the order they come out:
+`get_baseline` reads CO2eq then TVOC, `set_baseline` writes TVOC then CO2eq
+(datasheet v1.0, "Set and Get Baseline"; Sensirion's embedded-sgp
+`sgp30_set_iaq_baseline` does the same).
 """
 
 from __future__ import annotations
@@ -25,7 +25,8 @@ from collections.abc import Iterator
 from typing import NamedTuple
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import Access, DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import Access, DriverConfig, Node, Readable, Readout, Sample
+from flyball.foundation.device import command as device_command
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import PartsPerBillion, PartsPerMillion
 from flyball.hardware.i2c import I2cLink
@@ -33,6 +34,9 @@ from pydantic import Field
 
 from flyball_chips._links import I2cLinkConfig
 from flyball_chips._sensirion import command, crc8, crc_words, word_with_crc
+
+WARMUP_S = 15.0
+"""How long after `init_air_quality` the IAQ outputs are fixed placeholders (400 ppm, 0 ppb)."""
 
 CO2EQ = Quantity("CO2 equivalent", PartsPerMillion)
 TVOC = Quantity("total VOC", PartsPerBillion)
@@ -103,13 +107,16 @@ class Sgp30Sensor:
         return Baseline(co2eq, tvoc)
 
     def set_baseline(self, baseline: Baseline) -> None:
-        """Restores a baseline read earlier, typically just after `init_air_quality`."""
+        """Restores a baseline read earlier, typically just after `init_air_quality`.
+
+        The chip takes the words as (TVOC, CO2eq), the reverse of `get_baseline`'s order.
+        """
         self.link.write(
             self.address,
             [
                 *command(SET_IAQ_BASELINE),
-                *word_with_crc(baseline.co2eq),
                 *word_with_crc(baseline.tvoc),
+                *word_with_crc(baseline.co2eq),
             ],
         )
 
@@ -123,8 +130,8 @@ class Sgp30Sensor:
 class Sgp30(Readable):
     """One chip on the device root: `co2eq`, `tvoc` [RP], one I2C transaction per measure."""
 
-    co2eq = Output("co2eq", quantity=CO2EQ, access=Access.RP, range=(400.0, 60000.0), precision=0)
-    tvoc = Output("tvoc", quantity=TVOC, access=Access.RP, range=(0.0, 60000.0), precision=0)
+    co2eq = Readout("co2eq", quantity=CO2EQ, access=Access.RP, range=(400.0, 60000.0), precision=0)
+    tvoc = Readout("tvoc", quantity=TVOC, access=Access.RP, range=(0.0, 60000.0), precision=0)
 
     def __init__(
         self,
@@ -134,9 +141,12 @@ class Sgp30(Readable):
         sleep: bool = True,
         baseline: Baseline | None = None,
         label: str | None = None,
+        warmup_s: float = WARMUP_S,
     ) -> None:
         super().__init__(name, label)
         self.link = link
+        self.warmup_s = warmup_s
+        self._first_ns: int | None = None
         self.sensor = Sgp30Sensor(link, address, sleep)
         self.sensor.init_air_quality()
         if baseline is not None:
@@ -147,11 +157,26 @@ class Sgp30(Readable):
         return Sgp30Config(link="", address=self.sensor.address)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        """One measurement; nothing for `warmup_s` from the first, while the outputs are fixed.
+
+        The IAQ algorithm needs `measure_iaq` called every second from the start, so the
+        chip is measured all the same; what it gives in its warm-up is a placeholder a
+        controller must not act on, so the signals stay `pending` until it is over.
+        """
         co2eq, tvoc = self.sensor.measure()
+        if self._first_ns is None:
+            self._first_ns = time_ns
+        if time_ns - self._first_ns < self.warmup_s * 1e9:
+            return
         yield self.sample(time_ns, co2eq=co2eq, tvoc=tvoc)
 
+    @device_command
+    def baseline(self) -> Baseline:
+        """The current IAQ baseline, to save and pass back in as the `baseline` config field."""
+        return self.sensor.get_baseline()
 
-class Sgp30Config(DriverConfig[Sgp30], tag="sgp30"):
+
+class Sgp30Config(DriverConfig[Sgp30], type="sgp30"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
@@ -183,6 +208,7 @@ __all__ = [
     "SET_IAQ_BASELINE",
     "SGP30_ADDRESS",
     "TVOC",
+    "WARMUP_S",
     "Baseline",
     "Sgp30",
     "Sgp30Config",

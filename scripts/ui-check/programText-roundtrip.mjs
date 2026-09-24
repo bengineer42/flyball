@@ -17,8 +17,10 @@ import { createRequire } from "node:module";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const REPO = "/home/ben/flyball";
+// scripts/ui-check/<this file> -> scripts -> repo root
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const UI = path.join(REPO, "ui");
 const SRC = path.join(UI, "apps/dashboard/src/programText.ts");
 const ENGINE = path.join(REPO, "engine");

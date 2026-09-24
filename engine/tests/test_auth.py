@@ -1,24 +1,62 @@
-"""The door: a password for a person (a cookie session), a token for a machine, anonymous read."""
+"""The door: a fronted runner takes the signed principal only; a bare one, its token.
+
+Fronted mode is checked in-process and over a real uvicorn unix socket (`uds=`), the way the
+front reaches it.
+"""
 
 from __future__ import annotations
 
-import stat
+import os
+import shutil
+import sys
+import tempfile
+import threading
+import time
+from collections.abc import Iterator
+from dataclasses import replace
+from pathlib import Path
+from typing import Any
 
+import anyio
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+import flyball
+from conftest import TestClient
 from flyball.interfaces.client import Rig as Client
 from flyball.interfaces.mcp.http import mount
+from flyball.interfaces.server import auth as auth_module
 from flyball.interfaces.server import create_app, set_rig
-from flyball.interfaces.server.auth import (
-    COOKIE,
-    Sessions,
-    hash_password,
-    signing_secret,
-    verify_password,
-)
+from flyball.interfaces.server.auth import Fronted
+from flyball.interfaces.server.principal import Claims, mint
 from flyball.runtime.config import AuthConfig
+
+KEY = bytes(range(32))
+AUD = "run-0a1b2c3d"
+BOTH = ("operate", "read")
+
+
+def principal(
+    scp: tuple[str, ...] = BOTH, *, key: bytes = KEY, aud: str = AUD, age: int = 0, **kw
+) -> str:
+    now = int(time.time()) - age
+    claims = Claims(
+        sub="local:admin",
+        sid="s-1",
+        scp=frozenset(scp),
+        kind="human",
+        aud=aud,
+        cip="192.0.2.9",
+        sch="https",
+        iat=now,
+        exp=now + 60,
+    )
+    return mint(key, replace(claims, **kw))
+
+
+def signed(scp: tuple[str, ...] = BOTH, **kw) -> dict[str, str]:
+    return {"X-Flyball-Principal": principal(scp, **kw)}
 
 
 class _InProcess(Client):
@@ -35,10 +73,10 @@ class _InProcess(Client):
         return response.json() if response.content else None
 
 
-def _serve(rig, auth: AuthConfig | None, *, internal: str | None = None, mcp_token=None):
+def _serve(rig, auth: AuthConfig | None, *, mcp_token=None, **kw) -> TestClient:
     rig.name = "t"
     set_rig(rig)
-    app = create_app(auth, secret=b"k", internal_token=internal, login_delay=0)
+    app = create_app(auth, login_delay=0, **kw)
     http = TestClient(app)
     mount(app, _InProcess(http, token=mcp_token))
     return http
@@ -46,81 +84,85 @@ def _serve(rig, auth: AuthConfig | None, *, internal: str | None = None, mcp_tok
 
 @pytest.fixture
 def secured(rig, monkeypatch):
-    """The token alone, as before there was a password."""
+    """A bare runner with a token and nothing anonymous."""
     monkeypatch.delenv("FLYBALL_TOKEN", raising=False)
-    http = _serve(rig, AuthConfig(token="s3cret"), mcp_token="s3cret")
-    with http:
-        yield http
-    set_rig(None)
-
-
-@pytest.fixture
-def password(rig, monkeypatch):
-    """A hashed password and no token: the runner's MCP mount uses an internal one."""
-    monkeypatch.delenv("FLYBALL_TOKEN", raising=False)
-    auth = AuthConfig(password=hash_password("hunter2"))
-    http = _serve(rig, auth, internal="int3rnal", mcp_token="int3rnal")
-    with http:
+    with _serve(rig, AuthConfig(token="s3cret"), mcp_token="s3cret", port=8123) as http:
         yield http
     set_rig(None)
 
 
 @pytest.fixture
 def public(rig, monkeypatch):
-    """Anyone may read; a password to operate."""
+    """Anyone may read; the token to operate."""
     monkeypatch.delenv("FLYBALL_TOKEN", raising=False)
-    http = _serve(rig, AuthConfig(password="plain", anonymous="read"))
-    with http:
+    with _serve(rig, AuthConfig(token="s3cret", anonymous="read")) as http:
         yield http
     set_rig(None)
 
 
-# region The token, as before
+@pytest.fixture
+def fronted(rig, monkeypatch):
+    """A runner the front started, with a rig file that still says token and anonymous read."""
+    monkeypatch.delenv("FLYBALL_TOKEN", raising=False)
+    auth = AuthConfig(token="s3cret", anonymous="read")
+    with _serve(rig, auth, mcp_token="s3cret", front=Fronted(KEY, AUD)) as http:
+        yield http
+    set_rig(None)
+
+
+BEARER = {"Authorization": "Bearer s3cret"}
+
+# region Bare: the token
 
 
 def test_http_refused_without_the_token_and_served_with_it(secured):
     refused = secured.get("/api/health")
-    assert refused.status_code == 401 and "bearer token" in refused.json()["detail"]
+    assert refused.status_code == 401 and "token" in refused.json()["detail"]
     assert refused.headers["www-authenticate"] == "Bearer"
     assert secured.get("/api/health", headers={"Authorization": "Bearer wrong"}).status_code == 401
-    assert secured.get("/api/health", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+    assert secured.get("/api/health", headers=BEARER).status_code == 200
 
 
-def test_a_get_takes_the_token_as_a_query_parameter_but_a_post_does_not(secured):
-    assert secured.get("/api/health?token=s3cret").status_code == 200
-    assert secured.get("/api/health?token=wrong").status_code == 401
+def test_a_token_in_the_url_is_refused(secured):
+    """It was accepted on a GET and a socket; a URL ends up in logs, history and referrers."""
+    refused = secured.get("/api/health?token=s3cret")
+    assert refused.status_code == 401 and "never in the URL" in refused.json()["detail"]
     assert secured.post("/mcp/read?token=s3cret", json={}).status_code == 401
+    with (
+        pytest.raises(WebSocketDisconnect) as closed,
+        secured.websocket_connect("/ws/events?token=s3cret"),
+    ):
+        pass
+    assert closed.value.code == 4401
+
+
+def test_websockets_take_the_header(secured):
+    with pytest.raises(WebSocketDisconnect) as closed, secured.websocket_connect("/ws/events"):
+        pass
+    assert closed.value.code == 4401
+    with secured.websocket_connect("/ws/events", headers=BEARER):
+        pass
+
+
+def test_authinfo_v2_for_a_bare_runner_not_signed_in(secured):
+    assert secured.get("/api/auth").json() == {
+        "v": 2,
+        "shape": "bare",
+        "scheme": "anonymous",
+        "user": None,
+        "verbs": [],
+        "anonymous": "none",
+        "login": {"password": False, "token": True, "passkey": False, "sso": None},
+        "exposure": None,
+    }
+    mine = secured.get("/api/auth", headers=BEARER).json()
+    assert mine["scheme"] == "token" and mine["verbs"] == ["operate", "read"]
+    assert mine["user"] == {"id": "token:bare", "name": "token", "kind": "service"}
 
 
 def test_mcp_is_behind_it_but_the_docs_and_the_door_are_not(secured):
     assert secured.post("/mcp/read", json={}).status_code == 401
     assert secured.get("/openapi.json").status_code == 200
-    assert secured.get("/api/auth").json() == {
-        "scheme": "anonymous",
-        "level": "none",
-        "anonymous": "none",
-        "password": False,
-        "token": True,
-    }
-
-
-def test_websocket_takes_the_token_as_a_query_parameter(secured):
-    with pytest.raises(WebSocketDisconnect) as closed, secured.websocket_connect("/ws/events"):
-        pass
-    assert closed.value.code == 4401
-    with secured.websocket_connect("/ws/events?token=s3cret"):
-        pass
-    with secured.websocket_connect("/ws/events", headers={"Authorization": "Bearer s3cret"}):
-        pass
-
-
-def test_the_token_signs_in_at_the_door_too(secured):
-    """A person may paste the token: it becomes a cookie and the browser keeps no secret."""
-    assert secured.post("/api/auth/login", json={"secret": "wrong"}).status_code == 401
-    signed = secured.post("/api/auth/login", json={"secret": "s3cret"})
-    assert signed.status_code == 200 and signed.json()["scheme"] == "password"
-    assert COOKIE in secured.cookies
-    assert secured.get("/api/health").status_code == 200
 
 
 def test_the_client_sends_it_from_the_argument_or_the_environment(monkeypatch):
@@ -132,114 +174,579 @@ def test_the_client_sends_it_from_the_argument_or_the_environment(monkeypatch):
     assert Client("http://x", token="").headers == {}, "an empty token means none"
 
 
-def test_no_password_and_no_token_means_open(rig):
+def test_no_token_means_open(rig):
     set_rig(rig)
     try:
         with TestClient(create_app()) as http:
             assert http.get("/api/health").status_code == 200
-            assert http.get("/api/auth").json()["level"] == "operate"
-            assert http.post("/api/auth/login", json={"secret": "x"}).status_code == 200
+            info = http.get("/api/auth").json()
+            assert (info["shape"], info["scheme"], info["verbs"]) == ("local", "local", list(BOTH))
+            assert info["user"]["id"] == "local:console" and not info["login"]["token"]
+            assert http.post("/api/auth/login", json={"token": "x"}).status_code == 200
+    finally:
+        set_rig(None)
+
+
+def test_an_unknown_api_path_is_refused_not_guessed(secured):
+    """No row in the verb table: 403 for everyone, even the token."""
+    refused = secured.get("/api/no-such-thing", headers=BEARER)
+    assert refused.status_code == 403 and refused.json()["needed"] is None
+
+
+# endregion
+
+# region Bare: a pasted token, and the link
+
+
+def test_a_pasted_token_logs_in_and_logout_forgets_the_session(secured):
+    assert secured.post("/api/auth/login", json={"token": "wrong"}).status_code == 401
+    signed_in = secured.post("/api/auth/login", json={"token": "s3cret"})
+    assert signed_in.status_code == 200, signed_in.text
+    info = signed_in.json()
+    assert info["scheme"] == "session" and info["user"]["kind"] == "human"
+    cookie = signed_in.headers["set-cookie"]
+    assert cookie.startswith("flyball-bare-8123=")
+    assert "HttpOnly" in cookie and "SameSite=lax" in cookie and "Path=/" in cookie
+    assert "Secure" not in cookie, "plain http in the test client"
+    value = secured.cookies["flyball-bare-8123"]
+    assert secured.get("/api/health").status_code == 200
+    with secured.websocket_connect("/ws/events"):  # the cookie rides on the upgrade
+        pass
+    assert secured.get("/api/auth").json()["scheme"] == "session"
+    out = secured.post("/api/auth/logout")
+    assert out.json()["scheme"] == "anonymous"
+    assert secured.get("/api/health").status_code == 401
+    secured.cookies.set("flyball-bare-8123", value)
+    assert secured.get("/api/health").status_code == 401, "forgotten here, not only cleared"
+
+
+def _close_code(ws: Any, within: float) -> int | None:
+    """The code `ws` is closed with inside `within` seconds; None if it is still open."""
+
+    async def closing() -> int | None:
+        with anyio.move_on_after(within):
+            while True:
+                message = await ws._send_rx.receive()
+                if message["type"] == "websocket.close":
+                    return int(message.get("code", 1000))
+        return None
+
+    return ws.portal.call(closing)
+
+
+@pytest.mark.parametrize("path", ["/ws/events", "/ws/samples"])
+def test_logout_closes_the_sessions_open_sockets(secured, path):
+    """The book says a sign-out closes its sockets within a second; a bare runner kept them.
+
+    Only that session's: the token's socket, and another session's, stay open.
+    """
+    assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 200
+    mine = secured.cookies["flyball-bare-8123"]
+    other = secured.post("/api/auth/login", json={"token": "s3cret"}).headers["set-cookie"]
+    theirs = other.split(";")[0].split("=", 1)[1]
+    secured.cookies.clear()
+    session = {"Cookie": f"flyball-bare-8123={mine}"}
+    with (
+        secured.websocket_connect(path, headers=session) as ws,
+        secured.websocket_connect("/ws/events", headers=BEARER) as machine,
+        secured.websocket_connect(
+            "/ws/events", headers={"Cookie": f"flyball-bare-8123={theirs}"}
+        ) as another,
+    ):
+        assert secured.post("/api/auth/logout", headers=session).status_code == 200
+        assert _close_code(ws, 1.0) == 4401
+        assert _close_code(machine, 0.2) is None
+        assert _close_code(another, 0.2) is None
+
+
+def test_a_sessions_socket_closes_when_the_session_expires(secured):
+    assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 200
+    (found,) = secured.app.state.door._sessions.values()
+    found.expires = time.monotonic() + 0.3
+    with secured.websocket_connect("/ws/events") as ws:
+        assert _close_code(ws, 1.5) == 4401
+
+
+def test_the_old_login_body_is_refused(secured):
+    assert secured.post("/api/auth/login", json={"secret": "s3cret"}).status_code == 422
+
+
+def test_ten_wrong_tokens_in_a_minute_lock_the_door(secured):
+    for i in range(10):
+        assert secured.post("/api/auth/login", json={"token": f"no{i}"}).status_code == 401
+    assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 429
+
+
+def test_ten_wrong_bearers_in_a_minute_lock_the_door_too(secured):
+    """A guesser using the header (the CLI's and MCP's way) is counted like a login.
+
+    It was never counted: 500 wrong bearers took 0.15 s, every one a plain 401.
+    """
+    for i in range(10):
+        wrong = secured.get("/api/health", headers={"Authorization": f"Bearer no{i}"})
+        assert wrong.status_code == 401
+    blocked = secured.get("/api/health", headers=BEARER)
+    assert blocked.status_code == 429, "the right token too, or the answer tells it apart"
+    assert int(blocked.headers["retry-after"]) > 0
+    with (
+        pytest.raises(WebSocketDisconnect) as closed,
+        secured.websocket_connect("/ws/events", headers=BEARER),
+    ):
+        pass
+    assert closed.value.code == 4429
+    assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 429
+    assert secured.get("/api/health").status_code == 401, "no bearer: not held back"
+
+
+def test_the_link_is_single_use_and_leaves_no_nonce_behind(secured):
+    door = secured.app.state.door
+    nonce = door.mint_link()
+    followed = secured.get(f"/api/auth/link?n={nonce}", follow_redirects=False)
+    assert followed.status_code == 302, followed.text
+    assert followed.headers["location"] == "/"
+    assert followed.headers["referrer-policy"] == "no-referrer"
+    assert followed.headers["cache-control"] == "no-store"
+    assert followed.headers["set-cookie"].startswith("flyball-bare-8123=")
+    assert secured.get("/api/health").status_code == 200
+    secured.cookies.clear()
+    again = secured.get(f"/api/auth/link?n={nonce}", follow_redirects=False)
+    assert again.status_code == 401 and "set-cookie" not in again.headers
+    assert secured.get("/api/auth/link?n=made-up", follow_redirects=False).status_code == 401
+
+
+def test_the_link_expires_after_ten_minutes(secured, monkeypatch):
+    door = secured.app.state.door
+    nonce = door.mint_link()
+    later = time.monotonic() + 601
+    monkeypatch.setattr(auth_module.time, "monotonic", lambda: later)
+    assert secured.get(f"/api/auth/link?n={nonce}", follow_redirects=False).status_code == 401
+
+
+def test_the_token_mints_more_links(secured):
+    assert secured.post("/api/auth/link").status_code == 401
+    made = secured.post("/api/auth/link", headers=BEARER)
+    assert made.status_code == 200 and made.json()["expires_in"] == 600
+    url = made.json()["url"]
+    assert url.startswith("http://localhost/api/auth/link?n=")
+    assert secured.get(url, follow_redirects=False).status_code == 302
+    assert secured.post("/api/auth/link").status_code == 401, "a session cannot mint links"
+
+
+def test_the_link_honours_the_root_path(rig):
+    rig.name = "t"
+    set_rig(rig)
+    try:
+        with TestClient(create_app(AuthConfig(token="s3cret"), "/rigs/a")) as http:
+            nonce = http.app.state.door.mint_link()
+            followed = http.get(f"/rigs/a/api/auth/link?n={nonce}", follow_redirects=False)
+            assert followed.headers["location"] == "/rigs/a/"
+            assert "Path=/rigs/a/" in followed.headers["set-cookie"]
     finally:
         set_rig(None)
 
 
 # endregion
 
-# region A password
+
+def test_a_stale_token_poller_never_locks_its_address_out(secured):
+    """One wrong token, again and again, is one guess: a script left with an old token.
+
+    Every wrong attempt used to count, and a 429 was never counted, so when the oldest aged
+    out one request got through, failed and re-blocked: the address stayed locked for as long
+    as the script polled, the correct token beside it included.
+    """
+    stale = {"Authorization": "Bearer an-old-token"}
+    for _ in range(45):  # 90 in well under a minute; the flood limit is 100
+        assert secured.get("/api/health", headers=stale).status_code == 401
+        assert secured.post("/api/auth/login", json={"token": "an-old-token"}).status_code == 401
+    assert secured.get("/api/health", headers=BEARER).status_code == 200
 
 
-def test_login_sets_a_cookie_that_gets_everything_and_logout_clears_it(password):
-    assert password.get("/api/health").status_code == 401
-    assert password.get("/api/auth").json()["password"] is True
-    wrong = password.post("/api/auth/login", json={"secret": "hunter3"})
-    assert wrong.status_code == 401 and COOKIE not in password.cookies
-    right = password.post("/api/auth/login", json={"secret": "hunter2"})
-    assert right.status_code == 200 and right.json()["level"] == "operate"
-    cookie = right.headers["set-cookie"]
-    assert "HttpOnly" in cookie and "SameSite=lax" in cookie and "Path=/" in cookie
-    assert "Secure" not in cookie, "plain http in the test client"
-    assert password.get("/api/health").status_code == 200
-    assert password.post("/api/recording/start", json={}).status_code != 401
-    with password.websocket_connect("/ws/events"):  # the cookie rides on the upgrade
-        pass
-    assert password.get("/api/auth").json()["scheme"] == "password"
-    password.post("/api/auth/logout")
-    assert password.get("/api/health").status_code == 401
+def test_a_flood_of_one_wrong_token_is_still_blocked(secured):
+    """The raw limit: 100 wrong attempts a minute from one address, whatever they are."""
+    stale = {"Authorization": "Bearer an-old-token"}
+    for _ in range(100):
+        assert secured.get("/api/health", headers=stale).status_code == 401
+    assert secured.get("/api/health", headers=stale).status_code == 429
+    assert secured.get("/api/health", headers=BEARER).status_code == 429
+    assert secured.post("/api/auth/login", json={"token": "s3cret"}).status_code == 429
 
 
-def test_the_runners_own_mcp_mount_gets_in_with_the_internal_token(password):
-    assert password.post("/mcp/read", json={}).status_code == 401
-    ok = password.post("/mcp/read", json={}, headers={"Authorization": "Bearer int3rnal"})
-    assert ok.status_code != 401
-    assert password.get("/api/health?token=int3rnal").status_code == 200
+def test_login_and_bearer_share_the_distinct_count(secured):
+    for i in range(5):
+        assert secured.post("/api/auth/login", json={"token": f"no{i}"}).status_code == 401
+        wrong = secured.get("/api/health", headers={"Authorization": f"Bearer x{i}"})
+        assert wrong.status_code == 401
+    assert secured.get("/api/health", headers=BEARER).status_code == 429
 
 
-def test_ten_wrong_passwords_in_a_minute_lock_the_door(password):
-    for _ in range(10):
-        assert password.post("/api/auth/login", json={"secret": "no"}).status_code == 401
-    assert password.post("/api/auth/login", json={"secret": "hunter2"}).status_code == 429
+def test_the_counts_are_a_rolling_minute():
+    attempts = auth_module.Attempts()
+    for i in range(9):
+        attempts.failure("a", f"guess{i}", now=0.0)
+    assert not attempts.blocked("a", now=1.0)
+    attempts.failure("a", "guess9", now=30.0)
+    assert attempts.blocked("a", now=30.0), "ten distinct in a minute"
+    assert attempts.blocked("b", now=30.0) is False, "per address"
+    assert not attempts.blocked("a", now=61.0), "the first nine aged out"
+    attempts.failure("a", "guess10", now=61.0)
+    assert not attempts.blocked("a", now=61.0), "two distinct in the last minute"
+    assert not attempts.blocked("a", now=200.0) and "a" not in attempts.failed
 
 
-def test_a_tampered_or_expired_cookie_is_nobody(password):
-    password.post("/api/auth/login", json={"secret": "hunter2"})
-    good = password.cookies[COOKIE]
-    password.cookies.set(COOKIE, good[:-2] + ("aa" if not good.endswith("aa") else "bb"))
-    assert password.get("/api/health").status_code == 401
-    sessions = Sessions(b"k", "p", lifetime=60)
-    minted = sessions.mint(now=1000)
-    assert sessions.verify(minted, now=1030) and not sessions.verify(minted, now=1061)
-    assert not sessions.verify(minted, now=999), "from the future"
-    assert not Sessions(b"k", "changed", 60).verify(minted, now=1030), "a new password"
-    assert not Sessions(b"other", "p", 60).verify(minted, now=1030), "a new secret"
-    assert not sessions.verify("garbage") and not sessions.verify("a.b.c")
+def test_a_poller_every_few_seconds_is_never_blocked():
+    attempts = auth_module.Attempts()
+    for tick in range(400):  # every 3 s for 20 minutes, the same stale token
+        now = tick * 3.0
+        assert not attempts.blocked("a", now=now), now
+        attempts.failure("a", "stale", now=now)
 
 
-# endregion
+def test_a_flood_blocks_until_it_ages_out():
+    attempts = auth_module.Attempts()
+    for i in range(100):
+        attempts.failure("a", "same", now=i * 0.1)
+    assert attempts.blocked("a", now=10.0)
+    assert attempts.blocked("a", now=60.0)
+    assert not attempts.blocked("a", now=70.1), "blocked() only lets the count fall"
 
-# region Anonymous read
+
+def test_rotating_addresses_cannot_grow_the_count_without_bound():
+    """One wrong token from each of 10 000 addresses (an IPv6 /64 has plenty): bounded."""
+    attempts = auth_module.Attempts()
+    for i in range(10_000):
+        attempts.failure(f"2001:db8::{i:x}", "guess", now=i * 0.001)
+    assert len(attempts.failed) <= 4096 and len(attempts.values) <= 4096
 
 
-def test_anyone_may_read_but_only_a_login_may_operate(public):
+def test_addresses_whose_minute_has_passed_are_swept():
+    attempts = auth_module.Attempts()
+    for i in range(100):
+        attempts.failure(f"10.0.0.{i}", "guess", now=0.0)
+    attempts.failure("10.0.1.1", "guess", now=120.0)
+    assert list(attempts.failed) == ["10.0.1.1"] and list(attempts.values) == ["10.0.1.1"]
+
+
+def test_at_the_cap_a_blocked_address_stays_blocked():
+    attempts = auth_module.Attempts()
+    for i in range(10):
+        attempts.failure("192.0.2.1", f"guess{i}", now=0.0)
+    for i in range(10_000):
+        attempts.failure(f"2001:db8::{i:x}", "guess", now=1.0 + i * 0.001)
+    assert attempts.blocked("192.0.2.1", now=20.0), "rotation must not unblock a guesser"
+
+
+@pytest.mark.parametrize(
+    ("auth", "fronted", "warned"),
+    [
+        (AuthConfig(token="s3cret"), False, True),
+        (AuthConfig(token="x" * 21), False, True),
+        (AuthConfig(token="x" * 22), False, False),
+        (AuthConfig(), False, False),
+        (AuthConfig(token="s3cret"), True, False),
+    ],
+)
+def test_a_short_bare_token_is_warned_about_at_start(auth, fronted, warned, caplog):
+    with caplog.at_level("WARNING", logger="flyball.interfaces.server.auth"):
+        create_app(auth, front=Fronted(KEY, AUD) if fronted else None)
+    said = [r.getMessage() for r in caplog.records if "characters" in r.getMessage()]
+    assert bool(said) is warned, said
+    if warned:
+        assert "22" in said[0] and auth.token not in said[0], "the token is never logged"
+
+
+# region Bare: anonymous read, and the runner's own principal
+
+
+def test_anyone_may_read_but_only_the_token_may_operate(public):
     assert public.get("/api/health").status_code == 200
     with public.websocket_connect("/ws/events"):
         pass
-    assert public.get("/api/auth").json() == {
-        "scheme": "anonymous",
-        "level": "read",
-        "anonymous": "read",
-        "password": True,
-        "token": False,
-    }
-    refused = public.post("/api/recording/start", json={})
+    info = public.get("/api/auth").json()
+    assert (info["scheme"], info["verbs"], info["anonymous"]) == ("anonymous", ["read"], "read")
+    refused = public.post("/api/recording", json={})
     assert refused.status_code == 401 and "Sign in" in refused.json()["detail"]
-    assert public.get("/api/probe").status_code == 401, "a GET with a side effect"
-    public.post("/api/auth/login", json={"secret": "plain"})
-    assert public.post("/api/recording/start", json={}).status_code != 401
+    assert public.post("/api/probe").status_code == 401, "a bus scan"
+    public.post("/api/auth/login", json={"token": "s3cret"})
+    assert public.post("/api/recording", json={}).status_code not in (401, 403)
+
+
+def test_a_reader_cannot_write_lines_into_the_runner_log(public, caplog):
+    """`POST /api/rig/check` needs only read; a key it names reaches a warning, escaped.
+
+    A newline in a `runner.front` key used to start a line of the attacker's own in the
+    runner's log (CWE-117).
+    """
+    forged = "ok\n2026-09-23T00:00:00+0100 ERROR flyball.audit: INJECTED\rLINE"
+    with caplog.at_level("WARNING", logger="flyball.runtime.config"):
+        checked = public.post(
+            "/api/rig/check", json={"name": "x", "runner": {"front": {forged: 1}}}
+        )
+    assert checked.status_code == 200, checked.text
+    said = [r.getMessage() for r in caplog.records if r.name == "flyball.runtime.config"]
+    assert said and "INJECTED" in said[0], said
+    assert not any(c in m for m in said for c in "\n\r\x1b"), said
+
+
+def test_a_bare_runner_takes_a_principal_it_signed_itself(public):
+    """The MCP mount's inner calls: signed with the runner's in-memory key, for its `aud`."""
+    door = public.app.state.door
+    mine = {"X-Flyball-Principal": principal(("read",), key=door.key, aud=door.aud)}
+    assert public.get("/api/devices", headers=mine).status_code == 200
+    refused = public.post("/api/probe", headers=mine)
+    assert refused.status_code == 403 and refused.json()["needed"] == "operate"
+    forged = public.get("/api/devices", headers=signed())
+    assert forged.status_code == 401 and forged.headers["x-flyball-principal-error"] == "mac"
 
 
 # endregion
 
-# region Passwords and secrets
+# region Fronted: the principal is the only credential
 
 
-def test_a_hashed_password_verifies_and_a_plain_one_compares():
-    hashed = hash_password("hunter2")
-    assert hashed.startswith("$scrypt$n=16384,r=8,p=1$")
-    assert verify_password("hunter2", hashed) and not verify_password("hunter3", hashed)
-    assert hash_password("hunter2") != hashed, "a fresh salt each time"
-    assert verify_password("plain", "plain") and not verify_password("plain", "other")
-    assert not verify_password("x", "$scrypt$broken")
+def test_fronted_no_principal_is_401_with_the_code(fronted):
+    refused = fronted.get("/api/health")
+    assert refused.status_code == 401
+    assert refused.headers["x-flyball-principal-error"] == "format"
+    assert fronted.get("/api/health", headers=signed()).status_code == 200
 
 
-def test_the_signing_secret_is_configured_or_kept_beside_the_store(tmp_path):
-    assert signing_secret(AuthConfig(secret="abc"), None) == b"abc"
-    store = tmp_path / "rig.sqlite"
-    first = signing_secret(AuthConfig(), store)
-    key_path = tmp_path / "rig.key"
-    assert key_path.exists() and len(first) >= 32
-    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600, "never world- or group-readable"
-    assert signing_secret(AuthConfig(), store) == first, "the same key next start"
-    assert signing_secret(AuthConfig(), None) != signing_secret(AuthConfig(), None)
+@pytest.mark.parametrize(
+    "headers, code",
+    [
+        (lambda: signed(key=bytes(32)), "mac"),
+        (lambda: signed(aud="run-other"), "aud"),
+        (lambda: signed(age=120), "expired"),
+        (lambda: {"X-Flyball-Principal": "v1.e30.AAAA"}, "mac"),
+        (lambda: {"X-Flyball-Principal": "garbage"}, "format"),
+    ],
+)
+def test_fronted_a_bad_principal_is_401(fronted, headers, code):
+    refused = fronted.get("/api/health", headers=headers())
+    assert refused.status_code == 401
+    assert refused.headers["x-flyball-principal-error"] == code
+
+
+def test_fronted_a_principal_for_another_runner_is_refused(rig):
+    """Replayed at runner B, runner A's principal fails on `aud` even with B's key."""
+    rig.name = "t"
+    set_rig(rig)
+    try:
+        with TestClient(create_app(front=Fronted(KEY, "rig-b"))) as http:
+            refused = http.get("/api/health", headers=signed(aud="rig-a"))
+            assert refused.headers["x-flyball-principal-error"] == "aud"
+    finally:
+        set_rig(None)
+
+
+def test_fronted_duplicates_and_other_spellings_are_401(fronted):
+    token = principal()
+    twice = fronted.get(
+        "/api/health", headers=[("X-Flyball-Principal", token), ("X-Flyball-Principal", token)]
+    )
+    assert twice.status_code == 401
+    underscored = fronted.get("/api/health", headers={"x_flyball_principal": token})
+    assert underscored.status_code == 401
+    beside = fronted.get("/api/health", headers={**signed(), "X-Flyball-Scopes": "operate"})
+    assert beside.status_code == 401
+    also = fronted.get("/api/health", headers={**signed(), "x_flyball_anything": "1"})
+    assert also.status_code == 401
+    assert fronted.get("/api/health", headers={**signed(), "X-Request-Id": "ab"}).status_code == 200
+
+
+def test_fronted_ignores_the_token_cookie_and_anonymous(fronted):
+    """F2: `runner.auth` says token and anonymous read; none of it opens a fronted runner."""
+    assert fronted.get("/api/health").status_code == 401, "anonymous read ignored"
+    assert fronted.get("/api/health", headers=BEARER).status_code == 401
+    assert fronted.get("/api/health?token=s3cret").status_code == 401
+    fronted.cookies.set("flyball-bare", "anything")
+    assert fronted.get("/api/health").status_code == 401
+    assert fronted.post("/api/auth/login", json={"token": "s3cret"}).status_code == 401
+
+
+def test_fronted_a_principal_lacking_the_verb_is_403(fronted):
+    refused = fronted.post("/api/probe", headers=signed(("read",)))
+    assert refused.status_code == 403
+    assert refused.json()["needed"] == "operate" and "detail" in refused.json()
+    assert fronted.post("/api/rig/check", json={}, headers=signed(("read",))).status_code != 403
+
+
+def test_fronted_a_websocket_is_accepted_then_closed_4401(fronted):
+    with (
+        pytest.raises(WebSocketDisconnect) as closed,
+        fronted.websocket_connect("/ws/events") as ws,
+    ):
+        ws.receive_text()
+    assert closed.value.code == 4401
+    with (
+        pytest.raises(WebSocketDisconnect) as closed,
+        fronted.websocket_connect("/ws/events", headers=signed(())) as ws,
+    ):
+        ws.receive_text()
+    assert closed.value.code == 4403
+    with fronted.websocket_connect("/ws/events", headers=signed(("read",))) as ws:
+        assert ws.receive_json() is not None
+
+
+def test_fronted_auth_front_is_the_handshake(fronted):
+    assert fronted.get("/api/auth/front").status_code == 401
+    probe = fronted.get("/api/auth/front", headers=signed((), sub="front:probe", kind="service"))
+    assert probe.status_code == 200
+    assert probe.json() == {
+        "protocol": 1,
+        "aud": AUD,
+        "pid": os.getpid(),
+        "flyball": flyball.__version__,
+    }
+    for path in ("/api/auth", "/api/auth/link?n=x"):
+        assert fronted.get(path, headers=signed()).status_code == 404, path
+
+
+def test_a_bare_runner_has_no_handshake(secured):
+    assert secured.get("/api/auth/front", headers=BEARER).status_code == 404
+
+
+def test_fronted_serves_no_ui(rig, monkeypatch, tmp_path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>flyball</html>")
+    monkeypatch.setattr(sys.modules["flyball.interfaces.server.app"], "DASHBOARD_DIST", dist)
+    set_rig(rig)
+    try:
+        with TestClient(create_app(front=Fronted(KEY, AUD))) as http:
+            assert http.get("/", headers=signed()).status_code == 404
+        with TestClient(create_app()) as http:
+            assert http.get("/").status_code == 200, "a bare runner still serves it"
+    finally:
+        set_rig(None)
+
+
+# endregion
+
+# region Fronted, over a real unix socket
+
+
+@pytest.fixture
+def uds(rig) -> Iterator[Path]:
+    import uvicorn
+
+    rig.name = "t"
+    set_rig(rig)
+    app = create_app(AuthConfig(token="s3cret", anonymous="read"), front=Fronted(KEY, AUD))
+    folder = Path(tempfile.mkdtemp(prefix="fb-"))  # tmp_path is too long for a socket path
+    where = folder / "sock"
+    server = uvicorn.Server(uvicorn.Config(app, uds=str(where), log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert server.started
+    try:
+        yield where
+    finally:
+        server.should_exit = True
+        thread.join(10)
+        set_rig(None)
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def test_over_the_socket_unsigned_is_401_and_signed_is_200(uds):
+    with httpx.Client(
+        transport=httpx.HTTPTransport(uds=str(uds)), base_url="http://localhost"
+    ) as c:
+        refused = c.get("/api/auth/front")
+        assert refused.status_code == 401
+        assert refused.headers["x-flyball-principal-error"] == "format"
+        forged = c.get("/api/health", headers=signed(key=bytes(32)))
+        assert forged.status_code == 401 and forged.headers["x-flyball-principal-error"] == "mac"
+        assert c.get("/api/health", headers=BEARER).status_code == 401
+        ok = c.get("/api/auth/front", headers=signed(()))
+        assert ok.status_code == 200 and ok.json()["aud"] == AUD
+        assert c.post("/api/probe", headers=signed(("read",))).json()["needed"] == "operate"
+
+
+def test_over_the_socket_the_fronts_anonymous_visitor_is_refused_before_the_handshake(uds):
+    """The front turns an anonymous 403 into sign-in (4401): only if the runner says 403.
+
+    A visitor the front let through as `anon:` lacking read was accepted and closed 4403,
+    which the front passes on as is, so the UI said "no permission" instead of offering
+    sign-in. An identified caller lacking the verb still sees the handshake, then 4403.
+    """
+    from websockets.exceptions import ConnectionClosed, InvalidStatus
+    from websockets.sync.client import unix_connect
+
+    visitor = {"X-Flyball-Principal": principal((), sub="anon:", sid="v-1")}
+    with (
+        pytest.raises(InvalidStatus) as refused,
+        unix_connect(str(uds), "ws://localhost/ws/events", additional_headers=visitor),
+    ):
+        pass
+    assert refused.value.response.status_code == 403
+    with (
+        unix_connect(str(uds), "ws://localhost/ws/events", additional_headers=signed(())) as ws,
+        pytest.raises(ConnectionClosed) as closed,
+    ):
+        ws.recv(timeout=5)
+    assert closed.value.rcvd is not None and closed.value.rcvd.code == 4403
+
+
+def test_over_the_socket_a_websocket_closes_4401_after_accept(uds):
+    from websockets.exceptions import ConnectionClosed
+    from websockets.sync.client import unix_connect
+
+    # The handshake completes; the close follows.
+    with (
+        unix_connect(str(uds), "ws://localhost/ws/events") as ws,
+        pytest.raises(ConnectionClosed) as closed,
+    ):
+        ws.recv(timeout=5)
+    assert closed.value.rcvd is not None and closed.value.rcvd.code == 4401
+
+
+# endregion
+
+# region What the routes see
+
+
+def test_every_admitted_request_carries_its_principal():
+    """`request.state.principal` (and `.auth`, the same): what MCP's re-mint and audit read."""
+    from starlette.responses import PlainTextResponse
+
+    from flyball.interfaces.server.auth import Door
+
+    seen: dict = {}
+
+    async def inner(scope, receive, send):
+        seen.update(scope["state"])
+        await PlainTextResponse("ok")(scope, receive, send)
+
+    bare = TestClient(Door(inner, AuthConfig(token="s3cret"), port=1))
+    assert bare.get("/api/health", headers=BEARER).status_code == 200
+    claims = seen["principal"]
+    assert isinstance(claims, Claims) and seen["auth"] is claims and seen["scheme"] == "token"
+    assert (claims.sub, claims.kind, claims.scp) == ("token:bare", "service", frozenset(BOTH))
+    assert claims.aud == bare.app.aud and claims.aud.startswith("bare-")
+    fronted = TestClient(Door(inner, fronted=Fronted(KEY, AUD)))
+    assert fronted.get("/api/health", headers=signed(("read",), via="mcp")).status_code == 200
+    assert seen["principal"].via == "mcp" and seen["principal"].aud == AUD
+
+
+# endregion
+
+# region What is gone
+
+
+def test_the_password_machinery_is_gone():
+    for name in ("Sessions", "signing_secret", "hash_password", "verify_password", "Principal"):
+        assert not hasattr(auth_module, name), name
+    src = Path(flyball.__file__).parent
+    writers = [
+        str(path)
+        for path in src.rglob("*.py")
+        if 'with_suffix(".key")' in path.read_text() or "internal_token" in path.read_text()
+    ]
+    assert writers == []
 
 
 # endregion

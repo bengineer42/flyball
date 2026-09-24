@@ -47,7 +47,7 @@ func TestParseSet(t *testing.T) {
 		path []string
 		val  any
 	}{
-		{"devices.furnace.config.noise=0.3", []string{"devices", "furnace", "config", "noise"}, 0.3},
+		{"devices.furnace.noise=0.3", []string{"devices", "furnace", "noise"}, 0.3},
 		{"a.b=true", []string{"a", "b"}, true},
 		{"a.b=null", []string{"a", "b"}, nil},
 		{"a=hello", []string{"a"}, "hello"},
@@ -73,23 +73,23 @@ func TestParseSet_noEquals(t *testing.T) {
 }
 
 func TestApplySet_setsAndDeletes(t *testing.T) {
-	doc := map[string]any{"devices": map[string]any{"furnace": map[string]any{"config": map[string]any{"noise": 0.1}}}}
-	out, err := ApplySet(doc, []string{"devices", "furnace", "config", "noise"}, 0.3)
+	doc := map[string]any{"devices": map[string]any{"furnace": map[string]any{"noise": 0.1}}}
+	out, err := ApplySet(doc, []string{"devices", "furnace", "noise"}, 0.3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := out["devices"].(map[string]any)["furnace"].(map[string]any)["config"].(map[string]any)["noise"]
+	got := out["devices"].(map[string]any)["furnace"].(map[string]any)["noise"]
 	if got != 0.3 {
 		t.Fatalf("got %v", got)
 	}
 
-	out2, err := ApplySet(out, []string{"devices", "furnace", "config", "noise"}, nil)
+	out2, err := ApplySet(out, []string{"devices", "furnace", "noise"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := out2["devices"].(map[string]any)["furnace"].(map[string]any)["config"].(map[string]any)
-	if _, ok := config["noise"]; ok {
-		t.Fatalf("expected noise deleted, got %#v", config)
+	furnace := out2["devices"].(map[string]any)["furnace"].(map[string]any)
+	if _, ok := furnace["noise"]; ok {
+		t.Fatalf("expected noise deleted, got %#v", furnace)
 	}
 }
 
@@ -109,7 +109,7 @@ func TestResolveLayers_extendsAndLaterFileWins(t *testing.T) {
 	base := filepath.Join(dir, "base.yaml")
 	mid := filepath.Join(dir, "mid.yaml")
 	top := filepath.Join(dir, "top.yaml")
-	mustWrite(t, base, "name: base\nlinks:\n  chamber:\n    tag: sim_plant\n")
+	mustWrite(t, base, "name: base\nlinks:\n  chamber:\n    type: sim_plant\n")
 	mustWrite(t, mid, "extends: [base.yaml]\nname: mid\n")
 	mustWrite(t, top, "name: top\n")
 
@@ -144,12 +144,12 @@ func TestResolveLayers_extendsCycleDetected(t *testing.T) {
 func TestResolveLayers_setsAppliedLast(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "rig.yaml")
-	mustWrite(t, f, "name: original\ndevices:\n  furnace:\n    config:\n      noise: 0.1\n")
-	doc, _, err := ResolveLayers([]string{f}, []string{"devices.furnace.config.noise=0.5"})
+	mustWrite(t, f, "name: original\ndevices:\n  furnace:\n    noise: 0.1\n")
+	doc, _, err := ResolveLayers([]string{f}, []string{"devices.furnace.noise=0.5"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	noise := doc["devices"].(map[string]any)["furnace"].(map[string]any)["config"].(map[string]any)["noise"]
+	noise := doc["devices"].(map[string]any)["furnace"].(map[string]any)["noise"]
 	if noise != 0.5 {
 		t.Fatalf("got %v", noise)
 	}
@@ -159,5 +159,29 @@ func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// An absolute extends path is that path, as flyball.runtime.overlay's
+// `path.parent / name` makes it -- not joined under the file's directory.
+func TestResolveLayers_absoluteExtends(t *testing.T) {
+	baseDir, dir := t.TempDir(), t.TempDir()
+	base := filepath.Join(baseDir, "base.yaml")
+	top := filepath.Join(dir, "top.yaml")
+	mustWrite(t, base, "name: base\nlinks:\n  chamber:\n    type: sim_plant\n")
+	mustWrite(t, top, "extends: ["+base+"]\nrunner:\n  front:\n    auth: password\n")
+
+	doc, files, err := ResolveLayers([]string{top}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc["links"].(map[string]any)["chamber"]; !ok {
+		t.Fatalf("expected 'chamber' from the absolute base, got %#v", doc)
+	}
+	if doc["runner"].(map[string]any)["front"].(map[string]any)["auth"] != "password" {
+		t.Fatalf("expected the file's own runner.front, got %#v", doc["runner"])
+	}
+	if len(files) != 2 || files[0] != base {
+		t.Fatalf("expected [%s %s], got %v", base, top, files)
 	}
 }

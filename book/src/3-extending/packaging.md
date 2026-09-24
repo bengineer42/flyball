@@ -1,6 +1,6 @@
 # Packaging
 
-Three ways a driver, a link or a law you wrote reaches a rig file, from the
+Three ways a driver or a link you wrote reaches a rig file, from the
 quickest to the most shareable.
 
 ## A file in `drivers/`
@@ -11,7 +11,7 @@ imports every `.py` there at start and again on `POST /api/drivers/reload`,
 so a driver written on the spot -- by hand, or by a model over MCP -- is
 attachable without a restart or a package. `GET /api/drivers` lists what
 registered and any import error. `flyball new NAME` writes a complete
-starting file with a tag.
+starting file with a type.
 
 ## A package with an entry point
 
@@ -48,7 +48,10 @@ drivers, rig files, programs, dashboards, a book). What to put in one:
 what the class produces. A link is `catalog.register_link(...)` instead of
 `register_device`; a law, a feedforward or a setpoint generator has its own
 `register_law`/`register_feedforward`/`register_generator`; a program step
-(a `Command` subclass) has `register_command`.
+(a `Step` subclass) has `register_step`. A registered step is usable in a
+program straight away. A registered law, feedforward or generator is not
+yet selectable by type in a rig file or a request (see
+[Laws](laws.md#what-subclassing-generates)).
 
 ## Inside the application
 

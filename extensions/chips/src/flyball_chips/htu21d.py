@@ -23,7 +23,7 @@ from collections.abc import Iterator
 from typing import Literal
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.errors import HardwareError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.dimensions import Fraction
@@ -148,8 +148,8 @@ class Htu21dSensor:
 class Htu21d(Readable):
     """One chip on the device root: `humidity`, `temperature [RP]`, two I2C transactions."""
 
-    humidity = Output("humidity", quantity=HUMIDITY, range=(0.0, 100.0), precision=2)
-    temperature = Output("temperature", quantity=TEMPERATURE, range=(-40.0, 125.0), precision=2)
+    humidity = Readout("humidity", quantity=HUMIDITY, range=(0.0, 100.0), precision=2)
+    temperature = Readout("temperature", quantity=TEMPERATURE, range=(-40.0, 125.0), precision=2)
 
     def __init__(
         self,
@@ -172,7 +172,7 @@ class Htu21d(Readable):
         yield self.sample(time_ns, humidity=humidity, temperature=temperature)
 
 
-class Htu21dConfig(DriverConfig[Htu21d], tag="htu21d"):
+class Htu21dConfig(DriverConfig[Htu21d], type="htu21d"):
     """One chip; there is no address pin, but the field stays for parity with sht31/sht4x."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

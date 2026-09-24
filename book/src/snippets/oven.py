@@ -3,11 +3,12 @@
 from collections.abc import Iterator
 
 from flyball.control import PI
-from flyball.foundation.device.device import Committable, Demand, Output, Readable
+from flyball.foundation.device.descriptors import Demand
+from flyball.foundation.device.device import Committable, Readable, Readout
 from flyball.foundation.quantities.quantity import Quantity
 from flyball.foundation.device.signal import Sample
 from flyball.foundation.quantities.si import Celsius
-from flyball.runtime import Rig
+from flyball.rig import Rig
 from flyball_sim import Lag, SteppedClock
 
 # What is measured, independent of any device: a name and a unit.
@@ -15,9 +16,9 @@ TEMPERATURE = Quantity("temperature", Celsius)
 
 
 class Probe(Readable):
-    """Reads the oven: one signal, readable and publishing."""
+    """Reads the oven: one signal, readable and published."""
 
-    temperature = Output("temperature", "Temperature", TEMPERATURE, range=(0.0, 300.0), precision=1)
+    temperature = Readout("temperature", "Temperature", TEMPERATURE, range=(0.0, 300.0), precision=1)
 
     def __init__(self, name: str, oven: Lag) -> None:
         super().__init__(name)
@@ -27,9 +28,10 @@ class Probe(Readable):
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:
         dt = 0.0 if self._last_ns is None else (time_ns - self._last_ns) / 1e9
         self._last_ns = time_ns
-        yield self.sample(time_ns, temperature=self.oven.step(dt))
+        yield self.sample(time_ns, temperature=self.oven.advance(dt))
 
 
+# --8<-- [start:heater]
 class Heater(Committable):
     """Drives the oven: whatever demand it is given, the plant chases."""
 
@@ -41,8 +43,10 @@ class Heater(Committable):
 
     def write_signal(self, signal, value: float) -> None:
         self.oven.input = value
+# --8<-- [end:heater]
 
 
+# --8<-- [start:build]
 def build(clock: SteppedClock, period: float | None = None) -> Rig:
     """A rig with a probe, a heater, and the default controller between them.
 
@@ -64,9 +68,11 @@ def build(clock: SteppedClock, period: float | None = None) -> Rig:
         default=True,
     )
     return rig
+# --8<-- [end:build]
 
 
 if __name__ == "__main__":
+    # --8<-- [start:main]
     clock = SteppedClock(0)
     rig = build(clock)
     controller = rig.controllers.resolve(None)
@@ -75,4 +81,5 @@ if __name__ == "__main__":
         clock.advance(1.0)
         rig.read(rig.devices["probe"].root, fresh=True)
     reading = rig.read(rig.devices["probe"].temperature)
-    print(f"after 2 min: {reading.value:.1f} °C, demand {controller.demand:.1f}")
+    print(f"after 2 min: {reading.value:.1f} °C, output {controller.output:.1f}")
+    # --8<-- [end:main]

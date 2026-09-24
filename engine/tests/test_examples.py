@@ -19,7 +19,7 @@ def run(name: str, setpoint: float, seconds: float) -> tuple[float, list[float]]
     clock = SteppedClock(0)
     rig = config.build(clock=clock, start=False)
     ((_, controller),) = rig.controllers.items()
-    source = controller.source
+    source = controller.measured_signal
     period = source.poll_s or 1.0
     rig.read(source, fresh=True)
     controller.regulate(setpoint)
@@ -27,8 +27,8 @@ def run(name: str, setpoint: float, seconds: float) -> tuple[float, list[float]]
     for _ in range(int(seconds / period)):
         clock.advance(period)
         rig.read(source, fresh=True)
-        assert controller.state.reading is not None
-        trace.append(controller.state.reading.value)
+        assert controller.state.measured is not None
+        trace.append(controller.state.measured.value)
     return trace[-1], trace
 
 
@@ -69,9 +69,9 @@ def test_dual_settles_both_controllers():
     for _ in range(1200):
         clock.advance(0.5)
         rig.read(sources, fresh=True)
-    assert heater.state.reading is not None and valve.state.reading is not None
-    assert heater.state.reading.value == pytest.approx(50.0, abs=0.5)
-    assert valve.state.reading.value == pytest.approx(40.0, abs=1.0)
+    assert heater.state.measured is not None and valve.state.measured is not None
+    assert heater.state.measured.value == pytest.approx(50.0, abs=0.5)
+    assert valve.state.measured.value == pytest.approx(40.0, abs=1.0)
 
 
 def test_every_example_validates_builds_and_names_a_default_controller():
@@ -108,26 +108,26 @@ class TestPlants:
         lag.drive(0.0, 1000)
         assert lag.output == pytest.approx(20)
         lag.input = lag.feedforward(60)
-        lag.step(1000)
+        lag.advance(1000)
         assert lag.output == pytest.approx(60)
 
     def test_integrator_with_and_without_leak(self):
         tank = Integrator(gain=2.0, leak=0.0, value=10)
         tank.input = 1.0
-        assert tank.step(5.0) == pytest.approx(20.0)
+        assert tank.advance(5.0) == pytest.approx(20.0)
         drained = Integrator(gain=2.0, leak=0.1, value=0)
         drained.input = drained.feedforward(40)
-        drained.step(1000)
+        drained.advance(1000)
         assert drained.output == pytest.approx(40)
 
     def test_fopdt_delays_the_input(self):
         plant = Fopdt(tau_s=1.0, dead_s=5.0, gain=1.0)
         plant.input = 1.0
         for _ in range(4):
-            plant.step(1.0)
+            plant.advance(1.0)
         assert plant.output == pytest.approx(0.0), "nothing arrives inside the dead time"
         for _ in range(20):
-            plant.step(1.0)
+            plant.advance(1.0)
         assert plant.output == pytest.approx(1.0, abs=1e-6)
 
     def test_noisy_reads_through_noise_but_steps_the_clean_plant(self):

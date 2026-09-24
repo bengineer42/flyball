@@ -258,12 +258,12 @@ class Unit:
         Raises:
             UnitNotFoundError: If nothing matches.
         """
-        from . import si  # ruff: ignore[unused-import]  populates the registry with the SI units
+        from . import other, si  # ruff: ignore[unused-import]  registers the SI, °F and °R units
 
         if (unit := _units.get(symbol)) is not None:
             return unit
         if "/" in symbol:
-            num, _, den = symbol.partition("/")
+            num, _, den = symbol.rpartition("/")
             return cls.get(num) / cls.get(den)
         if "·" in symbol:
             a, _, b = symbol.partition("·")

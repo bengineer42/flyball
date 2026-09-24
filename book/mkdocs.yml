@@ -6,6 +6,7 @@ site_dir: ../build/book
 strict: true
 repo_url: https://github.com/bengineer42/flyball
 repo_name: ""          # the logo alone, no text
+copyright: Copyright &copy; 2026 Ben Laurence &mdash; MIT licensed
 
 theme:
   name: material
@@ -72,12 +73,13 @@ nav:
   - Overview:
       - 0-overview/index.md
       - What you will see: 0-overview/concepts.md
+      - What flyball does not do: 0-overview/limits.md
       - Worked examples: 0-overview/examples.md
   - Running a rig:
       - 1-running/index.md
       - Starting a rig:
           - 1-running/runner/index.md
-          - Access — the token, a sub-path, stopping: 1-running/runner/access.md
+          - Access — the front, sign-in, stopping: 1-running/runner/access.md
           - Building a rig while it runs: 1-running/runner/building.md
       - The UI:
           - 1-running/ui/index.md
@@ -91,7 +93,7 @@ nav:
           - 1-running/cli/index.md
           - Devices and signals: 1-running/cli/devices.md
           - Controllers and tuning: 1-running/cli/controllers.md
-          - Programs and waits: 1-running/cli/programs.md
+          - Programs and activities: 1-running/cli/programs.md
           - Sessions and export: 1-running/cli/sessions.md
           - The rig and the runner: 1-running/cli/rig.md
           - Without a rig: 1-running/cli/offline.md
@@ -144,6 +146,7 @@ nav:
       - The controller in detail: 6-internals/controller.md
       - Identification: 6-internals/identification.md
       - Storage: 6-internals/db.md
+      - The front and the runner: 6-internals/front.md
       - Decisions: 6-internals/decisions.md
   - Reference:
       - 7-reference/index.md

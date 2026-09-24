@@ -76,7 +76,7 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
   );
 
   const programY = y;
-  widgets.push({ id: "program", kind: "program", title: null, x: 0, y: programY, w: 8, h: 6, config: { events: 5, interrupt: true } });
+  widgets.push({ id: "program", kind: "program", title: null, x: 0, y: programY, w: 8, h: 6, config: { events: 5, cancel: true } });
   widgets.push({ id: "events", kind: "events", title: null, x: 8, y: programY, w: 12, h: 6, config: { level: "INFO", limit: 20, scope: "" } });
   y += 6;
 

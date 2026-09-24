@@ -11,7 +11,7 @@ from collections.abc import Iterator, Mapping
 import pytest
 
 from flyball.control.laws import P
-from flyball.foundation.device import Access, Level, Node, Sample, Signal, SignalSpec, WriteState
+from flyball.foundation.device import Access, Node, Sample, Severity, Signal, SignalSpec, WriteState
 from flyball.model.law import Transfer
 from test_rig_devices import TEMP, Furnace
 
@@ -77,11 +77,13 @@ def furnace(rig, fresh) -> Furnace:
 
 def test_an_event_is_kept_and_recorded(rig, clock, recorder_module):
     clock.advance(2.0)
-    event = rig.event(Level.WARNING, "device", "x", "slow", "read took 3 s", {"took": 3})
+    event = rig.event(Severity.WARNING, "device", "x", "slow", "read took 3 s", {"took": 3})
     assert rig.recent[-1] is event and event.time_ns == clock.now_ns()
-    assert event.level is Level.WARNING and event.kind == "slow" and event.details == {"took": 3}
+    assert (
+        event.severity is Severity.WARNING and event.code == "slow" and event.details == {"took": 3}
+    )
     rig.start_recording(FakeStore())
-    other = rig.event(Level.INFO, "rig", "x", "restarted", "polling again")
+    other = rig.event(Severity.INFO, "rig", "x", "restarted", "polling again")
     assert recorder_module.made[-1].events == [other]
 
 
@@ -125,7 +127,7 @@ class TestRecording:
         assert recorder.records == [
             ([Sample(furnace.root, 5, {zone1: 40.0})], [(controller, rig.latest[zone1])], {}, 5)
         ], "manual: the tick wrote nothing; the setting is not published"
-        controller.regulate(50.0, transfer=Transfer.RESET)
+        controller.regulate(50.0, transfer=Transfer.COLD)
         rig.on_samples([Sample(furnace.root, 6, {zone1: 40.0})])
         # The delivery itself, then a follow-up delivery for heater1's own readback (it
         # publishes now: the rig pushes what the driver did not).
@@ -141,7 +143,7 @@ class TestRecording:
         heater2 = furnace.signals["heater2"]
         recorder = rig.start_recording(FakeStore())
         clock.advance(3.0)
-        rig.demand(furnace.root, {"heater2": 7000.0})
+        rig.write(furnace.root, {"heater2": 7000.0})
         assert recorder.records[0] == (
             [],
             [],
@@ -154,7 +156,7 @@ class TestRecording:
         recorder = rig.start_recording(FakeStore())
         recorder.on_failure(OSError("disk full"))
         assert rig.recorder is None
-        assert rig.recent[-1].kind == "recording_failed" and "disk full" in rig.recent[-1].message
+        assert rig.recent[-1].code == "recording_failed" and "disk full" in rig.recent[-1].message
         assert recorder.writer.ended == [clock.now_ns()] and recorder.closed == []
         assert recorder.events == [], "the event did not go back to the failed recorder"
 
@@ -176,7 +178,7 @@ class Slow(Furnace):
         self.attempts += 1
         if self.fail:
             raise OSError("bus timeout")
-        self.committed.append({s.name: v for s, v in self.pending.items()})
+        self.committed.append({s.name: v for s, v in self.staged.items()})
         return super().commit(time_ns)
 
 
@@ -199,7 +201,7 @@ class TestBlockingDevices:
         heater1, zone1 = slow.signals["heater1"], slow.signals["zone1"]
         controller = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
         rig.on_samples([Sample(slow.root, 0, {zone1: 40.0})])
-        controller.regulate(50.0, transfer=Transfer.RESET)
+        controller.regulate(50.0, transfer=Transfer.COLD)
         assert controller.expected is None, "the write is queued, not done"
         started = time.monotonic()
         with rig.write_states.watch(), rig.controller_states.watch():
@@ -214,20 +216,20 @@ class TestBlockingDevices:
         assert controller.delivered_correction == 100.0, "delivered() closed the tick"
         assert rig.write_states.changed_since(0)[1] == {heater1.address: expected}
         assert rig.controller_states.changed_since(0)[1][controller.name].expected == 100.0
-        assert rig.write_conditions() == []
-        rig.stop()
+        assert rig.conditions.of(slow) == []
+        rig.close()
 
     def test_a_manual_demand_returns_nothing_and_the_state_follows(self, rig, fresh, clock):
         slow = Slow(fresh("slow"))
         rig.add_device(slow)
         heater2 = slow.signals["heater2"]
-        assert rig.demand(slow.root, {"heater2": 7000.0}) == {}
-        assert rig.demand(slow.root, {"heater2": 100.0}) == {}
+        assert rig.write(slow.root, {"heater2": 7000.0}) == {}
+        assert rig.write(slow.root, {"heater2": 100.0}) == {}
         slow.gate.set()
         _wait_until(lambda: heater2 in slow.written)
         assert slow.committed == [{"heater2": 100.0}], "the newest value wins"
         assert slow.written[heater2] == WriteState(value=100.0)
-        rig.stop()
+        rig.close()
 
     def test_a_failing_bus_is_a_condition_and_an_event_until_a_write_succeeds(
         self, rig, fresh, clock
@@ -237,26 +239,28 @@ class TestBlockingDevices:
         slow.gate.set()
         rig.add_device(slow)
         heater1 = slow.signals["heater1"]
-        rig.demand(slow.root, {"heater1": 1.0})
-        _wait_until(lambda: rig.write_conditions() != [])
-        [(name, condition)] = rig.write_conditions()
-        assert name == slow.name and condition.kind == "write_failed"
-        assert condition.level is Level.ERROR and "bus timeout" in condition.message
-        assert rig.recent[-1].kind == "write_failed" and rig.recent[-1].subject == slow.name
-        rig.demand(slow.root, {"heater1": 2.0})
+        rig.write(slow.root, {"heater1": 1.0})
+        _wait_until(lambda: rig.conditions.of(slow) != [])
+        [condition] = rig.conditions.of(slow)
+        assert condition.subject == slow.name and condition.code == "write_failed"
+        assert condition.severity is Severity.ERROR and "bus timeout" in condition.message
+        assert rig.recent[-1].code == "write_failed" and rig.recent[-1].subject == slow.name
+        rig.write(slow.root, {"heater1": 2.0})
         _wait_until(lambda: slow.attempts == 2)
         assert len(rig.recent) == 1, "one event per outage, not one per write"
         slow.fail = False
-        rig.demand(slow.root, {"heater1": 3.0})
-        _wait_until(lambda: rig.write_conditions() == [])
-        assert rig.recent[-1].kind == "write_recovered" and slow.written[heater1].value == 3.0
-        rig.stop()
+        rig.write(slow.root, {"heater1": 3.0})
+        _wait_until(lambda: rig.conditions.of(slow) == [])
+        last = rig.recent[-1]
+        assert (last.code, last.edge) == ("write_failed", "cleared")
+        assert slow.written[heater1].value == 3.0
+        rig.close()
 
     def test_a_synchronous_device_is_written_in_the_delivery(self, rig, furnace):
         heater1, zone1 = furnace.signals["heater1"], furnace.signals["zone1"]
         controller = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
         rig.on_samples([Sample(furnace.root, 0, {zone1: 40.0})])
-        controller.regulate(50.0, transfer=Transfer.RESET)
+        controller.regulate(50.0, transfer=Transfer.COLD)
         rig.on_samples([Sample(furnace.root, 1, {zone1: 40.0})])
         assert furnace.inputs == {"heater1": 100.0} and rig._writers == {}
 
@@ -273,10 +277,10 @@ def test_stop_ends_polling_writers_and_recording(rig, fresh, recorder_module):
     slow = Slow(fresh("slow"))
     slow.gate.set()
     rig.add_device(slow)
-    rig.demand(slow.root, {"heater1": 1.0})
+    rig.write(slow.root, {"heater1": 1.0})
     recorder = rig.start_recording(FakeStore())
     assert rig.polling.run(polled.name).running is True
-    rig.stop()
+    rig.close()
     assert rig.polling.run(polled.name).running is False
     assert rig.recorder is None and recorder.closed
     assert not rig._writers[slow]._thread.is_alive()

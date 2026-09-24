@@ -57,12 +57,12 @@ value on demand), **P**ublishing (emitted on the device's own schedule;
 implies R), **W**ritable (accepts a demand) — and `Access.check` refuses `P`
 without `R` the moment a set is built, an `Access.parse`d, or a
 `SignalSpec` constructed, not later at first use. The rig file may only
-*narrow* a signal's access (`SignalOverride.readable`/`publishing`/`writable`
+*narrow* a signal's access (`SignalMeta.readable`/`published`/`writable`
 take only `false`) — never add what the driver did not declare.
 
 `Device.bind` turns a spec tree into bound [Node][flyball.foundation.device.signal.Node]
 and [Signal][flyball.foundation.device.signal.Signal] objects once, at construction:
-identity-hashed, made once, so a `Reading`, `Sample`, `Demand` or
+identity-hashed, made once, so a `Reading`, `Sample`, `Write` or
 `WriteState` holds a reference and nothing on the hot path looks a name up.
 [Path][flyball.foundation.device.signal.Path] is the address's value type — a tuple of
 segments, hashable, `str()` giving the dotted form (`"dry.humidity"`) —
@@ -75,38 +75,39 @@ objects.
 | --- | --- |
 | `Reading` | one value on one signal at one instant |
 | `Sample` | the readings of signals under one node at one instant, keyed by the bound signal; any readable signal under the node may be missing, but there is always at least one |
-| `Demand` | one or more values put on `W` signals under one node at one instant — a Sample in reverse |
+| `Write` | one or more values written to `W` signals under one node at one instant — a Sample in reverse |
 | `WriteState` | what a device reports after a commit: the value after limits, what was asked for if the clamp changed it, `at_limit`, the controller driving it |
 
-## Mutability: three tiers
+## Mutability: declared, running, one instant
 
 Three kinds of object, told apart by who changes them and when:
 
-| tier | objects | mutable? |
+| kind | objects | mutable? |
 | --- | --- | --- |
-| declaration | `SignalSpec`, `NodeSpec`, `Quantity` | frozen — the driver's word; one spec object may back many devices |
-| structure (rig level) | `Node`, `Signal`, `Device`, `Rig`, `Controller` | mutable, identity-hashed, made once at startup — the running graph: things happen *to* them |
-| values (per instant) | `Reading`, `Sample`, `Demand`, `WriteState`, `Event` | frozen — facts about one moment; recorded, streamed, compared; never changed after the fact |
+| what a driver declares | `SignalSpec`, `NodeSpec`, `Quantity` | frozen — the driver's word; one spec object may back many devices |
+| the running rig | `Node`, `Signal`, `Device`, `Rig`, `Controller` | mutable, identity-hashed, made once at startup — the running graph: things happen *to* them |
+| one instant | `Reading`, `Sample`, `Write`, `WriteState`, `Event` | frozen — facts about one moment; recorded, streamed, compared; never changed after the fact |
 
-A device's own signal roles echo the same split at finer grain (below): a
-`Role.CONFIG` signal is effective at the structure tier; a
-`Role.DEMAND`/`Role.SETTING`/`Role.OUTPUT` signal's readings are the values
-tier. Two rules
+A device's own signals follow the same split (below): what it is built
+from (driver config, and metadata such as a pump's maximum as the top of
+its flow's `limits`) is set when the rig is built; a
+`Role.DEMAND`/`Role.SETTING`/`Role.READOUT` signal's readings are facts
+about one instant. Two rules
 keep "mutable" from meaning "anything goes": after startup, mutation goes
-through the rig, under its lock, and is an event — `Signal.override(...)`
+through the rig, under its lock, and is an event — `Signal.set_meta(...)`
 and `restrict(...)` are the primitives, but the only caller once the rig
 runs is a `Rig` method that takes the lock, applies the change,
-re-validates what depends on it, and emits an event; and declared and
-effective both stay visible — `Signal.spec` is what the driver declared,
+re-validates what depends on it, and emits an event; and what was declared
+and what is in force both stay visible — `Signal.spec` is what the driver declared,
 `Signal.access` is what is in force, so `rig check` and the wire can show
 both.
 
 ## Devices
 
-Every signal has a **role** (`Role.DEMAND`, `Role.OUTPUT`, `Role.SETTING`,
-`Role.CONFIG`, `Role.INPUT`), which sets its default access, and structure
-is declared once as descriptors in the class body (`Namespace`, `Demand`,
-`Output`, `Setting`, `ConfigSignal`, `Input`) or built from config in
+Every signal has a **role** (`Role.DEMAND`, `Role.READOUT`, `Role.SETTING`),
+which sets its default access; an input is not a signal of the device and
+has no role. Structure is declared once as descriptors in the class body
+(`Namespace`, `Demand`, `Readout`, `Setting`, `Input`) or built from config in
 `__init__` and bound with `Device.bind`. `Device.__init_subclass__` collects
 every descriptor into `DESCRIPTORS`, checks `vtype` and `config`'s return
 type against pydantic, and collects `@command` methods — checking every
@@ -124,15 +125,19 @@ reader/actuator class any more:
 [commit][flyball.foundation.device.device.Committable.commit] for the demand side;
 `cls.readable`/`cls.writable` are derived from whether `read`/`commit` is
 defined. A device may be either, both, or neither, and separately declare
-`Input` signals — another device's signal the rig binds to a role; when one
-lands the rig commits the device, which reads it itself
-(`self.<input>.value`, from the router) inside `commit`. There is no
-`observe` callback.
+`Input`s -- what it follows, another device's signal or a number. Each is
+one [`InputBinding`][flyball.foundation.device.binding.InputBinding] for
+the device's life, made unbound when the device is and pointed at its
+source by the rig (`Rig.bind`, from `bind_inputs`) at build. When a source
+gets a reading the rig tells the device (`inputs_changed`, before the
+controllers step) and commits it if it has demands; it reads the value
+itself through the binding (`self.<input>.value`, from the router). There
+is no `observe` callback.
 
 Writes are two-phase: `apply(signal, time_ns, value)` records one value
 with no hardware I/O, and `commit(time_ns) -> None` pushes everything
 recorded to the hardware once. `commit` returns nothing: the rig reports
-each pending demand as the readback the driver pushed
+each staged demand as the readback the driver pushed
 (`signal.push(value, time_ns)`), or the committed value if the driver
 pushed nothing itself; a demand that railed has its `signal.at_limit` set
 before `commit` returns. The rig calls `commit` once per delivery for every
@@ -140,9 +145,17 @@ device it touched, and immediately after a manual demand; the rig tracks
 which devices a delivery touched, so a driver keeps no dirty flag of its
 own. A simple device inherits both `apply` and the default `commit`; a
 composite one (blending two pumps into one settable humidity) overrides
-`commit` itself to do arithmetic across everything pending and everything
+`commit` itself to do arithmetic across everything staged and everything
 it reads from its inputs, so a new target, a changed input reading and a
 new setting arriving in one delivery still cost one write.
+
+What a commit pushes is delivered next, as one more delivery, and so on
+until nothing is left. A controller steps at most once in that chain: when
+its target's device reads its source back in `commit` (one instrument's
+output and process value), the readback lands -- in the router, the
+streams, the recorder -- without stepping the controller again, which
+would otherwise commit, push and step for ever. It steps on the next
+delivery that starts a chain: the next poll.
 
 ## Errors
 
@@ -151,7 +164,10 @@ which subsystem raised it: `NotFoundError`, `ConflictError`, `NotReadyError`,
 `UnachievableError`, `HardwareError`, and `FlyballError` as the root. Each
 mixes in the builtin a consumer would reach for, so `except LookupError`
 behaves as expected. The HTTP layer maps the six once; no other code decides
-status codes.
+status codes. A subsystem's own error inherits its subsystem's base and one of
+the six, and the map finds the second through the MRO: the store's
+`StoreUnavailableError(StoreError, HardwareError)` is a 503 with no entry of
+its own.
 
 ## Topic and Latest
 
@@ -161,7 +177,8 @@ thread nothing.
 
 `Latest` keeps only the newest value per key. The writer does one dict store
 per update; readers poll at their own rate and ask for what changed since the
-version they last saw. A controller at any tick rate costs the same, and a
+version they last saw. A store and a read share a short lock, so a reader on
+another thread never sees a version before the value stored under it. A controller at any tick rate costs the same, and a
 socket sends at most one frame per flush. Controller states, write states,
 polling runs and trigger outcomes all go through `Latest`; only samples are
 a `Topic`. Both are filled only while someone is watching.
@@ -174,17 +191,17 @@ once, says how it ended (fired, timed out, interrupted), and calls
 `on_settle` so a registry can publish the outcome from whichever thread
 settled it. Not an extension point — user logic belongs in an `Activity`.
 The rig's `Triggers` registry (`flyball.rig.triggers`) gives a trigger a
-name and a message so the server can list, fire or interrupt it; on the
-wire these are "waits" (`/api/waits`).
+name and a message so the server can list, fire or cancel it; on the
+wire these are "activities" (`/api/activities`).
 
 ## Config
 
 `Config[T]` with `build() -> T`; `ConfigOr[T]` and `resolve` so any component
 can be given either a built object or a description of one. Configs hold
 real defaults rather than `None` sentinels, so a serialised config records
-what the rig actually did. One tag names one kind of thing rig-wide
+what the rig actually did. One type names one kind of thing rig-wide
 (`Config.registry`), which is what lets a rig file's `driver:` or a link's
-`tag:` be resolved without knowing which package defined it.
+`type:` be resolved without knowing which package defined it.
 
 ## Resources
 

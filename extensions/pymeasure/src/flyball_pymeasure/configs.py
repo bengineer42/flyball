@@ -1,4 +1,4 @@
-"""The entry-point target: explicitly registers this package's tagged config."""
+"""The entry-point target: explicitly registers this package's typed config."""
 
 from flyball.model.catalog import Catalogs
 

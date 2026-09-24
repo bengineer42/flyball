@@ -2,14 +2,15 @@
 
 `MEAS:VOLT:DC?` answers `+1.23456E-02`. A [Scpi][flyball_visa.Scpi]
 device's tree is its own config: `channels` maps each signal's name to a
-query, a write template, or both (plan §1.8.2 -- a generic driver's tree
-lives in its own config, not the envelope). Replies parse as a float by
+query, a write template, or both -- a generic driver's tree lives in its
+own config, not the envelope. Replies parse as a float by
 default; give `parse` for an instrument that answers `1.234 V`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
+from typing import Literal
 
 from flyball.foundation.config import resolve
 from flyball.foundation.device import (
@@ -18,17 +19,22 @@ from flyball.foundation.device import (
     DriverConfig,
     Node,
     Readable,
+    Readback,
     Role,
     Sample,
     Signal,
     SignalSpec,
+    Value,
     command,
+    invalid,
 )
+from flyball.foundation.errors import ConflictError
 from flyball.foundation.quantities import Quantity
 from flyball.hardware.links import TextLink
+from flyball.hardware.scan import Scan
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ._links import FakeTextLink, TextLinkConfig
+from ._links import TextLinkConfig
 
 Parser = Callable[[str], float]
 
@@ -38,13 +44,32 @@ def parse_float(reply: str) -> float:
     return float(reply.strip().split()[0].rstrip(","))
 
 
+SCPI_NAN = 9.91e37
+"""What SCPI instruments reply for "not a number" (IEEE 488.2)."""
+SCPI_OVERFLOW = 9.9e37
+"""What SCPI instruments reply, signed, for a value past the range: +/- infinity."""
+
+
+def gated(value: float) -> Value:
+    """A parsed reply, with SCPI's stand-ins for no value made no-values.
+
+    `9.91E37` is `invalid("not_a_number")`; `+/-9.9E37` is `invalid("overrange")` on that
+    side: the instrument read, and has no number to give. Anything else is the number.
+    """
+    if not isinstance(value, int | float) or abs(value) < SCPI_OVERFLOW * 0.999:
+        return value
+    if abs(value - SCPI_NAN) < SCPI_NAN * 1e-4:
+        return invalid("not_a_number")
+    return invalid("overrange", side="high" if value > 0 else "low")
+
+
 class ScpiSignal(BaseModel):
     """One line of a `scpi` device's tree: a query, a write template, or both.
 
     `query` alone: an output, `[RP]`. `write`, with or without `query`: a
     demand, `[RPW]` -- its readback is the value last committed. Metadata
     such as range, precision and limits are not here -- they are the
-    envelope's `signals:` overrides (plan §1.5), which apply to any driver's
+    envelope's `signals:` metadata, which applies to any driver's
     tree.
     """
 
@@ -63,16 +88,28 @@ class ScpiSignal(BaseModel):
     scale: float = Field(
         default=1.0, description="A reply or a demand is multiplied/divided by this."
     )
+    role: Literal["setting"] | None = Field(
+        default=None,
+        description=(
+            "`setting`: a writable entry that changes how the instrument behaves (a range,"
+            " a frequency, a configuration register), not what controls the process; a"
+            " controller cannot drive it. Omitted: a writable entry is a demand."
+        ),
+    )
 
     @model_validator(mode="after")
     def _needs_query_or_write(self) -> ScpiSignal:
         if self.query is None and self.write is None:
             raise ValueError("a scpi signal needs `query`, `write`, or both")
+        if self.role is not None and self.write is None:
+            raise ValueError("only a signal with `write` can be declared a setting")
         return self
 
     @property
-    def role(self) -> Role:
-        return Role.DEMAND if self.write is not None else Role.OUTPUT
+    def signal_role(self) -> Role:
+        if self.write is None:
+            return Role.READOUT
+        return Role.SETTING if self.role == "setting" else Role.DEMAND
 
     @property
     def access(self) -> Access:
@@ -96,56 +133,67 @@ class Scpi(Readable, Committable):
         channels: Mapping[str, ScpiSignal],
         parse: Parser = parse_float,
         label: str | None = None,
+        stop_command: str | None = None,
     ) -> None:
         super().__init__(name, label)
         self.link = link
+        self.stop_text = stop_command
         self.parse = parse
         self.channels = dict(channels)
         # Device.blocking is a ClassVar; this driver's real bus or fake is only known
-        # per instance, at build.
-        self.blocking = not isinstance(link, FakeTextLink)  # pyright: ignore[reportAttributeAccessIssue]
-        self._last_read: dict[Signal, int] = {}
+        # per instance, at build. The link itself says whether it wants the Writer
+        # thread -- a real bus always does, a fake only if configured to.
+        self.blocking = link.blocking  # pyright: ignore[reportAttributeAccessIssue]
+        self._scan = Scan()
         self.bind([
             SignalSpec(
                 name=key,
                 quantity=Quantity(sig.quantity or key, sig.unit),
                 access=sig.access,
-                role=sig.role,
+                role=sig.signal_role,
+                # A demand with a query is read back from the instrument by polling.
+                readback=Readback.ECHO if sig.query is None else Readback.SENSED,
             )
             for key, sig in self.channels.items()
         ])
-
-    def _due(self, signal: Signal, time_ns: int) -> bool:
-        poll_s = signal.poll_s
-        if poll_s is None:
-            return True
-        last = self._last_read.get(signal)
-        return last is None or (time_ns - last) >= poll_s * 1e9
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """One query per due, publishing signal under `node`: each its own instant.
 
         A slow bus never claims two queries were simultaneous, so each
         yields its own [Sample][flyball.foundation.device.Sample] rather than one
-        shared dict of values. Walks `channels`, not the tree: `conditions`
-        and any `last.*` are in every device's tree now, and neither has a
-        query behind it.
+        shared dict of values. Walks `channels`, not the tree: any
+        `last.*` is in the device's tree too, and has no query behind it.
         """
         target = node if node is not None else self.root
-        for key, channel in self.channels.items():
-            if channel.query is None:
-                continue
-            signal = self.signals[key]
-            if not target.contains(signal) or not self._due(signal, time_ns):
-                continue
-            value = self.parse(self.link.query(channel.query)) * channel.scale
-            self._last_read[signal] = time_ns
+        candidates = {
+            self.signals[key]: key
+            for key, channel in self.channels.items()
+            if channel.query is not None and target.contains(self.signals[key])
+        }
+        for signal in self._scan.due(candidates, time_ns, whole=False):
+            channel = self.channels[candidates[signal]]
+            assert channel.query is not None
+            value = gated(self.parse(self.link.query(channel.query)))
+            if isinstance(value, int | float):
+                value *= channel.scale
             yield Sample(self.root, time_ns, {signal: value})
 
     def write_signal(self, signal: Signal, value: float) -> None:
         channel = self.channels[signal.name]
         assert channel.write is not None
         self.link.write(channel.write.format(value=value / channel.scale))
+
+    def stops_by(self) -> str | None:
+        """`stop` when a `stop_command` is configured; else none, and a stop keeps its outputs."""
+        return "stop" if self.stop_text else None
+
+    @command(stops=True)
+    def stop(self) -> None:
+        """Send the configured `stop_command` (`OUTP OFF`): the instrument's own stop."""
+        if not self.stop_text:
+            raise ConflictError(f"{self.name}: no stop_command is configured")
+        self.link.write(self.stop_text)
 
     @command
     def write(self, text: str) -> None:
@@ -158,21 +206,29 @@ class Scpi(Readable, Committable):
         return self.link.query(text)
 
 
-class ScpiConfig(DriverConfig[Scpi], tag="scpi"):
+class ScpiConfig(DriverConfig[Scpi], type="scpi"):
     """`driver: scpi`. `channels` is the driver's own tree -- see `ScpiSignal`.
 
     Named `channels`, not `signals`: the envelope's `signals:` key is
-    reserved for overrides (range, precision, limits, ...), the same for
+    reserved for signal metadata (range, precision, limits, ...), the same for
     every driver, so a driver's own config may not use that name.
     """
 
     link: TextLinkConfig | str  # type: ignore[valid-type]
     channels: dict[str, ScpiSignal]
+    stop_command: str | None = Field(
+        default=None,
+        description="What a stop sends (`OUTP OFF`, `INP OFF`): the instrument's own stop."
+        " Omitted: a stop leaves its outputs as they are -- the right string differs by"
+        " instrument, so none is assumed.",
+    )
 
     def build(self, name: str, label: str | None = None) -> Scpi:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a link before building")
-        return Scpi(name, resolve(self.link), self.channels, label=label)
+        return Scpi(
+            name, resolve(self.link), self.channels, label=label, stop_command=self.stop_command
+        )
 
 
 __all__ = ["Parser", "Scpi", "ScpiConfig", "ScpiSignal", "parse_float"]

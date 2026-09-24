@@ -5,6 +5,10 @@ continuously: fit the plant from a controller's own samples, notice when it
 has drifted, and offer a retune. `flyball.adaptive` is the slow half of a
 self-tuning regulator.
 
+**Experimental**, not wired into any controller: `flyball.adaptive` is
+imported only by its own tests (`tests/test_adaptive.py`), not by anything
+that runs against a rig.
+
 ## The model
 
 ARX, first order with an input delay and an operating point:
@@ -22,13 +26,13 @@ The offset is what the plant rests at with no input, folded into one term
 chiller pulling below a warm room, a heater over ambient driven raw — cannot
 be fitted at all: the fit trades the missing constant against `a` and `b`
 and comes out with the wrong gain, sometimes the wrong sign. A loop whose
-demand is already in the controlled quantity's units (the simulated rigs'
+demand is already in the measured quantity's units (the simulated rigs'
 "smart" drives, where a demand of 50 °C holds 50 °C) has an offset near zero
 and loses nothing by carrying the term.
 
-A `Schema` names the inputs: one controlled signal, one manipulated, and any
-measured disturbances. Nothing in the estimator knows what is being
-controlled; a disturbance signal is what lets the model account for an
+A `Schema` names the inputs: the measured signal, the output, and any
+measured disturbances, each a `ModelTerm`. Nothing in the estimator knows
+what is being regulated; a disturbance signal is what lets the model account for an
 input the controller cannot command.
 
 ## The estimator
@@ -61,14 +65,15 @@ Two things make it survive a real rig:
 ```python
 from flyball.adaptive import Identifier, Sample, Schema, SelfTuner
 from flyball.autotune import imc
-from flyball.control import Transfer, ValueSource
+from flyball.model.controller import ValueSource
+from flyball.model.law import Transfer
 
-schema = Schema(controlled=process, manipulated=demand, disturbances=(supply,))
+schema = Schema(measured=process, output=demand, disturbances=(supply,))
 identifier = Identifier(schema, interval=1.0, delay_samples=4)
 tuner = SelfTuner(identifier, rule=imc)
 
 # every tick
-identifier.push(Sample(reading.value, controller.demand, (supply_reading.value,)))
+identifier.push(Sample(reading.value, controller.output, (supply_reading.value,)))
 tuner.observe()
 tuner.elapsed(interval)
 

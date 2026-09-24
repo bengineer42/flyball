@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pickle
+import subprocess
+import sys
 from typing import Annotated
 
 import pytest
@@ -148,6 +150,13 @@ class TestUnitLookup:
             ("m/s²", "Acceleration", 1.0),
             ("N·m", "Energy", 1.0),
             ("µL/h", "Volume flow", 1e-9 / 3600),
+            ("mbar", "Pressure", 100.0),
+            ("Torr", "Pressure", 101325 / 760),
+            ("mTorr", "Pressure", 101325 / 760 / 1000),
+            ("sccm", "Volume flow", 1e-6 / 60),
+            ("slm", "Volume flow", 1e-3 / 60),
+            ("rpm", "Frequency", 1 / 60),
+            ("Å", "Length", 1e-10),
         ],
     )
     def test_get_resolves_symbols_prefixes_quotients_products_and_powers(
@@ -158,10 +167,34 @@ class TestUnitLookup:
         unit = Unit.get(symbol)
         assert unit.dimension.label == label and unit.factor == pytest.approx(factor)
 
+    def test_get_splits_a_multi_slash_symbol_at_the_last_slash(self):
+        from flyball.foundation.quantities.dimension import Unit
+
+        unit = Unit.get("m/s/s")
+        assert unit.dimension.label == "Acceleration" and unit.factor == pytest.approx(1.0)
+
+    def test_get_still_resolves_a_slash_then_dot_symbol(self):
+        from flyball.foundation.quantities.dimension import Unit
+
+        unit = Unit.get("W/m²·K")
+        assert unit.factor == pytest.approx(1.0)
+
     def test_get_returns_the_registered_object_for_an_exact_symbol(self):
         from flyball.foundation.quantities.dimension import Unit
 
         assert Unit.get("°C") is Celsius and Unit.get("K") is Kelvin
+
+    def test_get_finds_the_non_si_units_in_a_process_that_never_imported_them(self):
+        # This module imports `other` itself, so only a fresh interpreter shows the gap.
+        code = (
+            "from flyball.foundation.quantities import Unit;"
+            "print(Unit.get('°F').name, Unit.get('°R').name)"
+        )
+        run = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, timeout=30
+        )
+        assert run.returncode == 0, run.stderr
+        assert run.stdout.split() == ["fahrenheit", "rankine"]
 
     def test_unknown_symbol_is_a_typed_not_found(self):
         from flyball.foundation.errors import NotFoundError

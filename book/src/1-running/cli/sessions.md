@@ -24,6 +24,6 @@ curl "http://pi:8000/api/history/sessions/4/export?format=csv&layout=wide&step_s
 curl "http://pi:8000/api/history/sessions/4/series/furnace.zone1/export?format=csv" > zone1.csv
 ```
 
-`?token=T` on the URL for a runner started with a token (a plain download cannot
-set a header; a browser signed in at the UI needs nothing, its cookie rides
-along). Formats and layouts: [History](../../4-server/api.md#history).
+With a token, send it as a header: `curl -H "Authorization: Bearer $T" …`.
+A token never goes in the URL: a bare runner refuses `?token=`, and a front ignores it. A browser signed in
+at the UI needs nothing: its cookie rides along. Formats and layouts: [History](../../4-server/api.md#history).

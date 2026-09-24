@@ -1,9 +1,9 @@
-"""The generic `scpi` device, and the bench rig from plan §2 built over fake_text links."""
+"""The generic `scpi` device, and the bench rig built over fake_text links."""
 
 from __future__ import annotations
 
 import pytest
-from flyball.foundation.device import Access, Reading, Signal
+from flyball.foundation.device import Access, Readback, Reading, Role, Signal, invalid
 from flyball.runtime.config import RigConfig, rig_schema
 from pydantic import ValidationError
 
@@ -22,6 +22,15 @@ class TestScpiSignal:
 
     def test_both_is_rpw(self):
         assert ScpiSignal(query="V?", write="V {value}", unit="V").access == Access.RPW
+
+    def test_a_write_is_a_demand_unless_declared_a_setting(self):
+        """C13: `role: setting` keeps a range or a mode out of a controller's reach."""
+        assert ScpiSignal(write="V {value}", unit="V").signal_role is Role.DEMAND
+        setting = ScpiSignal(query="RANG?", write="RANG {value}", unit="V", role="setting")
+        assert setting.signal_role is Role.SETTING and setting.access == Access.RPW
+        assert ScpiSignal(query="V?", unit="V").signal_role is Role.READOUT
+        with pytest.raises(ValidationError, match="only a signal with `write`"):
+            ScpiSignal(query="V?", unit="V", role="setting")
 
     def test_neither_is_refused(self):
         with pytest.raises(ValidationError, match="needs `query`, `write`, or both"):
@@ -45,6 +54,30 @@ class TestScpi:
         assert [s.by_name() for s in samples] == [{"voltage": 12.345}, {"current": 0.5}]
         assert link.queried == ["MEAS:VOLT:DC?", "MEAS:CURR:DC?"]
 
+    def test_scpi_s_stand_ins_for_no_number_are_no_values(self):
+        replies = {"A?": "+9.9E37", "B?": "-9.90000E+37", "C?": "9.91E37", "D?": "1.5"}
+        link = FakeTextLink(replies)
+        dev = Scpi("d", link, {k.lower(): ScpiSignal(query=f"{k}?", unit="V") for k in "ABCD"})
+        values = {k: v for s in dev.read(0) for k, v in s.by_name().items()}
+        assert values == {
+            "a": invalid("overrange", side="high"),
+            "b": invalid("overrange", side="low"),
+            "c": invalid("not_a_number"),
+            "d": 1.5,
+        }
+
+    def test_a_demand_with_a_query_is_sensed_one_without_an_echo(self):
+        dev = Scpi(
+            "d",
+            FakeTextLink({}),
+            {
+                "sensed": ScpiSignal(query="V?", write="V {value}", unit="V"),
+                "echo": ScpiSignal(write="W {value}", unit="V"),
+            },
+        )
+        assert dev.signals["sensed"].spec.readback is Readback.SENSED
+        assert dev.signals["echo"].spec.readback is Readback.ECHO
+
     def test_scale_applies_on_read_and_write(self):
         link = FakeTextLink(lambda q: "1200" if q == "R?" else "")
         dev = Scpi(
@@ -64,14 +97,22 @@ class TestScpi:
             link,
             {"a": ScpiSignal(query="A?", unit="V"), "b": ScpiSignal(query="B?", unit="V")},
         )
-        dev.signals["a"].override(poll_s=10.0)
-        dev.signals["b"].override(poll_s=1.0)
+        dev.signals["a"].set_meta(poll_s=10.0)
+        dev.signals["b"].set_meta(poll_s=1.0)
         first = list(dev.read(0))
         assert [s.by_name() for s in first] == [{"a": 1.0}, {"b": 2.0}]
         second = list(dev.read(2 * NS))
         assert [s.by_name() for s in second] == [{"b": 2.0}], "only b is due again at 2s"
         third = list(dev.read(11 * NS))
         assert {k for s in third for k in s.by_name()} == {"a", "b"}, "both due by 11s"
+
+    def test_a_slightly_early_poll_still_counts_as_due(self):
+        """`Scan`'s 0.9*period rule: a scaled clock's threads arrive a little early."""
+        link = FakeTextLink({"A?": "1"})
+        dev = Scpi("d", link, {"a": ScpiSignal(query="A?", unit="V")})
+        dev.signals["a"].set_meta(poll_s=1.0)
+        list(dev.read(0))
+        assert [s.by_name() for s in dev.read(int(0.95 * NS))] == [{"a": 1.0}]
 
     def test_a_write_only_signal_has_no_query(self):
         link = FakeTextLink({})
@@ -89,35 +130,47 @@ class TestScpi:
     def test_write_and_query_commands_are_a_raw_passthrough(self):
         link = FakeTextLink({"*IDN?": "Keysight,34465A,MY123,1.0"})
         dmm = Scpi("dmm", link, {"v": ScpiSignal(query="V?", unit="V")})
-        assert set(type(dmm).commands) == {"write", "query"}
+        assert set(type(dmm).commands) == {"write", "query", "stop"}
         assert dmm.query("*IDN?") == "Keysight,34465A,MY123,1.0"
         dmm.write("SYST:BEEP")
         assert link.written == ["SYST:BEEP"]
+
+    def test_the_stop_is_the_configured_string_or_none(self):
+        link = FakeTextLink({})
+        psu = Scpi(
+            "psu",
+            link,
+            {"v": ScpiSignal(write="VOLT {value}", unit="V")},
+            stop_command="OUTP OFF",
+        )
+        assert psu.stops_by() == "stop"
+        psu.stop()
+        assert link.written == ["OUTP OFF"]
+        plain = Scpi("dmm", FakeTextLink({}), {"v": ScpiSignal(query="V?", unit="V")})
+        assert plain.stops_by() is None, "no string assumed: a stop keeps its outputs"
 
     def test_blocking_is_true_for_a_real_bus_false_for_a_fake(self):
         fake = Scpi("d", FakeTextLink({}), {"v": ScpiSignal(query="V?", unit="V")})
         assert fake.blocking is False
 
 
-# region The bench rig, plan §2, over fake_text links
+# region The bench rig, over fake_text links
 
 
 def bench_document() -> dict:
     return {
         "links": {
-            "psu": {"tag": "fake_text", "replies": {"MEAS:VOLT?": "11.98"}},
-            "dmm": {"tag": "fake_text", "replies": {"MEAS:VOLT:DC?": "+1.1980E+01"}},
+            "psu": {"type": "fake_text", "replies": {"MEAS:VOLT?": "11.98"}},
+            "dmm": {"type": "fake_text", "replies": {"MEAS:VOLT:DC?": "+1.1980E+01"}},
         },
         "devices": {
             "psu": {
                 "driver": "scpi",
                 "label": "Bench PSU",
-                "config": {
-                    "link": "psu",
-                    "channels": {
-                        "set_voltage": {"write": "SOUR:VOLT {value:.3f}", "unit": "V"},
-                        "output_voltage": {"query": "MEAS:VOLT?", "unit": "V"},
-                    },
+                "link": "psu",
+                "channels": {
+                    "set_voltage": {"write": "SOUR:VOLT {value:.3f}", "unit": "V"},
+                    "output_voltage": {"query": "MEAS:VOLT?", "unit": "V"},
                 },
                 "signals": {
                     "set_voltage": {"limits": [0, 30]},
@@ -128,10 +181,8 @@ def bench_document() -> dict:
                 "driver": "scpi",
                 "label": "Bench DMM",
                 "poll_s": 0.5,
-                "config": {
-                    "link": "dmm",
-                    "channels": {"voltage": {"query": "MEAS:VOLT:DC?", "unit": "V"}},
-                },
+                "link": "dmm",
+                "channels": {"voltage": {"query": "MEAS:VOLT:DC?", "unit": "V"}},
             },
         },
     }
@@ -168,20 +219,20 @@ class TestBenchRig:
         rig = RigConfig.model_validate(bench_document()).build(start=False)
         psu = _psu(rig)
         assert isinstance(psu.link, FakeTextLink)
-        states = rig.demand(psu.root, {"set_voltage": 12.0})
+        states = rig.write(psu.root, {"set_voltage": 12.0})
         assert psu.link.written == ["SOUR:VOLT 12.000"]
         assert states[_signal(rig, "psu.set_voltage")].value == 12.0
 
     def test_demand_is_clamped_to_the_envelope_s_limits(self):
         rig = RigConfig.model_validate(bench_document()).build(start=False)
         psu = _psu(rig)
-        states = rig.demand(psu.root, {"set_voltage": 99.0})
+        states = rig.write(psu.root, {"set_voltage": 99.0})
         signal = _signal(rig, "psu.set_voltage")
         assert states[signal].value == 30.0 and states[signal].at_limit == "high"
 
     def test_an_undeclared_link_is_refused(self):
         document = bench_document()
-        document["devices"]["psu"]["config"]["link"] = "nowhere"
+        document["devices"]["psu"]["link"] = "nowhere"
         with pytest.raises(ValueError, match="link 'nowhere' is not declared"):
             RigConfig.model_validate(document)
 
@@ -194,10 +245,10 @@ class TestBenchRig:
         by_driver = schema["properties"]["devices"]["additionalProperties"]
         tags = {
             shape["properties"]["driver"]["const"]
-            for variant in by_driver["oneOf"]
-            # `.get`: the layer variants (an entry that only adds to a base's device, and `null`
-            # to remove one) have no nested `oneOf` and name no driver.
-            for shape in variant.get("oneOf", [])
+            for shape in by_driver["oneOf"]
+            # The layer variants (an entry that only adds to a base's device, and `null` to
+            # remove one) name no driver.
+            if "driver" in shape.get("properties", {})
         }
         assert "scpi" in tags
 

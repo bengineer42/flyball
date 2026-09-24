@@ -1,6 +1,6 @@
 // Package schema embeds the rig file's JSON Schema -- generated from the
 // Python side's own RigConfig model (engine/src/flyball/runtime/config.py's
-// rig_schema()), which is the single source of truth for every driver/tag
+// rig_schema()), which is the single source of truth for every driver/type
 // registered there. The daemon/CLI never derives this schema itself; it
 // only carries the checked-in copy (rig.schema.json, kept current by
 // regen.sh) and validates against it.
@@ -23,7 +23,7 @@ var RigSchemaJSON []byte
 // ProgramSchemaJSON is the raw bytes of the checked-in program file schema,
 // exactly as `flyball program schema` (the Python CLI) emits it. Built from
 // the static Commands registry (engine/src/flyball/programmer/command.py),
-// populated by Command subclasses as their modules import -- not plugin
+// populated by Step subclasses as their modules import -- not plugin
 // discovery -- so this schema is genuinely static, unlike the rig schema's
 // driver set.
 //

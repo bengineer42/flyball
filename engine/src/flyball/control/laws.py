@@ -5,7 +5,7 @@ gains come from a plant model; `on_off`, a relay with hysteresis; `smith`, a
 PI on a dead-time-compensated reading; `scheduled`, a PID whose gains follow
 the setpoint; `sliding`, a sliding-mode law on an integral surface. Every
 one turns `(elapsed, reading, setpoint)` into a correction and is selected by
-its tag in a rig file, a request or a tuning.
+its type in a rig file, a request or a tuning.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ class Weighted:
         return kp * (self.b * setpoint - reading)
 
 
-class OpenLoop(ControlLaw, tag="open_loop"): ...
+class OpenLoop(ControlLaw, type="open_loop"): ...
 
 
 class P(ControlLaw):
@@ -48,7 +48,7 @@ class P(ControlLaw):
         """A proportional law has no memory, so it cannot hold `correction`."""
         return self.kp * (setpoint - reading)
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         return self.kp * (setpoint - reading)
@@ -117,19 +117,32 @@ class IComponent:
         """Advance the integrator to `elapsed`; return the interval since the previous step.
 
         `elapsed` is from the law's own start, so the law keeps no clock. The
-        first step and a repeated instant have zero interval and add nothing.
+        first step and a repeated instant have zero interval and add nothing;
+        so does a step back in time (`elapsed` before the last one seen) --
+        it is skipped rather than subtracting from the integral, and the next
+        step in the right direction picks up from the same `last_elapsed` as
+        if the backward one had not happened.
 
         Args:
             error: Setpoint minus reading.
             elapsed: Seconds since the law was reset or resumed.
             last_applied: What was delivered last step, for back-calculation
-                anti-windup. Ignored without `tt`.
+                anti-windup: the integral's output moves toward it by
+                `(last_applied - last_raw) * (1 - exp(-dt/tt))`, so it never
+                crosses it however long the step. Ignored without `tt`.
         """
         dt = elapsed - self.last_elapsed
+        if dt < 0.0:
+            return 0.0
         self.last_elapsed = elapsed
         self.integral += error * dt
-        if self._tt_mul_ki and last_applied is not None and self.last_raw is not None:
-            self.integral += (last_applied - self.last_raw) * dt / self._tt_mul_ki
+        if self.tt > 0.0 and last_applied is not None and self.last_raw is not None:
+            # Back-calculation relaxes the integral's output toward what was
+            # applied with time constant tt, integrated exactly over dt: the
+            # gap closes by the fraction 1 - exp(-dt/tt), never more. Forward
+            # Euler (dt/tt) overshoots once dt > tt and diverges past 2*tt.
+            k = 1.0 - exp(-dt / self.tt)
+            self.integral += (last_applied - self.last_raw) * k / self._ki
         return dt
 
     def update_output(self, output: float) -> None:
@@ -137,6 +150,14 @@ class IComponent:
 
 
 class PI(Weighted, IComponent, ControlLaw):
+    """Proportional-integral, with back-calculation anti-windup.
+
+    `tt` omitted or 0 disables anti-windup outright (`IComponent.tt` is 0
+    whenever `ki` is, too, so a pure-`P`-with-integral-off law never needs
+    it either). Recommended `tt` is about `Ti` (`kp/ki`), or `√(Ti·Td)` when
+    a derivative term also acts (`PID`, `Scheduled`).
+    """
+
     _kp: float = 0.0
 
     def __init__(self, kp: float = 0, ki: float = 0, tt: float = 0, b: float = 1.0) -> None:
@@ -154,7 +175,7 @@ class PI(Weighted, IComponent, ControlLaw):
     def resume(self, reading: float, setpoint: float, correction: float) -> float:
         return self.resume_integral(self.proportional(self._kp, reading, setpoint), correction)
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         error = setpoint - reading
@@ -165,20 +186,43 @@ class PI(Weighted, IComponent, ControlLaw):
 
 
 class PID(Weighted, IComponent, ControlLaw):
-    """Derivative on the reading, not the error, so a setpoint step does not kick it."""
+    """Derivative on the reading, not the error, so a setpoint step does not kick it.
+
+    `tt` omitted or 0 disables anti-windup, as on `PI`; recommended `tt` is
+    `√(Ti·Td)` (`Ti = kp/ki`, `Td = kd/kp`) once both act. `n`, when given,
+    filters the derivative through a first-order lag with time constant
+    `1/n` seconds before it is scaled by `kd` -- raises `n` for less
+    filtering, lower for more; omitted (the default), the derivative is the
+    raw rate on the reading, exactly as before this option existed.
+    """
 
     _kp: float = 0.0
     _kd: float = 0.0
+    n: float | None = None
 
     last_reading: float | None = None
-    _state_fields: ClassVar[dict[str, Any]] = {"last_reading": float | None}
+    filtered_rate: float = 0.0
+    """The derivative filter's own state; unused, and always 0, without `n`."""
+    _state_fields: ClassVar[dict[str, Any]] = {
+        "last_reading": float | None,
+        "filtered_rate": float,
+    }
 
     def __init__(
-        self, kp: float = 0, ki: float = 0, kd: float = 0, tt: float = 0.0, b: float = 1.0
+        self,
+        kp: float = 0,
+        ki: float = 0,
+        kd: float = 0,
+        tt: float = 0.0,
+        b: float = 1.0,
+        n: float | None = None,
     ) -> None:
+        if n is not None and n <= 0.0:
+            raise ValueError("the derivative filter n must be positive")
         self._kp = kp
         self._kd = kd
         self.b = b
+        self.n = n
         self.set_ki_tt(ki, tt)
 
     @property
@@ -196,14 +240,18 @@ class PID(Weighted, IComponent, ControlLaw):
         self.last_reading = reading
         return self.resume_integral(self.proportional(self._kp, reading, setpoint), correction)
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         error = setpoint - reading
         dt = self.step_integral(error, elapsed, last_applied)
         output = self.proportional(self._kp, reading, setpoint) + self.integral_value
         if dt > 0.0 and self.last_reading is not None:
-            output += self._kd * (self.last_reading - reading) / dt
+            rate = (self.last_reading - reading) / dt
+            if self.n:
+                self.filtered_rate += (dt / (dt + 1.0 / self.n)) * (rate - self.filtered_rate)
+                rate = self.filtered_rate
+            output += self._kd * rate
         self.last_reading = reading
         self.update_output(output)
         return output
@@ -213,7 +261,7 @@ class IMC(PID):
     """A PID whose gains come from a first-order-plus-dead-time model, by the IMC rule.
 
     The same arithmetic as `flyball.autotune.rules.imc`, stated here so the
-    law can be written from the model directly (`{tag: IMC, gain: 1, tau: 60,
+    law can be written from the model directly (`{type: IMC, gain: 1, tau: 60,
     dead_time: 5}`) and retuned by changing the model, not the gains. `lam`
     is the closed-loop time constant asked for: smaller is faster and less
     tolerant of model error; it defaults to `max(tau, 0.8·dead_time)`, about
@@ -226,6 +274,8 @@ class IMC(PID):
         lam: Closed-loop time constant; None for the default.
         derivative: Include derivative action.
         b: Setpoint weight on the proportional term.
+        n: Derivative filter; see `PID`. None (the default) leaves the
+            derivative unfiltered.
     """
 
     gain: float
@@ -242,6 +292,7 @@ class IMC(PID):
         lam: float | None = None,
         derivative: bool = True,
         b: float = 1.0,
+        n: float | None = None,
     ) -> None:
         if not gain or tau <= 0.0 or dead_time < 0.0:
             raise ValueError("IMC needs a non-zero gain, a positive tau and a dead time >= 0")
@@ -261,10 +312,10 @@ class IMC(PID):
             ti = tau
             kp = tau / (gain * (closed + dead_time))
             td = 0.0
-        super().__init__(kp=kp, ki=kp / ti, kd=kp * td, tt=(ti * td) ** 0.5 if td else ti, b=b)
+        super().__init__(kp=kp, ki=kp / ti, kd=kp * td, tt=(ti * td) ** 0.5 if td else ti, b=b, n=n)
 
 
-class OnOff(ControlLaw, tag="on_off"):
+class OnOff(ControlLaw, type="on_off"):
     """A relay with hysteresis: `high` below the setpoint, `low` above, held in the deadband.
 
     For an actuator that only switches -- a heater with a contactor, a
@@ -293,7 +344,7 @@ class OnOff(ControlLaw, tag="on_off"):
         self.on = abs(correction - self.high) <= abs(correction - self.low)
         return self.high if self.on else self.low
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         error = setpoint - reading
@@ -304,7 +355,7 @@ class OnOff(ControlLaw, tag="on_off"):
         return self.high if self.on else self.low
 
 
-class SmithPredictor(PI, tag="smith"):
+class SmithPredictor(PI, type="smith"):
     """A PI on a reading with the dead time taken out: the Smith predictor.
 
     The law runs its own first-order model of the plant on the corrections it
@@ -321,10 +372,15 @@ class SmithPredictor(PI, tag="smith"):
     per unit of setpoint -- 1 under the default `setpoint` feedforward (a
     drive in the reading's units), 0 under `none` (a raw drive, the
     correction is the whole demand) -- and `gain` is reading per unit of that
-    input, as an identified plant reports it.
+    input, as an identified plant reports it. When `last_applied` is given
+    -- what the target actually delivered last tick -- the model is driven
+    by that rather than the law's own last output, so a clamp or a deferred
+    commit downstream does not leave the model believing more correction
+    reached the plant than really did.
 
     Args:
-        kp, ki, tt: The PI, tuned for the delay-free plant.
+        kp, ki, tt: The PI, tuned for the delay-free plant. `tt` omitted or
+            0 disables anti-windup; see `IComponent.step_integral`.
         gain, tau, dead_time: The model.
         feedforward: Demand per unit of setpoint the feedforward contributes.
         b: Setpoint weight on the proportional term.
@@ -378,14 +434,18 @@ class SmithPredictor(PI, tag="smith"):
         self._last_output = correction
         return super().resume(reading, setpoint, correction)
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         dt = elapsed - self.last_elapsed
         if dt > 0.0:
             # The model's lag, driven over the interval by the demand as the
-            # model sees it: the setpoint's share now, the last correction.
-            target = self.gain * (self.feedforward * setpoint + self._last_output)
+            # model sees it: the setpoint's share now, plus what the target
+            # actually delivered last tick when that is known (a clamp or a
+            # deferred commit means it is not always the raw correction the
+            # law itself returned) -- else the law's own last output.
+            driven = self._last_output if last_applied is None else last_applied
+            target = self.gain * (self.feedforward * setpoint + driven)
             self.predicted = target + (self.predicted - target) * exp(-dt / self.tau)
             self._pipe.append((elapsed, self.predicted))
             due = elapsed - self.dead_time
@@ -394,11 +454,11 @@ class SmithPredictor(PI, tag="smith"):
             if self._pipe[0][0] <= due:
                 self.predicted_delayed = self._pipe[0][1]
         seen = reading + (self.predicted - self.predicted_delayed)
-        self._last_output = super().step(elapsed, seen, setpoint, last_applied)
+        self._last_output = super().update(elapsed, seen, setpoint, last_applied)
         return self._last_output
 
 
-class Scheduled(PID, tag="scheduled"):
+class Scheduled(PID, type="scheduled"):
     """A PID whose gains follow the setpoint: gain scheduling.
 
     `points` is a table of `[setpoint, kp, ki, kd]` rows; the gains in force
@@ -409,6 +469,9 @@ class Scheduled(PID, tag="scheduled"):
     For a plant whose response depends on where it is run -- a heater whose
     losses grow with temperature, a valve that is nonlinear in its travel --
     where one tuning is either sluggish at one end or ringing at the other.
+
+    `tt` omitted or 0 disables anti-windup, as on `PI`/`PID`. `n`, as on
+    `PID`, filters the derivative and does not change with the schedule.
     """
 
     points: list[list[float]]
@@ -417,7 +480,13 @@ class Scheduled(PID, tag="scheduled"):
     ki_now: float = 0.0
     kd_now: float = 0.0
 
-    def __init__(self, points: list[list[float]], tt: float = 0.0, b: float = 1.0) -> None:
+    def __init__(
+        self,
+        points: list[list[float]],
+        tt: float = 0.0,
+        b: float = 1.0,
+        n: float | None = None,
+    ) -> None:
         rows = sorted((list(map(float, row)) for row in points), key=lambda row: row[0])
         if len(rows) < 1 or any(len(row) != 4 for row in rows):
             raise ValueError("points are [setpoint, kp, ki, kd] rows, at least one")
@@ -427,7 +496,7 @@ class Scheduled(PID, tag="scheduled"):
         self._setpoints = [row[0] for row in rows]
         self._tt = tt
         _, kp, ki, kd = rows[0]
-        super().__init__(kp=kp, ki=ki, kd=kd, tt=tt, b=b)
+        super().__init__(kp=kp, ki=ki, kd=kd, tt=tt, b=b, n=n)
         self.kp_now, self.ki_now, self.kd_now = kp, ki, kd
 
     def gains_at(self, setpoint: float) -> tuple[float, float, float]:
@@ -453,14 +522,14 @@ class Scheduled(PID, tag="scheduled"):
         self._schedule(setpoint)
         return super().resume(reading, setpoint, correction)
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         self._schedule(setpoint)
-        return super().step(elapsed, reading, setpoint, last_applied)
+        return super().update(elapsed, reading, setpoint, last_applied)
 
 
-class SlidingMode(ControlLaw, tag="sliding"):
+class SlidingMode(ControlLaw, type="sliding"):
     """Sliding-mode control on an integral surface, with a boundary layer.
 
     The surface is `s = e + lam·∫e`; the law pushes towards it with
@@ -505,16 +574,20 @@ class SlidingMode(ControlLaw, tag="sliding"):
         self.last_elapsed = 0.0
         return wanted
 
-    def step(
+    def update(
         self, elapsed: float, reading: float, setpoint: float, last_applied: float | None = None
     ) -> float:
         error = setpoint - reading
         dt = elapsed - self.last_elapsed
-        self.last_elapsed = elapsed
-        surface = error + self.lam * self.integral
-        # Inside the layer the integral runs; at its edge it holds, so the
-        # surface cannot wind up while the output is pinned at ±k.
-        if abs(surface) < self.boundary or surface * error < 0:
-            self.integral += error * dt
+        # A step back in time (elapsed before the last one seen) is skipped,
+        # like step_integral above: the integral holds and last_elapsed is
+        # left where it was, so the next forward step sees the right dt.
+        if dt >= 0.0:
+            self.last_elapsed = elapsed
+            surface = error + self.lam * self.integral
+            # Inside the layer the integral runs; at its edge it holds, so the
+            # surface cannot wind up while the output is pinned at ±k.
+            if abs(surface) < self.boundary or surface * error < 0:
+                self.integral += error * dt
         surface = error + self.lam * self.integral
         return self.k * min(max(surface / self.boundary, -1.0), 1.0)

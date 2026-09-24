@@ -9,8 +9,15 @@
 import type { Request, StreamHandlers, Subscription, Transport } from "./transport.js";
 import { RigError } from "./transport.js";
 import type { DashboardDocument, DashboardRow, DashboardWithProblems } from "./dashboards.js";
+import { decodeCreationOptions, decodeRequestOptions, encodeCredential } from "./webauthn.js";
 import type {
   AuthInfo,
+  LatchOut,
+  RigEditOut,
+  StopPlan,
+  CommandRunOut,
+  PasskeyOut,
+  PasskeyListOut,
   Address,
   ClockOut,
   ControllerOut,
@@ -22,7 +29,6 @@ import type {
   DeviceView,
   ErrorDetail,
   Event,
-  EventLevel,
   Health,
   JsonSchema,
   LawConfig,
@@ -34,8 +40,9 @@ import type {
   ProgramRow,
   ProgrammerState,
   ReadOut,
-  ReferenceSpec,
+  SetpointSpec,
   RegulateRequest,
+  Severity,
   RigDocument,
   RigSchema,
   RigVersion,
@@ -52,10 +59,11 @@ import type {
   SimulationPlant,
   Span,
   StartRecording,
+  StopReport,
   StreamName,
   Streams,
   Tick,
-  WaitState,
+  ActivityOut,
   WriteOut,
   WriteRow,
   WriteStateRow,
@@ -108,6 +116,12 @@ function describeDetail(detail: unknown): string | undefined {
 
 const enc = encodeURIComponent;
 
+/** A rig edit's options: `base`, the head version the edit was made against (409 if it has moved); `force`, cancel a running program rather than refuse. */
+export interface EditOptions {
+  base?: number;
+  force?: boolean;
+}
+
 export class RigClient {
   constructor(private readonly transport: Transport) {}
 
@@ -120,12 +134,12 @@ export class RigClient {
     return response.json as T;
   }
 
-  /** A route's URL under the transport's base, for a link the browser follows itself (a download). A plain
-   * navigation cannot set a header, so the token travels as `?token=`, which the runner accepts on any GET. */
+  /** A route's URL under the transport's base, for a link the browser follows itself (a download).
+   * No credential travels here: a signed-in browser carries its session cookie regardless, and a
+   * bearer token never appears in a URL (a plain navigation cannot set a header for one anyway). */
   private url(path: string, query: Record<string, string | number | undefined> = {}): string {
     const q = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) if (value !== undefined) q.set(key, String(value));
-    if (this.transport.token) q.set("token", this.transport.token);
     const search = q.toString();
     return `${this.transport.base ?? ""}${path}${search ? `?${search}` : ""}`;
   }
@@ -157,13 +171,13 @@ export class RigClient {
     return this.get("/api/tunings");
   }
 
-  tuning(tag: string): Promise<LawConfig> {
-    return this.get(`/api/tunings/${enc(tag)}`);
+  tuning(name: string): Promise<LawConfig> {
+    return this.get(`/api/tunings/${enc(name)}`);
   }
 
-  /** Store `config` under `tag` on the live rig, replacing any tuning already there. */
-  setTuning(tag: string, config: LawConfig): Promise<LawConfig> {
-    return this.call({ method: "PUT", path: `/api/tunings/${enc(tag)}`, body: config });
+  /** Store `config` under `name` on the live rig, replacing any tuning already there. */
+  setTuning(name: string, config: LawConfig): Promise<LawConfig> {
+    return this.call({ method: "PUT", path: `/api/tunings/${enc(name)}`, body: config });
   }
 
   // endregion
@@ -185,9 +199,9 @@ export class RigClient {
     return this.get(`/api/devices/${enc(name)}/schema`, undefined, signal);
   }
 
-  /** Run a marked command; resolves to whatever the method returned. A command that succeeds on an offline device restarts its polling. */
-  command(name: string, tag: string, args: Record<string, unknown> = {}): Promise<unknown> {
-    return this.call({ method: "POST", path: `/api/devices/${enc(name)}/commands/${enc(tag)}`, body: args });
+  /** Run a marked command: what the method returned (`result`) and the controllers it put in manual (`interrupted`). A command that succeeds on an offline device restarts its polling. */
+  command(name: string, command: string, args: Record<string, unknown> = {}): Promise<CommandRunOut> {
+    return this.call({ method: "POST", path: `/api/devices/${enc(name)}/commands/${enc(command)}`, body: args });
   }
 
   /** Poll an offline device again on its period. */
@@ -196,49 +210,65 @@ export class RigClient {
   }
 
   /**
-   * Put values on writable signals under a device as one demand, committed
+   * Write values to writable signals under a device as one write, committed
    * at once; keys are names relative to the device (dotted under a
    * namespace: `position.x`), values in each signal's unit. Resolves to the
-   * write state of each signal set, by address. 409 for a signal a
-   * controller drives, a `together` group set in part, or a signal that is
-   * not writable; 404 for a name not under the device.
+   * write state of each signal set, by address; a signal left out keeps its
+   * value. 409 for a signal a controller drives, or one that is not writable
+   * (a readback's refusal names the command that moves it); 503 while a
+   * signal's limit is not known yet; 404 for a name not under the device.
    */
-  demandNode(name: string, values: Record<string, number>): Promise<Record<Address, WriteOut>> {
-    return this.call({ method: "PUT", path: `/api/devices/${enc(name)}/demand`, body: values });
+  writeNode(name: string, values: Record<string, number>): Promise<Record<Address, WriteOut>> {
+    return this.call({ method: "PUT", path: `/api/devices/${enc(name)}/write`, body: values });
   }
 
-  /** The single-signal demand: `value` in the signal's unit. 409 if the address is a namespace or a controller drives it. */
-  demand(address: Address, value: number): Promise<Record<Address, WriteOut>> {
+  /** The single-signal write: `value` in the signal's unit. 409 if the address is a namespace or a controller drives it. */
+  write(address: Address, value: number): Promise<Record<Address, WriteOut>> {
     return this.call({ method: "PUT", path: `/api/signals/${enc(address)}`, body: value });
   }
 
-  /** Build a device on the rig's links and put it on the rig: bound, polling, recorded. 409 for a name in use, 404 for an unknown link or an unresolved bound address, 422 for an unknown driver or a config it refuses. */
-  addDevice(body: NewDevice): Promise<DeviceOut> {
-    return this.call({ method: "POST", path: "/api/devices", body });
+  /**
+   * Add a device to the rig file: a rig edit (see `RigEditOut`). The runner saves a new head version,
+   * stops, and restarts with the device built. 409 for a name in use, a running program (unless
+   * `force`), a stale `base`, or a runner already restarting; 422 for an unknown driver or a config it refuses.
+   */
+  addDevice(body: NewDevice, options: EditOptions = {}): Promise<RigEditOut> {
+    return this.edit("POST", "/api/devices", body, options);
   }
 
-  /** Take a device off the rig with everything that hung off it; 404 if there is none. */
-  removeDevice(name: string): Promise<void> {
-    return this.call({ method: "DELETE", path: `/api/devices/${enc(name)}` });
+  /** Remove a device from the rig file: a rig edit, as `addDevice`. 404 if there is none. */
+  removeDevice(name: string, options: EditOptions = {}): Promise<RigEditOut> {
+    return this.edit("DELETE", `/api/devices/${enc(name)}`, undefined, options);
+  }
+
+  /** A rig edit: validated, saved as the new head version, then the runner stops and restarts on it (202). */
+  private edit(method: "POST" | "DELETE", path: string, body: unknown, { base, force }: EditOptions): Promise<RigEditOut> {
+    const request: Request = { method, path };
+    if (body !== undefined) request.body = body;
+    const query: Record<string, string | number | boolean> = {};
+    if (base !== undefined) query.base = base;
+    if (force) query.force = true;
+    if (Object.keys(query).length) request.query = query;
+    return this.call(request);
   }
 
   // endregion
 
   // region Composition -- links and whole documents; the rig's versions; saving it
 
-  /** Build a link and hold it under `body.name`; 409 if the name is taken, 422 for a bad config. */
-  addLink(body: LinkEntry): Promise<LinkEntry> {
-    return this.call({ method: "POST", path: "/api/links", body });
+  /** Add a link to the rig file: a rig edit, as `addDevice`. 409 if the name is taken, 422 for a bad config. */
+  addLink(body: LinkEntry, options: EditOptions = {}): Promise<RigEditOut> {
+    return this.edit("POST", "/api/links", body, options);
   }
 
-  /** Drop a link no device is built on; 409 while one is. */
-  removeLink(name: string): Promise<void> {
-    return this.call({ method: "DELETE", path: `/api/links/${enc(name)}` });
+  /** Remove a link no device is built on: a rig edit, as `addDevice`; 409 while a device is built on it. */
+  removeLink(name: string, options: EditOptions = {}): Promise<RigEditOut> {
+    return this.edit("DELETE", `/api/links/${enc(name)}`, undefined, options);
   }
 
-  /** Add a document's links, devices and controllers to the running rig, in that order; validated whole before anything is built, so a failure part-way leaves what was built before it. */
-  addDocument(document: Partial<RigDocument> & Record<string, unknown>): Promise<RigDocument> {
-    return this.call({ method: "POST", path: "/api/rig", body: document });
+  /** Add a document's links, devices and controllers to the rig file in one edit, validated whole: a rig edit, as `addDevice`. */
+  addDocument(document: Partial<RigDocument> & Record<string, unknown>, options: EditOptions = {}): Promise<RigEditOut> {
+    return this.edit("POST", "/api/rig", document, options);
   }
 
   /** The running rig as a rig file would build it: links, devices, controllers as they are now. */
@@ -254,20 +284,95 @@ export class RigClient {
   /** Every version of the rig this store has seen, newest first: when, and why it changed. */
   // region Auth
 
-  /** Who this caller is here and what the runner's door is like (`GET /api/auth`); always answers. */
+  /**
+   * Who this caller is here and what this rig's door is like (`GET /api/auth`). Answers anonymous for
+   * no credential or a stale session cookie, but 401 for an `Authorization` header that is not a
+   * valid flyball token (a proxy's `Basic`, say), with or without a session cookie.
+   */
   auth(): Promise<AuthInfo> {
     return this.get("/api/auth");
   }
 
-  /** Trade the password (or the runner's token) for a session cookie the browser then carries on every
-   * request, socket and download. 401 for a wrong one; 429 after ten wrong ones in a minute. */
-  login(secret: string): Promise<AuthInfo> {
-    return this.call({ method: "POST", path: "/api/auth/login", body: { secret } });
+  /**
+   * Trade the admin password (a `password`-shape front) or a pasted token (a `bare` runner) for a
+   * session cookie the browser then carries on every request, socket and download. 401 wrong;
+   * 429 with `Retry-After` when limited.
+   */
+  login(credential: { password: string } | { token: string }): Promise<AuthInfo> {
+    return this.call({ method: "POST", path: "/api/auth/login", body: credential });
   }
 
-  /** Clear the session cookie. */
+  /** Clear the session cookie; the answer is the anonymous view. */
   logout(): Promise<AuthInfo> {
     return this.call({ method: "POST", path: "/api/auth/logout" });
+  }
+
+  // Passkeys: for Phase 3 (passkeys in the Go front). Dormant in Phase 1 -- nothing serves
+  // /api/auth/passkey/* yet; the UI calls these only when AuthInfo's `login.passkey` is true.
+
+  /** Register a passkey for this browser's authenticator, under `label`. Needs an already-
+   * authenticated (or anonymous-operate) session -- there is no separate bootstrap. Drives
+   * `navigator.credentials.create()` itself: the server's challenge, base64url-decoded to the
+   * `ArrayBuffer`s the browser API wants, and the resulting credential re-encoded to JSON. */
+  async registerPasskey(label: string): Promise<PasskeyOut> {
+    const options = await this.call<Record<string, any>>({ method: "POST", path: "/api/auth/passkey/challenge" });
+    const credential = (await navigator.credentials.create({
+      publicKey: decodeCreationOptions(options),
+    })) as PublicKeyCredential;
+    return this.call({
+      method: "POST",
+      path: "/api/auth/passkey/register",
+      body: { credential: encodeCredential(credential), label },
+    });
+  }
+
+  /** Sign in with a passkey already registered on this runner: `navigator.credentials.get()`,
+   * then the same trade for a session cookie `login` makes. No prior session needed. */
+  async loginWithPasskey(): Promise<AuthInfo> {
+    const options = await this.call<Record<string, any>>({ method: "POST", path: "/api/auth/passkey/login/challenge" });
+    const credential = (await navigator.credentials.get({
+      publicKey: decodeRequestOptions(options),
+    })) as PublicKeyCredential;
+    return this.call({
+      method: "POST",
+      path: "/api/auth/passkey/login",
+      body: { credential: encodeCredential(credential) },
+    });
+  }
+
+  /** This runner's registered passkeys, and whether they survive a restart. */
+  listPasskeys(): Promise<PasskeyListOut> {
+    return this.get("/api/auth/passkey");
+  }
+
+  /** Forget a passkey; anyone using it is refused from their next request. */
+  deletePasskey(id: number): Promise<void> {
+    return this.call({ method: "DELETE", path: `/api/auth/passkey/${id}` });
+  }
+
+  /**
+   * Stop the rig for everyone: interrupt any running program, put every controller in manual and
+   * write each device's stop (`POST <root>/api/rig/stop`); the rig stays latched until
+   * `POST /api/rig/reset`. Needs `OPERATE`; never rate-limited. A refusal must be surfaced as one,
+   * never treated as a stop.
+   */
+  stopRig(reason?: string): Promise<StopReport> {
+    return this.call({ method: "POST", path: "/api/rig/stop", body: reason === undefined ? {} : { reason } });
+  }
+
+  /** The stop a Software stop would apply, output by output, and the latch if one holds (`GET /api/rig/stop`). */
+  stopPlan(signal?: AbortSignal): Promise<StopPlan> {
+    return this.get("/api/rig/stop", undefined, signal);
+  }
+
+  /** The latches the rig holds (`GET /api/rig/latches`): the rig stop, and each controller's `on_fault` latch. */
+  latches(signal?: AbortSignal): Promise<LatchOut[]> {
+    return this.get("/api/rig/latches", undefined, signal);
+  }
+
+  /** Let a latch go (`POST /api/rig/reset`): `stop` (the default) or `on_fault:<controller>`. Operate and a person: a service token or a model gets 403. */
+  resetRig(cause?: string): Promise<LatchOut> {
+    return this.call({ method: "POST", path: "/api/rig/reset", body: cause === undefined ? {} : { cause } });
   }
 
   // endregion
@@ -296,9 +401,9 @@ export class RigClient {
     return this.get(`/api/rig/versions/${id}`);
   }
 
-  /** Make the running rig that version again: links, devices and controllers rebuilt to match it; records a version of its own. */
-  restoreVersion(id: number): Promise<RigDocument> {
-    return this.call({ method: "POST", path: `/api/rig/versions/${id}/restore` });
+  /** Restore a version: saves a new version on top with that document (`restored from N`) and restarts the runner on it -- a rig edit, as `addDevice`. */
+  restoreVersion(id: number, options: EditOptions = {}): Promise<RigEditOut> {
+    return this.edit("POST", `/api/rig/versions/${id}/restore`, undefined, options);
   }
 
   /** Write the running rig out. No `path`: the changes since the files were loaded, to the overlay beside them (409 if the rig was not started from a file). A `path`: the whole rig, flattened (422 for a suffix the runner does not write, 409 for one of the loaded files unless `overwrite`). */
@@ -366,7 +471,7 @@ export class RigClient {
 
   /**
    * Aim at `at` (a value, `process`/`setpoint`/`demand`, or a generator spec such as
-   * `{tag: "linear_ramp_setpoint", pace: {per_minute: 10}, end: 75}`, which ramps from
+   * `{type: "linear_ramp_setpoint", pace: {per_minute: 10}, end: 75}`, which ramps from
    * the current setpoint or reading) and hand control to the law; the handover's demand
    * is committed at once.
    */
@@ -381,34 +486,34 @@ export class RigClient {
 
   /**
    * Move the setpoint, or start following a generator spec, without touching the mode or the
-   * law's state. `start` says where a generator begins (a value, `setpoint`, `process`);
+   * law's state. `start` says where a generator begins (a value, `setpoint`, `measured`);
    * omitted, the current setpoint while regulating, else the last reading.
    */
-  setReference(address: Address, at: ReferenceSpec, start?: StartSpec | null): Promise<ControllerOut> {
-    return this.call({ method: "PUT", path: `/api/controllers/${enc(address)}/reference`, body: start == null ? { at } : { at, start } });
+  setSetpoint(address: Address, at: SetpointSpec, start?: StartSpec | null): Promise<ControllerOut> {
+    return this.call({ method: "PUT", path: `/api/controllers/${enc(address)}/setpoint`, body: start == null ? { at } : { at, start } });
   }
 
   // endregion
 
-  // region Waits -- what the rig is waiting on, and answering it
+  // region Activities -- what the rig is waiting on, and answering it
 
-  /** Every registered wait by name: pending, or settled but not yet taken down. */
-  waits(): Promise<Record<string, WaitState>> {
-    return this.get("/api/waits");
+  /** Every registered activity by name: pending, or settled but not yet taken down. */
+  activities(): Promise<Record<string, ActivityOut>> {
+    return this.get("/api/activities");
   }
 
-  wait(name: string): Promise<WaitState> {
-    return this.get(`/api/waits/${enc(name)}`);
+  activity(name: string): Promise<ActivityOut> {
+    return this.get(`/api/activities/${enc(name)}`);
   }
 
-  /** Settle the wait as met; `fired` false if it had already settled. */
-  fireWait(name: string): Promise<{ name: string; fired: boolean }> {
-    return this.call({ method: "POST", path: `/api/waits/${enc(name)}/fire` });
+  /** Settle the activity as met; `fired` false if it had already settled. */
+  fireActivity(name: string): Promise<{ name: string; fired: boolean }> {
+    return this.call({ method: "POST", path: `/api/activities/${enc(name)}/fire` });
   }
 
-  /** Cancel the wait; the program stops at this step. */
-  interruptWait(name: string): Promise<{ name: string; interrupted: boolean }> {
-    return this.call({ method: "POST", path: `/api/waits/${enc(name)}/interrupt` });
+  /** Cancel the activity; the program stops at this step. */
+  cancelActivity(name: string): Promise<{ name: string; cancelled: boolean }> {
+    return this.call({ method: "POST", path: `/api/activities/${enc(name)}/cancel` });
   }
 
   // endregion
@@ -608,12 +713,21 @@ export class RigClient {
     return `/api/programs/library/${enc(name)}/download${query ? `?${query}` : ""}`;
   }
 
-  runStoredProgram(name: string, options: { interrupt?: boolean; version?: number } = {}): Promise<ProgrammerState> {
+  runStoredProgram(name: string, options: { cancel?: boolean; version?: number } = {}): Promise<ProgrammerState> {
     const q = new URLSearchParams();
-    if (options.interrupt) q.set("interrupt", "true");
+    if (options.cancel) q.set("cancel", "true");
     if (options.version !== undefined) q.set("version", String(options.version));
     const query = q.toString();
     return this.call({ method: "POST", path: `/api/programs/library/${enc(name)}/run${query ? `?${query}` : ""}` });
+  }
+
+  /**
+   * `POST /api/programs/run`: start a program document that is not stored -- one step run on its
+   * own, or a few -- without saving it to the library. `cancel` cancels whatever is running
+   * instead of the 409 a busy programmer gives.
+   */
+  runProgram(document: unknown, options: { cancel?: boolean } = {}): Promise<ProgrammerState> {
+    return this.call({ method: "POST", path: `/api/programs/run${options.cancel ? "?cancel=true" : ""}`, body: document });
   }
 
   /** Validate a document (the dialect tree, already parsed) without running it: `ProgramCheck` with a warning per step naming something the rig lacks; 422 names a step that fails to parse. */
@@ -627,7 +741,7 @@ export class RigClient {
 
   /**
    * `GET /api/programs/commands`: the commands' argument schemas as one
-   * discriminated union (`$defs` per command, `discriminator.mapping` tag →
+   * discriminated union (`$defs` per command, `discriminator.mapping` command →
    * ref), for rendering a program's steps with titles, units and enums.
    */
   programCommandsSchema(): Promise<JsonSchema> {
@@ -638,16 +752,16 @@ export class RigClient {
     return this.get("/api/programs/running");
   }
 
-  interruptProgram(): Promise<ProgrammerState> {
-    return this.call({ method: "POST", path: "/api/programs/interrupt" });
+  cancelProgram(): Promise<ProgrammerState> {
+    return this.call({ method: "POST", path: "/api/programs/cancel" });
   }
 
   // endregion
 
   // region Events
 
-  /** The last few hundred events, oldest first; `level` keeps that level and above. */
-  events(query: { limit?: number; level?: EventLevel } = {}): Promise<Event[]> {
+  /** The last few hundred events, oldest first; `severity` keeps that severity and above. */
+  events(query: { limit?: number; severity?: Severity } = {}): Promise<Event[]> {
     return this.get("/api/events", query);
   }
 
@@ -671,8 +785,8 @@ export class RigClient {
   }
 
   /** Advance a stepped clock; 409 if the clock runs on its own. */
-  stepSimulation(seconds: number): Promise<{ now_ns: number }> {
-    return this.call({ method: "POST", path: "/api/sim/clock/step", body: { seconds } });
+  advanceSimulation(seconds: number): Promise<{ now_ns: number }> {
+    return this.call({ method: "POST", path: "/api/sim/clock/advance", body: { seconds } });
   }
 
   simulationPlant(name: string): Promise<SimulationPlant> {

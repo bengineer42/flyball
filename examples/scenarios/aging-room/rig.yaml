@@ -10,35 +10,33 @@
 name: aging-room
 
 links:
-  i2c1: { tag: i2c, bus: 1 }
-  humidifier_pwm: { tag: pwm, chip: 0 }
+  i2c1: { type: i2c, bus: 1 }
+  humidifier_pwm: { type: pwm, chip: 0 }
 
 devices:
   climate:                                 # climate.chamber.humidity/temperature [RP]
     driver: sht4x_set
     label: Cave climate
     poll_s: 30                              # a curing room moves slowly; no need to poll fast
-    config:
-      link: i2c1
-      sensors:
-        chamber: { address: 0x44 }
+    link: i2c1
+    sensors:
+      chamber: { address: 0x44 }
     signals:
       chamber:
         label: Chamber
         signals:
-          humidity: { label: Chamber humidity, warn: [60, 98] }
-          temperature: { label: Chamber temperature, warn: [8, 16] }
+          humidity: { label: Chamber humidity, warning: [60, 98] }
+          temperature: { label: Chamber temperature, warning: [8, 16] }
 
   humidifier:                              # humidifier.drive [W]
     driver: pwm_channel
     label: Humidifier
-    config:
-      link: humidifier_pwm
-      channel: 0
-      frequency_hz: 1000
+    link: humidifier_pwm
+    channel: 0
+    frequency_hz: 1000
 
 controllers:
   humidifier.drive:
-    signal: climate.chamber.humidity
-    law: { tag: PI, kp: 0.03, ki: 0.0005 }
+    measured: climate.chamber.humidity
+    law: { type: PI, kp: 0.03, ki: 0.0005 }
     default: true

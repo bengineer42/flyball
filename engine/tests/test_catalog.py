@@ -12,11 +12,11 @@ from flyball.model.config import Config
 def kinds(fresh):
     a, b = fresh("link_a"), fresh("link_b")
 
-    class A(Config[str], tag=a):
+    class A(Config[str], type=a):
         def build(self) -> str:
             return "A"
 
-    class B(Config[str], tag=b):
+    class B(Config[str], type=b):
         def build(self) -> str:
             return "B"
 
@@ -31,11 +31,11 @@ class TestCatalog:
         catalog.register(A)
         assert a in catalog and catalog[a] is A and catalog.get(a) is A
         assert catalog.get("nope") is None and catalog.get("nope", A) is A
-        assert catalog.tags() == [a] and dict(catalog.items()) == {a: A}
+        assert catalog.names() == [a] and dict(catalog.items()) == {a: A}
 
     def test_getitem_of_an_unregistered_tag_is_a_keyerror(self):
         catalog = Catalog("link")
-        with pytest.raises(KeyError, match="link tag 'nope' is not registered"):
+        with pytest.raises(KeyError, match="link type 'nope' is not registered"):
             catalog["nope"]
 
     def test_registering_the_same_class_twice_is_not_a_clash(self, kinds):
@@ -48,11 +48,11 @@ class TestCatalog:
     def test_a_different_class_under_the_same_tag_is_refused(self, fresh):
         tag = fresh("dup")
 
-        class A(Config[str], tag=tag):
+        class A(Config[str], type=tag):
             def build(self) -> str:
                 return "A"
 
-        class Again(Config[str], tag=tag):
+        class Again(Config[str], type=tag):
             def build(self) -> str:
                 return ""
 
@@ -67,7 +67,7 @@ class TestCatalog:
                 return ""
 
         catalog = Catalog("link")
-        catalog.register(Untagged, tag="explicit")
+        catalog.register(Untagged, name="explicit")
         assert catalog["explicit"] is Untagged
 
     def test_register_with_no_tag_anywhere_is_refused(self):
@@ -76,7 +76,7 @@ class TestCatalog:
                 return ""
 
         catalog = Catalog("link")
-        with pytest.raises(ValueError, match="has no tag"):
+        with pytest.raises(ValueError, match="has no type"):
             catalog.register(Untagged)
 
     def test_unregister_drops_a_tag_and_is_a_no_op_if_absent(self, kinds):

@@ -7,6 +7,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 // jsdom) as a side effect of import alone -- stubbed out since these tests never render a trend.
 vi.mock("uplot", () => ({
   default: class {
+    static paths = { stepped: () => () => ({}) };
     setData() {}
     setSize() {}
     destroy() {}
@@ -16,6 +17,8 @@ import type { ControllerOut, Request, Response, SignalOut, StreamHandlers, Subsc
 import { RigProvider } from "../src/provider.js";
 import { WritePanel } from "../src/panels/WritePanel.js";
 import { ControllerPanel } from "../src/panels/ControllerPanel.js";
+import { CommandForm } from "../src/panels/CommandForm.js";
+import type { CommandSchema } from "@flyball/client";
 
 /** A transport with sane empty answers for everything `WritePanel`/`ControllerPanel` seed from on mount. */
 function fakeTransport(): Transport {
@@ -50,12 +53,12 @@ const SIGNAL: SignalOut = {
   dimension: null,
   dtype: "float",
   shape: [],
-  role: "input",
+  role: "demand",
   tags: {},
   initial: null,
   range: null,
   precision: 1,
-  warn: null,
+  warning: null,
   alarm: null,
   poll_s: null,
   limits: null,
@@ -66,20 +69,20 @@ const SIGNAL: SignalOut = {
 const CONTROLLER: ControllerOut = {
   name: "heater.demand",
   label: null,
-  target: "heater.demand",
-  source: "chamber.temp",
+  output_signal: "heater.demand",
+  measured_signal: "chamber.temp",
   default: false,
   mode: "regulating",
   law: null,
-  feedforward: { tag: "none" },
-  demand_unit: "W",
+  feedforward: { type: "none" },
+  output_unit: "W",
   reference: 50,
   setpoint: 50,
   correction: 0,
-  demand: 10,
+  output: 10,
   expected: 10,
   delivered_correction: 0,
-  reading: null,
+  measured: null,
 };
 
 describe("WritePanel gates on canOperate", () => {
@@ -108,12 +111,12 @@ describe("ControllerPanel gates controls/headerControls on canOperate", () => {
           source: { ...SIGNAL, address: "chamber.temp", unit: "°C" },
           trends: false,
           controls: createElement("button", { type: "button" }, "Move"),
-          headerControls: createElement("button", { type: "button" }, "Stop"),
+          headerControls: createElement("button", { type: "button" }, "Manual"),
         }),
       ),
     );
     expect(screen.getByRole("button", { name: "Move" }).closest("[aria-disabled]")).toBeNull();
-    expect(screen.getByRole("button", { name: "Stop" }).closest("[aria-disabled]")).toBeNull();
+    expect(screen.getByRole("button", { name: "Manual" }).closest("[aria-disabled]")).toBeNull();
   });
 
   it("dims and blocks clicks into controls/headerControls when canOperate is false, without hiding them", () => {
@@ -125,12 +128,12 @@ describe("ControllerPanel gates controls/headerControls on canOperate", () => {
           trends: false,
           canOperate: false,
           controls: createElement("button", { type: "button" }, "Move"),
-          headerControls: createElement("button", { type: "button" }, "Stop"),
+          headerControls: createElement("button", { type: "button" }, "Manual"),
         }),
       ),
     );
     const move = screen.getByRole("button", { name: "Move" });
-    const stop = screen.getByRole("button", { name: "Stop" });
+    const stop = screen.getByRole("button", { name: "Manual" });
     const moveWrap = move.closest("[aria-disabled='true']") as HTMLElement | null;
     const stopWrap = stop.closest("[aria-disabled='true']") as HTMLElement | null;
     expect((move as HTMLElement).hidden).toBe(false);
@@ -139,5 +142,19 @@ describe("ControllerPanel gates controls/headerControls on canOperate", () => {
     expect(stopWrap).not.toBeNull();
     expect(moveWrap!.style.pointerEvents).toBe("none");
     expect(stopWrap!.style.opacity).toBe("0.5");
+  });
+});
+
+
+describe("CommandForm canOperate", () => {
+  const NO_ARGS: CommandSchema = { description: null, arguments: { type: "object", properties: {} }, simulation: false, commit: false, mode: null, interrupts: false, writes: [], demand_of: null };
+  const run = vi.fn(async () => undefined);
+  it("a command's button is live by default", () => {
+    render(withRig(createElement(CommandForm, { name: "zero", command: NO_ARGS, onRun: run })));
+    expect((screen.getByRole("button", { name: "Zero" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+  it("is shown but disabled without canOperate", () => {
+    render(withRig(createElement(CommandForm, { name: "zero", command: NO_ARGS, onRun: run, canOperate: false })));
+    expect((screen.getByRole("button", { name: "Zero" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-export type PanelSeverity = "ok" | "warn" | "alarm" | "stale";
+export type PanelSeverity = "ok" | "warn" | "alarm" | "unknown" | "stale";
 
 export interface PanelFrameProps {
   /** The heading; without one (and without status/actions/severity) the frame has no header row. */
@@ -17,6 +17,8 @@ export interface PanelFrameProps {
    * "ok" (default when omitted, no dot): plain border. "warn"/"alarm": coloured
    * solid/double border, filled dot, one-shot pulse on entering the level.
    * "stale": dashed border, hollow dot, no pulse — DESIGN-SPEC.md §2.
+   * "unknown" (the rig's `band_unknown`: no value because of a fault, so the band cannot be
+   * judged): its own colour, a dotted border and a hollow dotted dot, no pulse -- never the alarm red.
    */
   severity?: PanelSeverity;
   /** Tooltip on the dot; defaults to the severity's name. */
@@ -33,7 +35,8 @@ const SEVERITY_LABEL: Record<PanelSeverity, string> = {
   ok: "normal",
   warn: "warning",
   alarm: "alarm",
-  stale: "stale — no recent sample",
+  unknown: "band unknown — no value because of a fault",
+  stale: "stale — no recent reading",
 };
 
 /**

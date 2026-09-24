@@ -1,5 +1,5 @@
 /**
- * The set-point generator union (`GET /api/controllers/schema` → `generators`)
+ * The setpoint generator union (`GET /api/controllers/schema` → `generators`)
  * as the faceplate's target control offers it: a list of kinds to choose from,
  * and each kind's config schema reshaped so `SchemaForm` renders it as a
  * usable form -- nothing here knows any generator by name; every rewrite is by
@@ -20,7 +20,7 @@
  * - a `Speed | Duration` union (a ramp's `pace`) keeps the two-way choice, its
  *   branches titled "at a rate" / "over a time";
  * - a number field a generator takes in the process unit gets `unit`;
- * - each config is titled by its tag, humanised, as the kind picker and a
+ * - each config is titled by its type, humanised, as the kind picker and a
  *   profile's segment picker show it.
  */
 
@@ -29,9 +29,9 @@ import { impliedUiSchema, simplifyNullables, type SchemaFormProps } from "@flyba
 
 type UiSchema = NonNullable<SchemaFormProps["uiSchema"]>;
 
-/** One generator the rig registers: its tag, a label, and its config schema (`$ref` into `$defs`). */
+/** One generator the rig registers: its type, a label, and its config schema (`$ref` into `$defs`). */
 export interface GeneratorChoice {
-  tag: string;
+  type: string;
   label: string;
   /** "Start <label>", with a trailing "setpoint" dropped: every generator generates one, so the word says nothing. */
   verb: string;
@@ -39,15 +39,15 @@ export interface GeneratorChoice {
 
 const hasProperty = (s: JsonSchema | undefined, key: string) => Boolean(s?.properties && key in s.properties);
 
-/** Every generator tag in the union, in the order the schema lists them, with the label its title gives. */
+/** Every generator type in the union, in the order the schema lists them, with the label its title gives. */
 export function generatorChoices(schema: JsonSchema | undefined): GeneratorChoice[] {
   if (!schema) return [];
   return (schema.oneOf ?? schema.anyOf ?? []).flatMap((branch) => {
     const def = deref(branch, schema);
-    const tag = (def.properties?.tag as JsonSchema | undefined)?.const;
-    if (typeof tag !== "string") return [];
-    const label = humanise(tag);
-    return [{ tag, label, verb: `Start ${label.toLowerCase().replace(/\s+setpoint$/, "")}` }];
+    const type = (def.properties?.type as JsonSchema | undefined)?.const;
+    if (typeof type !== "string") return [];
+    const label = humanise(type);
+    return [{ type, label, verb: `Start ${label.toLowerCase().replace(/\s+setpoint$/, "")}` }];
   });
 }
 
@@ -119,14 +119,14 @@ function reshape(node: JsonSchema, root: JsonSchema, unit: string): JsonSchema {
     if (isDuration(node, root)) return durationSchema(typeof node.title === "string" ? node.title : "duration");
   }
   const out: JsonSchema = { ...node };
-  const tag = (node.properties?.tag as JsonSchema | undefined)?.const;
-  if (typeof tag === "string") out.title = humanise(tag);
+  const type = (node.properties?.type as JsonSchema | undefined)?.const;
+  if (typeof type === "string") out.title = humanise(type);
   if (node.properties) {
     out.properties = Object.fromEntries(
       Object.entries(node.properties).map(([key, value]) => {
         const shaped = reshape(value, root, unit);
         // A generator's own number fields (a ramp's end, a hold's value) are in the process unit.
-        const inUnit = typeof tag === "string" && shaped.type === "number" && !shaped.unit;
+        const inUnit = typeof type === "string" && shaped.type === "number" && !shaped.unit;
         return [key, inUnit ? { ...shaped, unit } : shaped];
       }),
     );
@@ -142,17 +142,17 @@ function reshape(node: JsonSchema, root: JsonSchema, unit: string): JsonSchema {
  * The form schema for one generator: its config (deref'd out of the union)
  * with the whole union's `$defs` beside it, so a profile's segments still
  * resolve, every `Speed`/`Duration` reshaped, and `unit` on its numbers.
- * Undefined for a tag the union lacks.
+ * Undefined for a type the union lacks.
  */
-export function generatorFormSchema(schema: JsonSchema, tag: string, unit: string): JsonSchema | undefined {
-  const branch = (schema.oneOf ?? schema.anyOf ?? []).find((b) => (deref(b, schema).properties?.tag as JsonSchema | undefined)?.const === tag);
+export function generatorFormSchema(schema: JsonSchema, type: string, unit: string): JsonSchema | undefined {
+  const branch = (schema.oneOf ?? schema.anyOf ?? []).find((b) => (deref(b, schema).properties?.type as JsonSchema | undefined)?.const === type);
   if (!branch) return undefined;
   const shaped = reshape({ ...deref(branch, schema), $defs: schema.$defs ?? {} }, schema, unit);
   return shaped;
 }
 
 /**
- * The form's `uiSchema`: the `tag` hidden (the kind picker chose it), and a
+ * The form's `uiSchema`: the `type` hidden (the kind picker chose it), and a
  * short union field (a ramp's rate-or-time `pace`) picked with segmented
  * buttons rather than a select -- the choice reads at a glance, and MUI's
  * select warns on the console when RJSF remounts the branch beneath it. Built
@@ -161,10 +161,10 @@ export function generatorFormSchema(schema: JsonSchema, tag: string, unit: strin
 export function generatorUiSchema(formSchema: JsonSchema): UiSchema {
   const simplified = simplifyNullables(formSchema);
   const implied = impliedUiSchema(simplified, simplified);
-  const ui: UiSchema = { ...implied, tag: { "ui:widget": "hidden" } };
+  const ui: UiSchema = { ...implied, type: { "ui:widget": "hidden" } };
   for (const [key, field] of Object.entries(simplified.properties ?? {})) {
     const branches = field.anyOf ?? field.oneOf;
-    if (branches && branches.length >= 2 && branches.length <= 4 && key !== "tag") {
+    if (branches && branches.length >= 2 && branches.length <= 4 && key !== "type") {
       ui[key] = { ...(implied[key] as UiSchema | undefined), "ui:widget": "segmented" };
     }
   }

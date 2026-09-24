@@ -19,7 +19,7 @@ import {
   optionId,
 } from "@rjsf/utils";
 import type { JsonSchema } from "@flyball/client";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 const labelId = (id: string) => `${id}-label`;
 
@@ -208,10 +208,10 @@ export function SliderNumberWidget(props: WidgetProps) {
   );
 }
 
-/** Two number inputs for a `[low, high]` pair (a `Band`): the RJSF `ArrayField` this replaces does not
+/** Two number inputs for a `[low, high]` pair (a `Bounds`): the RJSF `ArrayField` this replaces does not
  * tolerate a `null` value (switched to from a nullable field's "leave unchanged"), so this widget must,
  * rendering both boxes empty rather than throwing. */
-export function BandWidget(props: WidgetProps) {
+export function BoundsWidget(props: WidgetProps) {
   const { id, value, onChange, onBlur, onFocus, disabled, readonly, schema, required, autofocus } = props;
   const s = schema as JsonSchema;
   const itemSchema = (Array.isArray(s.items) ? s.items[0] : undefined) as JsonSchema | undefined;
@@ -332,11 +332,25 @@ export function SegmentedWidget(props: WidgetProps) {
   );
 }
 
+/**
+ * A `const` field (`keep: true`, the marker of a union's branch): nothing to
+ * draw or edit, but its value set -- RJSF leaves it out when a union
+ * switches to its branch, and the rig then refuses the object.
+ */
+export function ConstantWidget({ schema, value, onChange }: WidgetProps) {
+  const fixed = (schema as JsonSchema).const;
+  useEffect(() => {
+    if (fixed !== undefined && value !== fixed) onChange(fixed);
+  }, [fixed, value, onChange]);
+  return null;
+}
+
 export const widgets = {
+  constant: ConstantWidget,
   text: TextWidget,
   unitNumber: UnitNumberWidget,
   slider: SliderNumberWidget,
-  band: BandWidget,
+  band: BoundsWidget,
   toggle: ToggleWidget,
   segmented: SegmentedWidget,
 };

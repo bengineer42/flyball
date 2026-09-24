@@ -14,7 +14,7 @@
 
 | section | |
 | --- | --- |
-| [Starting a rig](runner/index.md) | `flyball-runner rig.yaml`; what it serves; [access](runner/access.md) (the door, a sub-path, stopping); [building a rig while it runs](runner/building.md) |
+| [Starting a rig](runner/index.md) | `flyball run rig.yaml`, `flyball-runner rig.yaml`; what it serves; [access](runner/access.md) (the front, sign-in, the software stop, a sub-path); [building a rig while it runs](runner/building.md) |
 | [The UI](ui/index.md) | the pages, the app bar, then a page each for [devices](ui/devices.md), [controllers](ui/controllers.md), [charts](ui/charts.md), [sessions](ui/sessions.md), [the Config page](ui/rig.md), [dashboards](dashboards.md) |
 | [Programs](programs/index.md) | what a program is; [writing and running one](programs/writing.md) |
 | [The CLI](cli/index.md) | `flyball status`, `flyball devices`, `flyball invoke <device> <command>` |

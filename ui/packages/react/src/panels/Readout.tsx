@@ -1,14 +1,16 @@
-import { alarmLevel, captionUnder, describeUnit, deviceOf, signalTitleAt, staleAfterS, withUnit, type Freshness, type Place, type SignalOut, fixed } from "@flyball/client";
+import { alarmLevel, captionUnder, describeUnit, deviceOf, signalTitleAt, withUnit, type Place, type SignalOut, fixed } from "@flyball/client";
 import { TimeSeries } from "./TimeSeries.js";
 import { Ref } from "../links.js";
-import { useFreshness, useSignal, type TraceRef } from "../store/hooks.js";
+import { useBandLevel, useReading, type TraceRef } from "../store/hooks.js";
+import type { SignalReading } from "../store/telemetry.js";
 import { PanelFrame } from "./PanelFrame.js";
+import { CaveatMark, QualityBadge, noValue } from "./quality.js";
 
 export interface ReadoutProps {
   signal: SignalOut;
-  /** Recent trace; the last point is the value shown. Omit with `source`. */
+  /** Recent trace; the last point is the value shown (`NaN`/null: none). Omit with `source`. */
   t?: number[];
-  v?: number[];
+  v?: (number | null)[];
   /**
    * Read the signal from the telemetry store instead (`useTraceRef`): the
    * value re-renders this tile alone, at most four times a second, and the
@@ -32,13 +34,6 @@ export interface ReadoutProps {
   /** The same signal in the store, as an export URL; offered by the download menu of the chart the sparkline opens as. */
   exportHref?: string;
   /**
-   * Rig-time freshness for stale detection (DESIGN-SPEC.md §2/B-3): the
-   * device's poll period, its last sample time and the rig's current
-   * time, all in rig seconds. Omitted, or with `nowS`/`lastSampleS` unset,
-   * the readout is never stale.
-   */
-  fresh?: Freshness;
-  /**
    * Body only -- value, range bar, sparkline -- with no `PanelFrame` of its
    * own: for a dashboard widget, whose frame is drawn once by `WidgetFrame`
    * (the one-frame rule, DESIGN-SPEC.md §10). The caller shows the severity
@@ -47,27 +42,35 @@ export interface ReadoutProps {
   bare?: boolean;
 }
 
-/** The severity and stale age a `Readout` would show, for a caller that draws the frame itself (`bare`). */
-export function readoutLevel(signal: Pick<SignalOut, "warn" | "alarm">, last: number | undefined, fresh: Freshness | undefined) {
-  const level = alarmLevel(last, signal, fresh);
-  const ageS = fresh?.lastSampleS != null && fresh?.nowS != null ? Math.round(fresh.nowS - fresh.lastSampleS) : null;
-  const stale = level === "stale";
+/**
+ * The severity a `Readout` would show, for a caller that draws the frame itself (`bare`), from the
+ * signal's newest reading (a number alone for a caller with no rig feed): `stale` when the rig
+ * pushed a `stale` reading, else the rig's band on it (`band`), else the value against the bands.
+ * `label` is the dot's hover: why there is no value, and the last usable one.
+ */
+export function readoutLevel(signal: Pick<SignalOut, "warning" | "alarm" | "unit" | "precision">, reading: SignalReading | number | null | undefined, band?: "ok" | "warn" | "alarm" | "unknown") {
+  const r = typeof reading === "number" || reading === null || reading === undefined ? undefined : reading;
+  const value = r ? (typeof r.value === "number" ? r.value : null) : (reading as number | null | undefined);
+  const level = alarmLevel(value, signal, band, r?.quality);
+  const none = noValue(r, (v) => withUnit(fixed(v, signal.precision ?? 2), signal.unit));
   return {
     level,
-    ageS,
-    label: stale ? `stale — last sample ${ageS} s ago (over ${staleAfterS(fresh?.periodS)} s)` : undefined,
-    footer: stale ? `last sample ${ageS} s ago` : undefined,
+    label: none ? `${none.label} · ${none.hint}` : level === "unknown" ? "band unknown: no value because of a fault" : undefined,
+    footer: undefined as string | undefined,
   };
 }
 
 /** One signal as a tile: label, current value with unit, position in range, sparkline. */
-export function Readout({ signal, t, v, source, sparkline = true, showDevice = true, place, windowS, every, exportHref, fresh, bare = false }: ReadoutProps) {
-  const point = useSignal(source ? signal.address : undefined);
-  const last = source ? point?.v : v && v.length ? v[v.length - 1] : undefined;
-  // Store-fed with no freshness given, or a period only: the sample times and the device's period come from the store.
-  const own = source !== undefined && (fresh === undefined || fresh.lastSampleS == null || fresh.nowS == null);
-  const freshness = useFreshness(own ? signal.address : undefined, fresh?.periodS);
-  if (own) fresh = freshness;
+export function Readout({ signal, t, v, source, sparkline = true, showDevice = true, place, windowS, every, exportHref, bare = false }: ReadoutProps) {
+  const reading = useReading(source ? signal.address : undefined);
+  const fromProps = v && v.length ? v[v.length - 1] : undefined;
+  // Never the value before a reading with none: that one is shown as "—" and why.
+  const last = source ? (typeof reading?.value === "number" ? reading.value : undefined) : typeof fromProps === "number" && !Number.isNaN(fromProps) ? fromProps : undefined;
+  // No reading yet on a signal the rig has never read: "…", pending.
+  const shown = reading ?? (signal.quality === "pending" ? { value: null, quality: "pending" as const } : undefined);
+  const none = noValue(source ? shown : fromProps === null || (typeof fromProps === "number" && Number.isNaN(fromProps)) ? { value: null } : undefined, (x) => withUnit(fixed(x, signal.precision ?? 2), signal.unit));
+  // Store-fed: the level is the rig's band alarm on this signal, not a check of the value here.
+  const band = useBandLevel(source !== undefined ? signal.address : undefined);
   const range = signal.range;
   const precision = signal.precision ?? 2;
   const title = signalTitleAt(signal, place ?? {});
@@ -77,11 +80,11 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
   const width = String(Math.floor(widest)).length + (range && range[0] < 0 ? 1 : 0) + (precision ? precision + 1 : 0);
   const fraction =
     last !== undefined && range ? Math.min(1, Math.max(0, (last - range[0]) / (range[1] - range[0]))) : null;
-  const { level, label, footer } = readoutLevel(signal, last, fresh);
+  const { level, label, footer } = readoutLevel(signal, source ? reading : last, band);
   // Band edges that fall inside the range, as ticks on the bar.
   const ticks = range
-    ? (["warn", "alarm"] as const).flatMap((band) =>
-        (signal[band] ?? [])
+    ? ([["warning", "warn"], ["alarm", "alarm"]] as const).flatMap(([key, band]) =>
+        (signal[key] ?? [])
           .filter((edge) => edge > range[0] && edge < range[1])
           .map((edge) => ({ band, left: ((edge - range[0]) / (range[1] - range[0])) * 100 })),
       )
@@ -89,10 +92,11 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
   const body = (
     <>
       <div className="fb-readout-value">
-        <span className="fb-readout-number" style={{ minWidth: `${width}ch` }}>
-          {fixed(last, precision)}
+        {!none && <CaveatMark caveats={reading?.caveats} />}
+        <span className="fb-readout-number" style={{ minWidth: `${width}ch` }} title={none?.hint}>
+          {none ? none.glyph : fixed(last, precision)}
         </span>
-        <span className="fb-readout-unit">{describeUnit(signal.unit)}</span>
+        {none ? <QualityBadge state={none} /> : <span className="fb-readout-unit">{describeUnit(signal.unit)}</span>}
       </div>
       {/* The bar is the range's, not the value's: with no value yet (or none at a paused moment) it stays, empty, so the tile keeps its height. */}
       {range && (
@@ -114,7 +118,7 @@ export function Readout({ signal, t, v, source, sparkline = true, showDevice = t
       severityLabel={label}
       title={<Ref kind="signal" name={signal.address}>{title}</Ref>}
       subtitle={!showDevice ? undefined : place && captionUnder(title, signal, place) ? <Ref kind="device" name={place.device?.name ?? deviceOf(signal.address)}>{captionUnder(title, signal, place)}</Ref> : <Ref kind="device" name={deviceOf(signal.address)} />}
-      // Always a footer line, blank while fresh: one that came and went with staleness resized the tile (as `Gauge` already reserves its own).
+      // Always a footer line, blank when there is nothing to add: one that came and went resized the tile (as `Gauge` already reserves its own).
       footer={footer ?? "\u00a0"}
     >
       {body}

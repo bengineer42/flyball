@@ -21,7 +21,7 @@ from collections.abc import Iterator
 from typing import Literal
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.errors import HardwareError
 from flyball.hardware.i2c import I2cLink
 from pydantic import Field
@@ -47,6 +47,8 @@ SINGLE_SHOT_RHT_ONLY_S = 0.05
 PERIODIC_INTERVAL_S = 5.0
 LOW_POWER_INTERVAL_S = 30.0
 """Maximum time between the chip refreshing its buffer, per the datasheet."""
+STOP_S = 0.5
+"""After stop_periodic_measurement the chip answers nothing else for 500 ms (datasheet 3.5.3)."""
 
 
 def _command(word: int) -> list[int]:
@@ -99,6 +101,11 @@ class Scd4xSensor:
         self.sleep = sleep
         """Whether to wait out conversion/interval times; off against a fake."""
         self.timeout_s = LOW_POWER_INTERVAL_S if low_power else PERIODIC_INTERVAL_S
+        # A chip left measuring by an earlier run refuses every start command; stop it
+        # first, as Sensirion's own example does, and wait until it listens again.
+        self.link.write(address, _command(CMD_STOP_PERIODIC_MEASUREMENT))
+        if sleep:
+            time.sleep(STOP_S)
         if not single_shot:
             start = (
                 CMD_START_LOW_POWER_PERIODIC_MEASUREMENT
@@ -135,9 +142,9 @@ class Scd4xSensor:
 class Scd4x(Readable):
     """One chip on the device root: `co2`, `temperature`, `humidity` [RP], one I2C transaction."""
 
-    co2 = Output("co2", quantity=CO2, range=(0.0, 40000.0), precision=0)
-    temperature = Output("temperature", quantity=TEMPERATURE, range=(-10.0, 60.0), precision=2)
-    humidity = Output("humidity", quantity=HUMIDITY, range=(0.0, 100.0), precision=2)
+    co2 = Readout("co2", quantity=CO2, range=(0.0, 40000.0), precision=0)
+    temperature = Readout("temperature", quantity=TEMPERATURE, range=(-10.0, 60.0), precision=2)
+    humidity = Readout("humidity", quantity=HUMIDITY, range=(0.0, 100.0), precision=2)
 
     def __init__(
         self,
@@ -168,7 +175,7 @@ class Scd4x(Readable):
         yield self.sample(time_ns, co2=co2, temperature=temperature, humidity=humidity)
 
 
-class Scd4xConfig(DriverConfig[Scd4x], tag="scd40"):
+class Scd4xConfig(DriverConfig[Scd4x], type="scd40"):
     """One chip by its I2C address; `variant: scd41` unlocks `single_shot`."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

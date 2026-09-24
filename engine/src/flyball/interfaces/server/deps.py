@@ -3,25 +3,37 @@
 The server owns no hardware and no database; whatever builds them calls
 [set_rig][flyball.interfaces.server.deps.set_rig] and
 [set_store][flyball.interfaces.server.deps.set_store] before serving.
+
+The store is synchronous and one lock serialises it, so nothing on the event
+loop may call it: a route that takes `StoreDep` is a plain `def` (FastAPI runs
+it on its threadpool), or hands the store call to `anyio.to_thread`. `StoreDep`
+also takes one of `STORE_SLOTS`' few tokens for the request, so requests queued
+behind a long store call wait on the loop, not on threadpool threads the rest of
+the API needs.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
+from anyio import CapacityLimiter
 from fastapi import Depends, HTTPException
 
 from flyball.model.catalog import Catalogs, current_catalog
 from flyball.model.catalog import set_catalog as set_catalog
 from flyball.record import Store
 from flyball.rig import Rig
+from flyball.rig.stopping import RigStopper
 
 from .dialect import Dialect
 
 if TYPE_CHECKING:
     from flyball.foundation.device import Device
-    from flyball.runtime.config import RigConfig, RunnerConfig
+    from flyball.rig.stopping import Stopper
+    from flyball.runtime.config import Exposure, RigConfig, RunnerConfig
+    from flyball.runtime.edits import Origin
     from flyball.runtime.retention import Retention
     from flyball.sequencing import ProgrammerState
 
@@ -31,8 +43,9 @@ class Programmer(Protocol):
 
     @property
     def state(self) -> ProgrammerState: ...
-    def start(self, work: Any, interrupt: bool = False) -> None: ...
-    def interrupt(self) -> None: ...
+    def start(self, work: Any, cancel: bool = False) -> None: ...
+    def cancel(self) -> bool: ...
+    def interrupt(self, reason: str) -> bool: ...
 
 
 class Simulation(Protocol):
@@ -50,7 +63,7 @@ class Simulation(Protocol):
     def speed(self) -> float: ...
     def describe(self) -> dict[str, Any]: ...
     def set_speed(self, speed: float) -> float: ...
-    def step(self, seconds: float) -> int: ...
+    def advance(self, seconds: float) -> int: ...
     def plant_config(self, name: str) -> Any: ...
     def plant_state(self, name: str) -> dict[str, Any]: ...
     def set_plant(self, name: str, **parameters: Any) -> Any: ...
@@ -114,6 +127,11 @@ def set_programmer(programmer: Programmer | None) -> None:
     _programmer = programmer
 
 
+def current_programmer() -> Programmer | None:
+    """The attached programmer, or None: for a route that only asks whether one is running."""
+    return _programmer
+
+
 def get_programmer() -> Programmer:
     if _programmer is None:
         raise HTTPException(status_code=503, detail="No programmer attached to this server")
@@ -136,7 +154,7 @@ def get_dialect() -> Dialect:
     """
     if _dialect is not None:
         return _dialect
-    return Dialect(commands=dict(get_catalog().commands.items()))
+    return Dialect(steps=dict(get_catalog().steps.items()))
 
 
 def set_simulation(simulation: Simulation | None) -> None:
@@ -220,8 +238,27 @@ class Runner(Protocol):
     def settings(self) -> RunnerConfig: ...
     @property
     def files(self) -> list[Path]: ...
+    @property
+    def exposure(self) -> Exposure | None: ...
+    @property
+    def restarting(self) -> bool:
+        """A restart has been asked for: the process is on its way out."""
+        ...
+
+    @property
+    def origin(self) -> Origin:
+        """The rig files and `--set`s it was started with: where a rig edit is saved."""
+        ...
+
     def shutdown(self) -> None: ...
     def restart(self) -> None: ...
+    def restart_for_edit(self, version: int, previous: int | None, record: bool = False) -> None:
+        """Restart to build rig version `version`, which an edit saved.
+
+        `previous`: what to go back to if it does not build. `record`: open a recording
+        session again, as one was.
+        """
+        ...
 
 
 _runner: Runner | None = None
@@ -235,6 +272,47 @@ def set_runner(runner: Runner | None) -> None:
 
 def current_runner() -> Runner | None:
     return _runner
+
+
+def current_exposure() -> dict[str, Any] | None:
+    """Where the runner serves against where it was asked to; None where nothing is."""
+    exposure = None if _runner is None else _runner.exposure
+    return None if exposure is None else exposure.as_dict()
+
+
+_stopper: Stopper | None = None
+_rig_stopper: RigStopper | None = None
+
+
+def set_stopper(stopper: Stopper | None) -> None:
+    """What `POST /api/rig/stop` and the break-glass signal call, in place of the rig's own."""
+    global _stopper
+    _stopper = stopper
+
+
+def current_stopper() -> Stopper | None:
+    """The stopper set, else the software stop over the attached rig and programmer.
+
+    None with no rig attached: nothing to stop. It is kept while the rig and programmer
+    are the same, so its stops stay serialised.
+    """
+    if _stopper is not None:
+        return _stopper
+    return rig_stopper()
+
+
+def rig_stopper() -> RigStopper | None:
+    """The software stop over the attached rig and programmer; None with no rig."""
+    global _rig_stopper
+    if _rig is None:
+        return None
+    if (
+        _rig_stopper is None
+        or _rig_stopper.rig is not _rig
+        or _rig_stopper.program is not _programmer
+    ):
+        _rig_stopper = RigStopper(_rig, _programmer)
+    return _rig_stopper
 
 
 def save_allowed() -> bool:
@@ -258,6 +336,23 @@ def get_store() -> Store:
     return _store
 
 
+STORE_SLOTS = CapacityLimiter(4)
+"""How many requests may be using the store at once.
+
+The store serialises on one lock, so more in flight only queue for it -- and a
+queued sync route holds one of anyio's 40 worker threads, shared with every
+other sync route (demands, commands). Past this many, a store request waits
+for a slot on the event loop, costing no thread.
+"""
+
+
+async def store_slot() -> AsyncIterator[Store]:
+    """`get_store()`, holding one of `STORE_SLOTS` until the request is answered."""
+    store = get_store()
+    async with STORE_SLOTS:
+        yield store
+
+
 def get_catalog() -> Catalogs:
     """`current_catalog()`, or a 503: what `/api/drivers` and rig validation build from.
 
@@ -274,7 +369,7 @@ def get_catalog() -> Catalogs:
 
 
 RigDep = Annotated[Rig, Depends(get_rig)]
-StoreDep = Annotated[Store, Depends(get_store)]
+StoreDep = Annotated[Store, Depends(store_slot)]
 ProgrammerDep = Annotated[Programmer, Depends(get_programmer)]
 DialectDep = Annotated[Dialect, Depends(get_dialect)]
 SimulationDep = Annotated[Simulation, Depends(get_simulation)]

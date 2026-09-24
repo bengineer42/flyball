@@ -1,6 +1,6 @@
 r"""Shared wire-protocol machinery for Atlas Scientific EZO-family chips over UART.
 
-Not a driver itself: no `DriverConfig`, no tag. Every EZO circuit in this package
+Not a driver itself: no `DriverConfig`, no type. Every EZO circuit in this package
 (`ezo_ph`, `ezo_ec`, `ezo_orp`, `ezo_do`) shares one UART framing (38400 8N1,
 `\\r`-terminated ASCII) and one single-reading exchange: send `R\\r`, wait the
 chip's own conversion time, read a reply frame, and -- because the circuit's

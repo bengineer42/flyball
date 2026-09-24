@@ -37,7 +37,8 @@ def test_on_settle_is_called_from_the_settling_thread():
 
 class TestSignals:
     def test_register_fire_and_remove(self):
-        signals = Triggers(Clock())
+        clock = Clock()
+        signals = Triggers(lambda: clock)
         s = Trigger()
         state = signals.register("lid", s, "Close the lid")
         assert (
@@ -50,7 +51,8 @@ class TestSignals:
             signals.state("lid")
 
     def test_outcome_is_pushed_to_the_cell_when_settled_from_anywhere(self):
-        signals = Triggers(Clock())
+        clock = Clock()
+        signals = Triggers(lambda: clock)
         s = Trigger()
         signals.register("wait", s)
         version, changed = signals.latest.changed_since(0)
@@ -59,9 +61,49 @@ class TestSignals:
         assert signals.latest.changed_since(version)[1]["wait"].outcome is Outcome.INTERRUPTED
 
     def test_one_name_at_a_time(self):
-        signals = Triggers(Clock())
+        clock = Clock()
+        signals = Triggers(lambda: clock)
         signals.register("x", Trigger())
         with pytest.raises(ConflictError):
             signals.register("x", Trigger())
         with pytest.raises(NotFoundError):
             signals.fire("nope")
+
+    def test_a_signal_settling_before_its_hook_is_set_still_shows_settled(self):
+        """Settled between `register` reading the outcome and setting `on_settle`."""
+        s = Trigger()
+
+        class Firing(Clock):
+            def now_ns(self) -> int:  # register stamps the state after reading the outcome
+                s.fire()
+                return super().now_ns()
+
+        firing = Firing()
+        signals = Triggers(lambda: firing)
+        signals.register("early", s)
+        assert signals.state("early").outcome is Outcome.FIRED
+        assert signals.latest.get("early").outcome is Outcome.FIRED
+
+    def test_a_signal_settling_as_its_hook_is_set_is_not_overwritten_as_pending(self):
+        """Settled between `on_settle` being set and the pending state being published."""
+
+        class FiresWhenHooked(Trigger):
+            def __init__(self) -> None:
+                self._hook = None
+                super().__init__()
+
+            @property
+            def on_settle(self):  # type: ignore[override]
+                return self._hook
+
+            @on_settle.setter
+            def on_settle(self, hook) -> None:
+                self._hook = hook
+                if hook is not None:
+                    self.fire()
+
+        clock = Clock()
+        signals = Triggers(lambda: clock)
+        signals.register("hooked", FiresWhenHooked())
+        assert signals.state("hooked").outcome is Outcome.FIRED
+        assert signals.latest.get("hooked").outcome is Outcome.FIRED

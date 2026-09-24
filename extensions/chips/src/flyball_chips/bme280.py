@@ -9,10 +9,10 @@ against a block of factory-trimmed calibration words read once at startup --
 not [I2cTable][flyball_linux.devices.i2c_table]'s `scale`/`offset`, so this
 module reads both blocks directly through [I2cLink][flyball.hardware.i2c.I2cLink]
 and applies the datasheet's floating-point compensation formulas verbatim
-(section 4.2.3 of the datasheet; `[Unverified]`: Bosch does not publish a
-numeric worked example for these formulas the way TE does for the MS5611, so
-correctness here rests on transcription against the datasheet text and
-self-consistency checks, not a reference input/output pair).
+(section 4.2.3 of the datasheet). The tests hold one input/output pair taken
+from Bosch's reference driver (BME280_SensorAPI, compiled): temperature matches
+it exactly, pressure to 0.01 Pa, because Bosch truncates `t_fine` to an integer
+and this module does not.
 
 Pressure compensation needs `t_fine` from the temperature compensation done
 in the same reading, so `read()` always converts temperature first.
@@ -253,7 +253,7 @@ class Bme280Sensor:
         self.osrs_p = osrs_p
         self.osrs_h = osrs_h if has_humidity else 0
         self.sleep = sleep
-        t_p = self.link.read_register(address, _CALIB_T_P, 26)
+        t_p = self.link.read_register(address, _CALIB_T_P, 24)
         if has_humidity:
             h1 = self.link.read_register(address, _CALIB_H1, 1)
             h2_6 = self.link.read_register(address, _CALIB_H2_6, 7)
@@ -352,7 +352,7 @@ class Bme280(Readable):
         yield Sample(self.root, time_ns, values)
 
 
-class Bme280Config(DriverConfig[Bme280], tag="bme280"):
+class Bme280Config(DriverConfig[Bme280], type="bme280"):
     """`has_humidity: false` for a BMP280 (no humidity registers or calibration)."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

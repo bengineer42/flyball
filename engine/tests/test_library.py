@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 
+from conftest import TestClient
 from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.deps import set_programmer, set_store
 from flyball.record.sqlite import SqliteStore
@@ -14,7 +14,7 @@ from flyball.sequencing.programmer import Programmer
 YAML = """# a comment that must survive storage
 name: dry-then-hold
 steps:
-  - wait: {message: "quick", seconds: 0.01}
+  - prompt: {message: "quick", timeout: {seconds: 0.01}}
 """
 
 
@@ -100,7 +100,7 @@ def test_download_converts_between_formats(client):
     assert "# a comment" not in toml.text  # comments live only in the stored text
 
     js = client.get("/api/programs/library/dry/download?format=json").json()
-    assert js["steps"] == [{"wait": {"message": "quick", "seconds": 0.01}}]
+    assert js["steps"] == [{"prompt": {"message": "quick", "timeout": {"seconds": 0.01}}}]
 
 
 def test_check_and_run_and_delete(client):
@@ -108,13 +108,13 @@ def test_check_and_run_and_delete(client):
         "/api/programs/library/dry", content=YAML, headers={"content-type": "application/yaml"}
     )
     check = client.get("/api/programs/library/dry/check").json()
-    assert check["ok"] is True and check["normalised"]["steps"][0]["command"]["command"] == "wait"
+    assert check["ok"] is True and check["normalised"]["steps"][0]["command"]["command"] == "prompt"
 
     run = client.post("/api/programs/library/dry/run")
     assert run.status_code == 200
     events = client.get("/api/events").json()
-    kinds = [e["kind"] for e in events if e["scope"] == "program"]
-    assert "run_from_library" in kinds and "started" in kinds
+    codes = [e["code"] for e in events if e["scope"] == "program"]
+    assert "run_from_library" in codes and "started" in codes
 
     assert client.delete("/api/programs/library/dry").status_code == 204
     assert client.get("/api/programs/library/dry").status_code == 404

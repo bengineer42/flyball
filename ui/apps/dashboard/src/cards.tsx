@@ -1,8 +1,8 @@
 import type { MouseEvent, ReactNode } from "react";
 import { Box, Button, Chip, Link, Paper, Stack, Table, TableBody, TableCell, TableRow, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
-import type { DeviceOut, RunOut } from "@flyball/client";
-import { describeDevice, describeNamespace, describeSignal, describeUnit, isNamespace, publishes, signalsOf, writable, type TreeNode } from "@flyball/client";
+import type { DeviceOut, RunOut, Severity } from "@flyball/client";
+import { atLeast, describeDevice, describeNamespace, describeSignal, describeUnit, isNamespace, publishes, signalsOf, writable, type TreeNode } from "@flyball/client";
 import { PAGE_ICONS, type IconComponent } from "./icons.js";
 import { hrefFor } from "./router.js";
 import { clock } from "./time.js";
@@ -139,10 +139,9 @@ export function DeviceCard({ icon: Icon, name, label, href, type, chip, actions,
   );
 }
 
-/** The worst of a device's conditions as a dot tone: red at ERROR, amber at WARNING, grey otherwise. */
-export function conditionTone(conditions: ReadonlyArray<{ level: number }>): "ok" | "warn" | "alarm" {
-  const worst = Math.max(0, ...conditions.map((c) => c.level));
-  return worst >= 40 ? "alarm" : worst >= 30 ? "warn" : "ok";
+/** The worst of a device's conditions as a dot tone: red at `error`, amber at `warning`, grey otherwise. */
+export function conditionTone(conditions: ReadonlyArray<{ severity: Severity }>): "ok" | "warn" | "alarm" {
+  return conditions.some((c) => atLeast(c.severity, "error")) ? "alarm" : conditions.some((c) => atLeast(c.severity, "warning")) ? "warn" : "ok";
 }
 
 /** `[RP]`-style access flags for a hover hint: what a signal supports, after the address. */
@@ -209,14 +208,14 @@ function TreeRows({ device }: { device: DeviceOut }) {
  * the poll period and the last read. `run` is the live one from `/ws/devices`
  * when the caller has it, else what `GET /api/devices` said.
  */
-export function DeviceSummaryCard({ device, run, link = true, actions, className }: { device: DeviceOut; run?: (Partial<RunOut> & { conditions?: ReadonlyArray<{ kind: string; level: number; message: string }> }) | null; link?: boolean; actions?: ReactNode; className?: string }) {
+export function DeviceSummaryCard({ device, run, link = true, actions, className }: { device: DeviceOut; run?: (Partial<RunOut> & { conditions?: ReadonlyArray<{ code: string; severity: Severity; message: string }> }) | null; link?: boolean; actions?: ReactNode; className?: string }) {
   const live = run ?? device.run;
   const conditions = run?.conditions ?? device.conditions;
   const polled = live !== null && live !== undefined;
   const stopped = polled && live.running === false;
   const tone = stopped ? "warn" : conditionTone(conditions);
   const footer = polled ? [live.period_s != null && `every ${live.period_s} s`, live.last_read_ns != null && `last read ${clock(live.last_read_ns)}`].filter(Boolean).join(" · ") : null;
-  const named = conditions.map((c) => c.kind).join(", ");
+  const named = conditions.map((c) => c.code).join(", ");
   return (
     <DeviceCard
       className={className}
@@ -224,8 +223,8 @@ export function DeviceSummaryCard({ device, run, link = true, actions, className
       name={device.name}
       label={device.label}
       href={link ? hrefFor({ kind: "device", name: device.name }) : undefined}
-      type={describeDevice(device.driver ?? device.type)}
-      chip={<StatusDot tone={tone} label={stopped ? "stopped" : named || undefined} title={stopped ? "polling stopped" : conditions.map((c) => `${c.kind}: ${c.message}`).join("\n") || (polled ? "running" : "not polled")} />}
+      type={describeDevice(device.driver ?? device.class_name)}
+      chip={<StatusDot tone={tone} label={stopped ? "stopped" : named || undefined} title={stopped ? "polling stopped" : conditions.map((c) => `${c.code}: ${c.message}`).join("\n") || (polled ? "running" : "not polled")} />}
       actions={actions}
       footer={footer || undefined}
     >

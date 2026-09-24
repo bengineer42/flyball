@@ -104,6 +104,21 @@ class TestCompensate:
         pressure = bme280.compensate_pressure(415148, t_fine, cal)
         assert 30000.0 < pressure < 110000.0
 
+    def test_matches_boschs_reference_driver_to_a_hundredth_of_a_pascal(self):
+        # Bosch BME280_SensorAPI (c90d419) bme280.c, double path, compiled and fed this
+        # calibration with adc_T=519888, adc_P=415148: T=25.0824779308 C,
+        # P=100653.2581448147 Pa. Bosch truncates t_fine to int32 first; this driver
+        # keeps it as a float, which moves P by under 0.01 Pa.
+        cal = bme280.parse_calibration(T_P_BLOCK, H1_BYTE, H2_6_BLOCK)
+        temperature, t_fine = bme280.compensate_temperature(519888, cal)
+        assert temperature == pytest.approx(25.0824779308, abs=1e-9)
+        assert bme280.compensate_pressure(415148, t_fine, cal) == pytest.approx(
+            100653.2581448147, abs=0.01
+        )
+        assert bme280.compensate_pressure(415148, int(t_fine), cal) == pytest.approx(
+            100653.2581448147, abs=1e-6
+        )
+
     def test_humidity_is_clamped_to_0_100(self):
         cal = bme280.parse_calibration(T_P_BLOCK, H1_BYTE, H2_6_BLOCK)
         _, t_fine = bme280.compensate_temperature(519888, cal)
@@ -131,6 +146,14 @@ class TestCtrlWords:
 
 
 class TestBme280Sensor:
+    def test_reads_only_the_24_trim_bytes_at_0x88(self):
+        # A real chip answers a longer read with the bytes that follow: 0xA0 (reserved)
+        # and 0xA1 (dig_H1). The T/P block is 0x88..0x9F, 24 bytes.
+        bus = _bus()
+        bus.registers[ADDRESS][bme280._CALIB_T_P] = [*T_P_BLOCK, 0x00, H1_BYTE[0]]
+        sensor = bme280.Bme280Sensor(bus, ADDRESS, sleep=False)
+        assert sensor.cal.dig_p9 == 6000
+
     def test_reads_calibration_at_construction(self):
         sensor = bme280.Bme280Sensor(_bus(), ADDRESS, sleep=False)
         assert sensor.cal.dig_h1 == 75
@@ -166,9 +189,9 @@ class TestBme280Sensor:
 class TestBme280Device:
     def test_bme280_has_humidity_bmp280_does_not(self):
         wet = bme280.Bme280("wet", _bus(), sleep=False)
-        assert set(wet.signals) == {"conditions", "temperature", "pressure", "humidity"}
+        assert set(wet.signals) == {"temperature", "pressure", "humidity"}
         dry = bme280.Bme280("dry", _bus(has_humidity=False), has_humidity=False, sleep=False)
-        assert set(dry.signals) == {"conditions", "temperature", "pressure"}
+        assert set(dry.signals) == {"temperature", "pressure"}
 
     def test_read_yields_one_sample(self):
         bus = _bus()

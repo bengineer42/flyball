@@ -2,7 +2,7 @@
 
 The rig is what the equipment *is*; the programmer is what it is *doing*. Each
 has its own lock, so "abort the program" never tangles with "stop the pumps".
-A single command is a program of one step: one execution path, one interrupt.
+A single step is a program of one step: one execution path, one way to end it.
 
 The rig *drives* an [Activity][flyball.sequencing.Activity] (it owns the clock
 and sensors); the programmer owns its *lifetime* (it owns the sequence). Attach
@@ -10,27 +10,48 @@ and detach bracket the wait in `Programmer._wait_out`, and teardown is one
 `finally` reached by completion, failure and cancellation alike.
 
 Locking:
-    The programmer's lock is always the inner lock. `_apply` takes the rig's
-    lock, then this one; nothing takes them the other way round, and no thread
-    is joined under it.
+    The programmer's lock is never held while the rig's is taken: `_apply`
+    takes the programmer's lock, releases it, emits the step event with no lock
+    held, takes the rig's lock to run the step (unless the step takes it itself:
+    a device command, which may wait), then takes the programmer's lock again;
+    `_apply_atomics` on `start` does the same, step by step. So the only order
+    is rig, then programmer -- `on_revoke` -> `interrupt` from a thread holding
+    the rig's lock -- and it cannot deadlock against the other. No thread is
+    joined under the programmer's lock, and `cancel`/`interrupt` join the
+    worker for at most `END_JOIN_S`: a caller holding the rig's lock (which the
+    worker's next step needs) waits that long, not for ever, and a step still
+    running then is reported (`step_still_running`).
+
+    [Inference, traced 23 Sep] Nothing revokes the programmer's operator today:
+    no step claims a resource and no `Arbiter` is built outside tests, so
+    `on_revoke` is not called. The order above is what keeps it safe when one is.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from threading import RLock, Thread, current_thread
 from typing import TYPE_CHECKING, Any
 
-from flyball.foundation.device import Level
+from flyball.foundation.device import Code, Scope, Severity
 from flyball.foundation.resource import Operator
 
-from .activities import Prompt
-from .errors import CommandRuntimeError, ProgramAlreadyRunningError
+from .activities import Prompted
+from .devices import RunCommand
+from .errors import ProgramAlreadyRunningError, StepRuntimeError
 from .program import Program
 
 if TYPE_CHECKING:
     from flyball.rig import Rig
-    from flyball.sequencing.command import Activity, Command
+    from flyball.rig.latches import Latch
+    from flyball.sequencing.step import Activity, Step
+
+log = logging.getLogger("flyball.programmer")
+
+END_JOIN_S = 5.0
+"""How long `cancel`/`interrupt` wait for the worker to unwind before reporting it still running
+and returning. A stop must return promptly; a step in a driver cannot be cut from outside."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +66,7 @@ class ProgrammerState:
     command: str | None
     """Tag of the step being run, `None` when idle."""
     failed: bool = False
-    """The last program ended with a step that raised, rather than finishing or interrupting."""
+    """The last program ended with a step that raised, rather than succeeding or being ended."""
     error: str | None = None
     """What the failing step raised, while `failed`; cleared by the next `start`/`run`."""
 
@@ -64,13 +85,30 @@ class Programmer:
     _thread: Thread | None = None
     _step: int = 0
     _abort: bool = False
+    _interrupted: str | None = None
+    """Why the engine ended the program (a stop, a shutdown); None when a person cancelled it."""
     _error: Exception | None = None
     """Set by `_failed`; read by `state` and `_finish` until the next `load` clears it."""
 
     def __init__(self, rig: Rig) -> None:
         self.rig = rig
         self.lock = RLock()
-        self.operator = Operator("program", on_revoke=self.interrupt)
+        self.operator = Operator(
+            "program", on_revoke=lambda: self.interrupt("its claim on the rig was revoked")
+        )
+        rig.stopping.latches.on_change.append(self._latched)
+
+    def _latched(self, latch: Latch, held: bool) -> None:
+        """A controller's `on_fault` latched something: the running program ends, `fault:<name>`.
+
+        On a thread of its own: the latch is set under the rig's lock, and ending a
+        program waits for its worker, which takes that lock on its way out. A rig stop
+        interrupts the program itself.
+        """
+        if not held or not latch.cause.startswith("on_fault:") or not self.running:
+            return
+        reason = f"fault:{latch.cause.removeprefix('on_fault:')}"
+        Thread(target=self.interrupt, args=(reason,), daemon=True, name="fault-interrupt").start()
 
     # region Status
 
@@ -106,28 +144,28 @@ class Programmer:
 
     # region Running
 
-    def start(self, work: Command | Program, interrupt: bool = False) -> None:
+    def start(self, work: Step | Program, cancel: bool = False) -> None:
         """Begin `work` without waiting for it to finish.
 
         The first step is applied on the calling thread, so an unapplicable
-        command raises here; the rest goes to the worker thread.
+        step raises here; the rest goes to the worker thread.
 
         Args:
-            work: A command, or a program of them.
-            interrupt: Stop whatever is running first.
+            work: A step, or a program of them.
+            cancel: Cancel whatever is running first.
 
         Raises:
-            ProgramAlreadyRunningError: Something is running and `interrupt`
+            ProgramAlreadyRunningError: Something is running and `cancel`
                 is false.
         """
-        if interrupt:
-            self.interrupt()
+        if cancel:
+            self.cancel()
         program = self.load(work)
         self.rig.event(
-            Level.INFO,
-            "program",
+            Severity.INFO,
+            Scope.PROGRAM,
             program.name or "program",
-            "started",
+            Code.STARTED,
             f"{program.name or 'program'}: {len(program)} step{'s' if len(program) != 1 else ''}",
             {"steps": len(program), "commands": [c.tag for c in program]},
         )
@@ -148,24 +186,25 @@ class Programmer:
             self._thread = thread
         thread.start()
 
-    def load(self, work: Program | Command) -> Program:
+    def load(self, work: Program | Step) -> Program:
         with self.lock:
             if self._program is not None:
                 raise ProgramAlreadyRunningError(self._program, work)
             self._program = work = work if isinstance(work, Program) else Program([work])
             self._step = 0
             self._abort = False
+            self._interrupted = None
             self._activity = None
             self._error = None
             return self._program
 
-    def run(self, work: Command | Program, interrupt: bool = False) -> None:
-        """Apply `work` and block until it finishes or is interrupted.
+    def run(self, work: Step | Program, cancel: bool = False) -> None:
+        """Apply `work` and block until it ends.
 
         For use off the request path; routes want
         [start][flyball.sequencing.programmer.Programmer.start].
         """
-        self.start(work, interrupt)
+        self.start(work, cancel)
         self.join()
 
     def join(self, timeout: float | None = None) -> None:
@@ -175,19 +214,64 @@ class Programmer:
         if thread is not None and thread is not current_thread():
             thread.join(timeout)
 
-    def interrupt(self) -> None:
-        """Stop whatever is running, and wait for the worker to unwind."""
+    def cancel(self) -> bool:
+        """End whatever is running, as a person asked: it ends `cancelled`. Outputs are kept.
+
+        Returns whether the worker unwound within `END_JOIN_S`.
+        """
+        return self._end(None)
+
+    def interrupt(self, reason: str) -> bool:
+        """End whatever is running because the engine must (a stop, a shutdown).
+
+        It ends `interrupted`, with `reason`. Outputs are kept. Returns whether
+        the worker unwound within `END_JOIN_S`.
+        """
+        return self._end(reason)
+
+    def _end(self, reason: str | None) -> bool:
+        """Stop whatever is running, and wait at most `END_JOIN_S` for the worker to unwind.
+
+        A worker still in its step then (a command in its driver, which Python
+        cannot cut) is left to finish on its own: it applies nothing more, and a
+        `step_still_running` event names the step. Returns whether it unwound.
+        """
         with self.lock:
+            if self._program is not None and not self._abort:
+                self._interrupted = reason
             self._abort = True
             if self._activity is not None:
                 # Cancels rather than completes, so the worker breaks out
                 # instead of moving on. Its finally clause detaches.
                 self._activity.interrupt()
             thread = self._thread
+            program, step = self._program, self._step
+        # A device command the step is running and waiting in (a dose, a move) ends too:
+        # the program that asked for it has ended, so its wait is cancelled
+        # (`Device.cancel`), and its own `finally` leaves the hardware as it would at its end.
+        current = None if program is None or step >= len(program) else program[step]
+        device = self.rig.devices.get(current.device) if isinstance(current, RunCommand) else None
+        if device is not None and device in self.rig.running_commands():
+            device.cancel()
         # Never join under the lock: the worker takes it on the way out, and
         # an RLock held by another thread does not help us here.
-        if thread is not None and thread is not current_thread():
-            thread.join()
+        if thread is None or thread is current_thread():
+            return True
+        thread.join(END_JOIN_S)
+        if not thread.is_alive():
+            return True
+        name = program.name if program is not None and program.name else "program"
+        tag = program[step].tag if program is not None and step < len(program) else "?"
+        log.warning("%s[%s]: %s had not returned %.1f s after the end", name, step, tag, END_JOIN_S)
+        self.rig.event(
+            Severity.WARNING,
+            Scope.PROGRAM,
+            f"{name}[{step}]",
+            Code.STEP_STILL_RUNNING,
+            f"{tag} had not returned {END_JOIN_S:g} s after the program ended: it may still act",
+            {"step": step, "command": tag, "waited_s": END_JOIN_S},
+        )
+        return False
 
     def _apply_atomics(self, program: Program) -> Activity | None:
         """Apply steps from the current one until one has to be waited on.
@@ -195,12 +279,18 @@ class Programmer:
         Returns:
             That step's activity, or `None` if the rest of the program applied.
         """
-        with self.lock:
-            while self._step < len(program) and not self._abort:
-                if (activity := self._apply(program[self._step])) is not None:
-                    return activity
+        while True:
+            # The programmer's lock is released around each step: it is never held while
+            # the step takes the rig's (the rig-then-programmer order stays the only one),
+            # nor while a device command waits, which `cancel` would otherwise queue behind.
+            with self.lock:
+                if self._step >= len(program) or self._abort:
+                    return None
+                step = program[self._step]
+            if (activity := self._apply(step)) is not None:
+                return activity
+            with self.lock:
                 self._step += 1
-        return None
 
     # endregion
     # region Internals
@@ -210,8 +300,13 @@ class Programmer:
             step = self._step
         try:
             while True:
-                if activity is not None and not self._wait_out(activity, program[step]):
-                    break
+                if activity is not None:
+                    with self.lock:
+                        if self._abort:
+                            break
+                    if not self._wait_out(activity, program[step]):
+                        self._ended_early(program, step, activity)
+                        break
                 step += 1
                 with self.lock:
                     if self._abort or self._program is not program or step >= len(program):
@@ -226,13 +321,13 @@ class Programmer:
         finally:
             self._finish(program)
 
-    def _wait_out(self, activity: Activity, command: Command) -> bool:
+    def _wait_out(self, activity: Activity, command: Step) -> bool:
         """Run `activity` to its end, registered by name so it can be answered.
 
         Returns:
             False if the activity was cancelled or timed out, so the program
-            stops here. A timeout is recorded as an event; an interrupt was
-            asked for and is not.
+            stops here. A timeout is recorded as an event; a cancel or an
+            interrupt is recorded when the program ends.
 
         Raises:
             Exception: Whatever the activity failed with, so `_work` ends the
@@ -244,7 +339,7 @@ class Programmer:
             activity,
             activity.message,
             activity.timeout_s,
-            prompt=isinstance(activity, Prompt),
+            prompt=isinstance(activity, Prompted),
         )
         activity.attach(self.rig)
         try:
@@ -258,18 +353,36 @@ class Programmer:
         if activity.timed_out:
             program = self._program
             self.rig.event(
-                Level.WARNING,
-                "program",
+                Severity.WARNING,
+                Scope.PROGRAM,
                 f"{program.name if program is not None and program.name else 'program'}"
                 f"[{self._step}]",
-                "step_timed_out",
+                Code.STEP_TIMED_OUT,
                 f"{command.tag} gave up after {activity.timeout_s} s: {activity.message}",
                 {"command": command.tag, "timeout_s": activity.timeout_s},
             )
         return activity.fired
 
-    def _apply(self, command: Command) -> Activity | None:
-        """Apply one step under the rig's lock.
+    def _ended_early(self, program: Program, step: int, activity: Activity) -> None:
+        """The step's activity ended without being met: say how the program ends.
+
+        Cancelled from outside (a person answering its prompt with cancel) is
+        the program `cancelled`; timed out is the program `failed` at that
+        step. A `cancel()` or `interrupt()` has already said which it is.
+        """
+        with self.lock:
+            if self._abort or self._program is not program:
+                return
+            if activity.timed_out:
+                self._error = StepRuntimeError(
+                    program[step], step, TimeoutError(f"gave up after {activity.timeout_s} s")
+                )
+            else:
+                self._abort = True
+                self._interrupted = None
+
+    def _apply(self, command: Step) -> Activity | None:
+        """Apply one step: under the rig's lock, unless the step takes it itself (`locked`).
 
         Returns:
             The activity to wait out before the next step, or `None` to move
@@ -278,34 +391,41 @@ class Programmer:
         with self.lock:
             program, step = self._program, self._step
         self.rig.event(
-            Level.INFO,
-            "program",
+            Severity.INFO,
+            Scope.PROGRAM,
             f"{program.name if program is not None and program.name else 'program'}[{step}]",
-            "step",
+            Code.STEP,
             f"step {step + 1}/{len(program) if program is not None else '?'}: {command.tag}",
             {"step": step, "command": command.tag},
         )
-        with self.rig.lock:
+        if command.locked:
+            with self.rig.lock:
+                activity = command.run(self.rig, self.operator)
+        else:
             activity = command.run(self.rig, self.operator)
         with self.lock:
             self._activity = activity
+            if self._abort and activity is not None:
+                # A cancel or an interrupt landed while the step applied, so it
+                # ended the previous activity rather than this one.
+                activity.interrupt()
         return activity
 
     def _failed(self, program: Program, step: int, error: Exception) -> None:
         """A step that will not apply, or an activity that failed, ends the program: say so.
 
         Records `error` on the programmer itself, so `_finish` ends the program as
-        `failed` rather than `finished`, and `state` keeps reporting it until the
+        `failed` rather than `succeeded`, and `state` keeps reporting it until the
         next `load` clears it.
         """
-        failure = CommandRuntimeError(program[step], step, error)
+        failure = StepRuntimeError(program[step], step, error)
         with self.lock:
             self._error = failure
         self.rig.event(
-            Level.ERROR,
-            "program",
+            Severity.ERROR,
+            Scope.PROGRAM,
             f"{program.name or 'program'}[{step}]",
-            "step_failed",
+            Code.STEP_FAILED,
             str(failure),
             {"command": program[step].tag, "error": f"{type(error).__name__}: {error}"},
         )
@@ -316,25 +436,36 @@ class Programmer:
             if self._program is not program:
                 return
             error = self._error
+            reason = self._interrupted
             outcome = (
-                "failed" if error is not None else "interrupted" if self._abort else "finished"
+                Code.FAILED
+                if error is not None
+                else (Code.INTERRUPTED if reason is not None else Code.CANCELLED)
+                if self._abort
+                else Code.SUCCEEDED
             )
             self._program = None
             self._activity = None
             self._thread = None
             self._step = 0
             self._abort = False
+            self._interrupted = None
+        name = program.name or "program"
         message = (
-            f"{program.name or 'program'} failed: {error}"
+            f"{name} failed: {error}"
             if error is not None
-            else (f"{program.name or 'program'} {outcome}")
+            else f"{name} interrupted: {reason}"
+            if outcome is Code.INTERRUPTED
+            else f"{name} {outcome}"
         )
         details: dict[str, Any] = {"steps": len(program)}
         if error is not None:
             details["error"] = str(error)
+        if outcome is Code.INTERRUPTED:
+            details["reason"] = reason
         self.rig.event(
-            Level.ERROR if error is not None else Level.INFO,
-            "program",
+            Severity.ERROR if error is not None else Severity.INFO,
+            Scope.PROGRAM,
             program.name or "program",
             outcome,
             message,
@@ -342,43 +473,3 @@ class Programmer:
         )
 
     # endregion
-
-
-# =============================================================================
-# NOT DONE YET -- what this file needs from elsewhere.
-#
-# 1. Rig.attach / Rig.detach do not exist (rig.py). Membership only, under
-#    rig.lock; the loop never detaches, because the programmer owns lifetime:
-#
-#        def attach(self, activity: Activity) -> None:
-#            with self.lock:
-#                if self._activity is not None:
-#                    raise ActivityAlreadyRunningError(self._activity, activity)
-#                self._activity = activity
-#
-#        def detach(self, activity: Activity) -> None:
-#            with self.lock:
-#                if self._activity is activity:
-#                    self._activity = None
-#                    activity.detach(self)
-#
-# 2. rig.main_step (rig.py:661) still steps `self._runner`. It should step
-#    `self._activity` when the signal is not already set, with the call
-#    wrapped so a raising activity fails its signal rather than throwing every
-#    tick -- `activity.fail(error)`.
-#
-# 3. command.parse_response tests `isinstance(value, Trigger)` and puts the
-#    result in the `activity` slot. Since Activity now holds a signal rather
-#    than being one, that branch wants `Activity`, or a bare signal wrapped
-#    in one.
-#
-# 4. Ownership. The rig must not own the programmer, or the split is undone.
-#    `runner.py` builds both and `server/deps.py` injects both; the route
-#    composes `rig.state` with `programmer.state` rather than `Rig.state`
-#    reaching for a back-reference.
-#
-# Open question, not decided: a program that ends leaves the last generator
-# installed and the controller running. Correct for a soak, wrong for a run
-# that should return the rig to idle. Probably a terminal step rather than
-# implicit teardown here.
-# =============================================================================

@@ -1,0 +1,37 @@
+#!/bin/sh
+# Adds the DCO sign-off to a commit message that lacks one, so you do not have
+# to remember `git commit -s`. CONTRIBUTING.md explains what the line certifies.
+#
+# Opt in once, per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# It is opt-in rather than automatic because a repository cannot install hooks
+# into your clone, and because `core.hooksPath` replaces the hooks directory
+# wholesale -- if you already have hooks of your own, move them here first.
+
+msg_file=$1
+source=$2
+
+# A merge takes its message from git, and a squash/fixup is rewritten later;
+# neither is the contributor certifying anything.
+case "$source" in
+merge | squash) exit 0 ;;
+esac
+
+name=$(git config user.name)
+email=$(git config user.email)
+
+# Nothing to sign with: leave the message alone rather than write a broken
+# trailer. The CI check will say so if it matters.
+[ -n "$name" ] && [ -n "$email" ] || exit 0
+
+sign_off="Signed-off-by: $name <$email>"
+
+# Already signed off -- by `git commit -s`, by `--amend` on a signed commit, or
+# by a template. Adding a second identical trailer helps nobody.
+if git interpret-trailers --parse "$msg_file" | grep -qiFx "$sign_off"; then
+	exit 0
+fi
+
+git interpret-trailers --in-place --trailer "$sign_off" "$msg_file"

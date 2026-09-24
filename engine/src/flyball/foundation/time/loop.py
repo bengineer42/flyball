@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from threading import Event, Thread, current_thread
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from ..typing import Positive
+from .timer import WAKE_S
 
 if TYPE_CHECKING:
     from .clock import Clock
+
+log = logging.getLogger("flyball.loop")
 
 
 class PeriodicLoop:
@@ -46,12 +50,41 @@ class PeriodicLoop:
     def running(self) -> bool:
         return self._handle is not None or (self._thread is not None and self._thread.is_alive())
 
+    def runs_here(self) -> bool:
+        """Whether this loop's function is running on the calling thread now.
+
+        Always true on a stepped clock, which runs the function on whoever
+        advances it; on a thread of its own, only from inside that thread.
+        """
+        return self._thread is None or self._thread is current_thread()
+
     @property
     def loop_time(self) -> Positive:
         return self._loop_time
 
     def set_loop_time(self, loop_time: Positive) -> None:
         self._loop_time = loop_time
+
+    def defer(self, seconds: Positive) -> None:
+        """Run next `seconds` from now rather than on the period; the period resumes after that run.
+
+        Called from inside the loop's own function (`runs_here`), as a
+        retry that backs off does. `stop` still ends the wait at once.
+        """
+        schedule = getattr(self._clock, "schedule", None)
+        if schedule is not None:  # a stepped clock: a one-shot, then the period again
+            if self._handle is None:
+                return  # stopped
+            self._clock.cancel(self._handle)  # type: ignore[union-attr]
+            self._handle = schedule(seconds, self._deferred)
+            return
+        self._next_loop_time = self._now() + seconds
+
+    def _deferred(self) -> None:
+        if self._handle is not None and self._clock is not None:
+            self._clock.cancel(self._handle)  # type: ignore[attr-defined]
+            self._handle = self._clock.schedule(self._loop_time, self._once)  # type: ignore[attr-defined]
+        self._once()
 
     def start(self) -> None:
         schedule = getattr(self._clock, "schedule", None)
@@ -87,7 +120,13 @@ class PeriodicLoop:
             if self._stop_on_error:
                 self.stop()
 
+    @property
+    def erroring(self) -> Exception | None:
+        """The last exception the loop's function raised, or None: it last ran clean."""
+        return self._erroring
+
     def set_error(self, error: Exception | None) -> None:
+        log.error("periodic loop's function raised", exc_info=error)
         self._erroring = error
 
     def set_ok(self) -> None:
@@ -99,8 +138,16 @@ class PeriodicLoop:
     def _wait(self, seconds: float) -> None:
         if self._clock is None:
             self._event.wait(timeout=seconds)
-        else:
-            self._clock.wait(self._event, timeout=seconds)
+            return
+        # In steps of at most `WAKE_S` real seconds: a scaled clock's speed may change while
+        # it waits, and a wait sized at the old speed would stall the loop at the new one.
+        deadline = self._now() + seconds
+        while not self._event.is_set():
+            left = deadline - self._now()
+            if left <= 0:
+                return
+            cap = WAKE_S * float(getattr(self._clock, "speed", 1.0) or 1.0)
+            self._clock.wait(self._event, timeout=min(left, cap))
 
     def run(self) -> None:
         # On the rig's clock: a scaled clock polls proportionally faster.

@@ -5,9 +5,9 @@
 # 101325 Pa; humidity tau 45 s, ambient 45 %RH.
 
 links:
-  temperature_plant: { tag: sim_plant, tau_s: 30.0, gain: 5.0, ambient: 21.0, initial: 21.0, noise: 0.05, seed: 20 }
-  pressure_plant: { tag: sim_plant, tau_s: 300.0, gain: 1500.0, ambient: 101325.0, initial: 101325.0, noise: 5.0, seed: 21 }
-  humidity_plant: { tag: sim_plant, tau_s: 45.0, gain: 30.0, ambient: 45.0, initial: 45.0, noise: 0.3, seed: 22 }
+  temperature_plant: { type: sim_plant, tau_s: 30.0, gain: 5.0, ambient: 21.0, initial: 21.0, noise: 0.05, seed: 20 }
+  pressure_plant: { type: sim_plant, tau_s: 300.0, gain: 1500.0, ambient: 101325.0, initial: 101325.0, noise: 5.0, seed: 21 }
+  humidity_plant: { type: sim_plant, tau_s: 45.0, gain: 30.0, ambient: 45.0, initial: 45.0, noise: 0.3, seed: 22 }
 
 devices:
   temperature:

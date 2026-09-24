@@ -111,6 +111,6 @@ class Gains:
             )
         return cast("ControlLawConfig", PI.config(kp=self.kp, ki=self.ki, tt=self.tt))
 
-    def to_tuning(self, tag: str) -> Tuning:
-        """A tuning named `tag` wrapping [config][flyball.autotune.types.Gains.config]."""
-        return Tuning(tag=tag, config=self.config)
+    def to_tuning(self, name: str) -> Tuning:
+        """A tuning named `name` wrapping [config][flyball.autotune.types.Gains.config]."""
+        return Tuning(name=name, config=self.config)

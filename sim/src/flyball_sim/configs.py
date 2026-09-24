@@ -1,9 +1,8 @@
-"""The entry-point target: explicitly registers every tag this package provides.
+"""The entry-point target: explicitly registers every type this package provides.
 
-Per `brain/tasks/registry-redesign.md`: registering is no longer a side
-effect of importing `devices`/`links` (there is no `Config.registry` to
-write into any more) -- `discover()` calls `register(catalog)` here, and it
-calls `catalog.register_*` for each one, explicitly.
+Registering is not a side effect of importing `devices`/`links`:
+`discover()` calls `register(catalog)` here, and it calls
+`catalog.register_*` for each one, explicitly.
 """
 
 from flyball.model.catalog import Catalogs

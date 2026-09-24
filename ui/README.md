@@ -23,15 +23,15 @@ cd ui && npm install && npm run dev                # Vite on :5173, /api and /ws
 ## Use as a library
 
 ```tsx
-import { RigProvider, useRigSchema, useActuatorStates, useCommands, ActuatorPanel } from "@flyball/react";
+import { RigProvider, useDevice, useDeviceSchema, useCommands, DevicePanel } from "@flyball/react";
 import "@flyball/react/styles.css";
 
 function Pumps() {
-  const schema = useRigSchema();                       // GET /api/schema
-  const { states } = useActuatorStates();              // /ws/actuators
-  const commands = useCommands("actuators", "pumps");  // POST /api/actuators/pumps/{command}
-  const pumps = schema.data?.actuators.pumps;
-  return pumps ? <ActuatorPanel schema={pumps} state={states.pumps} onRun={commands.run} busy={commands.busy} results={commands.results} /> : null;
+  const device = useDevice("pumps");                    // GET /api/devices/pumps
+  const schema = useDeviceSchema("pumps");               // GET /api/devices/pumps/schema
+  const commands = useCommands("pumps");                 // POST /api/devices/pumps/commands/{command}
+  if (!device.data || !schema.data) return null;
+  return <DevicePanel device={device.data} schema={schema.data} onRun={commands.run} busy={commands.busy} results={commands.results} />;
 }
 
 <RigProvider url="http://pi:8000"><Pumps /></RigProvider>
@@ -39,9 +39,9 @@ function Pumps() {
 
 The rules that keep it embeddable:
 
-- **Panels take data and emit events.** `ActuatorPanel`, `CommandForm`, `StateView`, `SchemaForm` never fetch; they render props and call callbacks. They work against a mock, a recording, or someone else's server.
-- **Hooks fetch.** `useRigSchema`, `useDeviceView`, `useActuatorStates`, `useStream`, `useCommands`. Each returns the same `{data, error, loading, refresh}` shape, so they can be swapped for TanStack Query later without touching a panel.
-- **Live values go through one store.** `RigProvider` owns a `TelemetryStore`: ring buffers (`Float64Array`) per channel and per loop, the latest actuator states, a capped event ring, and the four sockets (`samples`, `loops`, `actuators`, `events`), opened on the first subscriber and closed five seconds after the last. Read it with `useLatest(key)` (one value, ≤ 4 Hz, re-renders only the caller), `useTraceRef(channels)` (a handle a chart draws from via its `source` prop, ≤ 10 Hz `setData`, no React re-render on samples), `useLoopLatest`, `useActuatorState`, `useEventsFeed`, `useStreamStatus`, `useFreshness`. `useSamples`/`useLoops`/`useActuatorStates`/`useEvents` remain as adapters over the store for panels that take arrays.
+- **Panels take data and emit events.** `DevicePanel`, `CommandForm`, `StateView`, `SchemaForm` never fetch; they render props and call callbacks. They work against a mock, a recording, or someone else's server.
+- **Hooks fetch.** `useRigSchema`, `useDevices`, `useDevice`, `useDeviceSchema`, `useCommands`, `useRigDocument`. Each query hook returns the same `{data, error, loading, refresh}` shape, so they can be swapped for TanStack Query later without touching a panel.
+- **Live values go through one store.** `RigProvider` owns a `TelemetryStore`: ring buffers (`Float64Array`) per signal, the latest write and controller state, a capped event ring, and the four sockets (`samples`, `controllers`, `activities`, `events`), opened on the first subscriber and closed five seconds after the last. Read it with `useSignal(address)`/`useLatestValue(address)` (one value, ≤ 4 Hz, re-renders only the caller), `useTraceRef(channels)` (a handle a chart draws from via its `source` prop, ≤ 10 Hz `setData`, no React re-render on samples), `useWriteState`, `useController`, `useDeviceRun`, `useActivityStates`, `useEventsFeed`, `useStreamStatus`, `useReading(address)` (the newest reading with its quality: why it has no value, its caveats, the last usable value), `useBandLevel`/`useConditions` (what the rig holds on a signal or a controller). A reading with no value is `NaN` on its ring (a chart breaks there) and `null` from `useSignal`, never the value before it; staleness is the rig's, pushed as a `stale` reading.
 - **Transport is an interface.** `RigProvider` takes a `transport` prop; `browserTransport` (fetch + WebSocket with reconnect) is the default. A test passes a fake.
 - **No global state, no router, no leaking CSS.** Styles are scoped under `.fb-*` and driven by CSS variables (`--fb-accent`, …).
 
@@ -88,6 +88,7 @@ palette, so an embedder with no MUI at all gets the same look from the styleshee
 | `--fb-alarm` / `--fb-alarm-fill` | Alarm text/border, and its soft fill. |
 | `--fb-ok-fill` | Soft fill for a positive band/badge. |
 | `--fb-stale` | Stale/disconnected — always paired with a dashed border, never colour alone. |
+| `--fb-unknown` | Band unknown (the rig's `band_unknown`: a banded signal with no value because of a fault) — always paired with a dotted border and a `?`, never the alarm red. 5.5:1 light, 6.9:1 dark. |
 | `--fb-info` | Alias of `--fb-accent` for informational (non-severity) callouts. |
 | `--fb-series-1`…`--fb-series-8` | The 8-slot chart palette, fixed order per entity, colour-blind-validated (§1.2). Never re-cycled when a series is hidden. |
 | `--fb-series-setpoint` | Setpoint/reference overlay — neutral + dashed, not a series slot. |
@@ -107,7 +108,7 @@ palette, so an embedder with no MUI at all gets the same look from the styleshee
 | `--fb-text-xs`…`-2xl` | Type scale: 11/12/13/14/16/20px. |
 | `--fb-chart-min-h` | Density's floor for a chart's height clamp — declared for `panels/{MultiSeries,TimeSeries}.tsx` to read; **not yet wired in** (they still hard-code their clamp). |
 | `--fb-bg`, `--fb-panel`, `--fb-border`, `--fb-muted`, `--fb-error` | Legacy names from before this token set (§1.1): alias `bg-2`, `bg-1`, `border-1`, `fg-2`, `alarm` respectively so old rules keep resolving while they migrate. |
-| `--fb-warning`, `--fb-warning-fg`, `--fb-error-bg`, `--fb-error-fg` | Older badge aliases (`fb-mode-open`, `fb-event-level`): alias `warn-fill`/`warn`/`alarm-fill`/`alarm`. |
+| `--fb-warning`, `--fb-warning-fg`, `--fb-error-bg`, `--fb-error-fg` | Older badge aliases (`fb-event-level`): alias `warn-fill`/`warn`/`alarm-fill`/`alarm`. |
 
 ## Performance
 

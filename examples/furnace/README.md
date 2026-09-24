@@ -1,8 +1,8 @@
 # The furnace
 
 A three-zone tube furnace: the complicated simulated rig. No hardware --
-it needs only `flyball` and `flyball-sim` -- kept as its own package
-because it registers `sim_furnace`, a worked
+it needs only `flyball[server]` (for `flyball-runner`) and `flyball-sim`
+-- kept as its own package because it registers `sim_furnace`, a worked
 [`MultiPlant`][flyball_sim.plant.MultiPlant] example whose ports know their
 own quantity, rather than the generic `sim_plant`/`sim_daq`/`sim_drive`
 `examples/simulated/` uses.
@@ -24,7 +24,8 @@ zone needs for the same step is several times larger at 900 than at 200.
 The two device names are the point of the shape: a real furnace's file
 would declare `furnace` (a thermocouple DAQ) and `heaters` (an SSR bank)
 with the same addresses, and a `sim.yaml` overlay would swap only the
-drivers for these (`temp-docs/DEVICE-MODEL-PLAN.md` §1.6, §2).
+drivers for these (see the book, *Writing a sensor* / *Writing an
+actuator*, `book/src/3-extending/device/{sensor,actuator}.md`).
 
 Five programs in `programs/`, each a different lesson:
 
@@ -34,7 +35,7 @@ Five programs in `programs/`, each a different lesson:
 | `gradient.yaml` | 4 h | 800 / 600 / 400 along the tube — conduction makes the hot end saturate and the cold end's heater idle |
 | `anneal.yaml` | 8 h | a driven 2 °C/min cooldown — the drive falls smoothly until the programmed rate exceeds the natural one |
 | `step-test.yaml` | 5 h | identification steps on zone 2 at 300 and at 700 — the same 30 °C step, a different response: the case for a gain schedule |
-| `load-sample.yaml` | a few minutes | the operator in the loop: two `wait` steps with a timeout, for trying the go button |
+| `load-sample.yaml` | a few minutes | the operator in the loop: two `prompt` steps with a timeout, for trying the go button |
 
 ```bash
 uv run flyball-runner rig.yaml                # clock at 60x from the file
@@ -42,15 +43,15 @@ flyball program run programs/firing.yaml      # cd daemon && go build ./cmd/flyb
 flyball program status
 flyball sim show                              # the tube's parameters
 flyball sim set tube coupling_w_per_k=20      # couple the zones harder, live
-flyball invoke furnace fail signal=zone3      # open-circuit a thermocouple
+flyball invoke furnace fail signal=zone3      # open-circuit a thermocouple: it reads invalid, zone 3's loop freezes
 flyball watch controllers
 ```
 
 `flyball program run programs/firing.yaml` starts a firing; `flyball
-program status` says where it is; `flyball signal fire wait` answers the
+program status` says where it is; `flyball activity fire prompt` answers the
 operator prompt at the end. With `clock: { stepped: true }` instead of a
 speed, the same firing runs to completion in the time the arithmetic takes
-— every poll, tick and hold in order — which is how
+— every poll, tick and wait in order — which is how
 `tests/test_plant.py` tests it.
 
 ## Editing the file

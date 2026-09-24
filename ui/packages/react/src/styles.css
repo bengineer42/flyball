@@ -30,6 +30,7 @@
   --fb-warn: #a8690f;      /* 4.5:1 amber text/border; fill variant below */
   --fb-alarm: #c62828;     /* 5.6:1 */
   --fb-stale: #8a93a2;     /* 3.1:1 — used as a 2px DASHED border and a hatch, never as the only cue */
+  --fb-unknown: #6d5bb3;   /* 5.5:1 — band unknown (no value because of a fault): a DOTTED border, never the alarm red */
   --fb-info: var(--fb-accent);
   --fb-warn-fill: rgba(240, 180, 41, 0.18);
   --fb-alarm-fill: rgba(198, 40, 40, 0.14);
@@ -94,6 +95,7 @@
     --fb-warn: #f0b429;    /* 9.4:1 */
     --fb-alarm: #f0616a;   /* 5.5:1 */
     --fb-stale: #7d8696;   /* 4.8:1 */
+    --fb-unknown: #a898e8; /* 6.9:1 */
     --fb-warn-fill: rgba(240, 180, 41, 0.16);
     --fb-alarm-fill: rgba(240, 97, 106, 0.16);
     --fb-ok-fill: rgba(63, 178, 127, 0.14);
@@ -139,6 +141,7 @@
   --fb-warn: #f0b429;    /* 9.4:1 */
   --fb-alarm: #f0616a;   /* 5.5:1 */
   --fb-stale: #7d8696;   /* 4.8:1 */
+  --fb-unknown: #a898e8; /* 6.9:1 */
   --fb-warn-fill: rgba(240, 180, 41, 0.16);
   --fb-alarm-fill: rgba(240, 97, 106, 0.16);
   --fb-ok-fill: rgba(63, 178, 127, 0.14);
@@ -192,8 +195,8 @@
 .fb-num-unit { margin-left: 0.35rem; color: var(--fb-fg-2); }
 .fb-state .fb-state { margin: 0; }
 .fb-condition { display: inline-block; padding: 0 0.4rem; border-radius: var(--fb-radius); background: var(--fb-border-1); margin-right: 0.3rem; }
-.fb-level-30 { background: var(--fb-warn, #d97706); color: #fff; }
-.fb-level-40 { background: var(--fb-alarm, #dc2626); color: #fff; }
+.fb-severity-warning { background: var(--fb-warn, #d97706); color: #fff; }
+.fb-severity-error { background: var(--fb-alarm, #dc2626); color: #fff; }
 /* Command cards tile: equal height across a row, each card a column with its Run button on the bottom line, so a row of them reads as one block. */
 .fb-commands { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(17rem, 100%), 1fr)); gap: var(--fb-gap); align-items: stretch; }
 .fb-commands > * { min-width: 0; }
@@ -277,14 +280,18 @@
 .fb-loop-head h3 { margin: 0; flex: 0 0 auto; min-width: max-content; }
 .fb-loop-head > .fb-muted { flex: 1 1 0%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fb-loop-head > .fb-badge { flex: none; }
-.fb-loop-head > .fb-loop-warn { flex: none; }
+.fb-loop-head > .fb-loop-warn, .fb-loop-head > .fb-loop-info { flex: none; }
 .fb-mode-manual { background: var(--fb-border-1); }
-.fb-mode-open { background: var(--fb-warning); color: var(--fb-warning-fg); }
 .fb-mode-regulating { background: var(--fb-accent); color: #fff; }
 /* PlantPAx-style banner for the faceplate's single top condition; shown only when one exists. */
 /* In the header, not its own grid row -- see ControllerPanel.tsx's comment: a row that
    appears/disappears as the condition flips would reflow everything below it each time. */
+/* Why a controller cannot regulate now (a latch, a permissive holding it): one quiet line under the header, amber, never alarm red. */
+.fb-loop-latch { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; align-items: center; margin: 0 0 0.5rem; color: var(--fb-warn); font-size: 0.9em; font-weight: 600; }
+.fb-loop-reset { margin-left: 0.5rem; padding: 0.1rem 0.6rem; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: var(--fb-radius); cursor: pointer; font: inherit; }
 .fb-loop-warn { background: var(--fb-warn-fill); color: var(--fb-warn); border-radius: var(--fb-radius); padding: 0.2rem 0.5rem; font-size: 0.85em; font-weight: 600; white-space: nowrap; }
+/* A benign hold (frozen on an n/a measured value): information, not a warning. */
+.fb-loop-info { background: var(--fb-accent-soft); color: var(--fb-info); border-radius: var(--fb-radius); padding: 0.2rem 0.5rem; font-size: 0.85em; font-weight: 600; white-space: nowrap; }
 /* PV / SP / OP: three aligned rows, each a label, a value, an optional bar, and a caption line that never grows the row (reserved even when empty). */
 .fb-loop-rows { display: grid; grid-template-columns: minmax(3.6rem, max-content) minmax(5.5rem, max-content) minmax(6rem, 1fr); align-items: center; gap: 0.3rem 0.6rem; margin: 0; min-width: 0; }
 .fb-loop-row { display: contents; }
@@ -317,7 +324,7 @@
 .fb-loop-law { margin: 0.4rem 0 0; }
 .fb-loop-law h4 { margin: 0.6rem 0 0; display: flex; align-items: baseline; gap: 0.5rem; }
 .fb-loop-law .fb-state { margin: 0.3rem 0 0; }
-/* Law/feedforward, one line each (no `<details>`): the tag, then every field abbreviated with its
+/* Law/feedforward, one line each (no `<details>`): the type, then every field abbreviated with its
    full name on a hover hint (`title`) rather than spelled out and crowding the line. */
 .fb-loop-law-line { margin: 0.3rem 0 0; font-size: 0.85em; color: var(--fb-fg-2); }
 .fb-loop-law-line .fb-tag { color: var(--fb-fg); }
@@ -336,17 +343,21 @@
 .fb-event-time { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--fb-fg-2); }
 .fb-event-scope { white-space: nowrap; }
 .fb-event-scope .fb-muted { margin: 0 0.2rem; }
-.fb-event-kind { white-space: nowrap; }
+.fb-event-code { white-space: nowrap; }
+.fb-event-edge { margin-left: 0.4em; font-size: 0.85em; color: var(--fb-fg-2); }
+.fb-event-edge.fb-event-raised::before { content: "▲ "; }
+.fb-event-edge.fb-event-cleared::before { content: "✓ "; }
 .fb-event-message { width: 100%; }
 .fb-event-details td { background: var(--fb-bg-2); padding-left: 1.5rem; }
 .fb-event-details .fb-state { margin: 0.2rem 0; }
 .fb-event-unread .fb-event-message { font-weight: 600; }
 .fb-event-dot { display: inline-block; width: 0.4rem; height: 0.4rem; margin-right: 0.35rem; border-radius: 50%; background: var(--fb-warning); vertical-align: middle; }
-.fb-event-DEBUG { color: var(--fb-fg-2); }
-.fb-event-level.fb-event-DEBUG { background: transparent; border: 1px solid var(--fb-border-1); font-weight: normal; }
-.fb-event-level.fb-event-INFO { background: var(--fb-border-1); }
-.fb-event-level.fb-event-WARNING { background: var(--fb-warning); color: var(--fb-warning-fg); }
-.fb-event-level.fb-event-ERROR { background: var(--fb-error-bg); color: var(--fb-error-fg); }
+.fb-event-debug { color: var(--fb-fg-2); }
+.fb-event-severity.fb-event-debug { background: transparent; border: 1px solid var(--fb-border-1); font-weight: normal; }
+.fb-event-severity.fb-event-info { background: var(--fb-border-1); }
+.fb-event-severity.fb-event-warning { background: var(--fb-warning); color: var(--fb-warning-fg); }
+.fb-event-severity.fb-event-error { background: var(--fb-error-bg); color: var(--fb-error-fg); }
+.fb-event-severity.fb-event-unknown { background: transparent; border: 1px dotted var(--fb-unknown); color: var(--fb-unknown); }
 
 /* form widgets */
 .fb-field { margin: 0.4rem 0; min-width: 0; }
@@ -391,10 +402,6 @@
 .fb-write-error { flex-basis: 100%; }
 /* The cell a write row sits in: the `fb-state` grid's `1fr` column may shrink below the row's min-content, so the row wraps rather than overflowing. */
 .fb-state dd.fb-write-cell { min-width: 0; }
-/* A `together` group: a member per line, label, set value and its own slider; one Set for the lot. */
-.fb-write-group { column-gap: 0.8rem; }
-.fb-write-member { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; flex: 1 1 100%; min-width: 0; }
-.fb-write-hint { flex-basis: 100%; font-size: 0.85em; color: var(--fb-fg-2); }
 /* An `rw` setting: the value as last read and the entry, one line. */
 .fb-setting { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; min-width: 0; }
 .fb-setting-value { display: inline; }
@@ -432,6 +439,14 @@ label.fb-toggle { display: inline-flex; align-items: center; gap: 0.5rem; cursor
 .fb-readout.fb-alarm-alarm .fb-readout-value { color: var(--fb-alarm); }
 .fb-readout.fb-alarm-warn .fb-range-fill { background: var(--fb-warn); }
 .fb-readout.fb-alarm-alarm .fb-range-fill { background: var(--fb-alarm); }
+/* A reading with no value: "—" (or "…" while pending) in the number's place and why beside it. Faults read in the
+   secondary colour, the benign n/a and pending in the tertiary one; neither is an alarm colour. */
+.fb-quality { margin-left: 0.4em; font-size: var(--fb-text-sm, 12px); line-height: 1.25; color: var(--fb-fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fb-quality-pending, .fb-quality-not_applicable { color: var(--fb-fg-3); }
+.fb-quality-stale { font-style: italic; }
+/* A usable value's caveat (at a limit, out of range): a quiet mark before the number, the words on hover. */
+.fb-caveat { color: var(--fb-fg-3); font-size: 0.8em; margin-right: 0.15em; cursor: help; }
+.fb-readout.fb-alarm-unknown .fb-readout-number { color: var(--fb-unknown); }
 /* Stale keeps the last value visible and undecorated (DESIGN-SPEC.md §2) — only the border and footer change. */
 .fb-range { position: relative; overflow: visible; }
 .fb-range-tick { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--fb-warn); }
@@ -447,6 +462,7 @@ label.fb-toggle { display: inline-flex; align-items: center; gap: 0.5rem; cursor
 .fb-gauge-unit { font-size: 0.6em; color: var(--fb-fg-2); margin-left: 0.3rem; }
 /* A gauge is always embedded in another panel's chrome, so it takes only the stale border + footer, not a full title row. */
 .fb-gauge.fb-alarm-stale { border: 2px dashed var(--fb-stale); border-radius: var(--fb-radius); padding: 0.4rem; box-sizing: border-box; }
+.fb-gauge.fb-alarm-unknown { border: 2px dotted var(--fb-unknown); border-radius: var(--fb-radius); padding: 0.4rem; box-sizing: border-box; }
 .fb-gauge-footer { font-size: var(--fb-text-sm, 12px); color: var(--fb-fg-2); }
 /* sessions */
 .fb-session-section { margin-top: var(--fb-gap); }
@@ -569,6 +585,7 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
 .fb-panel-dot-warn { background: var(--fb-warn); }
 .fb-panel-dot-alarm { background: var(--fb-alarm); }
 .fb-panel-dot-stale { background: transparent; border: 1.5px dashed var(--fb-stale); }
+.fb-panel-dot-unknown { background: transparent; border: 2px dotted var(--fb-unknown); }
 .fb-tile-footer { flex: none; padding: 0 var(--fb-space-3) var(--fb-space-2); font-size: var(--fb-text-sm, 12px); line-height: 1.25; }
 /* A panel inside a tile is the tile's content, not a card inside a card (legacy L3 embeddings; widgets pass `bare` instead). */
 .fb-tile-body > .fb-panel, .fb-tile-body > .fb-readout { border: 0; background: transparent; padding: 0; border-radius: 0; flex: 1 1 auto; min-height: 0; }
@@ -576,6 +593,7 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
 .fb-tile.fb-alarm-warn { border-color: var(--fb-warn); box-shadow: inset 0 0 0 1px var(--fb-warn); }
 .fb-tile.fb-alarm-alarm { border-color: var(--fb-alarm); box-shadow: inset 0 0 0 1px var(--fb-bg-1), inset 0 0 0 2px var(--fb-alarm); }
 .fb-tile.fb-alarm-stale { border-style: dashed; border-color: var(--fb-stale); }
+.fb-tile.fb-alarm-unknown { border-style: dotted; border-color: var(--fb-unknown); }
 /* A widget that names something the rig does not have. */
 .fb-tile-missing { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: var(--fb-space-1); color: var(--fb-fg-2); border: 1px dashed var(--fb-border-1); border-radius: var(--fb-radius); padding: var(--fb-space-3); flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .fb-tile-missing code { color: var(--fb-fg); }
@@ -624,7 +642,7 @@ a.fb-ref:hover { color: var(--fb-accent); border-bottom-color: var(--fb-accent);
     border-bottom: 0;
   }
   .fb-events-table tr.fb-event-row .fb-event-scope,
-  .fb-events-table tr.fb-event-row .fb-event-kind {
+  .fb-events-table tr.fb-event-row .fb-event-code {
     white-space: normal;
   }
   .fb-events-table tr.fb-event-row .fb-event-message {

@@ -31,7 +31,7 @@ def built(request):
     try:
         yield config, rig
     finally:
-        rig.stop()
+        rig.close()
 
 
 def test_every_stress_rig_validates():
@@ -76,7 +76,7 @@ def test_stress_rig_samples_every_signal_and_regulates_every_controller(built):
     # more readings to act on: a demand should come out the other side regardless
     # of the law -- P, PI, PID, open_loop -- or how badly it is tuned.
     for _, controller in list(rig.controllers.items()):
-        reading = rig.latest.get(controller.source)
+        reading = rig.latest.get(controller.measured_signal)
         assert reading is not None, f"controller {controller.name} has no reading to regulate from"
         controller.regulate(reading.value)
     clock.advance(period * 2 + 1)
@@ -84,7 +84,7 @@ def test_stress_rig_samples_every_signal_and_regulates_every_controller(built):
     undemanded = [
         name
         for name, controller in rig.controllers.items()
-        if controller.target not in controller.target.device.written
+        if controller.output_signal not in controller.output_signal.device.written
     ]
     assert not undemanded, f"no demand yet on {undemanded}"
-    assert all(c.state.demand is not None for _, c in rig.controllers.items())
+    assert all(c.state.output is not None for _, c in rig.controllers.items())

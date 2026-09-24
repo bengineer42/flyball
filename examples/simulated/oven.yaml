@@ -7,7 +7,7 @@ name: oven
 
 links:
   chamber:
-    tag: sim_plant
+    type: sim_plant
     model: fopdt
     tau_s: 60.0        # the oven takes about a minute to respond
     dead_s: 5.0        # ... and five seconds before it starts to
@@ -22,15 +22,14 @@ devices:
     driver: sim_daq
     label: Oven thermocouple
     poll_s: 1.0
-    config:
-      link: chamber
-      ports:
-        temperature: { port: output, quantity: temperature, unit: "°C" }
+    link: chamber
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
     signals:
       temperature:
         range: [0, 120]
         precision: 2
-        warn: [30, 90]     # outside: a warning (EPICS LOW/HIGH)
+        warning: [30, 90]     # outside: a warning (EPICS LOW/HIGH)
         alarm: [10, 110]   # outside: an alarm (EPICS LOLO/HIHI)
   heater:
     driver: sim_drive
@@ -38,16 +37,15 @@ devices:
     # heater.drive [W] °C, smart: a demand is the temperature to hold, and
     # commit() inverts the plant to find the drive; `limits` defaults to the
     # plant's own static range (20..100 °C, ambient to ambient + gain).
-    config:
-      link: chamber
-      ports:
-        drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
+    link: chamber
+    ports:
+      drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
 
 # The drive takes a demand straight in °C, so the controller hands it the
-# setpoint untouched (the default `setpoint` feedforward, since the units
+# setpoint untouched (the default `identity` feedforward, since the units
 # agree) and the law's gains are the old °C-per-°C tuning.
 controllers:
   heater.drive:
-    signal: thermocouple.temperature
-    law: { tag: PI, kp: 0.02, ki: 0.0005 }
+    measured: thermocouple.temperature
+    law: { type: PI, kp: 0.02, ki: 0.0005 }
     default: true

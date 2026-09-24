@@ -13,11 +13,10 @@ from flyball.foundation.device import (
     Committable,
     Demand,
     Namespace,
-    Output,
     Readable,
+    Readout,
     Role,
     Sample,
-    Section,
     command,
 )
 from flyball.foundation.errors import ConflictError, NotFoundError
@@ -28,7 +27,6 @@ from flyball.rig import Rig
 
 TEMP = Quantity("temperature", Celsius)
 DUTY = Quantity("duty", Percent)
-A, B = Section("a", "Bank A", axis="bank"), Section("b", "Bank B", axis="bank")
 
 
 class Mode(Labelled):
@@ -41,11 +39,11 @@ class Heater(Committable):
     """Two banks driven together by hand, or one demand a controller drives."""
 
     banks = Namespace("banks", "Banks")
-    max_duty = Output("max_duty", "Max duty", DUTY, access=Access.R, initial=80.0)
+    max_duty = Readout("max_duty", "Max duty", DUTY, access=Access.R, initial=80.0)
     power = Demand("power", "Power", DUTY, limits=(0.0, 100.0))
-    a = banks.demand(A, "Bank A duty", DUTY, limits=(0.0, max_duty))
-    b = banks.demand(B, "Bank B duty", DUTY, limits=(0.0, max_duty))
-    mode = Output("mode", "Mode", vtype=Mode, initial=Mode.AUTO)
+    a = banks.demand("a", "Bank A duty", DUTY, limits=(0.0, max_duty), tags={"bank": "a"})
+    b = banks.demand("b", "Bank B duty", DUTY, limits=(0.0, max_duty), tags={"bank": "b"})
+    mode = Readout("mode", "Mode", vtype=Mode, initial=Mode.AUTO)
     writes: list[tuple[str, float]]
 
     def __init__(self, name: str) -> None:
@@ -53,7 +51,7 @@ class Heater(Committable):
         self.writes = []
 
     def commit(self, time_ns: int) -> None:
-        if (power := self.power.pending) is not None:
+        if (power := self.power.staged) is not None:
             self.writes.append(("power", power))
             if self.mode.value is not Mode.AUTO:
                 self.mode.push(Mode.AUTO, time_ns)
@@ -83,7 +81,7 @@ class Heater(Committable):
 
 
 class Probe(Readable):
-    temperature = Output("temperature", "Temperature", TEMP)
+    temperature = Readout("temperature", "Temperature", TEMP)
 
     def read(self, time_ns, node=None):
         yield self.sample(time_ns, temperature=20.0)
@@ -106,7 +104,6 @@ def heater(rig: Rig) -> Heater:
 class TestStructure:
     def test_tree_roles_sections_and_synthesised_setters(self, heater: Heater) -> None:
         assert list(heater.signals) == [
-            "conditions",
             "max_duty",
             "power",
             "mode",
@@ -178,7 +175,7 @@ class TestRun:
             rig.run_command(heater, "set_banks", {"a": 1.0, "b": 1.0})
         rig.run_command(heater, "reset"), "no mode, no link: runs regardless"
         rig.run_command(heater, "off")
-        assert not controller.mode.active() and rig.recent[-1].kind == "interrupted"
+        assert not controller.mode.active() and rig.recent[-1].code == "interrupted"
         rig.run_command(heater, "set_banks", {"a": 1.0, "b": 1.0}), "manual now: allowed"
 
     def test_a_demand_puts_the_device_back_in_auto_from_within_commit(
@@ -186,7 +183,7 @@ class TestRun:
     ) -> None:
         rig.run_command(heater, "set_banks", {"a": 1.0, "b": 1.0})
         assert heater.mode.value is Mode.HAND
-        rig.demand(heater.root, {"power": 10.0})
+        rig.write(heater.root, {"power": 10.0})
         assert heater.mode.value is Mode.AUTO, "pushed inside commit, delivered after it"
         assert rig.router.sample(heater.root) is not None
 

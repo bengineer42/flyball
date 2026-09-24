@@ -3,7 +3,7 @@
 OS-independent -- no bus implementation lives here. `extensions/linux`
 supplies `GpiodChip` (a real `/dev/gpiochipN` chip through libgpiod v2) and
 `FakeGpio` (a scripted one for tests and hardware-free rigs), both built
-from tagged configs.
+from typed configs.
 """
 
 from __future__ import annotations

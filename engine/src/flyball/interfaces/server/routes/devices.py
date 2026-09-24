@@ -5,8 +5,8 @@ one list. Routes resolve against the live rig at request time, since the app
 exists before the rig is set. OpenAPI therefore lists one generic command
 route; `/{name}/schema` carries each command's real request schema.
 
-A demand is the write side: `PUT /api/devices/{name}/demand` puts values on
-W signals under the device as one demand, and `PUT /api/signals/{address}`
+A write is the other side: `PUT /api/devices/{name}/write` puts values on
+W signals under the device as one write, and `PUT /api/signals/{address}`
 is the single-signal shorthand. Both answer with the write states by
 address, and refuse -- 409 -- what the rig refuses: a signal a controller
 drives, a signal that is not writable.
@@ -16,15 +16,23 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Request
 from pydantic import TypeAdapter, create_model
 
 from flyball.foundation.device import CommandSpec, Device, Node, Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.interfaces.server.deps import RigDep
-from flyball.interfaces.server.schemas import DeviceOut, WriteOut, writes_out
+from flyball.interfaces.server.routes.stop import actor
+from flyball.interfaces.server.schemas import (
+    CommandRunOut,
+    DeviceOut,
+    InterruptedOut,
+    WriteOut,
+    writes_out,
+)
 from flyball.interfaces.server.wire import ArgumentsBase, wire_fields
-from flyball.rig import DeviceRun, Rig
+from flyball.rig import CommandRun, DeviceRun, Rig
+from flyball.rig.stopping import Actor
 
 _ARGUMENTS: dict[tuple[type[Device], str], type[ArgumentsBase]] = {}
 
@@ -32,12 +40,12 @@ router = APIRouter(prefix="/api", tags=["devices"])
 
 
 def arguments_for(device_type: type[Device], spec: CommandSpec) -> type[ArgumentsBase]:
-    """The request model for one device command, built once per class and tag.
+    """The request model for one device command, built once per class and command.
 
     An argument that is a value for a demand may be left out: the rig fills
     it from the demand's current value, so the request does not require it.
     """
-    key = (device_type, spec.tag)
+    key = (device_type, spec.name)
     if key not in _ARGUMENTS:
         fields = wire_fields(spec.method, skip=1)
         for name, param in spec.params.items():
@@ -47,18 +55,18 @@ def arguments_for(device_type: type[Device], spec: CommandSpec) -> type[Argument
                 annotation, default = fields[name]
                 fields[name] = (annotation, None if default is ... else default)
         _ARGUMENTS[key] = create_model(
-            f"{device_type.__name__}{spec.tag.title().replace('_', '')}Arguments",
+            f"{device_type.__name__}{spec.name.title().replace('_', '')}Arguments",
             __base__=ArgumentsBase,
             **fields,
         )
     return _ARGUMENTS[key]
 
 
-def command_for(device: Device, tag: str) -> CommandSpec:
+def command_for(device: Device, command: str) -> CommandSpec:
     try:
-        return device.commands[tag]
+        return device.commands[command]
     except KeyError as e:
-        raise NotFoundError(f"{device.name!r} has no command {tag!r}") from e
+        raise NotFoundError(f"{device.name!r} has no command {command!r}") from e
 
 
 def _signal_schema(signal: Signal) -> dict[str, Any]:
@@ -86,8 +94,8 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
     return {
         "name": device.name,
         "label": device.label,
-        "type": cls.__name__,
-        "driver": type(device.config).config_tag,
+        "class_name": cls.__name__,
+        "driver": type(device.config).type_name,
         "description": cls.__doc__.strip().splitlines()[0] if cls.__doc__ else None,
         "readable": cls.readable,
         "writable": cls.writable,
@@ -95,16 +103,17 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
         "config": TypeAdapter(cls.config_type).json_schema(mode="validation"),
         "signals": {path: _signal_schema(s) for path, s in device.signals.items()},
         "inputs": {
-            role: {
-                "label": spec.label,
-                "quantity": spec.quantity.name,
-                "unit": spec.quantity.unit.symbol,
-                "bound": None if (b := device.bound.get(role)) is None else b.address,
+            name: {
+                "label": "" if (spec := binding.declared) is None else spec.label,
+                "quantity": "" if spec is None else spec.quantity.name,
+                "unit": "" if (unit := binding.unit) is None else unit.symbol,
+                "bound": binding.address,
+                "constant": binding.constant,
             }
-            for role, spec in cls.INPUTS.items()
+            for name, binding in device.bound.items()
         },
         "commands": {
-            tag: {
+            command: {
                 "description": spec.doc,
                 "arguments": _linking_demands(
                     _naming_signals(
@@ -118,9 +127,10 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
                 "commit": spec.commit,
                 "mode": spec.mode,
                 "interrupts": spec.interrupts,
+                "writes": list(spec.writes),
                 "demand_of": spec.demand_of,
             }
-            for tag, spec in device.commands.items()
+            for command, spec in device.commands.items()
         },
     }
 
@@ -176,14 +186,20 @@ def _naming_signals(arguments: dict[str, Any], device: Device) -> dict[str, Any]
     }
 
 
-def run(rig: Rig, device: Device, tag: str, body: dict[str, Any] | None) -> Any:
-    """Run the command with the validated body, through the rig; return whatever it returns."""
-    spec = command_for(device, tag)
+def run(
+    rig: Rig,
+    device: Device,
+    command: str,
+    body: dict[str, Any] | None,
+    by: Actor | None = None,
+) -> CommandRun:
+    """Run the command with the validated body, through the rig: its `CommandRun`."""
+    spec = command_for(device, command)
     arguments = arguments_for(type(device), spec).model_validate(body or {}).arguments()
     left_out = [n for n, p in spec.params.items() if p.link is not None and arguments[n] is None]
     for name in left_out:
         del arguments[name]  # the rig fills it from the demand's current value
-    return rig.run_command(device, tag, arguments)
+    return rig.invoke(device, command, arguments, actor=by)
 
 
 def device_of(rig: Rig, name: str) -> Device:
@@ -217,13 +233,20 @@ def device_out(rig: Rig, device: Device) -> DeviceOut:
             latest=rig.latest,
             link=link_name(rig, device),
             run=run_of(rig, device.name),
+            conditions=device.held_conditions(),
+            last_usable=rig.router.last_usable,
+            stale_after=rig.liveness.threshold_s,
+            consumers=rig.consumers,
+            sources=rig.values.source,
+            now_ns=rig.clock.now_ns(),
         )
 
 
 @router.get("/devices")
 def read_devices(rig: RigDep) -> list[DeviceOut]:
     """Every device: its tree with the latest values and write states, commands, state."""
-    return [device_out(rig, device) for device in rig.devices.values()]
+    devices = list(rig.devices.values())  # a snapshot: a device may be added meanwhile
+    return [device_out(rig, device) for device in devices]
 
 
 @router.get("/devices/{name}")
@@ -244,45 +267,55 @@ def restart_device(rig: RigDep, name: str) -> DeviceOut:
     return device_out(rig, device)
 
 
-@router.put("/devices/{name}/demand")
-def demand(rig: RigDep, name: str, body: dict[str, float]) -> dict[str, WriteOut]:
-    """Put values on W signals under the device, as one demand; keys are relative names.
+@router.put("/devices/{name}/write")
+def write(rig: RigDep, request: Request, name: str, body: dict[str, float]) -> dict[str, WriteOut]:
+    """Put values on W signals under the device, as one write; keys are relative names.
 
     Dotted for a signal under a namespace (`position.x`). Committed at
     once; the response is the write state of each signal set, by address.
     409 for a signal a controller drives,
     or a signal that is not writable; 404 for a name that is not under the
-    device.
+    device; 422 for a value that is not finite (NaN, infinity).
     """
     device = device_of(rig, name)
     values: dict[str | Signal, float] = {name: value for name, value in body.items()}
-    return writes_out(rig.demand(device.root, values))
+    return writes_out(rig.write(device.root, values, actor=actor(request)))
 
 
 @router.put("/signals/{address}")
-def set_signal(rig: RigDep, address: str, body: Annotated[float, Body()]) -> dict[str, WriteOut]:
+def set_signal(
+    rig: RigDep, request: Request, address: str, body: Annotated[float, Body()]
+) -> dict[str, WriteOut]:
     """The single-signal demand: the body is the value, in the signal's unit."""
     target = rig.resolve(address)
     if isinstance(target, Node):
         raise ConflictError(f"'{address}' is a namespace, not a signal: demand on its device")
-    return writes_out(rig.demand(target.node, {target: body}))
+    return writes_out(rig.write(target.node, {target: body}, actor=actor(request)))
 
 
 # Plain `def`: FastAPI runs it in the threadpool, so a command that touches
 # hardware never blocks the event loop.
-@router.post("/devices/{name}/commands/{tag}")
+@router.post("/devices/{name}/commands/{command}")
 def run_command(
-    rig: RigDep, name: str, tag: str, body: Annotated[dict[str, Any] | None, Body()] = None
-) -> Any:
-    """Call the marked method with the validated body; respond with whatever it returns.
+    rig: RigDep,
+    request: Request,
+    name: str,
+    command: str,
+    body: Annotated[dict[str, Any] | None, Body()] = None,
+) -> CommandRunOut:
+    """Call the marked method with the validated body: `{result, interrupted}`.
 
-    A command that succeeds on an offline device is taken as the fix
-    (`restore`, a reset, a reconnect): polling starts again, and a device
-    still broken simply goes offline again with a fresh event.
+    `result` is whatever the method returned; `interrupted` lists each
+    controller an `interrupts` command put into manual (`{controller, was}`),
+    which happens only once the method has succeeded. A command that succeeds
+    on an offline device is taken as the fix (`restore`, a reset, a
+    reconnect): polling starts again, and a device still broken simply goes
+    offline again with a fresh event.
     """
     device = device_of(rig, name)
-    result = run(rig, device, tag, body)
-    run_ = run_of(rig, name)
-    if run_ is not None and not run_.running and run_.period_s is not None:
-        rig.polling.restart(name)
-    return result
+    ran = run(rig, device, command, body, actor(request))
+    rig.polling.revive(name)
+    return CommandRunOut(
+        result=ran.result,
+        interrupted=[InterruptedOut(controller=i.controller, was=i.was) for i in ran.interrupted],
+    )

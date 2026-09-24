@@ -5,8 +5,8 @@
  */
 import type { DashboardDocument, DashboardWidget } from "@flyball/client";
 
-/** Version 2 binds by address (`address`, `addresses`), controller name (`controller`) and device name (`device`); the server migrates version 1 on read. */
-export const SCHEMA_VERSION = 2;
+/** Version 2 binds by address (`address`, `addresses`), controller name (`controller`) and device name (`device`); 3 adds `readonly` and `order`. The server migrates older versions on read. */
+export const SCHEMA_VERSION = 5;
 export const DEFAULT_GRID = { cols: 24, row_height: 24 } as const;
 /** Pixels between tiles, both ways: the app's own gutter. */
 export const GRID_MARGIN: readonly [number, number] = [12, 12];
@@ -16,7 +16,7 @@ export const newId = (kind: string) => `${kind}-${Math.random().toString(36).sli
 
 /** An empty document for `rig`, under `name`. */
 export function emptyDocument(name: string, rig: string): DashboardDocument {
-  return { schema_version: SCHEMA_VERSION, name, rig, description: null, grid: { ...DEFAULT_GRID }, widgets: [] };
+  return { schema_version: SCHEMA_VERSION, name, rig, description: null, grid: { ...DEFAULT_GRID }, widgets: [], readonly: false, order: null };
 }
 
 /**
@@ -34,6 +34,8 @@ export function normalise(doc: DashboardDocument): DashboardDocument {
     name: doc.name,
     rig: doc.rig,
     description: doc.description ?? null,
+    readonly: doc.readonly ?? false,
+    order: doc.order ?? null,
     grid: { cols: cols === 12 ? DEFAULT_GRID.cols : cols, row_height: doc.grid?.row_height ?? DEFAULT_GRID.row_height },
     widgets: (doc.widgets ?? []).map((w) => ({
       id: w.id,

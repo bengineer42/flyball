@@ -5,11 +5,11 @@
 
 | command | |
 | --- | --- |
-| `flyball status` | one screen: devices (signals with their latest values and write states), controllers, waits, recording (`GET /api/health`) |
+| `flyball status` | one screen: devices (signals with their latest values and write states), controllers, activities, recording (`GET /api/health`) |
 | `flyball devices` | every device: name, label, driver, signal tree (`GET /api/devices`) |
 | `flyball read ADDRESS [--fresh]` | a signal's reading, a namespace's sample, or a device's samples; `--fresh` reads the hardware now (`GET /api/read/{address}`) |
 | `flyball demand ADDRESS VALUE` | put a value on a writable signal -- what typing into a target box does (`PUT /api/signals/{address}`) |
-| `flyball watch STREAM` | follow `samples`, `controllers`, `waits` or `events` as one JSON line per frame (`/ws/{stream}`) |
+| `flyball watch STREAM` | follow `samples`, `controllers`, `activities` or `events` as one JSON line per frame (`/ws/{stream}`) |
 | `flyball clock` | the rig's timebase (`GET /api/clock`) |
 | `flyball schema` | the schema document, for saving or `jq` (`GET /api/schema`) |
 

@@ -53,12 +53,12 @@ class TestSteppedClock:
         set_event.set()
         assert clock.wait(set_event, timeout=10) is True and clock.now_ns() == 40_000_000_000
 
-    def test_a_program_s_timed_wait_passes_at_once(self, rig, clock):
+    def test_a_prompt_s_timeout_passes_at_once(self, rig, clock):
         from flyball.foundation.time import Duration
-        from flyball.sequencing import Program, Programmer, Wait
+        from flyball.sequencing import Program, Programmer, Prompt
 
         programmer = Programmer(rig)
-        programmer.start(Program([Wait("hold", timeout=Duration(600))]))
+        programmer.start(Program([Prompt("never answered", timeout=Duration(600))]))
         programmer.join(2)
         assert programmer.running is False and clock.now_ns() >= 600_000_000_000
 
@@ -79,7 +79,7 @@ class TestSimulation:
         assert "clock" in oven.describe()["changed"]
 
     def test_the_file_may_ask_for_a_speed_or_a_stepped_clock(self):
-        base = {"links": {"p": {"tag": "sim_plant"}}}
+        base = {"links": {"p": {"type": "sim_plant"}}}
         assert isinstance(
             RigConfig.model_validate({**base, "clock": {"speed": 10}}).build(start=False).clock,
             ScaledClock,
@@ -88,14 +88,14 @@ class TestSimulation:
         assert isinstance(rig.clock, SteppedClock)
         with pytest.raises(ValueError, match="sim_\\* or fake_\\*"):
             RigConfig.model_validate({
-                "links": {"v": {"tag": "visa", "resource": "x"}},
+                "links": {"v": {"type": "visa", "resource": "x"}},
                 "clock": {"speed": 2},
             })
 
     def test_hardware_is_not_a_simulation(self):
         from flyball.rig import Rig
 
-        config = RigConfig.model_validate({"links": {"v": {"tag": "visa", "resource": "x"}}})
+        config = RigConfig.model_validate({"links": {"v": {"type": "visa", "resource": "x"}}})
         assert config.simulated is False
         with pytest.raises(ConflictError, match="real hardware"):
             Simulation(Rig(), config)
@@ -107,7 +107,7 @@ class TestSimulation:
         assert updated.tau_s == 30 and oven.plant_config(name).tau_s == 30
         assert oven.plant_state(name)["output"] == pytest.approx(50.0), "state survives a retune"
         plant = oven.plants[name]
-        plant.step(30)  # one time constant with no input: 63 % of the way to ambient (20)
+        plant.advance(30)  # one time constant with no input: 63 % of the way to ambient (20)
         assert plant.output == pytest.approx(50 - 30 * (1 - 2.718281828**-1), rel=0.02)
         with pytest.raises(ValueError, match="model"):
             oven.set_plant(name, model="lag")
@@ -128,20 +128,20 @@ class TestSimulation:
             assert again.links[name].gain == 40.0 and again.links[name].dead_s == 5.0
             assert again.links[name].model == "fopdt"
             assert set(again.devices) == {"thermocouple", "heater"}, "untouched entries survive"
-            assert again.devices["thermocouple"].signals["temperature"].warn == (30.0, 90.0)
+            assert again.devices["thermocouple"].signals["temperature"].warning == (30.0, 90.0)
             assert list(again.controllers) == ["heater.drive"]
             rig = again.build(start=False)
             assert rig.resolve("thermocouple.temperature").spec.alarm == (10.0, 110.0)
-        assert 'tag = "sim_plant"' in (tmp_path / "oven.toml").read_text()
+        assert 'type = "sim_plant"' in (tmp_path / "oven.toml").read_text()
         assert "model: fopdt" in (tmp_path / "oven.yaml").read_text()
 
     def test_without_a_document_the_whole_config_is_dumped_in_the_devices_form(self, oven):
         bare = Simulation(oven.rig, oven.config)
         document = bare.config_document()
-        assert document["links"]["chamber"]["tag"] == "sim_plant"
+        assert document["links"]["chamber"]["type"] == "sim_plant"
         heater = document["devices"]["heater"]
         assert heater["driver"] == "sim_drive" and heater["label"] == "Oven heater"
-        assert heater["config"] == {
+        assert {k: heater[k] for k in ("link", "ports")} == {
             "link": "chamber",
             "ports": {
                 "drive": {
@@ -152,7 +152,7 @@ class TestSimulation:
                 }
             },
         }
-        assert document["controllers"]["heater.drive"]["signal"] == "thermocouple.temperature"
+        assert document["controllers"]["heater.drive"]["measured"] == "thermocouple.temperature"
         assert "readers" not in document and "actuators" not in document
         assert RigConfig.model_validate(document).build(start=False).devices.keys() == {
             "thermocouple",
@@ -161,7 +161,7 @@ class TestSimulation:
 
     def test_stepping_needs_a_stepped_clock(self, oven):
         with pytest.raises(ConflictError, match="not stepped"):
-            oven.step(1.0)
+            oven.advance(1.0)
 
 
 class TestLiveValues:
@@ -174,7 +174,7 @@ class TestLiveValues:
         try:
             sim = Simulation(rig, config, document, path)
             rig.detach_controller("heaters.heater1")
-            rig.demand(rig.resolve("heaters"), {"heater1": 400})
+            rig.write(rig.resolve("heaters"), {"heater1": 400})
             rig.clock.advance(120)
             described = sim.describe()
             plant = described["plants"]["tube"]
@@ -209,7 +209,7 @@ class TestLiveValues:
             assert set(described["clock"]) == {"speed", "measured", "stepped", "now_ns"}
             assert plant["inputs"]["heater1"] == pytest.approx(400 / 2500)
         finally:
-            rig.stop()
+            rig.close()
 
     def test_single_port_plant_links_to_output(self, oven):
         (name,) = oven.plants
@@ -221,7 +221,7 @@ class TestLiveValues:
         assert live["ambient"] == live["initial"] == plant["output"]
         (reading,) = plant["readings"].values()
         assert set(plant["readings"]) == {"thermocouple.temperature"}
-        assert set(reading) == {"value", "unit", "precision", "device", "port", "age_s"}
+        assert set(reading) == {"value", "quality", "unit", "precision", "device", "port", "age_s"}
         assert reading["port"] == "output" and reading["device"] == "thermocouple"
         assert "noise" not in live, "too few readings for a statistic: left out, not None"
         with pytest.raises(NotFoundError):

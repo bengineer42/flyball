@@ -2,7 +2,7 @@
 
 OS-independent -- no bus implementation lives here. `extensions/linux`
 supplies `SmbusI2c` (a real `/dev/i2c-N` bus) and `FakeI2c` (a scripted one
-for tests and hardware-free rigs), both built from tagged configs.
+for tests and hardware-free rigs), both built from typed configs.
 """
 
 from __future__ import annotations

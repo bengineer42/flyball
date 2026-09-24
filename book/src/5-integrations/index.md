@@ -18,7 +18,7 @@
 | SCPI over VISA / serial; Modbus TCP / RTU | `flyball-visa`, `flyball-modbus` | [Instrument protocols](protocols.md) |
 | QCoDeS (~200 drivers), PyMeasure (~150) | `flyball-qcodes`, `flyball-pymeasure` | [Instrument libraries](libraries.md) |
 | Raspberry Pi: I²C, SPI, GPIO, PWM, 1-Wire and the chips on them | `flyball-linux`, `flyball-chips` | [Raspberry Pi and Linux buses](linux.md) |
-| Bluesky: readables and movables over any signal; event-model export | `flyball-bluesky` | [Bluesky](bluesky.md) |
+| Bluesky: readables and movables over any signal; event-model export in `flyball.record.documents` (shipped, not gated on the extra) | `flyball-bluesky` | [Bluesky](bluesky.md) |
 | A model over MCP (Claude Desktop, Claude Code, any MCP client) | shipped, on the runner's port | [Models over MCP](models.md) |
 | Your own code: Python client, TypeScript client, plain HTTP | shipped | [Your own code](code.md) |
 | Applications built on flyball | example: [the humidity rig](https://bengineer42.github.io/humctrl/) | [Applications](applications.md) |
@@ -27,5 +27,5 @@
 Everything here is a `Device` like any other once attached: routes, a schema,
 telemetry, CLI subcommands and a client method per command with no further
 code. Where a new one goes: a driver is [Extending](../3-extending/index.md);
-a link tag, [Config and build](../3-extending/device/config.md); a data tool,
+a link type, [Config and build](../3-extending/device/config.md); a data tool,
 [The server](../4-server/index.md).

@@ -7,17 +7,19 @@ from collections.abc import Iterator
 from enum import Enum
 
 import pytest
-from fastapi.testclient import TestClient
 
+from conftest import TestClient
 from flyball.foundation.device import (
+    Access,
     Committable,
     Demand,
-    Level,
     Namespace,
     Node,
-    Output,
     Readable,
+    Readout,
     Sample,
+    Setting,
+    Severity,
     Signal,
     command,
 )
@@ -25,6 +27,8 @@ from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Percent, Watt
 from flyball.foundation.router import Trigger
 from flyball.interfaces.server import create_app, set_rig
+from flyball.rig.polling import ReadPolicy
+from flyball.sequencing.devices import RunCommand
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -37,16 +41,16 @@ HUMIDITY = Quantity("humidity", Percent)
 class Daq(Readable, Committable):
     """Two thermocouple zones `[RP]` and a demand `[RPW]`; counts the reads asked of it."""
 
-    zone1 = Output(
+    zone1 = Readout(
         "zone1",
         "Zone 1",
         TEMP,
         range=(0.0, 1200.0),
         precision=1,
-        warn=(0.0, 1100.0),
+        warning=(0.0, 1100.0),
         alarm=(-10.0, 1150.0),
     )
-    zone2 = Output("zone2", "", TEMP, warn=(0.0, 1100.0))
+    zone2 = Readout("zone2", "", TEMP, warning=(0.0, 1100.0))
     setpoint = Demand("setpoint", "", TEMP)
 
     def __init__(self, name: str, label: str | None = None) -> None:
@@ -62,7 +66,7 @@ class Daq(Readable, Committable):
         yield Sample(self.root, time_ns, {self.signals[n]: v for n, v in self.temps.items()})
 
     def commit(self, time_ns: int) -> None:
-        for signal, value in self.pending.items():
+        for signal, value in self.staged.items():
             self.temps[signal.name] = value
 
     @command
@@ -76,7 +80,7 @@ class Drive(Committable):
 
     heater1 = Demand("heater1", "Heater 1", POWER, limits=(0.0, 2500.0))
     heater2 = Demand("heater2", "", POWER, limits=(0.0, 6000.0))
-    duty = Output("duty", "Duty", initial=0.0)
+    duty = Readout("duty", "Duty", initial=0.0)
 
     def __init__(self, name: str, label: str | None = None) -> None:
         super().__init__(name, label)
@@ -91,7 +95,7 @@ class Drive(Committable):
         self.duty.push(duty)
         return duty
 
-    @command(tag="off", simulation=True)
+    @command(name="off", simulation=True)
     def switch_off(self) -> None:
         """Stop heating."""
         self.duty.push(0.0)
@@ -106,15 +110,29 @@ class Sensors(Readable):
 
     chamber = Namespace("chamber", atomic=True)
     dry = Namespace("dry", atomic=True)
-    chamber_humidity = chamber.output("humidity", "", HUMIDITY)
-    chamber_temperature = chamber.output("temperature", "", TEMP)
-    dry_humidity = dry.output("humidity", "", HUMIDITY)
-    dry_temperature = dry.output("temperature", "", TEMP)
+    chamber_humidity = chamber.readout("humidity", "", HUMIDITY)
+    chamber_temperature = chamber.readout("temperature", "", TEMP)
+    dry_humidity = dry.readout("humidity", "", HUMIDITY)
+    dry_temperature = dry.readout("temperature", "", TEMP)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         nodes = self.root.descendants() if node is None or node is self.root else (node,)
         for n in nodes:
             yield Sample(n, time_ns, {n.signals["humidity"]: 45.0, n.signals["temperature"]: 21.9})
+
+
+class Supplied(Committable):
+    """A demand bounded by a supply humidity that may not have been read yet."""
+
+    supply = Readout("supply", "Supply humidity", HUMIDITY)
+    humidity = Demand("humidity", "Target humidity", HUMIDITY, limits=(0.0, supply))
+
+    def __init__(self, name: str, label: str | None = None) -> None:
+        super().__init__(name, label)
+        self.inputs: dict[str, float] = {}
+
+    def write_signal(self, signal: Signal, value: float) -> None:
+        self.inputs[signal.name] = value
 
 
 class Mode(Enum):
@@ -125,8 +143,8 @@ class Mode(Enum):
 class Typed(Readable):
     """One enum-valued output and one JSON-valued output, both `[RP]`."""
 
-    mode = Output("mode", "", TEMP, vtype=Mode)
-    config = Output("config", "", TEMP, vtype=dict)
+    mode = Readout("mode", "", TEMP, vtype=Mode)
+    config = Readout("config", "", TEMP, vtype=dict)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         yield self.sample(time_ns, mode=Mode.RUNNING, config={"gain": 2, "offset": 1})
@@ -178,17 +196,16 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
     devices = {d["name"]: d for d in client.get("/api/devices").json()}
     assert set(devices) == {daq.name, drive.name}
     furnace = devices[daq.name]
-    assert furnace["label"] == "Tube furnace" and furnace["type"] == "Daq"
+    assert furnace["label"] == "Tube furnace" and furnace["class_name"] == "Daq"
     assert furnace["kind"] == "device"
     assert furnace["driver"] is None and furnace["link"] is None and furnace["run"] is None
     assert [s["name"] for s in furnace["signals"]] == [
-        "conditions",
         "zone1",
         "zone2",
         "setpoint",
         "last",
     ]
-    zone1 = furnace["signals"][1]
+    zone1 = furnace["signals"][0]
     assert zone1 == {
         "name": "zone1",
         "address": f"{daq.name}.zone1",
@@ -201,17 +218,22 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
         "shape": [],
         "range": [0.0, 1200.0],
         "precision": 1,
-        "warn": [0.0, 1100.0],
+        "warning": [0.0, 1100.0],
         "alarm": [-10.0, 1150.0],
         "poll_s": None,
+        "stale_after_s": None,
         "limits": None,
-        "role": "output",
+        "role": "readout",
         "tags": {},
         "initial": None,
+        "quality": "pending",
+        "readback": None,
+        "on_no_value": "fire",
         "latest": None,
+        "last_usable": None,
         "write": None,
     }
-    assert furnace["signals"][3]["access"] == "rpw", "a demand is readable, publishing and writable"
+    assert furnace["signals"][2]["access"] == "rpw", "a demand is readable, publishing and writable"
     assert furnace["commands"] == [
         {
             "name": "restore",
@@ -220,6 +242,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": None,
             "links": {},
         },
@@ -230,6 +253,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": "setpoint",
             "links": {},
         },
@@ -238,13 +262,12 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
 
     heaters = devices[drive.name]
     assert [s["name"] for s in heaters["signals"]] == [
-        "conditions",
         "heater1",
         "heater2",
         "duty",
         "last",
     ]
-    heater1 = heaters["signals"][1]
+    heater1 = heaters["signals"][0]
     assert heater1["access"] == "rpw" and heater1["limits"] == [0.0, 2500.0]
     assert heaters["commands"] == [
         {
@@ -254,6 +277,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": None,
             "links": {},
         },
@@ -264,6 +288,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": None,
             "links": {},
         },
@@ -274,6 +299,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": None,
             "links": {},
         },
@@ -284,6 +310,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": "heater1",
             "links": {},
         },
@@ -294,6 +321,7 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
             "commit": False,
             "mode": None,
             "interrupts": False,
+            "writes": [],
             "demand_of": "heater2",
             "links": {},
         },
@@ -301,11 +329,19 @@ def test_devices_list_the_tree_with_latest_values_and_write_states(client, rig, 
 
     # After a delivery and a demand, the values ride along on the tree.
     sample = deliver(rig, daq, 5_000_000_000)
-    rig.demand(drive.root, {"heater1": 3000.0})
+    rig.write(drive.root, {"heater1": 3000.0})
     one = client.get(f"/api/devices/{daq.name}").json()
-    assert one["signals"][1]["latest"] == {"time_ns": sample.time_ns, "value": 21.5}
-    assert one["signals"][3]["latest"] == {"time_ns": sample.time_ns, "value": 0.0}, "RW reads too"
-    heater1 = client.get(f"/api/devices/{drive.name}").json()["signals"][1]
+    assert one["signals"][0]["latest"] == {
+        "time_ns": sample.time_ns,
+        "value": 21.5,
+        "quality": "ok",
+    }
+    assert one["signals"][2]["latest"] == {
+        "time_ns": sample.time_ns,
+        "value": 0.0,
+        "quality": "ok",
+    }, "RW reads too"
+    heater1 = client.get(f"/api/devices/{drive.name}").json()["signals"][0]
     assert heater1["write"] == {
         "value": 2500.0,
         "requested": 3000.0,
@@ -319,9 +355,9 @@ def test_devices_with_namespaces_nest_and_read_as_samples(client, rig, fresh):
     sensors = Sensors(fresh("hum"))
     rig.add_device(sensors)
     tree = client.get(f"/api/devices/{sensors.name}").json()["signals"]
-    assert [n["name"] for n in tree] == ["conditions", "chamber", "dry"]
-    assert tree[2]["address"] == f"{sensors.name}.dry" and tree[2]["atomic"] is True
-    assert [s["address"] for s in tree[2]["signals"]] == [
+    assert [n["name"] for n in tree] == ["chamber", "dry"]
+    assert tree[1]["address"] == f"{sensors.name}.dry" and tree[1]["atomic"] is True
+    assert [s["address"] for s in tree[1]["signals"]] == [
         f"{sensors.name}.dry.humidity",
         f"{sensors.name}.dry.temperature",
     ]
@@ -337,7 +373,6 @@ def test_devices_with_namespaces_nest_and_read_as_samples(client, rig, fresh):
     }
     whole = client.get(f"/api/read/{sensors.name}?fresh=true").json()
     assert [s["node"] for s in whole["samples"]] == [
-        sensors.name,  # the base class's `conditions`, pushed once at build
         f"{sensors.name}.chamber",
         f"{sensors.name}.dry",
     ]
@@ -345,7 +380,7 @@ def test_devices_with_namespaces_nest_and_read_as_samples(client, rig, fresh):
 
 def test_device_schema_and_commands(client, rig, drive, daq):
     schema = client.get(f"/api/devices/{drive.name}/schema").json()
-    assert schema["type"] == "Drive" and schema["driver"] is None
+    assert schema["class_name"] == "Drive" and schema["driver"] is None
     assert (
         schema["description"]
         == "Two heater demands with limits, and a duty command that pushes an output."
@@ -375,7 +410,7 @@ def test_device_schema_and_commands(client, rig, drive, daq):
     assert set(everything["devices"]) == {daq.name, drive.name}
 
     r = client.post(f"/api/devices/{drive.name}/commands/set_duty", json={"duty": 0.4})
-    assert r.status_code == 200 and r.json() == 0.4
+    assert r.status_code == 200 and r.json() == {"result": 0.4, "interrupted": []}
     assert client.post(f"/api/devices/{drive.name}/commands/off").status_code == 200
     tree = client.get(f"/api/devices/{drive.name}").json()["signals"]
     duty = next(s for s in tree if s["name"] == "duty")
@@ -404,7 +439,7 @@ def test_read_by_address(client, rig, daq, clock):
     assert client.get(f"/api/read/{daq.name}.zone9").status_code == 404
     sample = deliver(rig, daq, 5_000_000_000)
     assert client.get(f"/api/read/{zone1}").json() == {
-        "reading": {"signal": zone1, "time_ns": 5_000_000_000, "value": 21.5}
+        "reading": {"signal": zone1, "time_ns": 5_000_000_000, "value": 21.5, "quality": "ok"}
     }
     assert daq.reads == 1, "a plain read is what is known; the device was not asked"
     assert client.get(f"/api/read/{daq.name}").json() == {
@@ -421,7 +456,9 @@ def test_read_by_address(client, rig, daq, clock):
     daq.temps["zone1"] = 99.0
     clock.advance(1.0)
     fresh = client.get(f"/api/read/{zone1}?fresh=true").json()
-    assert fresh == {"reading": {"signal": zone1, "time_ns": clock.now_ns(), "value": 99.0}}
+    assert fresh == {
+        "reading": {"signal": zone1, "time_ns": clock.now_ns(), "value": 99.0, "quality": "ok"}
+    }
     assert daq.reads == 2 and rig.latest[daq.signals["zone1"]].value == 99.0, "delivered too"
 
     many = client.get(f"/api/read?at={zone1},{daq.name}.zone2,{daq.name}").json()
@@ -436,7 +473,7 @@ def test_read_by_address(client, rig, daq, clock):
 
 
 def test_demand_on_a_device_and_on_a_signal(client, rig, daq, drive):
-    r = client.put(f"/api/devices/{drive.name}/demand", json={"heater1": 3000.0, "heater2": 10.0})
+    r = client.put(f"/api/devices/{drive.name}/write", json={"heater1": 3000.0, "heater2": 10.0})
     assert r.status_code == 200
     assert r.json() == {
         f"{drive.name}.heater1": {
@@ -459,41 +496,71 @@ def test_demand_on_a_device_and_on_a_signal(client, rig, daq, drive):
     assert drive.inputs["heater1"] == 100.0
 
     # What the rig refuses, the route refuses with its message.
-    r = client.put(f"/api/devices/{daq.name}/demand", json={"zone1": 1.0})
+    r = client.put(f"/api/devices/{daq.name}/write", json={"zone1": 1.0})
     assert r.status_code == 409 and r.json() == {
         "detail": f"'{daq.name}.zone1' [rp] is not writable"
     }
-    assert client.put(f"/api/devices/{drive.name}/demand", json={"heater9": 1.0}).status_code == 404
-    assert client.put(f"/api/devices/{drive.name}/demand", json={}).status_code == 422
-    assert client.put("/api/devices/nope/demand", json={"x": 1.0}).status_code == 404
+    assert client.put(f"/api/devices/{drive.name}/write", json={"heater9": 1.0}).status_code == 404
+    assert client.put(f"/api/devices/{drive.name}/write", json={}).status_code == 422
+    assert client.put("/api/devices/nope/write", json={"x": 1.0}).status_code == 404
     r = client.put(f"/api/signals/{drive.name}", json=1.0)
     assert r.status_code == 409 and "is a namespace" in r.json()["detail"]
     assert client.put(f"/api/signals/{drive.name}.heater9", json=1.0).status_code == 404
     assert client.put(f"/api/signals/{drive.name}.heater1", json="x").status_code == 422
 
     # A demand is written the same way, and a fresh read sees it.
-    client.put(f"/api/devices/{daq.name}/demand", json={"setpoint": 60.0})
+    client.put(f"/api/devices/{daq.name}/write", json={"setpoint": 60.0})
     read = client.get(f"/api/read/{daq.name}.setpoint?fresh=true").json()
     assert read["reading"]["value"] == 60.0
 
 
+def test_a_demand_whose_limit_is_not_known_yet_is_a_503_and_reaches_nothing(client, rig, fresh):
+    supplied = Supplied(fresh("supplied"))
+    rig.add_device(supplied)
+    for r in (
+        client.put(f"/api/devices/{supplied.name}/write", json={"humidity": 150.0}),
+        client.put(f"/api/signals/{supplied.name}.humidity", json=150.0),
+    ):
+        assert r.status_code == 503, "not ready: never passed through unclamped"
+        assert (
+            "limit" in r.json()["detail"]
+            and "follows 'supply' (pending), which has no value yet" in r.json()["detail"]
+        )
+    assert supplied.inputs == {}
+
+    rig.on_samples([Sample(supplied.root, rig.clock.now_ns(), {supplied.signals["supply"]: 95.0})])
+    r = client.put(f"/api/devices/{supplied.name}/write", json={"humidity": 150.0})
+    assert r.status_code == 200
+    assert r.json()[f"{supplied.name}.humidity"]["value"] == 95.0
+    assert supplied.inputs == {"humidity": 95.0}
+
+
 # endregion
 
-# region Waits, clock, health, events
+# region Activities, clock, health, events
 
 
-def test_waits_can_be_listed_fired_and_interrupted(client, rig):
+def test_activities_can_be_listed_fired_and_interrupted(client, rig):
     lid = Trigger()
     rig.triggers.register("lid", lid, "Close the lid", prompt=True)
-    assert client.get("/api/waits").json()["lid"]["outcome"] == "pending"
-    assert client.get("/api/waits/lid").json()["prompt"] is True
-    assert client.post("/api/waits/lid/fire").json() == {"name": "lid", "fired": True}
+    assert client.get("/api/activities").json()["lid"]["outcome"] == "pending"
+    assert client.get("/api/activities/lid").json()["prompt"] is True
+    assert client.post("/api/activities/lid/fire").json() == {"name": "lid", "fired": True}
     assert lid.fired
-    assert client.post("/api/waits/nope/fire").status_code == 404
+    assert client.post("/api/activities/nope/fire").status_code == 404
     other = Trigger()
     rig.triggers.register("other", other)
-    assert client.post("/api/waits/other/interrupt").json()["interrupted"] is True
+    assert client.post("/api/activities/other/cancel").json()["cancelled"] is True
     assert other.interrupted
+
+
+def test_the_old_waits_route_is_gone_so_it_cannot_skip_a_timer(client, rig):
+    timer = Trigger()
+    rig.triggers.register("wait", timer)
+    # The verb table refuses a route it does not know (403) before routing would 404.
+    assert client.post("/api/waits/wait/fire").status_code in (403, 404)
+    assert client.get("/api/waits").status_code in (403, 404)
+    assert not timer.fired
 
 
 def test_clock_reports_the_rig_s_timebase(client, rig, clock):
@@ -510,8 +577,8 @@ def test_health_is_one_look_at_the_rig(client, rig, daq):
     body = client.get("/api/health").json()
     assert body["ok"] is True and body["recording"] is False
     assert body["devices"] == {} and body["controllers"] == {} and body["conditions"] == []
-    assert body["alarms"] == {"warn": 0, "alarm": 0, "max_level": 0}
-    assert body["waits"] == []
+    assert body["alarms"] == {"warn": 0, "alarm": 0, "unknown": 0, "max_level": 0}
+    assert body["activities"] == []
     daq.poll_s = 0.5
     rig.start_polling(daq)
     try:
@@ -525,42 +592,50 @@ def test_health_counts_signals_outside_their_warn_and_alarm_bands(client, rig, d
     zone1, zone2 = daq.signals["zone1"], daq.signals["zone2"]
     rig.on_samples([Sample(daq.root, 1, {zone1: 1160.0, zone2: 1120.0})])
     body = client.get("/api/health").json()
-    assert body["alarms"] == {"warn": 1, "alarm": 1, "max_level": 40}
+    assert body["alarms"] == {"warn": 1, "alarm": 1, "unknown": 0, "max_level": 40}
 
 
-def test_health_alarms_include_device_conditions_at_or_above_warning(client, rig, daq):
+def test_health_alarms_never_count_a_device_condition(client, rig, daq):
+    """One offline device is one fault and zero alarms: `ok` says it, `alarms` does not."""
     daq.poll_s = 0.5
     daq.broken = True
+    rig.polling.defaults = ReadPolicy(fail_after=1)
     rig.start_polling(daq)
     rig.polling.stop_all()
-    rig.polling._read(daq)  # one poll, as the loop would: it fails and stops
+    rig.polling._read(daq)  # one poll, as the loop would: it fails, and the budget is 1
     body = client.get("/api/health").json()
     assert body["ok"] is False
     assert (
-        body["conditions"][0]["device"] == daq.name and body["conditions"][0]["kind"] == "offline"
+        body["conditions"][0]["subject"] == daq.name and body["conditions"][0]["code"] == "offline"
     )
-    assert body["alarms"] == {"warn": 0, "alarm": 1, "max_level": 40}
+    assert body["alarms"] == {"warn": 0, "alarm": 0, "unknown": 0, "max_level": 0}
 
 
 def test_health_without_a_rig_says_so():
     set_rig(None)
     with TestClient(create_app()) as c:
-        assert c.get("/api/health").json() == {"ok": False, "rig": None}
+        assert c.get("/api/health").json() == {
+            "ok": False,
+            "rig": None,
+            "stopped": None,
+            "latches": [],
+            "exposure": None,
+        }
 
 
 def test_events_are_kept_and_streamed(client, rig):
-    rig.event(Level.WARNING, "device", "probe", "slow", "took 2 s", {"took_s": 2.0})
-    rig.event(Level.INFO, "rig", "x", "note", "quiet")
+    rig.event(Severity.WARNING, "device", "probe", "slow", "took 2 s", {"took_s": 2.0})
+    rig.event(Severity.INFO, "rig", "x", "note", "quiet")
     events = client.get("/api/events").json()
-    assert [e["level"] for e in events] == ["WARNING", "INFO"]
+    assert [e["severity"] for e in events] == ["warning", "info"]
     assert events[0]["details"] == {"took_s": 2.0} and events[0]["time_ns"] == rig.clock.now_ns()
-    assert [e["kind"] for e in client.get("/api/events?level=warning").json()] == ["slow"]
+    assert [e["code"] for e in client.get("/api/events?severity=warning").json()] == ["slow"]
     assert len(client.get("/api/events?limit=1").json()) == 1
     with client.websocket_connect("/ws/events") as ws:
-        assert [e["kind"] for e in ws.receive_json()["events"]] == ["slow", "note"]
-        rig.event(Level.ERROR, "program", "bake[2]", "step_failed", "no such device")
+        assert [e["code"] for e in ws.receive_json()["events"]] == ["slow", "note"]
+        rig.event(Severity.ERROR, "program", "bake[2]", "step_failed", "no such device")
         (event,) = ws.receive_json()["events"]
-        assert event["level"] == "ERROR" and event["subject"] == "bake[2]"
+        assert event["severity"] == "error" and event["subject"] == "bake[2]"
 
 
 # endregion
@@ -569,12 +644,11 @@ def test_events_are_kept_and_streamed(client, rig):
 
 
 def test_samples_stream_carries_only_what_publishes(rig, fresh):
-    """A config is `[R]`, not `[P]`: mixed into a sample with a zone, only the zone streams."""
-    from flyball.foundation.device import ConfigSignal
+    """A setting read on demand is `[R]`, not `[P]`: mixed into a sample, only the zone streams."""
 
     class Mixed(Readable):
-        zone = Output("zone", "", TEMP)
-        static = ConfigSignal("static", "", TEMP)
+        zone = Readout("zone", "", TEMP)
+        static = Setting("static", "", TEMP, access=Access.R)
 
         def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
             yield self.sample(time_ns, zone=0.0)
@@ -589,10 +663,10 @@ def test_samples_stream_carries_only_what_publishes(rig, fresh):
             first = ws.receive_json()
             assert first == {
                 "samples": [
-                    {  # the snapshot: every publishing signal's newest, conditions included
+                    {  # the snapshot: every publishing signal's newest
                         "node": device.name,
                         "time_ns": 1,
-                        "values": {"conditions": [], "zone": 21.5},
+                        "values": {"zone": 21.5},
                         "writes": {},
                     }
                 ]
@@ -603,7 +677,7 @@ def test_samples_stream_carries_only_what_publishes(rig, fresh):
                     {
                         "node": device.name,
                         "time_ns": 2,
-                        "values": {"conditions": [], "zone": 22.0},
+                        "values": {"zone": 22.0},
                         "writes": {},
                     }
                 ]
@@ -621,7 +695,12 @@ def test_read_and_samples_stream_carry_enum_and_json_values(client, rig, typed):
 
     mode = client.get(f"/api/read/{typed.name}.mode").json()
     assert mode == {
-        "reading": {"signal": f"{typed.name}.mode", "time_ns": sample.time_ns, "value": "running"}
+        "reading": {
+            "signal": f"{typed.name}.mode",
+            "time_ns": sample.time_ns,
+            "value": "running",
+            "quality": "ok",
+        }
     }
     config = client.get(f"/api/read/{typed.name}.config").json()
     assert config["reading"]["value"] == {"gain": 2, "offset": 1}
@@ -630,7 +709,6 @@ def test_read_and_samples_stream_carry_enum_and_json_values(client, rig, typed):
         first = ws.receive_json()
         entry = next(s for s in first["samples"] if s["node"] == typed.name)
         assert entry["values"] == {
-            "conditions": [],
             "mode": "running",
             "config": {"gain": 2, "offset": 1},
         }
@@ -642,14 +720,14 @@ def _sample_of(frame: dict, node: str) -> dict:
 
 def test_writes_ride_the_samples_stream(client, rig, drive):
     """`/ws/writes` is gone: a demand's write record rides with its reading on `/ws/samples`."""
-    rig.demand(drive.root, {"heater1": 10.0})
+    rig.write(drive.root, {"heater1": 10.0})
     with client.websocket_connect("/ws/samples") as ws:
         first = _sample_of(ws.receive_json(), drive.name)
         assert first["values"]["heater1"] == 10.0
         assert first["writes"] == {
             "heater1": {"requested": None, "at_limit": None, "controller": None}
         }
-        rig.demand(drive.root, {"heater2": 9000.0})
+        rig.write(drive.root, {"heater2": 9000.0})
         frame = _sample_of(ws.receive_json(), drive.name)
         assert frame["writes"]["heater2"]["at_limit"] == "high"
 
@@ -657,6 +735,7 @@ def test_writes_ride_the_samples_stream(client, rig, drive):
 def test_device_runs_ride_the_samples_stream(client, rig, daq):
     """`/ws/devices` is gone: a device's run rides beside its samples on `/ws/samples`."""
     daq.poll_s = 0.5
+    rig.polling.defaults = ReadPolicy(fail_after=1)
     rig.start_polling(daq)
     rig.polling.stop_all()
     with client.websocket_connect("/ws/samples") as ws:
@@ -666,13 +745,13 @@ def test_device_runs_ride_the_samples_stream(client, rig, daq):
         daq.broken = True
         rig.polling._read(daq)
         (run,) = ws.receive_json()["runs"]
-        assert run["conditions"][0]["kind"] == "offline"
+        assert run["conditions"][0]["code"] == "offline"
 
 
-def test_waits_stream(client, rig):
-    with client.websocket_connect("/ws/waits") as ws:
+def test_activities_stream(client, rig):
+    with client.websocket_connect("/ws/activities") as ws:
         rig.triggers.register("lid", Trigger(), "Close the lid", prompt=True)
-        (state,) = ws.receive_json()["waits"]
+        (state,) = ws.receive_json()["activities"]
         assert state["name"] == "lid" and state["outcome"] == "pending"
 
 
@@ -689,15 +768,15 @@ def programmer(client, rig):
     programmer = Programmer(rig)
     set_programmer(programmer)
     yield programmer
-    programmer.interrupt()
+    programmer.cancel()
     set_programmer(None)
 
 
 def test_load_tunings_stores_law_configs_under_the_directory_from_their_file_stem(tmp_path, rig):
     from flyball.interfaces.server.routes.library import load_tunings
 
-    (tmp_path / "gentle.yaml").write_text("tag: P\nkp: 0.5\n")
-    (tmp_path / "brisk.toml").write_text('tag = "PID"\nkp = 0.8\nki = 0.08\nkd = 1.0\ntt = 5\n')
+    (tmp_path / "gentle.yaml").write_text("type: P\nkp: 0.5\n")
+    (tmp_path / "brisk.toml").write_text('type = "PID"\nkp = 0.8\nki = 0.08\nkd = 1.0\ntt = 5\n')
     (tmp_path / "notes.txt").write_text("not a tuning")
 
     loaded = load_tunings(rig, tmp_path)
@@ -716,7 +795,7 @@ def test_program_check_warns_of_what_the_rig_lacks(client, programmer, drive):
             {"manual": "no_such_controller"},
             {"command": {"device_command": "nope", "device": drive.name}},
             {"command": {"device_command": "off", "device": "ghost"}},
-            {"wait": "fine"},
+            {"prompt": "fine"},
         ]
     }
     checked = client.post("/api/programs/check", json=body).json()
@@ -730,43 +809,51 @@ def test_program_check_warns_of_what_the_rig_lacks(client, programmer, drive):
 
 
 def test_program_check_normalises_without_running(client, programmer):
-    body = {"name": "t", "steps": [{"wait": "press go"}, {"wait": {"message": "m", "name": "n"}}]}
+    body = {
+        "name": "t",
+        "steps": [{"prompt": "press go"}, {"prompt": {"message": "m", "name": "n"}}],
+    }
     checked = client.post("/api/programs/check", json=body).json()
     assert checked["ok"] is True and checked["warnings"] == {}
     normalised = checked["normalised"]
-    assert normalised["steps"][0] == {"command": {"command": "wait", "message": "press go"}}
+    assert normalised["steps"][0] == {"command": {"command": "prompt", "message": "press go"}}
     assert normalised["steps"][1]["command"]["name"] == "n"
     assert client.get("/api/programs/running").json()["running"] is False
     bad = client.post("/api/programs/check", json={"steps": [{"nope": 1}]})
     assert bad.status_code == 422 and "nope" in bad.json()["detail"]
-    extra = client.post("/api/programs/check", json={"steps": [{"wait": {"message": "m", "x": 1}}]})
+    extra = client.post(
+        "/api/programs/check", json={"steps": [{"prompt": {"message": "m", "x": 1}}]}
+    )
     assert extra.status_code == 422 and "x" in extra.json()["detail"]
     assert (
-        "wait"
+        "prompt"
         in client.get("/api/programs/schema").json()["properties"]["steps"]["items"]["oneOf"][0][
             "properties"
         ]
     )
 
 
-def test_program_runs_step_by_step_as_waits_are_answered(client, programmer, rig):
-    body = {"name": "go", "steps": [{"wait": "one"}, {"wait": {"message": "two", "name": "two"}}]}
+def test_program_runs_step_by_step_as_prompts_are_answered(client, programmer, rig):
+    body = {
+        "name": "go",
+        "steps": [{"prompt": "one"}, {"prompt": {"message": "two", "name": "two"}}],
+    }
     state = client.post("/api/programs/run", json=body).json()
     assert state == {
         "running": True,
         "step": 0,
         "steps": 2,
-        "command": "wait",
+        "command": "prompt",
         "failed": False,
         "error": None,
     }
-    assert list(client.get("/api/waits").json()) == ["wait"]
-    assert client.post("/api/waits/wait/fire").json()["fired"] is True
+    assert list(client.get("/api/activities").json()) == ["prompt"], "named by its tag"
+    assert client.post("/api/activities/prompt/fire").json()["fired"] is True
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline and "two" not in rig.triggers.states():
         time.sleep(0.01)
     assert client.get("/api/programs/running").json()["step"] == 1
-    assert client.post("/api/programs/interrupt").json()["running"] is False
+    assert client.post("/api/programs/cancel").json()["running"] is False
     programmer.join(2)
     assert rig.triggers.states() == {}
 
@@ -775,13 +862,13 @@ def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig,
     from dataclasses import dataclass
 
     from flyball.model.catalog import get_catalog
-    from flyball.sequencing import Command
+    from flyball.sequencing import Step
 
     seen = []
     tag = fresh("note")
 
     @dataclass(frozen=True)
-    class Note(Command, tag=tag, primary="text"):
+    class Note(Step, tag=tag, primary="text"):
         """Append to a list."""
 
         text: str
@@ -790,23 +877,64 @@ def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig,
             seen.append(self.text)
             return None
 
-    get_catalog().register_command(Note)
+    get_catalog().register_step(Note)
 
     state = client.post("/api/programs/run", json={"steps": [{tag: "a"}, {tag: "b"}]}).json()
     assert state["running"] is False and seen == ["a", "b"]
 
 
 def test_program_with_an_unknown_step_is_refused_before_anything_runs(client, programmer):
-    r = client.post("/api/programs/run", json={"steps": [{"wait": "ok"}, {"bogus": 1}]})
+    r = client.post("/api/programs/run", json={"steps": [{"prompt": "ok"}, {"bogus": 1}]})
     assert r.status_code == 422
-    assert client.get("/api/waits").json() == {}
+    assert client.get("/api/activities").json() == {}
+
+
+@pytest.mark.parametrize(
+    ("step", "message"),
+    [
+        ({"hold": {"minutes": 5}}, "the timed step is now `wait:`, not `hold:`"),
+        ({"arrive": {"within": 1}}, "`arrive:` is now `settle:`"),
+        ({"settle": {"within": 1, "readings": 5}}, "`settle`'s `readings:` is now `count:`"),
+        (
+            {"regulate": {"loop": "h.u", "setpoint": 20}},
+            "`regulate`'s `loop:` is now `controllers:`",
+        ),
+        ({"wait": "Load the sample"}, "operator prompts are now `prompt:`"),
+        ({"wait": {"message": "Load the sample"}}, "operator prompts are now `prompt:`"),
+        ({"wait": {"name": "go", "timeout": {"minutes": 5}}}, "operator prompts are now `prompt:`"),
+        (
+            {"wait": {"message": "Load the sample", "minutes": 10}},
+            "for a timed wait with a message write `duration:` explicitly",
+        ),
+    ],
+)
+def test_an_old_step_name_gets_a_targeted_error(client, programmer, step, message):
+    for route in ("/api/programs/check", "/api/programs/run"):
+        r = client.post(route, json={"steps": [step]})
+        assert r.status_code == 422 and message in r.json()["detail"], (route, r.text)
+    ((tag, body),) = step.items()
+    rest = body if isinstance(body, dict) else {"message": body}
+    r = client.post("/api/programs/command", json={"command": tag, **rest})
+    assert r.status_code == 422 and message in r.json()["detail"], r.text
+
+
+def test_a_timed_wait_with_a_message_and_a_duration_is_not_a_prompt(client, programmer):
+    body = {"steps": [{"wait": {"message": "soak", "duration": {"minutes": 10}, "timeout": 900}}]}
+    checked = client.post("/api/programs/check", json=body).json()
+    assert checked["ok"] is True, checked
+    command = checked["normalised"]["steps"][0]["command"]
+    assert command["command"] == "wait" and command["timeout"] == 900
+    flat = client.post("/api/programs/check", json={"steps": [{"wait": {"minutes": 5}}]}).json()
+    assert flat["ok"] is True and flat["normalised"]["steps"][0]["command"]["duration"] == {
+        "minutes": 5
+    }
 
 
 def test_a_step_naming_a_missing_controller_fails_the_run_instead_of_finishing_it(
     client, programmer
 ):
-    """The bug this guards: the route returned the 404 but the run still narrated `finished`."""
-    body = {"steps": [{"regulate": {"loop": "heaters.heater1", "setpoint": 20}}]}
+    """The bug this guards: the route returned the 404 but the run still narrated `succeeded`."""
+    body = {"steps": [{"regulate": {"controllers": "heaters.heater1", "setpoint": 20}}]}
     r = client.post("/api/programs/run", json=body)
     assert r.status_code == 404 and r.json() == {"detail": "Controller 'heaters.heater1' not found"}
 
@@ -815,10 +943,10 @@ def test_a_step_naming_a_missing_controller_fails_the_run_instead_of_finishing_i
     assert state["error"] is not None and "heaters.heater1" in state["error"]
 
     events = client.get("/api/events").json()
-    kinds = [e["kind"] for e in events]
-    assert kinds[-1] == "failed" and "finished" not in kinds
-    (finish_event,) = [e for e in events if e["kind"] == "failed"]
-    assert finish_event["level"] == "ERROR" and "heaters.heater1" in finish_event["message"]
+    codes = [e["code"] for e in events]
+    assert codes[-1] == "failed" and "succeeded" not in codes
+    (finish_event,) = [e for e in events if e["code"] == "failed"]
+    assert finish_event["severity"] == "error" and "heaters.heater1" in finish_event["message"]
 
 
 # endregion
@@ -837,7 +965,7 @@ class TestSimRoutes:
         document = {
             "name": "tank",
             "clock": {"stepped": True},
-            "links": {"tank": {"tag": "sim_plant", "model": "lag", "gain": 1.0, "tau_s": 10.0}},
+            "links": {"tank": {"type": "sim_plant", "model": "lag", "gain": 1.0, "tau_s": 10.0}},
             "devices": {
                 "level": {
                     "driver": "sim_daq",
@@ -865,7 +993,7 @@ class TestSimRoutes:
         state = client.get("/api/sim").json()
         assert state["simulated"] is True and list(state["plants"]) == ["tank"]
         assert state["clock"]["stepped"] is True
-        assert client.post("/api/sim/clock/step", json={"seconds": 2}).json()["now_ns"] > 0
+        assert client.post("/api/sim/clock/advance", json={"seconds": 2}).json()["now_ns"] > 0
         assert client.put("/api/sim/clock", json={"speed": 2}).status_code == 409, "stepped"
         assert client.put("/api/sim/plants/tank", json={"gain": 2.5}).json()["gain"] == 2.5
         assert client.put("/api/sim/plants/ghost", json={}).status_code == 404
@@ -894,21 +1022,51 @@ class TestSimRoutes:
 # endregion
 
 
-def test_a_command_on_an_offline_device_restarts_it(client, rig, daq):
+def test_a_program_command_step_on_an_offline_device_restarts_it_too(rig, daq):
     daq.poll_s = 0.5
     daq.broken = True
+    rig.polling.defaults = ReadPolicy(fail_after=1)
     rig.start_polling(daq)
     try:
         rig.polling.stop_all()
-        rig.polling._read(daq)  # one poll, as the loop would: it fails and stops
+        rig.polling._read(daq)  # one poll, as the loop would: it fails, and the budget is 1
+        assert rig.polling.run(daq.name).running is False
+
+        RunCommand(device_command="restore", device=daq.name).run(rig)
+        assert rig.polling.run(daq.name).running is True, "the step is a fix, as the route is"
+        assert [c.code for c in rig.conditions.of(daq)] == ["offline"], "until a good read"
+        rig.polling._read(daq)
+        assert rig.conditions.of(daq) == []
+    finally:
+        rig.polling.stop_all()
+
+
+def test_a_command_on_an_offline_device_restarts_it(client, rig, daq):
+    daq.poll_s = 0.5
+    daq.broken = True
+    rig.polling.defaults = ReadPolicy(fail_after=1)
+    rig.start_polling(daq)
+    try:
+        rig.polling.stop_all()
+        rig.polling._read(daq)  # one poll, as the loop would: it fails, and the budget is 1
         assert rig.polling.run(daq.name).running is False
         body = client.get(f"/api/devices/{daq.name}").json()
-        assert body["run"] == {"period_s": 0.5, "running": False, "last_read_ns": None}
-        assert body["conditions"][0]["kind"] == "offline"
+        assert body["run"] == {
+            "period_s": 0.5,
+            "running": False,
+            "last_read_ns": None,
+            "read_s": None,
+            "missed": 0,
+            "reading_since_ns": None,
+            "consecutive_failures": 1,
+            "next_retry_ns": body["run"]["next_retry_ns"],
+        }
+        assert body["conditions"][0]["code"] == "offline"
 
         assert client.post(f"/api/devices/{daq.name}/commands/restore").status_code == 200
         assert rig.polling.run(daq.name).running is True
-        assert rig.polling.run(daq.name).conditions == ()
+        rig.polling._read(daq)  # the first good read clears it, not the restart
+        assert rig.conditions.of(daq) == []
         rig.polling.stop_all()
 
         restarted = client.post(f"/api/devices/{daq.name}/restart").json()

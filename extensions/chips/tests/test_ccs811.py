@@ -18,7 +18,9 @@ class BootingI2c(FakeI2c):
     def write(self, address: int, data) -> None:  # noqa: ANN001
         super().write(address, data)
         if list(data) == [ccs811.APP_START]:
-            self.registers.setdefault(address, {})[ccs811.STATUS] = [ccs811.STATUS_FW_MODE]
+            self.registers.setdefault(address, {})[ccs811.STATUS] = [
+                ccs811.STATUS_FW_MODE | ccs811.STATUS_DATA_READY
+            ]
 
 
 class TestProtocol:
@@ -77,6 +79,10 @@ class TestCcs811Sensor:
         )
         sensor = ccs811.Ccs811Sensor(bus, sleep=False)
         sensor.boot()
+        assert sensor.measure() is None, "no result ready yet: nothing read"
+        bus.registers[ccs811.CCS811_ADDRESS][ccs811.STATUS] = [
+            ccs811.STATUS_FW_MODE | ccs811.STATUS_DATA_READY
+        ]
         assert sensor.measure() == (0x0190, 0x0032)
 
     def test_a_reported_error_is_a_hardware_error(self):
@@ -110,7 +116,6 @@ class TestCcs811Device:
         gas = ccs811.Ccs811("gas", bus, sleep=False)
         assert (ccs811.CCS811_ADDRESS, None, [ccs811.APP_START]) in bus.written
         assert {p: str(s.access) for p, s in gas.signals.items()} == {
-            "conditions": "rp",
             "co2eq": "rp",
             "tvoc": "rp",
         }
@@ -134,3 +139,5 @@ class TestCcs811Device:
         assert sample.node is gas.root and sample.time_ns == 9
         assert sample.by_name() == {"co2eq": 0x0190, "tvoc": 0x0032}
         assert gas.config.address == ccs811.CCS811_ADDRESS
+        bus.registers[ccs811.CCS811_ADDRESS][ccs811.STATUS] = [ccs811.STATUS_FW_MODE]
+        assert list(gas.read(10)) == [], "between results: not read this time"

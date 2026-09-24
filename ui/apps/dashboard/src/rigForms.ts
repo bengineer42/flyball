@@ -1,35 +1,41 @@
 /**
  * Reading `GET /api/rig/schema` for the "Add device" / "Add link" dialogs:
- * the tags a driver or a link may take, and each one's own config schema,
+ * the types a driver or a link may take, and each one's own config schema,
  * with the whole schema's `$defs` still needed to resolve its `$ref`s.
  */
 import { deref, type JsonSchema } from "@flyball/client";
 
 export interface DriverVariant {
-  /** The rig file's `driver:` tag. */
-  tag: string;
+  /** The rig file's `driver:`. */
+  type: string;
   /** The driver's own config schema (unpatched): what `SchemaForm` needs, plus the root's `$defs`. */
   configSchema: JsonSchema;
 }
 
-/** Every device driver the rig schema offers, tag and config schema, in the order the server lists them. */
+/** Every device driver the rig schema offers, type and config schema, in the order the server lists them. */
 export function deviceDrivers(schema: JsonSchema): DriverVariant[] {
   const additional = schema.properties?.devices?.additionalProperties as JsonSchema | undefined;
   const variants = additional?.oneOf ?? [];
+  // The layer's overlay (properties, no `driver`) lists the envelope's keys; the rest of a
+  // driver's variant is the driver's own config, flat beside them.
+  const overlay = variants.find((v) => v.properties && !v.properties.driver);
+  const envelope = new Set(["driver", ...Object.keys(overlay?.properties ?? {})]);
   const out: DriverVariant[] = [];
   for (const variant of variants) {
-    // Each entry is `{oneOf: [layered, flat]}`; the layered branch has `config` as the driver's own schema.
-    const layered = variant.oneOf?.[0];
-    const tag = layered?.properties?.driver?.const;
-    const configSchema = layered?.properties?.config as JsonSchema | undefined;
-    if (typeof tag === "string" && configSchema) out.push({ tag, configSchema });
+    const type = variant.properties?.driver?.const;
+    if (typeof type !== "string") continue;
+    const properties = Object.fromEntries(Object.entries(variant.properties ?? {}).filter(([k]) => !envelope.has(k)));
+    const required = (variant.required ?? []).filter((k) => !envelope.has(k));
+    const configSchema: JsonSchema = { type: "object", title: variant.title, description: variant.description, properties };
+    if (required.length) configSchema.required = required;
+    out.push({ type, configSchema });
   }
   return out;
 }
 
 export interface LinkVariant {
-  tag: string;
-  /** The link's own config schema (has a `tag` const property; hide it, don't strip it -- `SchemaForm` fills its default). */
+  type: string;
+  /** The link's own config schema (has a `type` const property; hide it, don't strip it -- `SchemaForm` fills its default). */
   configSchema: JsonSchema;
 }
 
@@ -37,7 +43,7 @@ export interface LinkVariant {
 export function linkKinds(schema: JsonSchema): LinkVariant[] {
   const additional = schema.properties?.links?.additionalProperties as JsonSchema | undefined;
   const mapping = (additional?.discriminator?.mapping ?? {}) as Record<string, string>;
-  return Object.entries(mapping).map(([tag, ref]) => ({ tag, configSchema: deref({ $ref: ref }, schema) }));
+  return Object.entries(mapping).map(([type, ref]) => ({ type, configSchema: deref({ $ref: ref }, schema) }));
 }
 
 /**
@@ -72,5 +78,5 @@ export function withLinkSelect(configSchema: JsonSchema, root: JsonSchema, linkN
   return { ...configSchema, properties: { ...configSchema.properties, link: patched } };
 }
 
-/** Hides a tagged union's `tag` field: `SchemaForm` still fills its const default, just not shown (the picker above already named it). */
-export const TAG_HIDDEN = { tag: { "ui:widget": "hidden" } };
+/** Hides a discriminated union's `type` field: `SchemaForm` still fills its const default, just not shown (the picker above already named it). */
+export const TYPE_HIDDEN = { type: { "ui:widget": "hidden" } };

@@ -144,7 +144,7 @@ func identifier(name string) (string, error) {
 }
 
 // deviceTemplate mirrors scaffold.py's _DEVICE Template exactly (same
-// substitution points: Title, tag, name).
+// substitution points: Title, type, name).
 const deviceTemplate = `"""%[1]s: a device driver built for this rig.
 
 Registered as ` + "`driver: \"%[2]s\"`" + `, so a rig file can declare one:
@@ -179,14 +179,14 @@ class %[1]s(Readable):
         self.value.push(0.0)
 
 
-class %[1]sConfig(DriverConfig[%[1]s], tag="%[2]s"):
-    """The rig-file entry: ` + "`driver: %[2]s`" + ` (flat) or its settings under ` + "`config:`" + ` (layered)."""
+class %[1]sConfig(DriverConfig[%[1]s], type="%[2]s"):
+    """The rig-file entry: ` + "`driver: %[2]s`" + `, its fields flat beside it."""
 
     def build(self, name: str, label: str | None = None) -> %[1]s:
         return %[1]s(name, label)
 `
 
-// renderDevice mirrors scaffold.py's render: the tag is the snake_case
+// renderDevice mirrors scaffold.py's render: the type is the snake_case
 // name, the class name its CamelCase form.
 func renderDevice(name string) (string, error) {
 	snake, err := identifier(name)

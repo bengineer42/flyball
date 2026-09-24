@@ -1,6 +1,6 @@
-"""The controller commands every rig has: regulate, ramp, hold, arrive, manual.
+"""The controller commands every rig has: regulate, ramp, wait, settle, manual.
 
-Each names a controller by its target address -- or a list of them, or none
+Each names a controller by its output address -- or a list of them, or none
 for the rig's default -- and does what the controller's own methods do, as a
 program step and as `POST /api/programs/command`.
 """
@@ -15,11 +15,11 @@ from flyball.foundation.time import Duration, Speed
 from flyball.model.controller import Controller
 from flyball.rig import Rig
 
-from .activities import Arrived, Timed
-from .command import Activity, Command
+from .activities import Settled, Timed
+from .step import Activity, Step
 
 ControllerNames = str | list[str] | None
-"""One controller by target address, several, or None for the rig's default."""
+"""One controller by output address, several, or None for the rig's default."""
 
 
 def _controllers(rig: Rig, which: ControllerNames) -> list[Controller]:
@@ -40,29 +40,29 @@ def _missing_controllers(rig: Rig, which: ControllerNames) -> list[str]:
 
 
 @dataclass(frozen=True)
-class Regulate(Command, tag="regulate", primary="setpoint"):
+class Regulate(Step, tag="regulate", primary="setpoint"):
     """Aim a controller at a setpoint and let its law drive; returns at once."""
 
     setpoint: float
-    loop: ControllerNames = None
+    controllers: ControllerNames = None
     tuning: str | None = None
     """A stored tuning to swap in first, bumplessly."""
 
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
         tuning = None if self.tuning is None else rig.tunings.get(self.tuning)
-        for controller in _controllers(rig, self.loop):
+        for controller in _controllers(rig, self.controllers):
             controller.regulate(self.setpoint, tuning=tuning)
         return None
 
     def missing(self, rig: Rig) -> list[str]:
-        out = _missing_controllers(rig, self.loop)
+        out = _missing_controllers(rig, self.controllers)
         if self.tuning is not None and rig.tunings.get(self.tuning) is None:
             out.append(f"tuning {self.tuning!r} is not stored")
         return out
 
 
 @dataclass(frozen=True)
-class Ramp(Command, tag="ramp", primary="to"):
+class Ramp(Step, tag="ramp", primary="to"):
     """Walk a controller's setpoint to `to` at `pace`, and wait until it arrives.
 
     `pace` is a rate (`per_minute: 5`) or how long the whole ramp should take
@@ -71,15 +71,15 @@ class Ramp(Command, tag="ramp", primary="to"):
 
     to: float
     pace: Speed | Duration
-    loop: ControllerNames = None
+    controllers: ControllerNames = None
     wait: bool = True
     """Wait for the ramp to arrive before the next step. False starts it and moves on;
-    `arrive` can wait for it later."""
+    `settle` can wait for it later."""
 
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
         now_ns = rig.clock.now_ns()
         longest = 0.0
-        controllers = _controllers(rig, self.loop)
+        controllers = _controllers(rig, self.controllers)
         for controller in controllers:
             start = (
                 controller.setpoint_at(now_ns)
@@ -107,79 +107,77 @@ class Ramp(Command, tag="ramp", primary="to"):
         )
 
     def missing(self, rig: Rig) -> list[str]:
-        return _missing_controllers(rig, self.loop)
+        return _missing_controllers(rig, self.controllers)
 
 
 @dataclass(frozen=True)
-class Hold(Command, tag="hold", primary="duration"):
+class Wait(Step, tag="wait", primary="duration"):
     """Keep everything as it is for `duration`; the controllers go on regulating.
 
-    `timeout` (seconds; not a `Duration` -- `duration` is already the file's
-    one flat-foldable field, and a second `Duration` field would make that
-    ambiguous), like `wait`'s, ends the program instead if `duration` itself
+    `timeout`, like `prompt`'s, ends the program instead if `duration` itself
     never elapses (a stalled clock, say).
     """
 
     duration: Duration
     message: str | None = None
-    timeout: float | None = None
+    timeout: Duration | None = None
 
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
         return Timed(
             self.duration.seconds,
-            name="hold",
+            name="wait",
             message=self.message,
-            timeout=self.timeout,
+            timeout=self.timeout.seconds if self.timeout is not None else None,
             clock=rig.clock,
         )
 
 
 @dataclass(frozen=True)
-class Arrive(Command, tag="arrive", primary="loop"):
+class Settle(Step, tag="settle", primary="controllers"):
     """Wait until the named controllers have settled within `within` of their setpoints.
 
-    Judged on `readings` consecutive readings per controller; a ramp started
+    Judged on `count` consecutive readings per controller; a ramp started
     with `wait: false` is waited out here, against where the ramp is at each
     reading. The other controllers carry on regulating meanwhile.
     """
 
-    loop: ControllerNames = None
+    controllers: ControllerNames = None
     within: float = 1.0
-    readings: int = 3
+    count: int = 3
     timeout: Duration | None = None
     message: str | None = None
 
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
-        controllers = _controllers(rig, self.loop)
+        controllers = _controllers(rig, self.controllers)
         for controller in controllers:
             if controller.reference is None:
-                raise ValueError(f"controller {controller.name!r} has no setpoint to arrive at")
-        return Arrived(
+                raise ValueError(f"controller {controller.name!r} has no setpoint to settle at")
+        return Settled(
             controllers,
             self.within,
-            self.readings,
+            self.count,
             timeout=self.timeout.seconds if self.timeout is not None else None,
             message=self.message,
             clock=rig.clock,
         )
 
     def missing(self, rig: Rig) -> list[str]:
-        return _missing_controllers(rig, self.loop)
+        return _missing_controllers(rig, self.controllers)
 
 
 @dataclass(frozen=True)
-class Manual(Command, tag="manual", primary="loop"):
-    """Stop a controller regulating; its target keeps its last demand and takes demands directly."""
+class Manual(Step, tag="manual", primary="controllers"):
+    """Stop a controller regulating; its output keeps its last value and takes demands directly."""
 
-    loop: ControllerNames = None
+    controllers: ControllerNames = None
 
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
-        for controller in _controllers(rig, self.loop):
+        for controller in _controllers(rig, self.controllers):
             controller.manual()
         return None
 
     def missing(self, rig: Rig) -> list[str]:
-        return _missing_controllers(rig, self.loop)
+        return _missing_controllers(rig, self.controllers)
 
 
-__all__ = ["Hold", "Manual", "Ramp", "Regulate"]
+__all__ = ["Manual", "Ramp", "Regulate", "Settle", "Wait"]

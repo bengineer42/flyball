@@ -73,19 +73,19 @@ func runCommand(t client.Target, args []string) error {
 		}
 		return printJSON(out)
 
-	case "waits":
+	case "activities":
 		var out any
-		if err := t.Do("GET", "/api/waits", nil, &out); err != nil {
+		if err := t.Do("GET", "/api/activities", nil, &out); err != nil {
 			return err
 		}
 		return printJSON(out)
 
-	case "wait":
-		if len(args) != 3 || (args[1] != "fire" && args[1] != "interrupt") {
-			return fmt.Errorf("usage: flyball wait fire|interrupt <name>")
+	case "activity":
+		if len(args) != 3 || (args[1] != "fire" && args[1] != "cancel") {
+			return fmt.Errorf("usage: flyball activity fire|cancel <name>")
 		}
 		var out any
-		if err := t.Do("POST", "/api/waits/"+args[2]+"/"+args[1], nil, &out); err != nil {
+		if err := t.Do("POST", "/api/activities/"+args[2]+"/"+args[1], nil, &out); err != nil {
 			return err
 		}
 		return printJSON(out)
@@ -216,7 +216,7 @@ func runCommand(t client.Target, args []string) error {
 
 func runProgramCommand(t client.Target, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: flyball program check|run|status|stop ...")
+		return fmt.Errorf("usage: flyball program check|run|status|cancel ...")
 	}
 	switch args[0] {
 	case "check":
@@ -233,17 +233,17 @@ func runProgramCommand(t client.Target, args []string) error {
 		}
 		return printJSON(out)
 	case "run":
-		interrupt, rest := popBool(args[1:], "--interrupt")
+		cancel, rest := popBool(args[1:], "--cancel")
 		if len(rest) != 1 {
-			return fmt.Errorf("usage: flyball program run <path> [--interrupt]")
+			return fmt.Errorf("usage: flyball program run <path> [--cancel]")
 		}
 		doc, err := readJSONOrYAMLFile(rest[0])
 		if err != nil {
 			return err
 		}
 		path := "/api/programs/run"
-		if interrupt {
-			path += "?interrupt=true"
+		if cancel {
+			path += "?cancel=true"
 		}
 		var out any
 		if err := t.Do("POST", path, jsonReader(doc), &out); err != nil {
@@ -256,9 +256,9 @@ func runProgramCommand(t client.Target, args []string) error {
 			return err
 		}
 		return printJSON(out)
-	case "stop":
+	case "cancel":
 		var out any
-		if err := t.Do("POST", "/api/programs/interrupt", nil, &out); err != nil {
+		if err := t.Do("POST", "/api/programs/cancel", nil, &out); err != nil {
 			return err
 		}
 		return printJSON(out)
@@ -290,13 +290,13 @@ func runSimCommand(t client.Target, args []string) error {
 			return err
 		}
 		return printJSON(out)
-	case "step":
+	case "advance":
 		if len(args) != 1 {
-			return fmt.Errorf("usage: flyball sim step <seconds>")
+			return fmt.Errorf("usage: flyball sim advance <seconds>")
 		}
 		body, _ := json.Marshal(map[string]any{"seconds": jsonOrString(args[0])})
 		var out any
-		if err := t.Do("POST", "/api/sim/clock/step", bytes.NewReader(body), &out); err != nil {
+		if err := t.Do("POST", "/api/sim/clock/advance", bytes.NewReader(body), &out); err != nil {
 			return err
 		}
 		return printJSON(out)
@@ -444,7 +444,7 @@ func readJSONOrYAMLFile(path string) (any, error) {
 }
 
 // printStatus is a plain-text rendering of GET /api/health plus
-// devices/controllers/waits, mirroring cli.py's cmd_status layout
+// devices/controllers/activities, mirroring cli.py's cmd_status layout
 // closely enough to be recognisable, not byte-identical.
 func printStatus(t client.Target, health any) error {
 	h, _ := health.(map[string]any)
@@ -477,10 +477,10 @@ func printStatus(t client.Target, health any) error {
 			fmt.Printf("  controller %-16s %-11s\n", name, mode)
 		}
 	}
-	var waits map[string]any
-	if err := t.Do("GET", "/api/waits", nil, &waits); err == nil {
-		for name, w := range waits {
-			wm, _ := w.(map[string]any)
+	var activities map[string]any
+	if err := t.Do("GET", "/api/activities", nil, &activities); err == nil {
+		for name, a := range activities {
+			wm, _ := a.(map[string]any)
 			outcome, _ := wm["outcome"].(string)
 			fmt.Printf("  waiting  %-16s %s\n", name, outcome)
 		}

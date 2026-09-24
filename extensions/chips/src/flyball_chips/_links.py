@@ -1,8 +1,7 @@
 """Per-protocol `link` config unions this package's chips validate against.
 
 `extensions/chips` depends on `flyball` and `flyball-sim` (for its fakes),
-never on `extensions/linux` (the real buses) -- see
-`brain/tasks/extensions-restructure.md` phase 3. A chip's `link` field is
+never on `extensions/linux` (the real buses). A chip's `link` field is
 almost always a string naming an entry in the rig's own top-level `links:`
 section (built dynamically from every installed package's registered tags,
 real or fake, regardless of which packages a chip driver itself imports);

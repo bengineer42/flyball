@@ -1,10 +1,9 @@
-"""The entry-point target: explicitly registers every tag this package provides."""
+"""The entry-point target: explicitly registers every type this package provides."""
 
 from flyball.model.catalog import Catalogs
 
 from flyball_chips.ads1115 import Ads1115Config
 from flyball_chips.bme280 import Bme280Config
-from flyball_chips.bme680 import Bme680Config
 from flyball_chips.ccs811 import Ccs811Config
 from flyball_chips.ezo_do import EzoDoConfig
 from flyball_chips.ezo_ec import EzoEcConfig
@@ -27,7 +26,6 @@ from flyball_chips.sht31 import Sht31Config
 def register(catalog: Catalogs) -> None:
     catalog.register_device(Ads1115Config)
     catalog.register_device(Bme280Config)
-    catalog.register_device(Bme680Config)
     catalog.register_device(Ccs811Config)
     catalog.register_device(EzoDoConfig)
     catalog.register_device(EzoEcConfig)

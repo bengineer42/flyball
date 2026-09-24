@@ -12,6 +12,7 @@ import type { SessionDetail } from "../src/hooks/useSession.js";
 // `controllerTrendExpand.test.tsx` and `canOperate.test.tsx` do.
 vi.mock("uplot", () => ({
   default: class {
+    static paths = { stepped: () => () => ({}) };
     cursor = { idx: null };
     data = [[]];
     setData() {}
@@ -65,7 +66,7 @@ function signalRow(address: string, unit: string, extra: Partial<SignalRow> = {}
     label: null,
     range: null,
     precision: 2,
-    warn: null,
+    warning: null,
     alarm: null,
     limits: null,
     ...extra,

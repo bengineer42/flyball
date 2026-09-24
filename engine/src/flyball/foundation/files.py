@@ -15,6 +15,8 @@ the last value and hide the bug.
 from __future__ import annotations
 
 import json
+import os
+import secrets
 import tomllib
 from collections.abc import Hashable
 from pathlib import Path
@@ -33,21 +35,49 @@ def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return seen
 
 
-_strict_yaml_loader: type[Any] | None = None
+_yaml_loaders: dict[str, type[Any]] = {}
+
+_YAML_BOOL = "tag:yaml.org,2002:bool"
+
+
+def yaml_loader() -> type[Any]:
+    """A `yaml.SafeLoader` whose only booleans are `true` and `false`, as in YAML 1.2; built once.
+
+    PyYAML resolves the YAML 1.1 words `yes`/`no`/`on`/`off` to booleans
+    too, so `on_stop: off` loads `False` and a key `on` loads `True` -- a
+    GPIO's `on` demand, an `off` command. Here those stay strings; `true`
+    and `false`, in any case, are the booleans.
+    """
+    if (loader := _yaml_loaders.get("plain")) is None:
+        import re
+
+        import yaml
+
+        class Yaml12BoolLoader(yaml.SafeLoader):
+            pass
+
+        Yaml12BoolLoader.yaml_implicit_resolvers = {
+            first: [(tag, regexp) for tag, regexp in resolvers if tag != _YAML_BOOL]
+            for first, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+        }
+        Yaml12BoolLoader.add_implicit_resolver(
+            _YAML_BOOL, re.compile(r"^(?:true|false)$", re.IGNORECASE), list("tTfF")
+        )
+        loader = _yaml_loaders["plain"] = Yaml12BoolLoader
+    return loader
 
 
 def _yaml_loader() -> type[Any]:
-    """A `yaml.SafeLoader` that refuses a mapping with a repeated key, built once.
+    """[yaml_loader][flyball.foundation.files.yaml_loader], also refusing a repeated key.
 
     PyYAML's own `construct_mapping` keeps the last value silently; this
     overrides it to check for a repeat first, naming the key and the line
     it reappears on, before deferring to the original for the real work.
     """
-    global _strict_yaml_loader
-    if _strict_yaml_loader is None:
+    if (loader := _yaml_loaders.get("strict")) is None:
         import yaml
 
-        class StrictLoader(yaml.SafeLoader):
+        class StrictLoader(yaml_loader()):  # type: ignore[misc]
             def construct_mapping(
                 self, node: yaml.MappingNode, deep: bool = False
             ) -> dict[Hashable, Any]:
@@ -61,8 +91,8 @@ def _yaml_loader() -> type[Any]:
                     seen.add(key)
                 return super().construct_mapping(node, deep=deep)
 
-        _strict_yaml_loader = StrictLoader
-    return _strict_yaml_loader
+        loader = _yaml_loaders["strict"] = StrictLoader
+    return loader
 
 
 def loads(text: str, suffix: str) -> Any:
@@ -91,6 +121,47 @@ def load_document(path: str | Path) -> Any:
     if path.suffix.lower() not in SUFFIXES:  # say so before touching the file
         raise ValueError(f"{path}: unknown format; use one of {', '.join(SUFFIXES)}")
     return loads(path.read_text(), path.suffix)
+
+
+def atomic_write_text(path: str | Path, text: str) -> Path:
+    """Replace `path` with `text` (UTF-8) so a crash leaves the old file or the new, never half.
+
+    The text goes to a uniquely named temp file beside `path`, which is
+    fsynced and renamed over it; the directory is then fsynced so the rename
+    itself survives a power cut. An existing file's permission bits are kept;
+    a new one gets the usual umask. On any failure the temp file is removed
+    and the old file is untouched.
+    """
+    path = Path(path)
+    temp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            file.write(text)
+            file.flush()
+            if path.exists():
+                os.chmod(file.fileno(), path.stat().st_mode & 0o7777)
+            os.fsync(file.fileno())
+        os.replace(temp, path)
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+    _fsync_directory(path.parent)
+    return path
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Make a rename in `directory` durable; a no-op where a directory cannot be opened."""
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass  # some filesystems refuse fsync on a directory; the rename has still happened
+    finally:
+        os.close(fd)
 
 
 def dumps(data: Any, suffix: str) -> str:

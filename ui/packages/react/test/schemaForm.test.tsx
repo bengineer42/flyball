@@ -7,7 +7,7 @@ import { impliedUiSchema, isTaggedUnion, simplifyNullables } from "../src/form/u
 
 // The shape `sim_drive`'s config takes (DEVICE-MODEL-2, `GET /api/rig/schema`): a dict
 // (`additionalProperties`) of ports, each an `anyOf` of a bare string or a `DrivePort` object
-// spelled out, whose `limits` is a `Band | None` (a `tuple[float, float]`, which pydantic emits as
+// spelled out, whose `limits` is a `Bounds | None` (a `tuple[float, float]`, which pydantic emits as
 // `prefixItems` and RJSF 5 only renders once `simplifyNullables` rewrites it to `items: [...]`).
 const band: JsonSchema = { maxItems: 2, minItems: 2, type: "array", prefixItems: [{ type: "number" }, { type: "number" }] };
 const drivePort: JsonSchema = {
@@ -15,12 +15,12 @@ const drivePort: JsonSchema = {
   title: "DrivePort",
   properties: {
     port: { type: "string", title: "Port" },
-    limits: { anyOf: [{ $ref: "#/$defs/Band" }, { type: "null" }], default: null, title: "Limits" },
+    limits: { anyOf: [{ $ref: "#/$defs/Bounds" }, { type: "null" }], default: null, title: "Limits" },
   },
   required: ["port"],
 };
 const simDriveConfig: JsonSchema = {
-  $defs: { Band: band, DrivePort: drivePort },
+  $defs: { Bounds: band, DrivePort: drivePort },
   type: "object",
   properties: {
     ports: {
@@ -36,7 +36,7 @@ describe("impliedUiSchema and a dict's additionalProperties", () => {
     const simplified = simplifyNullables(simDriveConfig);
     const ui = impliedUiSchema(simplified, simplified);
     // ports -> additionalProperties (the RJSF convention for a dict's value schema) -> the DrivePort
-    // branch of the anyOf -> limits -> the Band branch of *its* anyOf.
+    // branch of the anyOf -> limits -> the Bounds branch of *its* anyOf.
     const portsUi = ui.ports as any;
     expect(portsUi).toBeDefined();
     const driveportUi = portsUi.additionalProperties.anyOf[1];
@@ -45,18 +45,18 @@ describe("impliedUiSchema and a dict's additionalProperties", () => {
 
   it("rewrites the tuple's prefixItems to items on the $defs entry, so RJSF can see it as a fixed array", () => {
     const simplified = simplifyNullables(simDriveConfig);
-    expect(simplified.$defs!.Band!.items).toEqual([{ type: "number" }, { type: "number" }]);
-    expect(simplified.$defs!.Band!.prefixItems).toBeUndefined();
+    expect(simplified.$defs!.Bounds!.items).toEqual([{ type: "number" }, { type: "number" }]);
+    expect(simplified.$defs!.Bounds!.prefixItems).toBeUndefined();
   });
 });
 
-describe("SchemaForm with a Band (bounded tuple) field", () => {
-  // Regression: switching a `Band | None` field from "leave unchanged" to "set" left RJSF's own
+describe("SchemaForm with a Bounds (bounded tuple) field", () => {
+  // Regression: switching a `Bounds | None` field from "leave unchanged" to "set" left RJSF's own
   // `ArrayField` rendering a fixed-size array whose `formData` was `null` rather than `undefined`
   // (its default only fires on `undefined`), so `formData[index]` threw
   // "Cannot read properties of null (reading '0')" and unmounted the form. `widgetFor`/`fieldUiSchema`
-  // now points a Band-shaped field at the `band` widget instead, which tolerates `null`.
-  it("renders a null Band value as two empty boxes rather than throwing", () => {
+  // now points a Bounds-shaped field at the `band` widget instead, which tolerates `null`.
+  it("renders a null Bounds value as two empty boxes rather than throwing", () => {
     const schema: JsonSchema = { type: "object", properties: { limits: band } };
     const html = renderToStaticMarkup(<SchemaForm schema={schema} value={{ limits: null }} onSubmit={() => undefined} />);
     expect(html).toContain("fb-band");
@@ -64,7 +64,7 @@ describe("SchemaForm with a Band (bounded tuple) field", () => {
     expect(html).not.toContain('value="null"');
   });
 
-  it("renders a set Band value in the two boxes", () => {
+  it("renders a set Bounds value in the two boxes", () => {
     const schema: JsonSchema = { type: "object", properties: { limits: band } };
     const html = renderToStaticMarkup(<SchemaForm schema={schema} value={{ limits: [10, 90] }} onSubmit={() => undefined} />);
     expect(html).toContain('value="10"');

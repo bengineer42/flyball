@@ -1,4 +1,4 @@
-# The config file
+# The rig file
 
 !!! abstract "Where you are: Configuration"
     For the person **setting a rig up**: the file that says what is on the rig, what regulates what and how it is served. No code, only YAML.
@@ -20,7 +20,7 @@ file is read:
 | top level | this page | the rig's name, what it builds on, the clock, recording |
 | `runner:` | [The runner section](runner.md) | how the process serves: port, path, who may reach it, what the API may do, where files go |
 | `links:` | [Links](links.md) | the buses, instrument connections and simulated plants devices are built on |
-| `devices:` | [Devices](devices/index.md) | what is on the rig: the envelope every device shares, and per-signal overrides |
+| `devices:` | [Devices](devices/index.md) | what is on the rig: the envelope every device shares, and per-signal metadata |
 | | [Supported drivers](devices/drivers.md) | every driver's own fields, one section each |
 | | [Where a device's options come from](devices/generated.md) | why those fields exist, and where else they appear |
 | `controllers:` | [Controllers](controllers.md) | who regulates what, with which law |
@@ -44,22 +44,24 @@ runner:                        # how the process serves; not part of the rig
   allow_shutdown: true
 
 links:                         # the buses and plants devices are built on
-  tube: { tag: sim_furnace, zones: 2, power_w: 3000 }
+  tube: { type: sim_furnace, zones: 2, power_w: 3000 }
 
 devices:                       # what is on the rig, keyed by name
   furnace:
     driver: sim_daq
     label: Tube furnace
     poll_s: 1
-    config: { link: tube, ports: { zone1: zone1 } }     # the plant's port, as the signal `furnace.zone1`
+    link: tube
+    ports: { zone1: zone1 }  # the plant's port, as the signal `furnace.zone1`
     signals:
-      zone1: { warn: [0, 1100], precision: 1 }
+      zone1: { warning: [0, 1100], precision: 1 }
   heaters:
     driver: sim_drive
-    config: { link: tube, ports: { heater1: heater1 } }
+    link: tube
+    ports: { heater1: heater1 }
 
 controllers:                   # who drives what, keyed by the target signal
-  heaters.heater1: { signal: furnace.zone1, law: { tag: PI, kp: 100, ki: 0.15 }, default: true }
+  heaters.heater1: { measured: furnace.zone1, law: { type: PI, kp: 100, ki: 0.15 }, default: true }
 ```
 
 Sections may be split across files -- `flyball-runner furnace.yaml sim.yaml`,
@@ -73,7 +75,7 @@ same without serving.
 | key | type | default | |
 | --- | --- | --- | --- |
 | `name` | string | the file's stem | the rig's name: in `/api/health`, session metadata, and the store's file name under `store_dir` |
-| `extends` | `[path, …]` | none | files this one is layered on top of, relative to this file, in order |
+| `extends` | `[path, …]` | none | files this one is layered on top of, relative to this file (an absolute path as it stands), in order |
 | `board` | string | none | a board profile (a name on the board path, or a path): its `links` go under yours, and `pin: LABEL` on a device resolves against it -- [Boards](boards.md) |
 | `recording` | bool | `false` | open a recording session when the runner starts (`--record` does the same once) |
 | `clock` | `{speed, stepped}` | real time | `speed`: rig seconds per wall second; `stepped: true`: time moves only when stepped. Refused unless every link is `sim_*`/`fake_*` |
@@ -85,7 +87,8 @@ same without serving.
 ## Several files
 
 The same keys in several files merge, later files winning, mappings key by
-key and everything else whole; a `null` deletes what an earlier file set.
+key and everything else whole; a `null` deletes what an earlier file set,
+and one with nothing earlier to delete is simply dropped.
 Three ways to lay a rig out:
 
 ```
@@ -93,6 +96,10 @@ flyball-runner rig.yaml sim.yaml            # the command line lists the layers
 flyball-runner rig.yaml --set clock.speed=60  # a one-key overlay on top
 flyball-runner site.yaml                    # one file that `extends` the rest
 ```
+
+`flyball run` takes the same arguments (`flyball run rig.yaml sim.yaml
+--set clock.speed=60`), and its front reads `runner.front` from the
+merged result, as the runner does.
 
 The conventional split is one file per concern: the hardware rig
 (`links`, `devices`, `controllers`); a simulation overlay that swaps the

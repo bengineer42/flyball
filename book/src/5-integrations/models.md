@@ -11,10 +11,11 @@ scaffolding a driver in `author`; demands, controllers and programs in
 `operate`. A client in read mode is never told a moving tool exists.
 
 **Configure.** On by default; `--no-mcp` (or `mcp: false` in the
-[`runner:` section](../2-config/runner.md)) turns it off. A runner with a
-token requires it on `/mcp` too; one with only a password needs a token
-added before a model outside it can connect. The connect lines and a client config
-block are on the UI's [Config page](../1-running/ui/rig.md).
+[`runner:` section](../2-config/runner.md)) turns it off. Behind a front
+with a sign-in, a model needs a named token (`flyball token create
+--kind agent`), sent as a bearer header; its scopes cap what each mode
+lets it do. The `local` shape needs none, on the machine itself. The connect lines and a client config
+block are on the UI's [rig file tab](../1-running/ui/rig.md).
 
 **Everything else** -- the tiers, the token, what the model sees -- is
 [The MCP server](../4-server/mcp.md).

@@ -2,44 +2,47 @@
 
 A `sim_plant` under `links` is one plant model shared by the devices that
 use it: a `sim_daq` reads chosen plant outputs as its signals and advances
-the plant by the time since the last read; a `sim_drive` sets chosen plant
-inputs from demands on its signals. Several of each may share one plant, so
-a multi-zone plant's zones interact through it (`examples/furnace`'s worked
-scenario, or an application's own [MultiPlant][flyball_sim.plant.MultiPlant]
-such as `examples/humidity`'s chamber). A rig of these runs on a laptop,
-ticks like a real one, records, tunes and serves the same API -- with
-nothing plugged in -- and, laid over a real rig's file, stands in for its
-hardware under the same names (plan §1.6).
+the plant to the read's instant -- once, however many devices read it; a
+`sim_drive` sets chosen plant inputs from demands on its signals. Several of
+each may share one plant, so a multi-zone plant's zones interact through it
+(`examples/furnace`'s worked scenario, or an application's own
+[MultiPlant][flyball_sim.plant.MultiPlant] such as
+[humctrl](https://github.com/bengineer42/humctrl)'s chamber). A rig of these
+runs on a laptop, ticks like a real one, records, tunes and serves the same
+API -- with nothing plugged in -- and, laid over a real rig's file, stands
+in for its hardware under the same names.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any, Literal
 
 from flyball.foundation.config import Config, resolve
 from flyball.foundation.device import (
     Access,
-    Band,
+    Bounds,
     Committable,
-    Condition,
     DriverConfig,
-    Level,
     Node,
     NodeSpec,
     Readable,
     Role,
     Sample,
+    Severity,
     Signal,
     SignalSpec,
+    Value,
     command,
+    invalid,
 )
 from flyball.foundation.errors import HardwareError, NotFoundError
 from flyball.foundation.quantities import DIMENSIONLESS, Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .plant import Fopdt, Integrator, Lag, MultiPlant, Noisy, Plant
+from .plant import Fopdt, Integrator, Lag, MultiPlant, Noisy, Plant, advancer
 
 # A plant's drive is a fraction of full power: 0 is off, 1 is everything it has.
 Drive = DIMENSIONLESS.unit("fraction of full drive", "of full")
@@ -56,7 +59,7 @@ INPUT = "input"
 # region The plants
 
 
-class PlantConfig(Config[Plant], tag="sim_plant"):
+class PlantConfig(Config[Plant], type="sim_plant"):
     """A plant model with one input and one output, shared by the devices that use it.
 
     Its ports are `input` (a drive, 0 to 1 of full) and `output`, whose
@@ -172,7 +175,7 @@ def _output_quantity(plant: AnyPlant, port: str) -> Quantity | None:
     return hook(port) if hook is not None else None
 
 
-def _input_quantity(plant: AnyPlant, port: str) -> tuple[Quantity, Band]:
+def _input_quantity(plant: AnyPlant, port: str) -> tuple[Quantity, Bounds]:
     """What a plant's input port takes and its range: watts for a heater, a fraction otherwise."""
     if port not in _input_ports(plant):
         raise ValueError(f"no input port {port!r}; there are {_input_ports(plant)}")
@@ -219,7 +222,7 @@ def _static_inverse(plant: AnyPlant, port: str) -> Callable[[float], float] | No
     return (lambda drive: inverse(port, drive)) if isinstance(inner, MultiPlant) else inverse
 
 
-def _static_range(name: str, path: str, plant: AnyPlant, port: str) -> Band:
+def _static_range(name: str, path: str, plant: AnyPlant, port: str) -> Bounds:
     """The output-unit span a `demand: output` port can deliver, read off the plant's own model."""
     inverse = _static_inverse(plant, port)
     if inverse is None:
@@ -253,7 +256,7 @@ def _tree(device: str, leaves: Mapping[str, SignalSpec]) -> tuple[NodeSpec | Sig
     `{"dry.humidity": …, "dry.temperature": …, "wet.humidity": …}` becomes
     namespaces `dry` and `wet`, each read whole -- one plant advance yields
     everything at one instant -- so a sim overlay can mirror a namespaced
-    real device address for address (plan §1.6). A flat key is a leaf on
+    real device address for address. A flat key is a leaf on
     the root, as before.
 
     Raises:
@@ -304,23 +307,29 @@ class DaqPort(BaseModel):
     tags: dict[str, str] | None = Field(
         default=None, description="Groupings across the tree, `{axis: name}`: `{line: dry}`."
     )
-    range: Band | None = None
+    range: Bounds | None = None
     precision: int | None = None
-    warn: Band | None = Field(
+    warning: Bounds | None = Field(
         default=None, description="The band a value is normal inside; outside it, a warning."
     )
-    alarm: Band | None = Field(
+    alarm: Bounds | None = Field(
         default=None, description="The band a value is acceptable inside; outside it, an alarm."
     )
 
 
 class SimDaq(Readable):
-    """Reads a plant's outputs as its signals, advancing the plant by the time since the last read.
+    """Reads a plant's outputs as its signals, advancing the plant to each read's instant.
+
+    A plant is stepped once per instant however many devices read it, so two
+    `sim_daq`s on one bare `sim_plant` do not run its time at twice the rate.
 
     Every signal is an `[RP]` output. Each is read when its own `poll_s` is
     due, so a slow sample thermocouple beside fast zone ones costs one
     device; what is due at an instant goes out as one sample. A sensor
-    failed by `fail` is a condition until `restore`.
+    failed by `fail` is a condition until `restore`, and reads as
+    `invalid("sensor_failed")` (an open thermocouple the DAQ reports) --
+    or, failed with `raises`, makes every read of it raise (a dead bus),
+    which counts toward the device's `reads.fail_after`.
     """
 
     def __init__(
@@ -357,16 +366,20 @@ class SimDaq(Readable):
                 tags=dict(spec.tags or {}),
                 range=spec.range,
                 precision=spec.precision,
-                warn=spec.warn,
+                warning=spec.warning,
                 alarm=spec.alarm,
             )
             self.ports[path] = spec.port
         if not leaves:
             raise ValueError(f"{name}: a sim_daq reads at least one port")
         self.bind(_tree(name, leaves))
+        self._advancer = None if isinstance(plant, MultiPlant) else advancer(plant)
+        """A bare plant's stepper, shared with every other device reading the same plant."""
         self._last_ns: int | None = None
         self._last_read: dict[Signal, int] = {}
         self._broken: dict[Signal, int] = {}
+        self._raising: set[Signal] = set()
+        """Of `_broken`, those failed with `raises`: a read of them raises."""
 
     @property
     def config(self) -> SimDaqConfig:
@@ -384,20 +397,12 @@ class SimDaq(Readable):
         """Signals failed by `fail`, until `restore`."""
         return tuple(str(s.path) for s in self._broken)
 
-    def _push_conditions(self) -> None:
-        self.conditions.push(
-            tuple(
-                Condition("broken", Level.ERROR, f"{s.path}: sensor failed (simulated)", since)
-                for s, since in self._broken.items()
-            )
-        )
-
     def _advance(self, time_ns: int) -> None:
-        """Step the plant to `time_ns`; a multi-port plant steps once per instant, whoever asks."""
+        """Step the plant to `time_ns`: once per instant, whichever device reading it asks first."""
         if isinstance(self.plant, MultiPlant):
-            self.plant.advance(time_ns)
-        elif self._last_ns is not None and time_ns > self._last_ns:  # a reset clock: no step
-            self.plant.step((time_ns - self._last_ns) / 1e9)
+            self.plant.advance_to(time_ns)
+        elif self._advancer is not None:
+            self._advancer.advance_to(time_ns)
         self._last_ns = time_ns
 
     def _due(self, signal: Signal, time_ns: int) -> bool:
@@ -423,13 +428,17 @@ class SimDaq(Readable):
         asked = node is not None
         node = self.root if node is None else node
         signals = [self.signals[path] for path in self.ports if node.contains(self.signals[path])]
-        if broken := [s.path for s in signals if s in self._broken]:
-            raise HardwareError(f"{self.name}.{broken[0]}: thermocouple open circuit (simulated)")
+        if broken := [s.path for s in signals if s in self._raising]:
+            raise HardwareError(f"{self.name}.{broken[0]}: sensor failed (simulated)")
         self._advance(time_ns)
-        by_node: dict[Node, dict[Signal, float]] = {}
+        by_node: dict[Node, dict[Signal, Value]] = {}
         for signal in signals:
             if asked or self._due(signal, time_ns):
-                value = _read_output(self.plant, self.ports[str(signal.path)])
+                value: Value = (
+                    invalid("sensor_failed")
+                    if signal in self._broken
+                    else _read_output(self.plant, self.ports[str(signal.path)])
+                )
                 by_node.setdefault(signal.node, {})[signal] = value
                 self._last_read[signal] = time_ns
         for read_node, values in by_node.items():
@@ -442,27 +451,38 @@ class SimDaq(Readable):
             raise NotFoundError(f"{self.name} has no signal {name!r}") from None
 
     @command(simulation=True)
-    def fail(self, signal: str) -> tuple[str, ...]:
-        """Break one sensor: reads raise until `restore`; what the controller does is the test."""
-        self._broken.setdefault(self._signal(signal), self._last_ns or 0)
-        self._push_conditions()
+    def fail(self, signal: str, raises: bool = False) -> tuple[str, ...]:
+        """Break one sensor until `restore`: it reads `invalid`, or with `raises` every read raises.
+
+        What the controller does is the test: frozen on the no-value, or, with `raises`, the
+        device offline after its failure budget.
+        """
+        broken = self._signal(signal)
+        self._broken.setdefault(broken, self._last_ns or 0)
+        if raises:
+            self._raising.add(broken)
+        self.set_condition(
+            "broken", Severity.ERROR, f"{broken.path}: sensor failed (simulated)", signal=broken
+        )
         return self.broken
 
     @command(simulation=True)
     def restore(self, signal: str) -> tuple[str, ...]:
         """Mend the sensor; a command on an offline device makes the rig poll it again."""
-        self._broken.pop(self._signal(signal), None)
-        self._push_conditions()
+        mended = self._signal(signal)
+        self._broken.pop(mended, None)
+        self._raising.discard(mended)
+        self.clear_condition("broken", signal=mended, message=f"{mended.path}: mended")
         return self.broken
 
 
-class SimDaqConfig(DriverConfig[SimDaq], tag="sim_daq"):
+class SimDaqConfig(DriverConfig[SimDaq], type="sim_daq"):
     """Read chosen outputs of a simulated plant as this device's `[RP]` signals."""
 
-    link: PlantLink = Field(
+    link: PlantLink = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
         description="The plant link read: `sim_plant`, or another package's own `MultiPlant`"
         " link, such as `examples/furnace`'s `sim_furnace`."
-    )  # pyright: ignore[reportIncompatibleVariableOverride]
+    )
     ports: dict[str, str | DaqPort] = Field(
         description="Signal path -> the plant's output port; spelled out with `quantity` and"
         " `unit` when the plant does not say what a port measures (a bare `sim_plant`)."
@@ -513,7 +533,7 @@ class DrivePort(BaseModel):
         " output measures, if it cannot say.",
     )
     unit: str | None = None
-    limits: Band | None = Field(
+    limits: Bounds | None = Field(
         default=None,
         description="Input mode: what maps onto the port's drive, `limits[0]` off, `limits[1]`"
         " full. Output mode: the deliverable span, defaulted from the plant's model if it has one.",
@@ -540,6 +560,10 @@ class SimDrive(Committable):
     drive, so the smart work moves from the controller's feedforward into
     the drive itself. Either way the rig clamps a demand to `limits`
     before it gets here.
+
+    A linear port declares `off` at `limits[0]` (0 % drive), so a stop writes it; a
+    `demand: output` port declares none (its `limits[0]` is a setpoint), nor does a
+    span across 0.
     """
 
     def __init__(
@@ -555,10 +579,13 @@ class SimDrive(Committable):
         self._config = config
         self.ports: dict[str, str] = {}
         """The plant port behind each signal, by the signal's path (`"dry.flow"`)."""
-        self._spans: dict[str, Band] = {}
+        self._spans: dict[str, Bounds] = {}
         """What each signal's `limits` were declared as: the span its values map over."""
         self._smart: set[str] = set()
         """Paths declared `demand: output`: `commit` inverts the plant instead of a linear map."""
+        self._disturbed: dict[str, tuple[float, int | None]] = {}
+        """Path -> (fraction offset, expiry time_ns or None) from `disturb`, re-applied on top
+        of every `commit` until re-set with a fresh offset, cleared with `0.0`, or expired."""
         leaves: dict[str, SignalSpec] = {}
         for path, spec in ports.items():
             if isinstance(spec, str):
@@ -577,7 +604,17 @@ class SimDrive(Committable):
                     raise ValueError(f"{name}.{path}: say `quantity`, `unit` and `limits`")
                 _input_quantity(plant, spec.port)  # the port exists
                 quantity, limits, port = Quantity(spec.quantity, spec.unit), spec.limits, spec.port
+            if (other := next((p for p, q in self.ports.items() if q == port), None)) is not None:
+                # Two demands on one input would each overwrite the other's drive at commit.
+                raise ValueError(
+                    f"{name}: {path!r} and {other!r} both drive the port {port!r};"
+                    " a port takes one demand"
+                )
             spelled = None if isinstance(spec, str) else spec
+            # A linear port's `limits[0]` is 0 % drive: its inactive level, what a stop writes.
+            # A `demand: output` port's is a setpoint (a chiller's `limits[0]` is full
+            # compressor), and a span across 0 has full reverse there: neither declares one.
+            linear = path not in self._smart and not limits[0] < 0.0 < limits[1]
             leaves[path] = SignalSpec(
                 name=path.rpartition(".")[2],
                 quantity=quantity,
@@ -586,6 +623,7 @@ class SimDrive(Committable):
                 label=(spelled and spelled.label) or "",
                 tags=dict((spelled and spelled.tags) or {}),
                 limits=limits,
+                off=limits[0] if linear else None,
             )
             self.ports[path] = port
             self._spans[path] = limits
@@ -610,8 +648,19 @@ class SimDrive(Committable):
         """What the plant is actually driven with on each signal's port, as a fraction of full."""
         return {name: _get_input(self.plant, port) for name, port in self.ports.items()}
 
+    def _disturbance(self, path: str, time_ns: int) -> float:
+        """The offset still in force on `path` at `time_ns`; expired ones are forgotten."""
+        entry = self._disturbed.get(path)
+        if entry is None:
+            return 0.0
+        offset, expiry = entry
+        if expiry is not None and time_ns >= expiry:
+            del self._disturbed[path]
+            return 0.0
+        return offset
+
     def commit(self, time_ns: int) -> None:
-        for signal, value in self.pending.items():
+        for signal, value in self.staged.items():
             path = str(signal.path)
             port = self.ports[path]
             fraction = (
@@ -619,33 +668,45 @@ class SimDrive(Committable):
                 if path in self._smart
                 else self._fraction(path, value)
             )
-            _set_drive(self.plant, port, fraction)
+            _set_drive(self.plant, port, fraction + self._disturbance(path, time_ns))
 
     @command(simulation=True)
-    def disturb(self, signal: str, offset: float) -> dict[str, float]:
-        """Kick the plant's drive on `signal`'s port by `offset` in the signal's unit, until re-set.
+    def disturb(
+        self, signal: str, offset: float, duration_s: float | None = None
+    ) -> dict[str, float]:
+        """Kick the plant's drive on `signal`'s port by `offset` in the signal's unit.
 
         A door opened, a leak: the plant sees it, the controller does not
         until the reading moves. `offset` is watts on a furnace heater, a
         fraction of full on a bare plant, the declared unit on a spelled-out
-        port.
+        port. The kick persists across later commits -- a regulated loop's
+        own demand no longer wipes it out -- until re-set with a fresh
+        `disturb`, cleared with `offset=0.0`, or, with `duration_s` given,
+        it expires on its own. `offset` must be finite.
         """
         try:
             port = self.ports[signal]
         except KeyError:
             raise NotFoundError(f"{self.name} has no signal {signal!r}") from None
+        if not math.isfinite(offset):
+            raise ValueError(f"{self.name}.{signal}: disturb offset {offset!r}: must be finite")
         low, high = self._spans[signal]
-        _set_drive(self.plant, port, _get_input(self.plant, port) + offset / (high - low))
+        fraction_offset = offset / (high - low)
+        now_ns = self.router.now_ns()
+        base = _get_input(self.plant, port) - self._disturbance(signal, now_ns)
+        _set_drive(self.plant, port, base + fraction_offset)
+        expiry = None if duration_s is None else now_ns + round(duration_s * 1e9)
+        self._disturbed[signal] = (fraction_offset, expiry)
         return self.inputs
 
 
-class SimDriveConfig(DriverConfig[SimDrive], tag="sim_drive"):
+class SimDriveConfig(DriverConfig[SimDrive], type="sim_drive"):
     """Drive chosen inputs of a simulated plant from this device's `[W]` signals."""
 
-    link: PlantLink = Field(
+    link: PlantLink = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
         description="The plant link driven: `sim_plant`, or another package's own `MultiPlant`"
         " link, such as `examples/furnace`'s `sim_furnace`."
-    )  # pyright: ignore[reportIncompatibleVariableOverride]
+    )
     ports: dict[str, str | DrivePort] = Field(
         description="Signal path -> the plant's input port, or spelled out with the `quantity`,"
         " `unit` and `limits` the signal is set in (mapped linearly onto the port's 0..1 drive),"

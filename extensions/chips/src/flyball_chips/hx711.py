@@ -56,7 +56,7 @@ from collections.abc import Iterator
 from typing import Literal
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.errors import HardwareError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Gram
@@ -147,7 +147,7 @@ class Hx711(Readable):
     reference weight (mirrors `Channel.scale`/`offset` in `ads1115.py`).
     """
 
-    weight = Output("weight", quantity=WEIGHT)
+    weight = Readout("weight", quantity=WEIGHT)
 
     def __init__(
         self,
@@ -183,7 +183,7 @@ class Hx711(Readable):
         yield self.sample(time_ns, weight=raw * self.scale + self.offset)
 
 
-class Hx711Config(DriverConfig[Hx711], tag="hx711"):
+class Hx711Config(DriverConfig[Hx711], type="hx711"):
     """One chip, two raw GPIO lines: `{ link, clock_line, data_line, scale, offset }`."""
 
     link: GpioLinkConfig | str  # type: ignore[valid-type]

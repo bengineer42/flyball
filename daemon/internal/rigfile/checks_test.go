@@ -12,7 +12,7 @@ func TestCheckUndeclaredLink(t *testing.T) {
 		"links": map[string]any{"chamber": map[string]any{}},
 		"devices": map[string]any{
 			"thermocouple": map[string]any{
-				"config": map[string]any{"link": "nonexistent"},
+				"link": "nonexistent",
 			},
 		},
 	}
@@ -30,7 +30,7 @@ func TestCheckUndeclaredLink_declaredIsFine(t *testing.T) {
 		"links": map[string]any{"chamber": map[string]any{}},
 		"devices": map[string]any{
 			"thermocouple": map[string]any{
-				"config": map[string]any{"link": "chamber"},
+				"link": "chamber",
 			},
 		},
 	}
@@ -67,7 +67,7 @@ func TestCheckSingleDefaultController_oneIsFine(t *testing.T) {
 func TestCheckClockOnlySimulated(t *testing.T) {
 	doc := map[string]any{
 		"clock": map[string]any{"speed": 2.0},
-		"links": map[string]any{"bus": map[string]any{"tag": "serial"}},
+		"links": map[string]any{"bus": map[string]any{"type": "serial"}},
 	}
 	err := CheckBusinessRules(doc)
 	if err == nil {
@@ -76,20 +76,56 @@ func TestCheckClockOnlySimulated(t *testing.T) {
 }
 
 func TestCheckClockOnlySimulated_simIsFine(t *testing.T) {
-	for _, tag := range []string{"sim_plant", "fake_registers"} {
+	for _, typ := range []string{"sim_plant", "fake_registers"} {
 		doc := map[string]any{
 			"clock": map[string]any{"speed": 2.0},
-			"links": map[string]any{"bus": map[string]any{"tag": tag}},
+			"links": map[string]any{"bus": map[string]any{"type": typ}},
 		}
 		if err := CheckBusinessRules(doc); err != nil {
-			t.Fatalf("tag %s: expected no error, got %v", tag, err)
+			t.Fatalf("type %s: expected no error, got %v", typ, err)
 		}
 	}
 }
 
 func TestCheckClockOnlySimulated_noClockIsFine(t *testing.T) {
 	doc := map[string]any{
-		"links": map[string]any{"bus": map[string]any{"tag": "serial"}},
+		"links": map[string]any{"bus": map[string]any{"type": "serial"}},
+	}
+	if err := CheckBusinessRules(doc); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestCheckInputCycles(t *testing.T) {
+	doc := map[string]any{
+		"devices": map[string]any{
+			"a": map[string]any{"inputs": map[string]any{"x": "b.out"}},
+			"b": map[string]any{"inputs": map[string]any{"x": "a.out", "k": 4.0}},
+		},
+	}
+	err := CheckBusinessRules(doc)
+	if err == nil {
+		t.Fatal("expected a cycle error, got nil")
+	}
+	want := "a cycle through inputs: a.inputs.x <- b.out; b.inputs.x <- a.out"
+	if got := err.Error(); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	self := map[string]any{
+		"devices": map[string]any{"a": map[string]any{"inputs": map[string]any{"x": "a.out"}}},
+	}
+	if err := CheckBusinessRules(self); err == nil || err.Error() != "a cycle through inputs: a.inputs.x <- a.out" {
+		t.Fatalf("a device following itself: got %v", err)
+	}
+}
+
+func TestCheckInputCycles_aChainAndNumbersAreFine(t *testing.T) {
+	doc := map[string]any{
+		"devices": map[string]any{
+			"a": map[string]any{"inputs": map[string]any{"x": "b.out", "y": 36.5}},
+			"b": map[string]any{"inputs": map[string]any{"x": "c.out"}},
+			"c": map[string]any{},
+		},
 	}
 	if err := CheckBusinessRules(doc); err != nil {
 		t.Fatalf("expected no error, got %v", err)

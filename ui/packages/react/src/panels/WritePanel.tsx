@@ -4,6 +4,7 @@ import { Ref } from "../links.js";
 import { useRig } from "../provider.js";
 import { useController, useSignal, useWriteState } from "../store/hooks.js";
 import { PanelFrame } from "./PanelFrame.js";
+import { errorText } from "./CommandForm.js";
 
 export interface WritePanelProps {
   /** The writable signal: its unit, limits, precision and label. */
@@ -108,8 +109,8 @@ export function DemandEntry({ signal, text, onText, disabled = false, precision:
  * over its limits when it has them, a box otherwise. While a controller is
  * attached to it, in any mode, there is nothing to type into: the rig
  * refuses a manual demand, so the row says which controller instead
- * (move its setpoint, or detach it); likewise a `together` member, which
- * only its group on the device's page can set. Live through
+ * (move its setpoint, or detach it). A refused write shows the rig's reason
+ * word for word: a readback's names the command that moves it. Live through
  * `useWriteState` and `useController`; the frame carries the label and
  * the device.
  */
@@ -118,7 +119,7 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
   const rig = useRig();
   const live = useWriteState(signal.address);
   const write = live ?? given ?? signal.write ?? null;
-  // A controller is named by its target, so the store's entry under this address is the one attached here.
+  // A controller is named by its output, so the store's entry under this address is the one attached here.
   const attached = useController(signal.address);
   // Until something has been set, the last reading stands in for the set value: a published signal's live readback, else the last read the rig has.
   const liveReading = useSignal(publishes(signal) ? signal.address : undefined);
@@ -155,9 +156,9 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
     setBusy(true);
     setError(null);
     try {
-      await (onDemand ? onDemand(value) : rig.demand(signal.address, value));
+      await (onDemand ? onDemand(value) : rig.write(signal.address, value));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -168,7 +169,7 @@ export function WritePanel({ signal, write: given, onDemand, compact: compactPro
       driven by <Ref kind="controller" name={driven} />
     </span>
   );
-  // A controller's target has nothing to type into: it says which controller instead.
+  // A controller's output has nothing to type into: it says which controller instead.
   const entry = driven ? (
     drivenNote
   ) : (

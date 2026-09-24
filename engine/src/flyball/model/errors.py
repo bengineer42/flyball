@@ -28,8 +28,8 @@ class LastReadingNotAvailableError(ControllerError, NotReadyError):
 class ControlLawNotRegisteredError(ControllerError, NotFoundError):
     """No control law registered under that name."""
 
-    def __init__(self, tag: str) -> None:
-        super().__init__(f"Control law '{tag}' is not registered.")
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Control law '{name}' is not registered.")
 
 
 class ControlLawNotSetError(ControllerError, NotReadyError):
@@ -54,6 +54,6 @@ class ControllerNotStartedError(ControllerError, NotReadyError):
 class FeedforwardNotInvertibleError(ControllerError, UnachievableError):
     """Asked for the setpoint behind a demand, but this feedforward has no inverse."""
 
-    def __init__(self, tag: str, reason: str | None = None) -> None:
+    def __init__(self, type: str, reason: str | None = None) -> None:
         detail = f" ({reason})" if reason else ""
-        super().__init__(f"Feedforward {tag!r} cannot be inverted{detail}.")
+        super().__init__(f"Feedforward {type!r} cannot be inverted{detail}.")

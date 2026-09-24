@@ -7,12 +7,17 @@ name = "furnace"
 version = "0.1.0"
 description = "A three-zone tube furnace: the complicated simulated rig, conducting zones and radiative losses, no hardware"
 requires-python = ">=3.12"
-authors = [{ name = "Ben Laurence" }]
-dependencies = ["flyball", "flyball-sim"]
+license = "MIT"
+license-files = ["LICENSE"]
+# Not for PyPI: an example rig, and "furnace" is a generic name to squat.
+# MIT still governs the code -- this only stops an accidental upload, as
+# `private: true` does for the npm packages.
 classifiers = ["Private :: Do Not Upload"]
+authors = [{ name = "Ben Laurence" }]
+dependencies = ["flyball[server]", "flyball-sim"]
 
 # What `flyball rig check`, the runner and the schema load to make
-# `sim_furnace` a valid tag in a rig file.
+# `sim_furnace` a valid type in a rig file.
 [project.entry-points."flyball.configs"]
 furnace = "furnace.configs"
 

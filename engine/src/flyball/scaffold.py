@@ -1,7 +1,7 @@
 """A starting point for a device driver of your own: `flyball new NAME`.
 
 The template is a complete module that imports, schema-checks and registers
-a tag, so the generated file works in a rig file before a line is changed.
+a type, so the generated file works in a rig file before a line is changed.
 """
 
 from __future__ import annotations
@@ -15,30 +15,32 @@ __all__ = ["render", "write"]
 
 _DEVICE = Template('''"""${Title}: a device driver built for this rig.
 
-Registered as `driver: "${tag}"`, so a rig file can declare one:
+Registered as `driver: "${type}"`, so a rig file can declare one:
 
     devices:
       ${name}:
-        driver: ${tag}
+        driver: ${type}
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 
-from flyball.foundation.device import DriverConfig, Output, Readable, command
-from flyball.foundation.quantities import Quantity
-from flyball.foundation.device import Node, Sample
-from flyball.foundation.quantities import Unit
+from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample, command
+from flyball.foundation.quantities import Quantity, Unit
 
 
 class ${Title}(Readable):
     """TODO: what this measures or drives, and how."""
 
-    value = Output("value", "Value", Quantity("value", Unit.get("1")))
+    value = Readout("value", "Value", Quantity("value", Unit.get("1")))
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
-        """Called every `poll_s`; yield the signals due at `time_ns`."""
+        """Called every `poll_s`; yield the signals due at `time_ns`.
+
+        Raise `HardwareError` when the transport fails. A sensor that answers but has no
+        valid measurement is `invalid("why")`; a quantity undefined now, `not_applicable`.
+        """
         yield self.sample(time_ns, value=0.0)  # TODO: read the hardware
 
     @command
@@ -47,8 +49,8 @@ class ${Title}(Readable):
         self.value.push(0.0)
 
 
-class ${Title}Config(DriverConfig[${Title}], tag="${tag}"):
-    """The rig-file entry: `driver: ${tag}` (flat) or its settings under `config:` (layered)."""
+class ${Title}Config(DriverConfig[${Title}], type="${type}"):
+    """The rig-file entry: `driver: ${type}`, its fields flat beside it."""
 
     def build(self, name: str, label: str | None = None) -> ${Title}:
         return ${Title}(name, label)
@@ -63,10 +65,10 @@ def _identifier(name: str) -> str:
 
 
 def render(name: str) -> str:
-    """The module text for a device driver called `name`: the tag is `name`, the class CamelCase."""
+    """The module text for a driver called `name`: the type is `name`, the class CamelCase."""
     snake = _identifier(name)
     title = "".join(part.capitalize() for part in snake.split("_"))
-    return _DEVICE.substitute(Title=title, tag=snake, name=snake)
+    return _DEVICE.substitute(Title=title, type=snake, name=snake)
 
 
 def write(name: str, directory: str | Path = ".") -> Path:

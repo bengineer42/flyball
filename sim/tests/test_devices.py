@@ -7,6 +7,8 @@ quantity) lives in `examples/furnace/tests/test_devices.py` instead --
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from flyball.control.feedforward import Affine
 from flyball.control.laws import PI, P
@@ -18,6 +20,7 @@ from pydantic import ValidationError
 from flyball_sim import (
     DaqPort,
     DrivePort,
+    Lag,
     Noisy,
     PlantConfig,
     SimDaqConfig,
@@ -39,7 +42,7 @@ class Chamber:
     def output(self, port: str) -> float:
         return {"chamber": self.humidity, "dry": 10.0, "wet": 90.0}[port]
 
-    def advance(self, time_ns: int) -> None:
+    def advance_to(self, time_ns: int) -> None:
         if time_ns not in self.advanced:
             self.advanced.append(time_ns)
             self.humidity = 10.0 + 80.0 * self.inputs["wet_fraction"]
@@ -102,7 +105,6 @@ class TestAnyMultiPlant:
             chamber,
         )
         assert [s.address for s in daq.root.walk()] == [
-            "hum_sensors.conditions",
             "hum_sensors.chamber.humidity",
             "hum_sensors.dry.humidity",
             "hum_sensors.wet.humidity",
@@ -155,12 +157,14 @@ class TestAnyMultiPlant:
         assert isinstance(humidity, Signal) and str(humidity.access) == "rpw"
         assert humidity.unit.symbol == "%" and humidity.limits == (0.0, 100.0)
         assert humidity.quantity.name == "humidity"
-        (state,) = rig.demand(drive.root, {"humidity": 25.0}).values()
+        (state,) = rig.write(drive.root, {"humidity": 25.0}).values()
         assert state.value == 25.0 and chamber.inputs == {"wet_fraction": 0.25}
         assert drive.inputs == {"humidity": 0.25}
         assert drive.disturb("humidity", 10.0) == {"humidity": pytest.approx(0.35)}
-        (state,) = rig.demand(drive.root, {"humidity": 150.0}).values()
-        assert state.at_limit == "high" and chamber.inputs["wet_fraction"] == 1.0
+        (state,) = rig.write(drive.root, {"humidity": 150.0}).values()
+        # the disturb kick (fraction 0.1) survives this commit, on top of the clamped demand
+        assert state.at_limit == "high"
+        assert chamber.inputs["wet_fraction"] == pytest.approx(1.1)
         assert drive.ports == {"humidity": "wet_fraction"}
         assert drive.config.ports["humidity"] == DrivePort(
             port="wet_fraction", quantity="humidity", unit="%", limits=(0.0, 100.0)
@@ -348,7 +352,7 @@ class TestSmartDrive:
         controller = rig.attach_controller(
             drive.signals["t"], daq.signals["t"], law=PI(kp=0.02, ki=0.0005)
         )
-        assert controller.feedforward.tag == "setpoint", "units agree, so no feedforward was given"
+        assert controller.feedforward.type == "identity", "units agree, so no feedforward was given"
         controller.regulate(60.0)
         clock.advance(600)
         assert rig.latest[daq.signals["t"]].value == pytest.approx(60.0, abs=0.5)
@@ -370,9 +374,7 @@ def test_a_bare_plant_needs_its_quantity_spelled_out():
         SimDaqConfig(link=plant, ports={"t": DaqPort(port="zone1")}).build("tc")
     daq = SimDaqConfig(
         link=plant,
-        ports={
-            "t": {"port": "output", "quantity": "temperature", "unit": "°C", "range": [0, 9]}
-        },
+        ports={"t": {"port": "output", "quantity": "temperature", "unit": "°C", "range": [0, 9]}},
     ).build("tc")
     assert isinstance(daq.plant, Noisy)
     t = daq.signals["t"]
@@ -381,3 +383,40 @@ def test_a_bare_plant_needs_its_quantity_spelled_out():
     assert sample.values[t] == 5.0
     with pytest.raises(ValueError, match="at least one port"):
         SimDaqConfig(link=plant, ports={}).build("tc")
+
+
+class TestABarePlantIsSteppedOncePerInstant:
+    """Two readers of one bare plant must not each step it: time would run at twice its rate."""
+
+    PORTS = {"t": {"port": "output", "quantity": "temperature", "unit": "°C"}}
+
+    def _one_second(self, plants) -> float:
+        daqs = [
+            _built(SimDaqConfig(link="p", ports=self.PORTS), f"d{i}", p)
+            for i, p in enumerate(plants)
+        ]
+        for time_ns in (0, 1_000_000_000):
+            for daq in daqs:
+                list(daq.read(time_ns))
+        return plants[0].output
+
+    def test_one_reader_is_one_time_constant(self):
+        assert self._one_second([Lag(1.0, input=1.0)]) == pytest.approx(1 - math.exp(-1))
+
+    def test_two_readers_of_one_plant_still_see_one_time_constant(self):
+        lag = Lag(1.0, input=1.0)
+        assert self._one_second([lag, lag]) == pytest.approx(1 - math.exp(-1))  # was 0.8647
+
+    def test_shared_through_separate_noise_wrappers(self):
+        lag = Lag(1.0, input=1.0)
+        self._one_second([Noisy(lag, 0.0), Noisy(lag, 0.0)])
+        assert lag.output == pytest.approx(1 - math.exp(-1))
+
+    def test_an_earlier_instant_does_not_step_it_again(self):
+        lag = Lag(1.0, input=1.0)
+        a, b = (_built(SimDaqConfig(link="p", ports=self.PORTS), n, lag) for n in "ab")
+        list(a.read(0))
+        list(a.read(1_000_000_000))
+        list(b.read(500_000_000))  # b's poll stamped a little before a's
+        list(a.read(1_000_000_000))
+        assert lag.output == pytest.approx(1 - math.exp(-1))

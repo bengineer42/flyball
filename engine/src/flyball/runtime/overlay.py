@@ -12,21 +12,23 @@ bases with `extends`, resolved before it is merged with the rest
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from flyball.foundation.files import load_document
+from flyball.foundation.files import load_document, yaml_loader
 
-__all__ = ["apply_set", "merge", "parse_set", "resolve_layers"]
+__all__ = ["apply_set", "delta", "merge", "parse_set", "resolve_layers"]
 
 
 def merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     """`overlay` layered onto `base`: mappings deep-merge, everything else replaces.
 
     A key whose overlay value is `None` is removed from the result -- the
-    only way to delete something an earlier layer set. Neither argument is
-    mutated.
+    only way to delete something an earlier layer set. A mapping the base
+    lacks arrives as it is, `None`s included, so a file's deletions survive
+    until it is laid over the layers they are meant for (see `_lay`).
+    Neither argument is mutated.
     """
     result = dict(base)
     for key, value in overlay.items():
@@ -39,8 +41,29 @@ def merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    """The overlay that turns `before` into `after`: merging the one onto the other gives `after`.
+
+    A key only `after` has, or whose value changed, appears with `after`'s value; a key only
+    `before` has appears as `None` (what a layer writes to delete); mappings on both sides
+    are compared key by key. Empty when the two are equal.
+    """
+    out: dict[str, Any] = {}
+    for key in (*before, *(k for k in after if k not in before)):
+        if key not in after:
+            out[key] = None
+        elif key not in before:
+            out[key] = after[key]
+        elif isinstance(before[key], dict) and isinstance(after[key], dict):
+            if (inner := delta(before[key], after[key])) != {}:
+                out[key] = inner
+        elif before[key] != after[key]:
+            out[key] = after[key]
+    return out
+
+
 def parse_set(expr: str) -> tuple[list[str], Any]:
-    """`"devices.furnace.config.noise=0.3"` -> `(["devices", "furnace", "config", "noise"], 0.3)`.
+    """`"devices.furnace.noise=0.3"` -> `(["devices", "furnace", "noise"], 0.3)`.
 
     The value is parsed as a YAML scalar, so `0.3` is a float, `true` a
     bool, `null` is `None` (meaning delete, once applied), `[1, 2]` a list,
@@ -54,7 +77,7 @@ def parse_set(expr: str) -> tuple[list[str], Any]:
         raise ValueError(f"{expr!r}: expected KEY=VALUE")
     import yaml  # the one non-stdlib parser, only needed to type a --set value
 
-    return key.split("."), yaml.safe_load(raw)
+    return key.split("."), yaml.load(raw, Loader=yaml_loader())
 
 
 def apply_set(document: dict[str, Any], path: list[str], value: Any) -> dict[str, Any]:
@@ -81,6 +104,26 @@ def apply_set(document: dict[str, Any], path: list[str], value: Any) -> dict[str
         return document  # nothing at this path to delete into: a true no-op, nothing created
     result = dict(document)
     result[head] = apply_set(child if isinstance(child, dict) else {}, rest, value)
+    return result
+
+
+def _lay(below: dict[str, Any], layer: dict[str, Any]) -> dict[str, Any]:
+    """`layer` over the layers `below` it: `merge`, minus deletions with nothing to delete.
+
+    A `None` whose key is not beneath is dropped rather than carried in.
+
+    A saved overlay that deletes a device an earlier save added lies over files that never
+    had it; without this, `devices: {probe: null}` would arrive as a `None` device.
+    """
+    result = dict(below)
+    for key, value in layer.items():
+        if value is None:
+            result.pop(key, None)
+        elif isinstance(value, dict):
+            under = result.get(key)
+            result[key] = _lay(under if isinstance(under, dict) else {}, value)
+        else:
+            result[key] = value
     return result
 
 
@@ -113,9 +156,12 @@ def _load_layer(path: Path, stack: tuple[Path, ...]) -> tuple[dict[str, Any], li
 
 
 def resolve_layers(
-    paths: Sequence[str | Path], sets: Sequence[str] = ()
+    paths: Sequence[str | Path | Mapping[str, Any]], sets: Sequence[str] = ()
 ) -> tuple[dict[str, Any], list[Path]]:
     """Every file in `paths`, each with its own `extends` resolved, merged in order.
+
+    A mapping in `paths` is a layer already read (a saved overlay not yet written, for a rig
+    edit to check before it writes it): laid like a file, contributing no file.
 
     Later files in `paths` overlay earlier ones -- and, since each file's
     `extends` is resolved before it is merged with the rest, a base named by
@@ -131,9 +177,11 @@ def resolve_layers(
     """
     document: dict[str, Any] = {}
     contributed: list[Path] = []
-    for path in paths:
-        layer, files = _load_layer(Path(path), ())
-        document = merge(document, layer)
+    for index, path in enumerate(paths):
+        layer, files = (
+            (dict(path), []) if isinstance(path, Mapping) else _load_layer(Path(path), ())
+        )
+        document = layer if index == 0 else _lay(document, layer)
         contributed.extend(f for f in files if f not in contributed)
     for expr in sets:
         set_path, value = parse_set(expr)

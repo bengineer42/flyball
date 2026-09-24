@@ -27,6 +27,8 @@ import DriveFileRenameOutlineIcon from "@mui/icons-material/DriveFileRenameOutli
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import HomeIcon from "@mui/icons-material/Home";
 import HomeOutlinedIcon from "@mui/icons-material/HomeOutlined";
+import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+import LockOpenOutlinedIcon from "@mui/icons-material/LockOpenOutlined";
 import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
 import RedoIcon from "@mui/icons-material/Redo";
 import RestoreIcon from "@mui/icons-material/Restore";
@@ -41,6 +43,7 @@ import { PageBar } from "../PageBar.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { useRecordingExports, type Programmer, type Recording } from "../model.js";
 import { leaveFreely, useLeaveGuard } from "../router.js";
+import { useAuth } from "../auth.js";
 import { AddWidgetDrawer } from "../dashboard/AddWidgetDrawer.js";
 import { ConfigureDialog } from "../dashboard/ConfigureDialog.js";
 import { ControllersContext, EventsContext, RigDataContext, makeBindings, type RigData } from "../dashboard/context.js";
@@ -170,15 +173,18 @@ export function Dashboards({ name, generated, devices, events, recording: record
 
   // Bindings change when the rig's shape does, not per tick: key them on names, labels and ends.
   const controllerKey = Object.values(beatControllers.controllers)
-    .map((c) => `${c.name}|${c.label ?? ""}|${c.source}`)
+    .map((c) => `${c.name}|${c.label ?? ""}|${c.measured_signal}`)
     .join(",");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const bindings = useMemo(() => makeBindings(devices, beatControllers.controllers), [devices, controllerKey]);
   const { windowS, onWindow, yScale, onYScale } = charts;
   const rowHeight = hist.present?.grid.row_height ?? DEFAULT_GRID.row_height;
+  const { canOperate } = useAuth();
+  const readonly = hist.present?.readonly ?? false;
+  const canWrite = canOperate && !readonly;
   const rigData = useMemo<RigData>(
-    () => ({ bindings, rigName, health, recording, programmer, exports, charts: { windowS, onWindow, yScale, onYScale }, rowHeight }),
-    [bindings, rigName, health, recording, programmer, exports, windowS, onWindow, yScale, onYScale, rowHeight],
+    () => ({ bindings, rigName, health, recording, programmer, exports, charts: { windowS, onWindow, yScale, onYScale }, rowHeight, canWrite }),
+    [bindings, rigName, health, recording, programmer, exports, windowS, onWindow, yScale, onYScale, rowHeight, canWrite],
   );
 
   // Which document the route asks for: a name, or the home dashboard when the route is bare and one is set, else the generated one.
@@ -338,7 +344,14 @@ export function Dashboards({ name, generated, devices, events, recording: record
       setBusy(false);
     }
   };
-  const documentFor = (as: string): DashboardDocument => normalise({ ...(doc ?? emptyDocument(as, rigName)), name: as, rig: doc?.rig || rigName });
+  // A tab moved since this page loaded the document (drag, or Options › Dashboards) changed `order`
+  // on the server only: keep that, not the stale copy, so saving an edit does not move the tab back.
+  // A copy under a new name (Save as) starts unordered, after the ordered ones.
+  const serverOrder = (as: string) => (list.data ?? []).find((d) => d.name === as)?.body.order;
+  const documentFor = (as: string): DashboardDocument => {
+    const base = doc ?? emptyDocument(as, rigName);
+    return normalise({ ...base, name: as, rig: doc?.rig || rigName, order: serverOrder(as) ?? (as === wanted ? base.order ?? null : null) });
+  };
   const save = async (as: string) => {
     const body = documentFor(as);
     const ok = await act(async () => {
@@ -439,6 +452,11 @@ export function Dashboards({ name, generated, devices, events, recording: record
       setImportErrors([message(err)]);
     }
   };
+  /** An edit like any other: the working copy changes at once (the widgets follow), and Save keeps it. */
+  const toggleReadonly = () => {
+    patch((d) => ({ ...d, readonly: !(d.readonly ?? false) }));
+    setMenu(null);
+  };
   const toggleHome = () => {
     if (wanted === null) return;
     const next = homeName === wanted ? null : wanted;
@@ -447,20 +465,24 @@ export function Dashboards({ name, generated, devices, events, recording: record
     setMenu(null);
   };
 
-  // The dashboard switcher itself lives in the app bar (`DashboardSwitcher`, via `Shell`'s
-  // `startSlot` -- DESIGN-SPEC.md §2: "dashboard identity at the top, not in the sidebar").
+  // Switching dashboards is the app bar's tabs (`DashboardTabs`, via `Shell`'s `startSlot`, D-053).
 
   const canUndo = hist.canUndo;
   const canRedo = hist.canRedo;
   const bar = (
     <PageBar end={<ChartControls {...charts} unit={bindings.signals[0]?.unit} />}>
       {dirty && <Chip label="unsaved" color="warning" variant="outlined" data-testid="dirty" />}
+      {readonly && (
+        <Tooltip title="Write controls on this dashboard are disabled for everyone. Turn it off from the ⋯ menu.">
+          <Chip icon={<LockOutlinedIcon />} label="read-only" variant="outlined" data-testid="readonly" />
+        </Tooltip>
+      )}
       {problems.length > 0 && !dirty && (
         <Tooltip title={problems.map((p) => `${p.widget_id}: ${p.reason}`).join("\n")}>
           <Chip label={`${problems.length} widget${problems.length === 1 ? "" : "s"} need${problems.length === 1 ? "s" : ""} attention`} color="warning" variant="outlined" data-testid="problems" />
         </Tooltip>
       )}
-      <Button variant={editing ? "contained" : "outlined"} startIcon={editing ? <CheckIcon /> : <EditOutlinedIcon />} onClick={() => setEditing((e) => !e)} data-testid="edit-toggle" disabled={!doc}>
+      <Button variant={editing ? "contained" : "outlined"} startIcon={editing ? <CheckIcon /> : <EditOutlinedIcon />} onClick={() => setEditing((e) => !e)} data-testid="edit-toggle" disabled={!doc || !canOperate}>
         {editing ? "Done" : "Edit"}
       </Button>
       {editing && (
@@ -486,7 +508,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
       )}
       <Tooltip title={isGenerated ? "Save as a named dashboard" : "Save a new version"}>
         <span>
-          <Button variant="contained" startIcon={<SaveOutlinedIcon />} disabled={busy || !doc || (!dirty && !isGenerated)} onClick={() => (isGenerated ? setSaveAs(true) : void save(wanted))} data-testid="save">
+          <Button variant="contained" startIcon={<SaveOutlinedIcon />} disabled={busy || !doc || !canOperate || (!dirty && !isGenerated)} onClick={() => (isGenerated ? setSaveAs(true) : void save(wanted))} data-testid="save">
             Save
           </Button>
         </span>
@@ -501,7 +523,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
             setMenu(null);
             setSaveAs(true);
           }}
-          disabled={!doc}
+          disabled={!doc || !canOperate}
         >
           <ListItemIcon>
             <SaveAsIcon fontSize="small" />
@@ -514,7 +536,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
             setMenu(null);
             setRenaming(true);
           }}
-          disabled={isGenerated || !baseline}
+          disabled={isGenerated || !baseline || !canOperate}
         >
           <ListItemIcon>
             <DriveFileRenameOutlineIcon fontSize="small" />
@@ -527,7 +549,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
             setMenu(null);
             setDeleting(true);
           }}
-          disabled={isGenerated || !baseline}
+          disabled={isGenerated || !baseline || !canOperate}
           sx={{ color: "error.main" }}
         >
           <ListItemIcon>
@@ -567,6 +589,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
             setMenu(null);
             fileInput.current?.click();
           }}
+          disabled={!canOperate}
         >
           <ListItemIcon>
             <UploadFileIcon fontSize="small" />
@@ -574,6 +597,10 @@ export function Dashboards({ name, generated, devices, events, recording: record
           <ListItemText>Import JSON…</ListItemText>
         </MenuItem>
         <Divider />
+        <MenuItem data-testid="menu-readonly" onClick={toggleReadonly} disabled={!doc || !canOperate}>
+          <ListItemIcon>{readonly ? <LockOpenOutlinedIcon fontSize="small" /> : <LockOutlinedIcon fontSize="small" />}</ListItemIcon>
+          <ListItemText>{readonly ? "Make writable" : "Make read-only"}</ListItemText>
+        </MenuItem>
         <MenuItem data-testid="menu-home" onClick={toggleHome} disabled={isGenerated}>
           <ListItemIcon>{homeName === wanted && wanted !== null ? <HomeIcon fontSize="small" /> : <HomeOutlinedIcon fontSize="small" />}</ListItemIcon>
           <ListItemText>{homeName === wanted && wanted !== null ? "Unset as home" : "Set as home"}</ListItemText>

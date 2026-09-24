@@ -24,13 +24,21 @@ thresholds are widely cited in industrial-instrumentation practice but the
 primary NAMUR document itself was not consulted here; 3.6/21.0 mA is the
 commonly quoted approximation and is what this driver uses.]
 
-That is surfaced as a [HardwareError][flyball.foundation.errors.HardwareError],
-the same as a bad CRC on an SHT4x or a missing 1-Wire sensor elsewhere in
-this package: a current-loop fault is exactly the kind of "the device
-failed, not the caller's fault, try again" condition that error already
-means here, and it makes the signal go offline the same way a broken
-sensor does, rather than silently reporting a clamped, wrong engineering
-value.
+A fault current is a good read of a value that is not one: the channel's
+reading is a no-value, [invalid][flyball.foundation.device.novalue.invalid]
+`("ne43_low", side="low")` or `("ne43_high", side="high")`, never a clamped,
+wrong engineering value, and never a raise -- the ADC was read, so the read
+does not count toward the device's failure budget, and one broken loop does
+not take the other channels on the ADC offline. A controller regulating on
+it freezes; an `alarm` band on it raises `band_unknown`.
+
+Between the fault band and the measuring range (3.6-3.8 mA, 20.5-21 mA,
+NE43's saturation region) the transmitter is pinned at an end of its range:
+the value is reported, [railed][flyball.foundation.device.novalue.railed] at
+that end (the caveat `at_limit`), since the true process value may lie past
+it. [Unverified: 3.8/20.5 mA, as for the fault thresholds.]
+
+The ADC itself failing (a bus error) still raises: that is the transport.
 """
 
 from __future__ import annotations
@@ -45,8 +53,10 @@ from flyball.foundation.device import (
     Sample,
     Signal,
     SignalSpec,
+    Value,
+    invalid,
+    railed,
 )
-from flyball.foundation.errors import HardwareError
 from flyball.foundation.quantities import Quantity
 from flyball.hardware.scan import Scan
 from flyball_chips import ads1115, mcp3008
@@ -56,6 +66,10 @@ LOW_FAULT_MA = 3.6
 """At or below this, NE43-style, the loop reads as broken (open circuit, dead sensor)."""
 HIGH_FAULT_MA = 21.0
 """At or above this, NE43-style, the loop reads as broken (short, transmitter fault)."""
+SATURATED_LOW_MA = 3.8
+"""At or below this (above the fault band), NE43-style, the transmitter is pinned low."""
+SATURATED_HIGH_MA = 20.5
+"""At or above this (below the fault band), NE43-style, the transmitter is pinned high."""
 
 
 class CurrentLoopChannel(BaseModel):
@@ -112,23 +126,30 @@ class CurrentLoop(Readable):
     def config(self) -> CurrentLoopConfig:
         return CurrentLoopConfig(adc=self.adc.config, channels=self.channels)
 
-    def _engineering(self, signal: Signal, milliamps: dict[str, float]) -> float:
+    def _engineering(self, signal: Signal, milliamps: dict[str, float]) -> Value:
+        """The channel's value: engineering units, railed at a saturated end, or invalid."""
         channel = self.channels[signal.name]
         ma = milliamps[signal.name]
-        if ma <= channel.low_ma or ma >= channel.high_ma:
-            raise HardwareError(
-                f"{self.name}.{signal.name}: {ma:.3f} mA is outside "
-                f"[{channel.low_ma}, {channel.high_ma}] mA -- loop wiring fault or dead sensor"
-            )
-        return ma * channel.scale + channel.offset
+        if ma <= channel.low_ma:
+            return invalid("ne43_low", side="low")
+        if ma >= channel.high_ma:
+            return invalid("ne43_high", side="high")
+        value = ma * channel.scale + channel.offset
+        if ma <= SATURATED_LOW_MA:
+            return railed(value, "low")
+        if ma >= SATURATED_HIGH_MA:
+            return railed(value, "high")
+        return value
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """One ADC read per due signal, mapped to milliamps then to engineering units.
 
+        A loop current in the fault band (at or below ~3.6 mA, at or above ~21
+        mA by default) is `invalid` with its side, not a raise: the ADC was read.
+        One in the saturation region is its value, `railed` at that end.
+
         Raises:
-            HardwareError: A channel's loop current is outside the fault band
-                (below ~3.6 mA or above ~21 mA by default) -- a broken loop,
-                not a real process value.
+            HardwareError: The wrapped ADC's read failed.
         """
         due = self._scan.due(self._signals, time_ns, whole=node is not None)
         if not due:
@@ -159,7 +180,7 @@ def _adc_channels(
     }
 
 
-class CurrentLoopConfig(DriverConfig[CurrentLoop], tag="current_loop"):
+class CurrentLoopConfig(DriverConfig[CurrentLoop], type="current_loop"):
     """`driver: current_loop`. Wraps an `ads1115`/`mcp3008` channel; `channels` is its own tree.
 
     ```yaml
@@ -199,6 +220,8 @@ CurrentLoop.config_type = CurrentLoopConfig  # the config is declared after the 
 __all__ = [
     "HIGH_FAULT_MA",
     "LOW_FAULT_MA",
+    "SATURATED_HIGH_MA",
+    "SATURATED_LOW_MA",
     "CurrentLoop",
     "CurrentLoopChannel",
     "CurrentLoopConfig",

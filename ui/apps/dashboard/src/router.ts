@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import type { HrefFor } from "@flyball/react";
 
-export type Page = "overview" | "dashboards" | "inputs" | "graph" | "controllers" | "devices" | "rig" | "programs" | "events" | "sessions" | "simulation";
-/** The pages in the navigation; `inputs` only exists as the signal detail page (`#/inputs/<address>`) reached from readouts. Dashboards leads (spec §2: dashboard identity comes first), Overview second; Config (`rig`: the running rig's document, versions and the runner) last. */
-export const PAGES: Array<{ id: Exclude<Page, "inputs">; label: string }> = [
+export type Page = "dashboards" | "readings" | "graph" | "controllers" | "devices" | "programs" | "events" | "sessions" | "simulation" | "options";
+/**
+ * Every route and the title its app bar shows. There is no sidebar (D-053): dashboards are tabs in
+ * the app bar, the status chips lead to Events, Sessions, Programs and Simulation, and the gear to
+ * Options, whose Pages tab links the rest. `devices` is a device's own page (`#/devices/<name>`);
+ * the list of every device and signal is Readings. Old addresses still work: see `LEGACY`.
+ */
+export const PAGES: Array<{ id: Page; label: string }> = [
   { id: "dashboards", label: "Dashboards" },
-  { id: "overview", label: "Overview" },
+  { id: "readings", label: "Readings" },
   { id: "devices", label: "Devices" },
   { id: "graph", label: "Graph" },
   { id: "controllers", label: "Controllers" },
@@ -13,9 +18,21 @@ export const PAGES: Array<{ id: Exclude<Page, "inputs">; label: string }> = [
   { id: "events", label: "Events" },
   { id: "sessions", label: "Sessions" },
   { id: "simulation", label: "Simulation" },
-  { id: "rig", label: "Config" },
+  { id: "options", label: "Options" },
 ];
-const ALL_PAGES: Page[] = [...PAGES.map((p) => p.id), "inputs"];
+const ALL_PAGES: Page[] = PAGES.map((p) => p.id);
+
+/**
+ * Addresses from before D-053, and where each now lives: a bookmark, a dashboard `link` widget or
+ * a note keeps working. The Overview page became the generated dashboard; Inputs became Readings,
+ * which also took the Devices list; Config became the Options page's Rig file tab.
+ */
+type Moved = { page: Page; name: string | null; params?: Record<string, string> };
+const LEGACY: Record<string, (name: string | undefined) => Moved> = {
+  overview: () => ({ page: "dashboards", name: null, params: { generated: "" } }),
+  inputs: (name) => ({ page: "readings", name: name || null }),
+  rig: () => ({ page: "options", name: "rig" }),
+};
 
 /**
  * `#/inputs` → every publishing signal; `#/inputs/furnace.zone1` → one signal
@@ -34,9 +51,18 @@ export interface Route {
 
 const fromHash = (): Route => {
   const [path = "", search] = window.location.hash.replace(/^#\/?/, "").split("?");
-  const [id, name] = path.split("/").map((s) => decodeURIComponent(s));
-  const page = ALL_PAGES.includes(id as Page) ? (id as Page) : "overview";
-  return { page, name: name || null, params: Object.fromEntries(new URLSearchParams(search ?? "")) };
+  const [id = "", name] = path.split("/").map((s) => decodeURIComponent(s));
+  const params = Object.fromEntries(new URLSearchParams(search ?? ""));
+  const legacy = LEGACY[id] ?? (id === "devices" && !name ? (): Moved => ({ page: "readings", name: null }) : undefined);
+  if (legacy) {
+    const to = legacy(name);
+    const route = { page: to.page, name: to.name, params: { ...params, ...(to.params ?? {}) } };
+    window.location.replace(hashFor(route.page, route.name, route.params));
+    return route;
+  }
+  // Anything else unknown, and the bare `#/`, open the dashboards.
+  const page = ALL_PAGES.includes(id as Page) ? (id as Page) : "dashboards";
+  return { page, name: name || null, params };
 };
 
 /** The same page and name: a navigation that should scroll to the top, as opposed to a query change. */
@@ -53,7 +79,7 @@ export const hrefFor: HrefFor = (ref) => {
     case "device":
       return hashFor("devices", ref.name);
     case "signal":
-      return hashFor("inputs", ref.name);
+      return hashFor("readings", ref.name);
     case "controller":
       return hashFor("controllers", ref.name);
     case "session":

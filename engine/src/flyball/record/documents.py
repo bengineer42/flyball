@@ -22,7 +22,7 @@ from .store import Store
 
 Document = tuple[str, dict[str, Any]]
 
-TICK_KEYS = ("reading", "setpoint", "correction", "demand", "expected", "delivered_correction")
+TICK_KEYS = ("measured", "setpoint", "correction", "output", "expected", "delivered_correction")
 
 
 def _descriptor_dtype(dtype: str, hint: Any = None) -> str:
@@ -74,7 +74,8 @@ def documents(store: Store, session_id: int) -> Iterator[Document]:
         hints: dict[str, Any] = {}
         for sample in samples:
             for address, value in sample.values.items():
-                hints.setdefault(address, value)
+                if value is not None:  # a reading with no value says nothing of the type
+                    hints.setdefault(address, value)
         keys = {
             s.address: {
                 "source": f"flyball:{s.address}",
@@ -118,7 +119,7 @@ def documents(store: Store, session_id: int) -> Iterator[Document]:
     units = {s.address: s.unit for s in signals}
     for controller in controllers:
         stream = f"controller:{controller.name}"
-        unit = units.get(controller.source, "")
+        unit = units.get(controller.measured, "")
         keys = {
             f"{stream}.{key}": {
                 "source": f"flyball:{stream}.{key}",

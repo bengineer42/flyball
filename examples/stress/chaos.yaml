@@ -15,7 +15,7 @@ clock: { speed: 60 }
 
 links:
   tube:
-    tag: sim_furnace
+    type: sim_furnace
     zones: 6
     power_w: [800, 1000, 1200, 1000, 900, 700]
     capacity_j_per_k: [300, 320, 350, 320, 300, 280]
@@ -36,16 +36,15 @@ devices:
     driver: sim_daq
     label: Furnace thermocouples
     poll_s: 1.0
-    config:
-      link: tube
-      ports:
-        zone1: zone1
-        zone2: zone2
-        zone3: zone3
-        zone4: zone4
-        zone5: zone5
-        zone6: zone6
-        sample: sample
+    link: tube
+    ports:
+      zone1: zone1
+      zone2: zone2
+      zone3: zone3
+      zone4: zone4
+      zone5: zone5
+      zone6: zone6
+      sample: sample
     signals:
       zone1: { label: Zone 1, range: [0, 1300], precision: 1 }
       zone2: { label: Zone 2 (bad tuning), range: [0, 1300], precision: 1 }
@@ -57,15 +56,14 @@ devices:
   heaters:
     driver: sim_drive
     label: Zone heaters
-    config:
-      link: tube
-      ports:
-        heater1: heater1
-        heater2: heater2
-        heater3: heater3
-        heater4: heater4
-        heater5: heater5
-        heater6: heater6
+    link: tube
+    ports:
+      heater1: heater1
+      heater2: heater2
+      heater3: heater3
+      heater4: heater4
+      heater5: heater5
+      heater6: heater6
     signals:
       heater1: { label: Zone 1 heater }
       heater2: { label: Zone 2 heater }
@@ -76,27 +74,27 @@ devices:
 
 controllers:
   heaters.heater1:
-    signal: furnace.zone1
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
-    feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
+    measured: furnace.zone1
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
     default: true
   heaters.heater2:
-    signal: furnace.zone2
-    law: { tag: PID, kp: 800, ki: 5, kd: 0 }
-    feedforward: { tag: none }
+    measured: furnace.zone2
+    law: { type: PID, kp: 800, ki: 5, kd: 0 }
+    feedforward: { type: none }
   heaters.heater3:
-    signal: furnace.zone3
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
-    feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
+    measured: furnace.zone3
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
   heaters.heater4:
-    signal: furnace.zone4
-    law: { tag: P, kp: 150 }
-    feedforward: { tag: affine, gain: 2.0, bias: 50 }
+    measured: furnace.zone4
+    law: { type: P, kp: 150 }
+    feedforward: { type: affine, gain: 2.0, bias: 50 }
   heaters.heater5:
-    signal: furnace.zone5
-    law: { tag: PI, kp: 100, ki: 0.15, tt: 30 }
-    feedforward: { tag: none }
+    measured: furnace.zone5
+    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    feedforward: { type: none }
   heaters.heater6:
-    signal: furnace.zone6
-    law: { tag: open_loop }
-    feedforward: { tag: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
+    measured: furnace.zone6
+    law: { type: open_loop }
+    feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }

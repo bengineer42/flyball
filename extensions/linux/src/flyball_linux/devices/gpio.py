@@ -41,6 +41,11 @@ class GpioLine(Readable, Committable):
 
     `invert` is for an active-low relay board or a pulled-up switch: the
     logical level the rig sees is the electrical one flipped.
+
+    An output's `on` declares `off` at 0, what a stop writes -- except with `invert:
+    true`, where whether logical 0 is the load's off depends on why it was inverted,
+    so it declares none and a stop leaves it as it is. A direction or select line
+    that must hold through a stop says `stop: {on: keep}`.
     """
 
     def __init__(
@@ -70,6 +75,7 @@ class GpioLine(Readable, Committable):
                     role=Role.DEMAND,
                     limits=(0.0, 1.0),
                     initial=float(initial),
+                    off=None if invert else 0.0,
                 ),
             ))
             link.claim_output(line, initial != invert)
@@ -106,27 +112,28 @@ class GpioLine(Readable, Committable):
 
     def commit(self, time_ns: int) -> None:
         """Drive the line; a switch has two positions and neither is a rail, so no `at_limit`."""
-        for signal, value in self.pending.items():
+        for signal, value in self.staged.items():
             on = value >= 0.5
             self._drive(on)
             readback = float(on)
             if readback != value:
                 signal.push(readback, time_ns)
 
-    @command
+    @command(writes=("on",))
     def on(self) -> None:
-        """Switch the line on, whatever was last demanded."""
+        """Switch the line on, whatever was last demanded; refused while a controller drives it."""
         self._drive(True)
         self.signals["on"].push(1.0)
 
-    @command
+    @command(writes=("on",))
     def off(self) -> None:
-        """Switch the line off, whatever was last demanded."""
+        """Switch the line off, whatever was last demanded; refused while a controller drives
+        it."""
         self._drive(False)
         self.signals["on"].push(0.0)
 
 
-class GpioLineConfig(DriverConfig[GpioLine], tag="gpio_line"):
+class GpioLineConfig(DriverConfig[GpioLine], type="gpio_line"):
     """`driver: gpio_line`: `{ link, line }`, or `pin: GPIO18` from the board profile."""
 
     link: GpioLinkConfig | str  # type: ignore[valid-type]

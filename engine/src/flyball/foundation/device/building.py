@@ -78,34 +78,34 @@ def _link_params(cls: type[Device], fn: Callable[..., Any]) -> dict[str, Param]:
 
 def _setter(cls: type[Device], leaf: _Leaf) -> CommandSpec:
     """`set_<path>(value)` for a demand no command sets; the rig routes it to its demand path."""
-    tag = "set_" + leaf.path.replace(".", "_")
+    name = "set_" + leaf.path.replace(".", "_")
     label = leaf.spec.label or leaf.spec.name.replace("_", " ")
 
     def setter(self: Device, value: float) -> None:
         raise NotImplementedError("a synthesised setter runs through the rig's demand path")
 
-    setter.__name__ = tag
-    setter.__qualname__ = f"{cls.__qualname__}.{tag}"
+    setter.__name__ = name
+    setter.__qualname__ = f"{cls.__qualname__}.{name}"
     setter.__doc__ = f"Set {label}."
     setter.__annotations__ = {"value": leaf.spec.vtype, "return": None}
     param = Param("value", leaf.spec.vtype, None, inspect.Parameter.empty)
-    return CommandSpec(tag, setter, {"value": param}, demand_of=leaf.path)
+    return CommandSpec(name, setter, {"value": param}, demand_of=leaf.path)
 
 
 def _last_of(cls: type[Device]) -> NodeSpec:
-    """`last.<tag>`: when each command last ran and with what, for the wire and the record."""
+    """`last.<command>`: when each command last ran and with what, for the wire and the record."""
     return NodeSpec(
         name="last",
         label="Last run",
         children=tuple(
             SignalSpec(
-                name=tag,
-                quantity=Quantity(tag, Unitless),
+                name=command,
+                quantity=Quantity(command, Unitless),
                 access=Access.RP,
                 vtype=dict[str, Any],
-                label=tag.replace("_", " "),
+                label=command.replace("_", " "),
             )
-            for tag, spec in cls.commands.items()
+            for command, spec in cls.commands.items()
             if not spec.simulation and spec.demand_of is None
         ),
     )

@@ -9,14 +9,13 @@ run starts from them.
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 from typing import Any
 
 from flyball.foundation.device import Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
-from flyball.foundation.files import SUFFIXES, dumps_without_none
+from flyball.foundation.files import SUFFIXES, atomic_write_text, dumps_without_none
 from flyball.model.catalog import get_catalog
 from flyball.rig import Rig
 from flyball.runtime.config import ClockEntry, RigConfig, is_simulated, resolve_live
@@ -81,15 +80,17 @@ class Simulation:
         self._changed.add("clock")
         return clock.speed
 
-    def step(self, seconds: float) -> int:
-        """Advance a stepped clock; return the new time.
+    def advance(self, seconds: float) -> int:
+        """Advance a stepped clock by `seconds`; return the new time.
 
         Raises:
             ConflictError: The clock runs on its own.
         """
         clock = self.rig.clock
         if not isinstance(clock, SteppedClock):
-            raise ConflictError("the clock is not stepped; set `clock.stepped = true` to step it")
+            raise ConflictError(
+                "the clock is not stepped; set `clock.stepped = true` to advance it"
+            )
         return clock.advance(seconds)
 
     # endregion
@@ -136,8 +137,8 @@ class Simulation:
         current = self.plant_config(name)
         if "model" in parameters and parameters["model"] != getattr(current, "model", None):
             raise ValueError("a plant's model cannot change while it runs; edit the file")
-        # The tagged form, as the file's union holds, so the config still dumps as its tag.
-        model = get_catalog().links[current.config_tag].tagged()
+        # The typed form, as the file's union holds, so the config still dumps as its type.
+        model = get_catalog().links[current.type_name].tagged()
         updated = model.model_validate({**current.model_dump(), **parameters})
         updated.retune(self.plants[name])  # type: ignore[attr-defined]
         links = {**self.config.links, name: updated}
@@ -181,7 +182,8 @@ class Simulation:
     def readings(self, name: str) -> dict[str, dict[str, Any]]:
         """What the rig last delivered on each signal read off a plant, by the signal's address.
 
-        The delivered value (noise and all, not the model's state), its unit
+        The delivered value (noise and all, not the model's state; None with
+        its `quality` when the reading has none, a failed sensor's), its unit
         and precision, which device and port it came off, and how old it is
         in rig seconds. Only signals some `sim_daq` reads appear.
         """
@@ -192,7 +194,8 @@ class Simulation:
             if reading is None:
                 continue
             out[signal.address] = {
-                "value": reading.value,
+                "value": reading.value if reading.usable else None,
+                "quality": reading.quality.value,
                 "unit": signal.unit.symbol,
                 "precision": signal.spec.precision,
                 "device": device.name,
@@ -330,9 +333,7 @@ class Simulation:
             raise ValueError(f"{target}: use one of {', '.join(SUFFIXES)}")
         document = self.config_document()
         text = dumps_without_none(document, target.suffix)
-        partial = target.with_name(target.name + ".tmp")  # a crash mid-write leaves the old file
-        partial.write_text(text)
-        os.replace(partial, target)
+        atomic_write_text(target, text)  # a crash mid-write leaves the old file
         self.document = document  # what is on disk is now the baseline
         self.path = target
         self._changed.clear()
@@ -342,5 +343,5 @@ class Simulation:
 
 
 def _tagged(config: Any) -> dict[str, Any]:
-    """A link config as its file form: `tag` first, then its fields."""
-    return {"tag": config.config_tag, **config.model_dump(mode="json", exclude_none=True)}
+    """A link config as its file form: `type` first, then its fields."""
+    return {"type": config.type_name, **config.model_dump(mode="json", exclude_none=True)}

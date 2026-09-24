@@ -1,16 +1,16 @@
 """A rig as a file: links, devices and controllers, built in that order.
 
-A tree of tagged configs. Links are declared once and named by the devices
+A tree of typed configs. Links are declared once and named by the devices
 that use them; a device entry is flyball's envelope around the driver's own
-config (plan §1.5), keyed by name; a controller is keyed by the address of
-the signal it drives and names its source. Formats are
+config, keyed by name; a controller is keyed by the address of
+the demand it drives, its output, and names its `measured` signal. Formats are
 [flyball.foundation.files][]'s business; which driver and link kinds exist is
 [flyball.model.catalog.Catalogs][]'s, read here via
 [get_catalog][flyball.model.catalog.get_catalog] where a function has no way
 to take one as a parameter (a pydantic classmethod, a validator), and as an
 explicit `catalogs` argument (default: the same) where it does.
 
-Every tag resolves to a real constructor, so the file validates against the
+Every type resolves to a real constructor, so the file validates against the
 models the code is built from, including configs another package registered
 through the `flyball.configs` entry point. The same file with `fake_text`
 and `fake_registers` links runs without hardware.
@@ -22,21 +22,33 @@ its pins. `board = "rpi5"` is looked up on the board path; the file's own
 the link and line the profile says.
 
 The `readers`, `actuators` and `loops` sections of the legacy model no
-longer parse; `temp-docs/DEVICE-MODEL-PLAN.md` §6 says so.
+longer parse; devices and controllers replace them (`book/src/7-reference/rig-file.md`).
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidatorFunctionWrapHandler,
+    create_model,
+    field_validator,
+    model_validator,
+)
 from pydantic.json_schema import GenerateJsonSchema
 
-# Nothing built into flyball core registers a tag implicitly any more --
+# Nothing built into flyball core registers a type implicitly any more --
 # `scpi`/`modbus` (extensions/visa, extensions/modbus), the Linux buses and
 # chips, flyball-sim's sim_plant/sim_daq/sim_drive, and engine's own laws,
 # feedforwards and generators (`control/configs.py`) all register through the
@@ -56,12 +68,18 @@ from flyball.control import (
 )
 from flyball.foundation.config import Config, discover_paths, discriminated_union
 from flyball.foundation.device import RESERVED_NAMES, Device, DeviceEntry, DriverConfig, Signal
+from flyball.foundation.device.entry import Reads
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, load_document
 from flyball.foundation.time import Clock
 from flyball.model.catalog import Catalogs, ensure_discovered, get_catalog
-from flyball.model.feedforward import NoFeedforward, Setpoint
+from flyball.model.controller import OnFault
+from flyball.model.feedforward import Identity, NoFeedforward
 from flyball.rig import Rig
+from flyball.rig.polling import BACKOFF_S, FAIL_AFTER, ReadPolicy
+from flyball.rig.stopping import stop_plan
+
+log = logging.getLogger(__name__)
 
 # `LawConfig`/`FeedforwardConfig` are static pydantic field types
 # (`ControllerEntry` below), so they need every built-in law/feedforward at
@@ -74,10 +92,10 @@ from flyball.rig import Rig
 # through an extension's own import chain (`flyball_sim`, notably, imports
 # `RigConfig` from here).
 _LAWS = (OpenLoop, P, PI, PID, IMC, OnOff, SmithPredictor, Scheduled, SlidingMode)
-_FEEDFORWARDS = (Setpoint, NoFeedforward, Affine, Table)
-LawConfig = discriminated_union({law.tag: law for law in _LAWS}, "tag", lambda law: law.config)
+_FEEDFORWARDS = (Identity, NoFeedforward, Affine, Table)
+LawConfig = discriminated_union({law.type: law for law in _LAWS}, "type", lambda law: law.config)
 FeedforwardConfig = discriminated_union(
-    {ff.tag: ff for ff in _FEEDFORWARDS}, "tag", lambda ff: ff.config
+    {ff.type: ff for ff in _FEEDFORWARDS}, "type", lambda ff: ff.config
 )
 
 Role = Literal["link", "driver"]
@@ -85,11 +103,11 @@ Role = Literal["link", "driver"]
 LEGACY_SECTIONS = ("readers", "actuators", "loops")
 LEGACY_MESSAGE = (
     "readers/actuators/loops are no longer rig-file sections; devices and controllers"
-    " replace them, see temp-docs/DEVICE-MODEL-PLAN.md §6"
+    " replace them, see book/src/7-reference/rig-file.md"
 )
 
 
-# region Which tag plays which part
+# region Which type plays which part
 
 
 def role_of(config: type[Config[Any]]) -> Role:
@@ -98,7 +116,7 @@ def role_of(config: type[Config[Any]]) -> Role:
 
 
 def registered(role: Role, catalogs: Catalogs | None = None) -> tuple[type[Config[Any]], ...]:
-    """Every tagged config playing `role`, in tag order.
+    """Every typed config playing `role`, in type order.
 
     Args:
         role: `"driver"` or `"link"`.
@@ -106,31 +124,66 @@ def registered(role: Role, catalogs: Catalogs | None = None) -> tuple[type[Confi
     """
     catalogs = catalogs or get_catalog()
     catalog = catalogs.devices if role == "driver" else catalogs.links
-    return tuple(catalog[tag] for tag in sorted(catalog.tags()))
+    return tuple(catalog[name] for name in sorted(catalog.names()))
 
 
 # endregion
 # region The models
 
 
-class ControllerEntry(BaseModel):
-    """A controller and how it regulates its target; keyed by the target's address in the file."""
+class FreezeThen(BaseModel):
+    """`on_fault: {freeze_s: <s>, then: <action>}`: frozen `freeze_s` of fault time, then act."""
 
     model_config = ConfigDict(extra="forbid")
 
-    signal: str = Field(description="The source signal's address (a P signal).")
+    freeze_s: float = Field(
+        ge=0,
+        description="Seconds of fault time (accrued across flicker) to stay frozen before `then`.",
+    )
+    then: Literal["manual", "stop", "stop_device"]
+
+
+type OnFaultEntry = Literal["freeze", "manual", "stop", "stop_device"] | FreezeThen
+
+
+class ControllerEntry(BaseModel):
+    """A controller and how it regulates its output; keyed by the output's address in the file."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    measured: str = Field(description="The measured signal's address (a P signal).")
     law: LawConfig | None = None  # type: ignore[valid-type]
     feedforward: FeedforwardConfig | None = Field(  # type: ignore[valid-type]
         default=None,
-        description="Maps the source's unit to the target's; the law adds to it."
-        " Omit for the setpoint itself when the units agree, else none.",
+        description="Maps the measured signal's unit to the output's; the law adds to it."
+        " Omit for identity (the setpoint itself) when the units agree, else none.",
     )
     default: bool = False
     min_period_s: float | None = Field(
         default=None,
         gt=0,
-        description="Step the law at most this often; omit to step on every reading.",
+        description="Update the law at most this often; omit to update on every reading.",
     )
+    setpoint_period_s: float | None = Field(
+        default=None,
+        gt=0,
+        description="While following a moving setpoint (a ramp, a profile), re-apply its"
+        " feedforward this often between readings; the law steps only on readings. Omit for"
+        " max(0.1 s, poll_s / 4) from the measured signal's poll_s.",
+    )
+    on_fault: OnFaultEntry = Field(
+        default="freeze",
+        description="What it does once its source has been faulty (stale, invalid, offline) for"
+        " its wait, or at once when its law raises: freeze (default: stays frozen, resumes by"
+        " itself), manual, stop (its output's stop), stop_device (its output's device's stop),"
+        " or {freeze_s: <s>, then: manual|stop|stop_device}. Each but freeze latches until a"
+        " person resets it; a law error takes at least manual.",
+    )
+
+    def fault_policy(self) -> OnFault:
+        """`on_fault` as the controller holds it."""
+        value = self.on_fault
+        return OnFault.parse(value.model_dump() if isinstance(value, FreezeThen) else value)
 
 
 class ClockEntry(BaseModel):
@@ -193,53 +246,329 @@ Anonymous = Literal["none", "read"]
 
 
 class AuthConfig(BaseModel):
-    """The `runner.auth` section: who may reach the runner, and for what.
+    """The `runner.auth` section: who may reach a *bare* runner, one with no front.
 
-    A *password* is for a person at the UI: the login page trades it for a
-    session cookie, so the browser never keeps the secret. A *token* is for
-    machines -- the CLI, `flyball-mcp`, a script -- sent as a bearer header.
-    Either one turns the door on; with neither the runner is open. What a
-    caller with neither may do is `anonymous`: nothing, or read. Levels are
-    `none < read < operate`; a later scheme (several sign-ins, a part of the
-    rig locked) changes who gets which level, not what a level admits.
+    A *token* is the one credential: machines send it as a bearer header, and a person
+    trades it (or the one-time link the runner prints at start) for a session cookie. What a
+    caller with neither may do is `anonymous`: nothing, or read. With no token the runner is
+    open, and served on loopback only unless the run itself says otherwise (see
+    [settle_exposure][flyball.runtime.config.settle_exposure]); that switch is never a key
+    here, so no file -- nor anything it `extends` -- can open a runner.
+
+    A runner the front started (`--front-dir`) ignores this section: the front decides who
+    gets in. `password`, `session` and `secret` are removed: parsed, so an old file still
+    starts, and ignored with a warning.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    password: str | None = Field(
-        default=None,
-        description="The password the login page takes: a `$scrypt$` line from `flyball password`,"
-        " or the plain text.",
-    )
     token: str | None = Field(
-        default=None, description="Bearer token for the CLI, MCP clients and scripts."
+        default=None, description="Bearer token for the CLI, MCP clients, scripts and the UI."
     )
     anonymous: Anonymous = Field(
         default="none",
         description="What a caller with no session and no token may do: nothing, or read"
         " (every GET and every stream).",
     )
-    session: str = Field(default="12h", description="How long a login lasts (`12h`, `30m`).")
+    password: str | None = Field(
+        default=None,
+        description="Removed: ignored with a warning. The bare runner has no password login;"
+        " use `token`, or run it under `flyball run` (`runner.front`).",
+        json_schema_extra={"deprecated": True},
+    )
+    session: str | None = Field(
+        default=None,
+        description="Removed: ignored with a warning. A token-link session lasts 12 h.",
+        json_schema_extra={"deprecated": True},
+    )
     secret: str | None = Field(
         default=None,
-        description="The key that signs sessions; default: a key file beside the store, else one"
-        " made for the process (a restart then signs everyone out).",
+        description="Removed: ignored with a warning. Sessions are no longer signed.",
+        json_schema_extra={"deprecated": True},
     )
-
-    @field_validator("session", mode="before")
-    @classmethod
-    def _duration(cls, value: Any) -> str:
-        parse_duration_ns(value)
-        return str(value)
 
     @property
     def enabled(self) -> bool:
-        """Whether anyone is refused: a password or a token is set."""
-        return bool(self.password or self.token)
+        """Whether anyone is refused: a token is set."""
+        return bool(self.token)
 
     @property
-    def session_s(self) -> float:
-        return parse_duration_ns(self.session) / 1e9
+    def removed(self) -> list[str]:
+        """The removed keys this section sets, each ignored."""
+        return [key for key in ("password", "session", "secret") if getattr(self, key) is not None]
+
+
+class TlsFiles(BaseModel):
+    """`runner.front.tls`: the certificate the front serves, reloaded when renewed."""
+
+    model_config = ConfigDict(extra="forbid")
+    cert: Path
+    key: Path
+
+
+class CustomJwt(BaseModel):
+    """`runner.front.proxy.jwt`: a signed assertion the `custom` preset verifies."""
+
+    model_config = ConfigDict(extra="forbid")
+    header: str
+    jwks_url: str
+    issuer: str
+    audience: str
+    algorithms: list[str]
+
+
+class ProxyConfig(BaseModel):
+    """`runner.front.proxy`: the identity layer in front of the front (`auth: proxy`)."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    preset: Literal[
+        "tailscale", "authelia", "oauth2-proxy", "authentik", "pomerium", "cloudflare", "custom"
+    ]
+    from_: Literal["unix"] | list[str] | None = Field(
+        default=None,
+        alias="from",
+        description="Whose unsigned headers are believed: `unix` (the front's socket), or"
+        " addresses and CIDRs.",
+    )
+    secret_file: Path | None = None
+    team: str | None = Field(default=None, description="cloudflare: the Access team name.")
+    issuer: str | None = None
+    audience: str | None = None
+    grants: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="A role (names pending D-034) -> subjects and `group:<id>`s.",
+    )
+    user_header: str | None = None
+    groups_header: str | None = None
+    separator: str | None = None
+    jwt: CustomJwt | None = None
+
+
+class TokensConfig(BaseModel):
+    """`runner.front.tokens` (or flyballd.yaml's top-level `tokens:`): named-token lifetimes.
+
+    Read and validated by the front (Go, `daemon/internal/front.ResolveLifetimes`); this side
+    only shapes the block and forbids unknown keys. An unparseable, out-of-range or
+    otherwise invalid value falls back to the built-in, with a warning at start -- it never
+    stops the runner (D-028).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    default_lifetime: str | None = Field(
+        default=None,
+        description="A token's lifetime when created without an explicit `expires_in`. A Go"
+        " duration plus a `d` suffix for days (e.g. `90d`, `36h`). Unset: the built-in 90 days.",
+    )
+    max_lifetime: str | None = Field(
+        default=None,
+        description="The hard cap on a token's lifetime, for tokens that are neither cleartext"
+        " nor kind `agent` (those keep a fixed 30-day cap, tightened further if this is"
+        " smaller). May only tighten the built-in ceiling of 365 days, never loosen it."
+        " Unset: the built-in 365 days.",
+    )
+
+
+class FrontConfig(BaseModel):
+    """`runner.front`: how `flyball run`'s front serves this rig. Read by the front, never here."""
+
+    model_config = ConfigDict(extra="forbid")
+    listen: str = Field(default="127.0.0.1:8000", description="Where the front listens.")
+    auth: Literal["local", "password", "proxy", "sso"] = Field(
+        default="local", description="Who gets in: the shape."
+    )
+    url: str | None = Field(default=None, description="The external URL the rig is reached at.")
+    tls: TlsFiles | None = None
+    password: str | None = Field(
+        default=None, description="`auth: password`: a `$scrypt$` line from `flyball password`."
+    )
+    anonymous: Anonymous = "none"
+    proxy: ProxyConfig | None = None
+    uv: bool = False
+    session: str = "12h"
+    trusted_proxies: list[str] = Field(default_factory=list)
+    tokens: TokensConfig | None = Field(
+        default=None, description="Named-token lifetime ceilings: default_lifetime, max_lifetime."
+    )
+
+
+def is_loopback(host: str) -> bool:
+    """Whether a bind address reaches this machine only: `localhost`, `127.0.0.0/8`, `::1`.
+
+    Anything else -- `0.0.0.0`, `::`, an empty host, a LAN address, a name that is not
+    `localhost` -- may be reachable from elsewhere, and counts as not.
+    """
+    import ipaddress
+
+    if host.strip().lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host.strip().strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
+LOOPBACK = "127.0.0.1"
+"""Where an open runner asked for a network address is served instead."""
+
+
+@dataclass(frozen=True)
+class Exposure:
+    """Where the runner serves, against where it was asked to, and what to say about it."""
+
+    requested: str
+    """The bind address asked for (`runner.host`, `--host`)."""
+    host: str
+    """The bind address served on: `requested`, or loopback for an open runner."""
+    port: int
+    open: bool
+    """No password and no token: whoever reaches the port may operate the rig."""
+    warning: str | None = None
+    """One line for stderr, or None when there is nothing to say."""
+    endpoint: str | None = None
+    """What the runner binds, `tcp:<host>:<port>` or `unix:<path>` (fronted)."""
+    fronted: bool = False
+    """Started by a front (`--front-dir`): the principal is the only credential."""
+    notes: tuple[str, ...] = ()
+    """Settings the runner ignores (removed keys; `runner.auth` when fronted), one line each."""
+
+    @property
+    def restricted(self) -> bool:
+        """Moved to loopback because the runner is open."""
+        return self.host != self.requested
+
+    @property
+    def open_network(self) -> bool:
+        """Open, and reachable beyond this machine: opted into by the run."""
+        return self.open and not is_loopback(self.host)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "requested": self.requested,
+            "host": self.host,
+            "port": self.port,
+            "open": self.open,
+            "restricted": self.restricted,
+            "open_network": self.open_network,
+            "warning": self.warning,
+            "endpoint": self.endpoint,
+            "fronted": self.fronted,
+            "notes": list(self.notes),
+        }
+
+
+def ignored_auth(auth: AuthConfig, fronted: bool) -> tuple[str, ...]:
+    """What the runner says it ignores of `auth`: removed keys, and all of it when fronted."""
+    notes = []
+    for key in auth.removed:
+        flag = {
+            "password": " (--password, FLYBALL_PASSWORD)",
+            "session": " (--session, FLYBALL_SESSION)",
+        }.get(key, "")
+        notes.append(
+            f"runner.auth.{key}{flag} is removed and ignored: the bare runner has no password"
+            " login; give it a token (runner.auth.token, --token, --token-file), or run it"
+            " under `flyball run`"
+        )
+    if fronted and (auth.token or auth.anonymous != "none"):
+        notes.append(
+            "started by a front (--front-dir): runner.auth, --token and --anonymous are"
+            " ignored; the front decides who gets in (runner.front)"
+        )
+    return tuple(notes)
+
+
+def _tcp(host: str, port: int) -> str:
+    return f"tcp:[{host}]:{port}" if ":" in host else f"tcp:{host}:{port}"
+
+
+def settle_exposure(
+    settings: RunnerConfig, insecure_open: bool = False, *, endpoint: str | None = None
+) -> Exposure:
+    """Where to bind: a misconfiguration removes exposure, never operation.
+
+    Open is no token (`runner.auth.token`, `--token`, `--token-file` or `FLYBALL_TOKEN`, all
+    settled into `settings` by then): anyone who reaches the port may operate the rig. On
+    loopback that is only this machine. Asked for any other address, an open runner still
+    starts -- a control process that will not start leaves the equipment uncontrolled --
+    but binds loopback on the same port, and the warning says why and how to fix it.
+    `insecure_open` (`--insecure-open`, `FLYBALL_INSECURE_OPEN=1`: per run, never a
+    rig-file key) serves it where asked. A token beyond loopback over plain HTTP gets a
+    warning. A removed `runner.auth` key (`password`, `session`, `secret`) counts as absent:
+    a password-only runner is open, so it serves loopback.
+
+    With `endpoint` (a fronted runner: the front-dir's `endpoint`) the runner binds that and
+    nothing else; `runner.host`/`port` and `runner.auth` are ignored, and `notes` says so.
+    """
+    if endpoint is not None:
+        notes = ignored_auth(settings.auth, fronted=True)
+        return Exposure(
+            endpoint,
+            endpoint,
+            0,
+            open=False,
+            warning="; ".join(notes) or None,
+            endpoint=endpoint,
+            fronted=True,
+            notes=notes,
+        )
+    notes = ignored_auth(settings.auth, fronted=False)
+    requested, port = settings.host, settings.port
+    where = f"{requested or 'every interface'!r}"
+
+    def exposure(host: str, open: bool, warning: str | None = None) -> Exposure:
+        said = "; ".join(filter(None, (*notes, warning))) or None
+        return Exposure(requested, host, port, open, said, endpoint=_tcp(host, port), notes=notes)
+
+    if is_loopback(requested):
+        return exposure(requested, not settings.auth.enabled)
+    if settings.auth.enabled:
+        return exposure(
+            requested,
+            False,
+            f"serving plain HTTP on {where}: the token and session cookies cross the network"
+            " unencrypted; put TLS in front (`flyball run` with runner.front.tls), or serve on"
+            " 127.0.0.1",
+        )
+    if insecure_open:
+        return exposure(
+            requested,
+            True,
+            f"serving an OPEN runner on {where} (--insecure-open): anyone who can reach"
+            " it may operate the rig",
+        )
+    return exposure(
+        LOOPBACK,
+        True,
+        f"host is {where} but the runner has no token: serving on"
+        f" {LOOPBACK}:{port} only, so nothing beyond this machine can reach the rig. To serve it"
+        " on the network give it a token (runner.auth.token in the rig file, --token,"
+        " --token-file, FLYBALL_TOKEN) or run it under `flyball run`, or, knowingly,"
+        " --insecure-open or FLYBALL_INSECURE_OPEN=1",
+    )
+
+
+class RunnerReads(BaseModel):
+    """`runner.reads`: the rig's default for when failed reads put a device offline.
+
+    A device's own `reads:` wins key by key. `give_up_after_s` is a device's
+    only: rig-wide, a device retries for ever.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    fail_after: int = Field(
+        default=FAIL_AFTER, description="Reads that raise in a row before a device is offline."
+    )
+    backoff_s: list[float] = Field(
+        default_factory=lambda: list(BACKOFF_S),
+        description="Seconds between retries while offline, in turn; the last repeats.",
+    )
+
+    @field_validator("fail_after", "backoff_s")
+    @classmethod
+    def _as_a_device_s(cls, value: Any, info: Any) -> Any:
+        Reads.model_validate({info.field_name: value})  # the same rules, the same messages
+        return value
 
 
 class RunnerConfig(BaseModel):
@@ -273,7 +602,12 @@ class RunnerConfig(BaseModel):
     )
     auth: AuthConfig = Field(
         default_factory=AuthConfig,
-        description="Who may reach the runner: password, token, anonymous.",
+        description="Who may reach a bare runner (no front): token, anonymous.",
+    )
+    front: FrontConfig | None = Field(
+        default=None,
+        description="How `flyball run`'s front serves the rig: listen, auth, url, tls. Read by"
+        " the front only; a runner the front started ignores `host`, `port` and `auth`.",
     )
     compose: bool = Field(default=False, description="Build up a hardware rig over the API.")
     mcp: bool = Field(default=True, description="Mount the MCP servers at /mcp.")
@@ -283,6 +617,17 @@ class RunnerConfig(BaseModel):
     )
     allow_shutdown: bool = Field(
         default=False, description="Let the API stop or restart the runner."
+    )
+    on_shutdown: Literal["stop", "keep"] = Field(
+        default="stop",
+        description="What the runner's shutdown does to outputs: stop (each device's resolved"
+        " stop, best-effort, not latched) or keep (writes nothing: outputs stay energised with"
+        " no process watching them). A device's own `on_shutdown: keep` wins over stop.",
+    )
+    reads: RunnerReads = Field(
+        default_factory=RunnerReads,
+        description="When failed reads put a device offline, and how it retries; a device's"
+        " own `reads:` wins.",
     )
     keep: str = Field(
         default="1h",
@@ -309,10 +654,43 @@ class RunnerConfig(BaseModel):
     )
     run: dict[str, Any] = Field(
         default_factory=dict,
-        description="Freeform defaults for `flyball run`'s own CLI flags (e.g. `serve_ui`,"
-        ' `uv`) -- Go-CLI-only, never read or validated here; present only so `extra="forbid"`'
-        " doesn't reject keys that belong to the Go binary, not the runner.",
+        description="Deprecated: `runner.front`. Accepted for one release: `serve_ui` is read"
+        " as `front.listen`, `uv` as `front.uv`, with a warning.",
+        json_schema_extra={"deprecated": True},
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _run_is_front(cls, data: Any) -> Any:
+        # `runner.run` before `runner.front` existed: its two keys move there, unless the file
+        # already says `front`, which wins.
+        if not isinstance(data, dict) or not data.get("run") or "front" in data:
+            return data
+        run = data["run"]
+        if not isinstance(run, dict):
+            return data
+        front = {new: run[old] for old, new in (("serve_ui", "listen"), ("uv", "uv")) if old in run}
+        log.warning("runner.run is deprecated: write runner.front (serve_ui is now front.listen)")
+        return {**data, "front": front}
+
+    @field_validator("front", mode="wrap")
+    @classmethod
+    def _front_never_stops_the_runner(
+        cls, value: Any, handler: ValidatorFunctionWrapHandler
+    ) -> Any:
+        # D-028: `runner.front` is the front's; a mistake in it must not stop the rig. The
+        # strict check is the schema's, which `flyball rig check` enforces.
+        try:
+            return handler(value)
+        except ValidationError as e:
+            said = "; ".join(
+                f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors()
+            )
+            # The keys are the caller's (`POST /api/rig/check` needs only read): escaped, so
+            # a newline in one cannot start a line of its own in the log.
+            said = said.encode("unicode_escape").decode("ascii")
+            log.warning("runner.front is not valid and is ignored here: %s", said)
+            return None
 
     @model_validator(mode="before")
     @classmethod
@@ -364,8 +742,8 @@ class RunnerConfig(BaseModel):
 def is_simulated(links: dict[str, Any]) -> bool:
     """Whether every link is a fake or a simulation, so time may be played with."""
     return all(
-        (tag := getattr(link, "config_tag", None)) is not None
-        and (tag.startswith("sim_") or tag.startswith("fake_"))
+        (name := getattr(link, "type_name", None)) is not None
+        and (name.startswith("sim_") or name.startswith("fake_"))
         for link in links.values()
     )
 
@@ -402,7 +780,7 @@ class RigConfig(BaseModel):
     """The whole file.
 
     `model_validate` and `model_json_schema` on this class use
-    [get_catalog][flyball.model.catalog.get_catalog] -- the tags registered
+    [get_catalog][flyball.model.catalog.get_catalog] -- the types registered
     there at the time of the call -- so a config registered after import is
     as valid in a file as a built-in one.
     """
@@ -423,7 +801,7 @@ class RigConfig(BaseModel):
     links: dict[str, Any] = Field(default_factory=dict)
     devices: dict[str, DeviceEntry] = Field(default_factory=dict)
     controllers: dict[str, ControllerEntry] = Field(
-        default_factory=dict, description="Keyed by the target signal's address."
+        default_factory=dict, description="Keyed by the output signal's address."
     )
     runner: RunnerConfig | None = Field(default=None, exclude=True)
     """How the runner serves; not part of the rig, so not of its document or versions."""
@@ -502,15 +880,17 @@ class RigConfig(BaseModel):
                 raise ValueError(
                     f"device {name!r}: {entry.driver!r} is a {driver.__name__}, not a device driver"
                 )
-            link = entry.config.get("link")
+            link = entry.driver_config.get("link")
             if isinstance(link, str) and link not in self.links:
                 raise ValueError(f"link {link!r} is not declared; links are {sorted(self.links)}")
-        for target, controller in self.controllers.items():
-            if "." not in target:
-                raise ValueError(f"controller {target!r} must be a 'node.signal' address")
-            if "." not in controller.signal:
+            _check_inputs(name, entry, driver.device_class())
+        _refuse_input_cycles(self.devices)
+        for output, controller in self.controllers.items():
+            if "." not in output:
+                raise ValueError(f"controller {output!r} must be a 'node.signal' address")
+            if "." not in controller.measured:
                 raise ValueError(
-                    f"controller {target!r}: signal {controller.signal!r}"
+                    f"controller {output!r}: measured {controller.measured!r}"
                     " must be a 'node.signal' address"
                 )
         if sum(c.default for c in self.controllers.values()) > 1:
@@ -538,7 +918,6 @@ class RigConfig(BaseModel):
                 [get_catalog][flyball.model.catalog.get_catalog].
         """
         catalogs = catalogs or get_catalog()
-        links = {name: config.build() for name, config in self.links.items()}
         if clock is None and self.simulated:
             from flyball_sim.clock import ScaledClock, SteppedClock
 
@@ -546,7 +925,6 @@ class RigConfig(BaseModel):
             clock = SteppedClock() if entry.stepped else ScaledClock(entry.speed)
 
         rig = Rig(self.name)
-        rig.links = links
         rig.link_entries = dict(self.links)
         rig.files = list(self.files)
         rig.header = {
@@ -556,44 +934,66 @@ class RigConfig(BaseModel):
         }
         if clock is not None:
             rig.clock = clock
+        if self.runner is not None:
+            reads = self.runner.reads
+            rig.polling.defaults = ReadPolicy(reads.fail_after, tuple(reads.backoff_s))
         # Build everything before anything runs: a failure part-way leaves no
-        # thread polling and no name claimed for a retry to trip on.
+        # thread polling and no name claimed for a retry to trip on, and no
+        # link (a serial port, a socket) held open behind it.
         built_devices: list[Device] = []
+        built_links: dict[str, Any] = {}
         try:
+            for name, config in self.links.items():
+                built_links[name] = config.build()
+            rig.links = built_links
             for name, entry in self.devices.items():
-                device = entry.build(name, links, catalogs)
+                device = entry.build(name, built_links, catalogs)
                 rig.add_device(device)
                 rig.entries[name] = entry
                 built_devices.append(device)
             for name, entry in self.devices.items():
-                if entry.bound:
-                    rig.bind_inputs(rig.devices[name], entry.bound)
-            for target_address, controller in self.controllers.items():
-                target = rig.resolve(target_address)
-                if not isinstance(target, Signal):
-                    raise ValueError(f"controller {target_address!r} is not a signal")
-                source_signal = rig.resolve(controller.signal)
-                if not isinstance(source_signal, Signal):
+                rig.bind_inputs(rig.devices[name], entry.inputs)
+            for name, entry in self.devices.items():
+                for path, permissive in (entry.permissive or {}).items():
+                    rig.permit(rig.devices[name].signals[path], permissive)
+            for output_address, controller in self.controllers.items():
+                output = rig.resolve(output_address)
+                if not isinstance(output, Signal):
+                    raise ValueError(f"controller {output_address!r} is not a signal")
+                measured = rig.resolve(controller.measured)
+                if not isinstance(measured, Signal):
                     raise ValueError(
-                        f"controller {target_address!r}: signal {controller.signal!r}"
+                        f"controller {output_address!r}: measured {controller.measured!r}"
                         " is not a signal"
                     )
                 rig.attach_controller(
-                    target,
-                    source_signal,
+                    output,
+                    measured,
                     law=controller.law,
                     feedforward=controller.feedforward,
                     default=controller.default,
                     min_period_s=controller.min_period_s,
+                    setpoint_period_s=controller.setpoint_period_s,
+                    on_fault=controller.fault_policy(),
                 )
         except Exception:
             for device in built_devices:
                 rig.release(device.name)
+            for link in built_links.values():
+                close = getattr(link, "close", None)
+                if close is not None:
+                    with suppress(Exception):
+                        close()
             raise
         if start:
             for device in built_devices:
                 rig.start_polling(device)
         rig.loaded = rig.document()
+        rig.saved_overlay = _saved_overlay(rig.files)
+        said = logging.getLogger("flyball.rig")  # the rig's own: what `rig check` cannot see
+        for row in stop_plan(rig):
+            for warning in row["warnings"]:
+                said.warning("stop: %s: %s", row["address"], warning)
         return rig
 
 
@@ -601,16 +1001,16 @@ _models: dict[tuple[tuple[str, ...], tuple[str, ...]], type[RigConfig]] = {}
 
 
 def rig_model(catalogs: Catalogs | None = None) -> type[RigConfig]:
-    """[RigConfig][flyball.runtime.config.RigConfig] typed with every tag registered now.
+    """[RigConfig][flyball.runtime.config.RigConfig] typed with every type registered now.
 
-    Built once per set of registered tags and cached, so validating many
+    Built once per set of registered types and cached, so validating many
     files costs one model.
 
     Args:
         catalogs: Default: [get_catalog][flyball.model.catalog.get_catalog].
     """
     catalogs = catalogs or get_catalog()
-    key = (tuple(sorted(catalogs.devices.tags())), tuple(sorted(catalogs.links.tags())))
+    key = (tuple(sorted(catalogs.devices.names())), tuple(sorted(catalogs.links.names())))
     if key not in _models:
         links = Config.union(*registered("link", catalogs))
         _models[key] = create_model(
@@ -621,8 +1021,58 @@ def rig_model(catalogs: Catalogs | None = None) -> type[RigConfig]:
     return _models[key]
 
 
+def _check_inputs(name: str, entry: DeviceEntry, device: type[Device] | None) -> None:
+    """Every input the driver declares is bound to an address or a number, and no other name.
+
+    An input has no default (C12): one left out is refused here, so `rig check` says so.
+    """
+    declared = {} if device is None else device.INPUTS
+    if not declared:
+        return
+    if missing := [n for n in declared if n not in entry.inputs]:
+        raise ValueError(
+            f"device {name!r}: input {', '.join(repr(n) for n in missing)} is neither bound nor"
+            " a number: give `inputs: {"
+            + ", ".join(f"{n}: <address or number>" for n in missing)
+            + "}`"
+        )
+    if unknown := [n for n in entry.inputs if n not in declared]:
+        raise ValueError(
+            f"device {name!r}: {', '.join(repr(n) for n in unknown)} is not an input of"
+            f" {entry.driver!r}; it has {', '.join(repr(n) for n in declared)}"
+        )
+
+
+def _refuse_input_cycles(devices: Mapping[str, DeviceEntry]) -> None:
+    """A cycle through `inputs:` -- a device following itself, through others or not -- is refused.
+
+    Device by device, by the first segment of each address; the path is named.
+    """
+    follows = {
+        name: [
+            (input_name, source)
+            for input_name, source in entry.inputs.items()
+            if isinstance(source, str) and source.partition(".")[0] in devices
+        ]
+        for name, entry in devices.items()
+    }
+    for start in devices:
+        stack: list[tuple[str, list[str]]] = [(start, [])]
+        seen: set[str] = set()
+        while stack:
+            name, path = stack.pop()
+            for input_name, source in follows[name]:
+                step = [*path, f"{name}.inputs.{input_name} <- {source}"]
+                target = source.partition(".")[0]
+                if target == start:
+                    raise ValueError("a cycle through inputs: " + "; ".join(step))
+                if target not in seen:
+                    seen.add(target)
+                    stack.append((target, step))
+
+
 def _driver_configs(catalogs: Catalogs) -> tuple[type[DriverConfig[Any]], ...]:
-    """Every registered device driver, in tag order."""
+    """Every registered device driver, in type order."""
     return tuple(
         config for config in registered("driver", catalogs) if issubclass(config, DriverConfig)
     )
@@ -632,16 +1082,15 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
     """The `devices` property's schema, and the `$defs` it needs.
 
     Built by hand from the installed `Catalogs` rather than inferred: a
-    device entry's driver settings sit flat beside the envelope or under
-    `config` (`DeviceEntry`'s own before-validator normalises this, not a
-    pydantic discriminated union), so pydantic alone cannot describe the two
-    shapes as one type. `oneOf` per registered driver, each with a flat and a
-    layered variant (plan §1.5); before any driver registers, `devices` is
-    just a plain `DeviceEntry` map.
+    device entry's driver fields sit flat beside the envelope, keyed on
+    `driver:` (`DeviceEntry` keeps them as its extra keys, not a pydantic
+    discriminated union), so pydantic alone cannot describe them. One
+    variant per registered driver; before any driver registers, `devices`
+    is just a plain `DeviceEntry` map.
     """
     base = DeviceEntry.model_json_schema(ref_template="#/$defs/{model}")
     defs: dict[str, Any] = dict(base.get("$defs", {}))
-    envelope = {k: v for k, v in base["properties"].items() if k not in ("driver", "config")}
+    envelope = {k: v for k, v in base["properties"].items() if k != "driver"}
     drivers = _driver_configs(catalogs)
     if not drivers:
         defs["DeviceEntry"] = base
@@ -650,42 +1099,99 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
     for driver in drivers:
         driver_schema = driver.model_json_schema(ref_template="#/$defs/{model}")
         defs.update(driver_schema.pop("$defs", {}))
-        driver_properties = driver_schema.get("properties", {})
-        driver_envelope = {**envelope, "driver": {"const": driver.config_tag}}
-        # Exactly one shape may match (`oneOf`): layered needs `config`, flat forbids it,
-        # else a flat entry with no required driver fields satisfies both and an
-        # editor reports "matches multiple schemas".
-        layered = {
-            "type": "object",
-            "title": f"{driver.config_tag} (layered)",
-            "properties": {**driver_envelope, "config": driver_schema},
-            "required": ["driver", "config"],
+        device = driver.device_class()
+        declared = [] if device is None else list(device.INPUTS)
+        properties = {
+            **envelope,
+            "driver": {"const": driver.type_name},
+            **driver_schema.get("properties", {}),
         }
-        flat = {
+        if declared:  # no default: each is bound to an address or a number (C12)
+            properties["inputs"] = {
+                **envelope["inputs"],
+                "required": declared,
+                "propertyNames": {"enum": declared},
+            }
+        variants.append({
             "type": "object",
-            "title": f"{driver.config_tag} (flat)",
-            "properties": {**driver_envelope, **driver_properties},
-            "required": ["driver", *driver_schema.get("required", [])],
+            "title": driver.type_name,
+            **({"description": d} if (d := driver_schema.get("description")) else {}),
+            "properties": properties,
+            "required": [
+                "driver",
+                *driver_schema.get("required", []),
+                *(["inputs"] if declared else []),
+            ],
             "not": {"required": ["config"]},
-        }
-        variants.append({"oneOf": [layered, flat]})
-    # A layer may add to a device a base declared (`bound`, a label, one `config` key) without
-    # repeating its driver: envelope keys only, `config` unconstrained, and no `driver`.
+        })
+    # A layer may add to a device a base declared (`inputs`, a label, one driver field)
+    # without repeating its driver: envelope keys and any driver field, and no `driver`.
     overlay = {
         "type": "object",
         "title": "overlay of a device declared in a base",
-        "properties": {**envelope, "config": {"type": "object"}},
+        "properties": envelope,
         "not": {"required": ["driver"]},
     }
     return {"additionalProperties": {"oneOf": [*variants, overlay]}}, defs
 
 
-def canonical(config: RigConfig) -> dict[str, Any]:
-    """`config` as the canonical layered document -- what `rig check` prints.
+def render_document(loaded: dict[str, Any]) -> dict[str, Any]:
+    """A rig as a rig file, in the form [Rig.document][flyball.rig.rig.Rig.document] gives.
 
-    Every device entry already carries `config:` after `DeviceEntry`'s own
-    flat-or-layered normalisation, in envelope-key order; dumping drops every
-    `null`, since a format like TOML has no way to write one.
+    `loaded` holds `name`, the header keys (`board`, `clock`, `recording`), `links` as the
+    file writes them (`{type, ...}`), `devices` as entries and `controllers` as
+    [ControllerEntry][flyball.runtime.config.ControllerEntry]s. Defaults are left out, as a
+    hand-written file leaves them; a law's or feedforward's `type` is kept, since the file
+    needs it.
+    """
+    config = RigConfig.model_validate(loaded)
+    document = config.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
+    document["links"] = loaded["links"]
+    for key in ("devices", "controllers"):
+        document.setdefault(key, {})
+    controllers: dict[str, ControllerEntry] = loaded["controllers"]
+    for name, entry in controllers.items():
+        rendered = document["controllers"][name]
+        if entry.law is not None:
+            rendered.setdefault("law", {})["type"] = entry.law.type
+        if entry.feedforward is not None:
+            rendered.setdefault("feedforward", {})["type"] = entry.feedforward.type
+    return document
+
+
+def document_of(config: RigConfig) -> dict[str, Any]:
+    """`config` as the rig it builds would render itself (`Rig.document()`), without building.
+
+    What a rig edit is saved as, and compared by: the running rig's document and one read
+    from files are then in the same form.
+    """
+    header = {
+        k: v
+        for k, v in canonical(config).items()
+        if k not in ("name", "links", "devices", "controllers")
+    }
+    links = {
+        name: {
+            "type": link.type_name,
+            **link.model_dump(mode="json", exclude_none=True, exclude_defaults=True),
+        }
+        for name, link in config.links.items()
+    }
+    return render_document({
+        "name": config.name,
+        **header,
+        "links": links,
+        "devices": dict(config.devices),
+        "controllers": dict(config.controllers),
+    })
+
+
+def canonical(config: RigConfig) -> dict[str, Any]:
+    """`config` as the canonical document -- what `rig check` prints.
+
+    Every device entry is its envelope keys, then its driver's fields flat
+    beside them; dumping drops every `null`, since a format like TOML has no
+    way to write one.
     """
     return config.model_dump(mode="json", exclude_none=True)
 
@@ -764,10 +1270,9 @@ def load_board(path: str | Path) -> Board:
 def apply_board(document: dict[str, Any], board: Board) -> dict[str, Any]:
     """The document with the board's links underneath its own and its pins resolved.
 
-    A device entry with `pin = "LABEL"` -- flat beside the envelope, or
-    under `config` -- gets the driver-config fields the board gives that
-    label, where the entry keeps its driver config; fields the entry
-    already has win. Unknown labels are an error.
+    A device entry with `pin = "LABEL"` gets the driver fields the board
+    gives that label, flat beside the envelope; fields the entry already
+    has win. Unknown labels are an error.
     """
     out = dict(document)
     out["links"] = {**board.links, **document.get("links", {})}
@@ -783,13 +1288,6 @@ def apply_board(document: dict[str, Any], board: Board) -> dict[str, Any]:
             ) from None
 
     def resolved(entry: dict[str, Any], where: str) -> dict[str, Any]:
-        config = entry.get("config")
-        if isinstance(config, dict):
-            if (fields := fields_of(config.get("pin"), where)) is not None:
-                config = {**fields, **{k: v for k, v in config.items() if k != "pin"}}
-            if (fields := fields_of(entry.get("pin"), where)) is not None:
-                config = {**fields, **config}
-            return {**{k: v for k, v in entry.items() if k != "pin"}, "config": config}
         if (fields := fields_of(entry.get("pin"), where)) is not None:
             return {**fields, **{k: v for k, v in entry.items() if k != "pin"}}
         return entry
@@ -836,16 +1334,58 @@ def resolve_documents(
         contributed: the layers, in the order first read, then the board
         file, if one was used.
     """
+    path_list = [Path(paths)] if isinstance(paths, (str, Path)) else [Path(p) for p in paths]
+    return _layered(path_list, [*path_list, *saved_overlays(path_list[0])], sets)
+
+
+def resolve_with_overlay(
+    paths: Sequence[str | Path], sets: Sequence[str], overlay: Mapping[str, Any]
+) -> tuple[dict[str, Any], list[Path]]:
+    """`resolve_documents`, with `overlay` in place of the saved overlay (`<file>.d/added.*`).
+
+    What a start from the same command line would load once `overlay` is saved there, read
+    before it is written; an empty `overlay` is a start with none. The other files in the
+    `.d/` directory keep their places (the directory's sorted order, `added.*` among them).
+    """
+    path_list = [Path(p) for p in paths]
+    added = saved_overlay_path(path_list[0])
+    others = [p for p in saved_overlays(path_list[0]) if p.name != added.name]
+    layers: list[Path | Mapping[str, Any]] = list(path_list)
+    for path in sorted([*others, added]):
+        if path != added:
+            layers.append(path)
+        elif overlay:
+            layers.append(overlay)
+    return _layered(path_list, layers, sets)
+
+
+def _layered(
+    path_list: list[Path], layers: Sequence[Path | Mapping[str, Any]], sets: Sequence[str]
+) -> tuple[dict[str, Any], list[Path]]:
     from flyball.runtime.overlay import resolve_layers
 
-    path_list = [Path(paths)] if isinstance(paths, (str, Path)) else [Path(p) for p in paths]
-    path_list.extend(saved_overlays(path_list[0]))
-    document, files = resolve_layers(path_list, sets)
+    document, files = resolve_layers(layers, sets)
     board_name = document.get("board")
     if not isinstance(board_name, str):
         return document, files
     board_path = find_board(board_name, path_list[0].parent)
     return apply_board(document, load_board(board_path)), [*files, board_path]
+
+
+def saved_overlay_path(first: Path) -> Path:
+    """Where `POST /api/rig/save` writes by default: `<file>.d/added.<suffix>` beside `first`."""
+    return first.with_name(first.name + ".d") / f"added{first.suffix}"
+
+
+def _saved_overlay(files: Sequence[Path]) -> dict[str, Any]:
+    """The saved overlay's document if this rig loaded one (it is among `files`), else `{}`."""
+    if not files:
+        return {}
+    target = saved_overlay_path(files[0])
+    if not any(f.resolve() == target.resolve() for f in files):
+        return {}
+    document = load_document(target)
+    return document if isinstance(document, dict) else {}
 
 
 def saved_overlays(first: Path) -> list[Path]:
@@ -865,7 +1405,7 @@ def load_rig_config(
 ) -> RigConfig:
     """Read and validate a rig file, or a layered rig of several, `.toml`, `.yaml` or `.json`.
 
-    Installed packages' configs are discovered first, so their tags are valid
+    Installed packages' configs are discovered first, so their types are valid
     in the file; a `board` is applied before validation.
     """
     ensure_discovered()
@@ -880,7 +1420,7 @@ def load_rig(path_or_paths: str | Path | Sequence[str | Path], sets: Sequence[st
 
 
 def rig_schema() -> dict[str, Any]:
-    """The rig file's JSON schema, for an editor, with every tag installed here."""
+    """The rig file's JSON schema, for an editor, with every type installed here."""
     ensure_discovered()
     schema = RigConfig.model_json_schema()
     schema["$schema"] = GenerateJsonSchema.schema_dialect
@@ -899,15 +1439,18 @@ __all__ = [
     "apply_board",
     "board_dirs",
     "canonical",
+    "document_of",
     "find_board",
     "is_simulated",
     "load_board",
     "load_rig",
     "load_rig_config",
     "registered",
+    "render_document",
     "resolve_document",
     "resolve_documents",
     "resolve_live",
+    "resolve_with_overlay",
     "rig_model",
     "rig_schema",
     "role_of",

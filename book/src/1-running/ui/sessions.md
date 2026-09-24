@@ -60,7 +60,8 @@ loaded, its data is held for the rest of the visit: switching between "by
 unit" and "each signal", or scrolling a chart away and back, never re-fetches
 what is already there. A signal a chart could never draw a line for —
 `enum`/`json`/`str`/`bool`, or a device's own housekeeping trace
-(`<device>.conditions`, `<device>.last.*`) — is never asked for as a series
+(`<device>.last.*`, and `<device>.conditions` in a session recorded before
+conditions left the signal tree) — is never asked for as a series
 at all; it is still recorded, so it is listed plainly under the charts
 ("Recorded, not charted") rather than dropped from the page.
 

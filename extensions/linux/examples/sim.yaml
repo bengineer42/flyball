@@ -11,9 +11,9 @@ board: sim
 
 links:
   i2c1:                              # the board's bare fake, scripted: 0x44 answers one frame
-    tag: fake_i2c
+    type: fake_i2c
     replies: { 0x44: [[0x61, 0x47, 0x8a, 0x7c, 0xed, 0x83]] }
   w1:
-    tag: fake_onewire
+    type: fake_onewire
     texts:
       28-0316a279e7ff: "5e 01 4b 46 7f ff 0c 10 4e : crc=4e YES\n5e 01 4b 46 7f ff 0c 10 4e t=21875"

@@ -13,8 +13,14 @@ from pydantic import Field
 class FakeTextLink:
     """Answers from a table or a function; remembers every write and query."""
 
-    def __init__(self, replies: dict[str, str] | Callable[[str], str] | None = None) -> None:
+    def __init__(
+        self,
+        replies: dict[str, str] | Callable[[str], str] | None = None,
+        blocking: bool = False,
+    ) -> None:
         self.replies = replies or {}
+        self.blocking = blocking
+        """Whether a device built over this link should run its writes on the Writer thread."""
         self.written: list[str] = []
         self.queried: list[str] = []
 
@@ -31,13 +37,17 @@ class FakeTextLink:
             raise OSError(f"no reply for {command!r}") from None
 
 
-class FakeTextLinkConfig(Config[TextLink], tag="fake_text"):
+class FakeTextLinkConfig(Config[TextLink], type="fake_text"):
     """A scripted instrument, for a rig file that runs without hardware."""
 
     replies: dict[str, str] = Field(default_factory=dict)
+    blocking: bool = Field(
+        default=False,
+        description="Run this fake's writes on the Writer thread, as a real instrument would.",
+    )
 
     def build(self) -> TextLink:
-        return FakeTextLink(self.replies)
+        return FakeTextLink(self.replies, blocking=self.blocking)
 
 
 class VisaLink:
@@ -46,6 +56,8 @@ class VisaLink:
     One lock per link, so a reader and an actuator sharing an instrument
     cannot interleave a query with a write.
     """
+
+    blocking = True
 
     def __init__(self, resource: str, timeout_ms: int = 2000, backend: str = "@py") -> None:
         import pyvisa
@@ -67,7 +79,7 @@ class VisaLink:
             return str(self._instrument.query(command)).strip()
 
 
-class VisaLinkConfig(Config[TextLink], tag="visa"):
+class VisaLinkConfig(Config[TextLink], type="visa"):
     """`TCPIP::192.168.1.20::INSTR`, `USB0::…::INSTR`, `ASRL/dev/ttyUSB0::INSTR`."""
 
     resource: str
@@ -80,6 +92,8 @@ class VisaLinkConfig(Config[TextLink], tag="visa"):
 
 class SerialLink:
     """A serial port through pyserial, one command per line. Needs the `serial` extra."""
+
+    blocking = True
 
     def __init__(
         self, port: str, baud: int = 9600, terminator: str = "\n", timeout_s: float = 1.0
@@ -100,7 +114,7 @@ class SerialLink:
             return self._port.read_until(self._terminator.encode()).decode().strip()
 
 
-class SerialLinkConfig(Config[TextLink], tag="serial"):
+class SerialLinkConfig(Config[TextLink], type="serial"):
     port: str
     baud: int = 9600
     terminator: str = "\n"

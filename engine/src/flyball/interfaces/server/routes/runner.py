@@ -19,8 +19,8 @@ router = APIRouter(prefix="/api/runner", tags=["runner"])
 class RunnerOut(BaseModel):
     """The runner's settings as resolved, less the token, and the files it loaded."""
 
-    host: str
-    port: int
+    endpoint: str | None
+    """What the runner binds: `tcp:<host>:<port>`, or `unix:<path>` when a front started it."""
     root_path: str | None
     mcp: bool
     compose: bool
@@ -68,8 +68,7 @@ def read_runner() -> RunnerOut:
     runner = _runner()
     s = runner.settings
     return RunnerOut(
-        host=s.host,
-        port=s.port,
+        endpoint=None if runner.exposure is None else runner.exposure.endpoint,
         root_path=s.root_path,
         mcp=s.mcp,
         compose=s.compose,
@@ -107,8 +106,10 @@ def shutdown() -> dict[str, Any]:
 def restart() -> dict[str, Any]:
     """Stop as `shutdown` does, then start again with the same command line and files.
 
-    What was changed over the API and not saved is gone unless the runner
-    was started with `--resume`. 409 unless started with `--allow-shutdown`.
+    A rig edit saved itself (to the overlay the next start loads, or, for a runner with no
+    rig file, to the store, restarting with `--resume`), so it comes back; a controller
+    attached since the start and not saved (`POST /api/rig/save`) does not. 409 unless
+    started with `--allow-shutdown`; a rig edit's own restart does not need it.
     """
     _may_stop().restart()
     return {"detail": "restarting"}

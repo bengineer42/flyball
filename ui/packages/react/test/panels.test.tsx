@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { SignalOut, WaitState } from "@flyball/client";
+import type { SignalOut, ActivityOut } from "@flyball/client";
 import { Gauge, gaugeRange, gaugeZones } from "../src/panels/Gauge.js";
 import { readoutLevel } from "../src/panels/Readout.js";
 import { groupByUnit } from "../src/panels/UnitCharts.js";
-import { WaitPrompt } from "../src/panels/WaitPrompt.js";
+import { PromptPanel } from "../src/panels/PromptPanel.js";
 
 /** A publishing signal as `GET /api/devices` lists one, with the given bands. */
 function signal(address: string, unit: string, bands: Partial<Pick<SignalOut, "range" | "precision" | "warn" | "alarm" | "limits">> = {}): SignalOut {
@@ -18,12 +18,12 @@ function signal(address: string, unit: string, bands: Partial<Pick<SignalOut, "r
     dimension: null,
     dtype: "float",
     shape: [],
-    role: "output",
+    role: "readout",
     tags: {},
     initial: null,
     range: null,
     precision: null,
-    warn: null,
+    warning: null,
     alarm: null,
     poll_s: null,
     limits: null,
@@ -44,7 +44,7 @@ describe("Gauge on a SignalOut", () => {
   });
 
   it("cuts the range at every band edge and labels each piece", () => {
-    const zones = gaugeZones(signal("furnace.zone1", "°C", { range: [0, 100], warn: [30, 90], alarm: [10, 110] }));
+    const zones = gaugeZones(signal("furnace.zone1", "°C", { range: [0, 100], warning: [30, 90], alarm: [10, 110] }));
     expect(zones.map((z) => [z.from, z.to, z.level])).toEqual([
       [0, 10, "alarm"],
       [10, 30, "warn"],
@@ -63,17 +63,17 @@ describe("Gauge on a SignalOut", () => {
 });
 
 describe("readoutLevel", () => {
-  const s = signal("furnace.zone1", "°C", { warn: [30, 90], alarm: [10, 110] });
+  const s = signal("furnace.zone1", "°C", { warning: [30, 90], alarm: [10, 110] });
   it("reads the bands off the signal", () => {
     expect(readoutLevel(s, 60, undefined).level).toBe("ok");
     expect(readoutLevel(s, 95, undefined).level).toBe("warn");
     expect(readoutLevel(s, 5, undefined).level).toBe("alarm");
   });
-  it("is stale, with the age in the footer, once no sample has arrived for max(3 × period, 5 s)", () => {
-    const stale = readoutLevel(s, 60, { periodS: 2, lastSampleS: 100, nowS: 112 });
+  it("is stale when the rig pushed a stale reading, saying why and what it last read", () => {
+    const stale = readoutLevel(s, { t: 112, value: null, quality: "stale", reason: "silent", lastUsable: { t: 100, value: 60 } }, "ok");
     expect(stale.level).toBe("stale");
-    expect(stale.footer).toBe("last sample 12 s ago");
-    expect(readoutLevel(s, 60, { periodS: 2, lastSampleS: 100, nowS: 105 }).level).toBe("ok");
+    expect(stale.label).toMatch(/^stale: device silent · last usable 60.00 °C at /);
+    expect(readoutLevel(s, { t: 105, value: 60, quality: "ok" }, "ok").level).toBe("ok");
   });
 });
 
@@ -87,17 +87,17 @@ describe("groupByUnit", () => {
   });
 });
 
-describe("WaitPrompt", () => {
-  const wait = (name: string, message: string | null, timeout_s: number | null): WaitState => ({ name, message, outcome: "pending", since_ns: 100e9, timeout_s, prompt: true });
-  it("renders nothing with no pending wait", () => {
-    expect(renderToStaticMarkup(<WaitPrompt waits={[]} onFire={() => undefined} />)).toBe("");
+describe("PromptPanel", () => {
+  const wait = (name: string, message: string | null, timeout_s: number | null): ActivityOut => ({ name, message, outcome: "pending", since_ns: 100e9, timeout_s, prompt: true });
+  it("renders nothing with no pending prompt", () => {
+    expect(renderToStaticMarkup(<PromptPanel prompts={[]} onFire={() => undefined} />)).toBe("");
   });
-  it("shows each wait's message, how long it has waited in rig time, and when it gives up", () => {
-    const html = renderToStaticMarkup(<WaitPrompt waits={[wait("door", "Close the door", 600), wait("ack", null, null)]} nowS={190} onFire={() => undefined} onInterrupt={() => undefined} />);
+  it("shows each prompt's message, how long it has waited in rig time, and when it gives up", () => {
+    const html = renderToStaticMarkup(<PromptPanel prompts={[wait("door", "Close the door", 600), wait("ack", null, null)]} nowS={190} onFire={() => undefined} onCancel={() => undefined} />);
     expect(html).toContain("Close the door");
     expect(html).toContain("waiting 1 min 30 s");
     expect(html).toContain("gives up in 8 min 30 s");
     expect(html).toContain("waiting for ack");
-    expect(html).toContain("Abandon");
+    expect(html).toContain("Cancel");
   });
 });

@@ -1,14 +1,13 @@
 """The laws, feedforwards and generators that ship, plus what's left of `control`'s own concerns.
 
-`Controller`/`ControlLaw`/`Feedforward`/`SetPointGenerator` (the Catalog/Config
-machinery every one of these subclasses) moved to `flyball.model` with the
-registry redesign (`brain/tasks/registry-redesign.md`); `Tuning`/`Tunings`
-moved to `flyball.library.tunings` (`brain/tasks/engine-structure.md`, layer
-4). What's left here is what ships built on top of that machinery: the 9
-built-in laws, the plant-model feedforwards (`Affine`, `Table` -- `Setpoint`/
+`Controller`/`ControlLaw`/`Feedforward`/`SetpointGenerator` -- the
+Catalog/Config machinery every one of these subclasses -- live in
+`flyball.model`; `Tuning`/`Tunings` live in `flyball.library.tunings`. What's
+left here is what ships built on top of that machinery: the 9 built-in laws,
+the plant-model feedforwards (`Affine`, `Table` -- `Identity`/
 `NoFeedforward`, `Controller`'s own defaults, live in `flyball.model
 .feedforward` instead, see that module's docstring), and the built-in
-generators (`Hold`, `LinearRampSetpoint`, `Profile`).
+generators (`Dwell`, `LinearRampSetpoint`, `Profile`).
 """
 
 from .errors import (
@@ -30,12 +29,12 @@ from .laws import (
     SmithPredictor,
 )
 from .setpoint import (
+    Dwell,
     GeneratorConfig,
-    Hold,
     LinearRampSetpoint,
     Profile,
-    SetPointGenerator,
-    SetPointGeneratorConfig,
+    SetpointGenerator,
+    SetpointGeneratorConfig,
 )
 
 __all__ = [
@@ -46,10 +45,10 @@ __all__ = [
     "ControlLawNotRegisteredError",
     "ControlLawNotSetError",
     "ControllerSuspendedError",
+    "Dwell",
     "Feedforward",
     "FeedforwardConfig",
     "GeneratorConfig",
-    "Hold",
     "LastReadingNotAvailableError",
     "LinearRampSetpoint",
     "OnOff",
@@ -57,8 +56,8 @@ __all__ = [
     "P",
     "Profile",
     "Scheduled",
-    "SetPointGenerator",
-    "SetPointGeneratorConfig",
+    "SetpointGenerator",
+    "SetpointGeneratorConfig",
     "SlidingMode",
     "SmithPredictor",
     "Table",

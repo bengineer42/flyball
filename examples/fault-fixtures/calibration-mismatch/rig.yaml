@@ -14,22 +14,24 @@
 name: calibration-mismatch
 
 links:
-  probe_a: { tag: sim_plant, model: lag, tau_s: 15, gain: 1.0, ambient: 45.0, initial: 45.0, noise: 0.4, seed: 31 }
-  probe_b: { tag: sim_plant, model: lag, tau_s: 15, gain: 1.3, ambient: 52.0, initial: 45.0, noise: 0.4, seed: 32 }
+  probe_a: { type: sim_plant, model: lag, tau_s: 15, gain: 1.0, ambient: 45.0, initial: 45.0, noise: 0.4, seed: 31 }
+  probe_b: { type: sim_plant, model: lag, tau_s: 15, gain: 1.3, ambient: 52.0, initial: 45.0, noise: 0.4, seed: 32 }
 
 devices:
   probe_a:
     driver: sim_daq
     label: Probe A
     poll_s: 1
-    config: { link: probe_a, ports: { temperature: { port: output, quantity: temperature, unit: "°C" } } }
-    signals: { temperature: { range: [0, 100], warn: [20, 70], precision: 1 } }
+    link: probe_a
+    ports: { temperature: { port: output, quantity: temperature, unit: "°C" } }
+    signals: { temperature: { range: [0, 100], warning: [20, 70], precision: 1 } }
   probe_b:
     driver: sim_daq
     label: Probe B
     poll_s: 1
-    config: { link: probe_b, ports: { temperature: { port: output, quantity: temperature, unit: "°C" } } }
-    signals: { temperature: { range: [0, 100], warn: [20, 70], precision: 1 } }
+    link: probe_b
+    ports: { temperature: { port: output, quantity: temperature, unit: "°C" } }
+    signals: { temperature: { range: [0, 100], warning: [20, 70], precision: 1 } }
 
 # No controllers, no drives: both plants just settle toward their own
 # `ambient` -- the fault is purely that they don't settle toward the SAME

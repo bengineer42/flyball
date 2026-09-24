@@ -20,6 +20,7 @@ from flyball.interfaces.server.deps import (
     current_simulation_device,
     save_allowed,
 )
+from flyball.interfaces.server.redact import without_credentials
 
 from .devices import device_schema, run
 
@@ -30,7 +31,7 @@ class SpeedIn(BaseModel):
     speed: float = Field(gt=0, description="Rig seconds per wall second.")
 
 
-class StepIn(BaseModel):
+class AdvanceIn(BaseModel):
     seconds: float = Field(gt=0)
 
 
@@ -45,8 +46,10 @@ class SaveIn(BaseModel):
     )
 
 
+# The reads here are plain `def`: the plants' stats and the rendered config take the rig's
+# lock (a copy of recent readings, `Rig.document`), which the event loop must never wait on.
 @router.get("")
-async def read_simulation() -> dict[str, Any]:
+def read_simulation() -> dict[str, Any]:
     """The clock, every plant with its config and state, and what has changed since the last save.
 
     `{"simulated": false}` for a rig with real hardware. `device` says
@@ -69,14 +72,14 @@ def set_clock(body: SpeedIn, simulation: SimulationDep) -> dict[str, Any]:
     return {"speed": simulation.set_speed(body.speed)}
 
 
-@router.post("/clock/step")
-def step_clock(body: StepIn, simulation: SimulationDep) -> dict[str, Any]:
+@router.post("/clock/advance")
+def advance_clock(body: AdvanceIn, simulation: SimulationDep) -> dict[str, Any]:
     """Advance a stepped clock by `seconds`; 409 if the clock runs on its own."""
-    return {"now_ns": simulation.step(body.seconds)}
+    return {"now_ns": simulation.advance(body.seconds)}
 
 
 @router.get("/plants/{name}")
-async def read_plant(name: str, simulation: SimulationDep) -> dict[str, Any]:
+def read_plant(name: str, simulation: SimulationDep) -> dict[str, Any]:
     return {
         "config": simulation.plant_config(name).model_dump(mode="json"),
         **simulation.plant_state(name),
@@ -96,9 +99,12 @@ def reset_plant(name: str, body: ResetIn, simulation: SimulationDep) -> dict[str
 
 
 @router.get("/config")
-async def read_config(simulation: SimulationDep) -> dict[str, Any]:
-    """The rig file as it now stands, with every change applied."""
-    return simulation.config_document()
+def read_config(simulation: SimulationDep) -> dict[str, Any]:
+    """The rig file as it now stands, with every change applied.
+
+    Of `runner:`, only what a reader may see: this route needs only `read`.
+    """
+    return without_credentials(simulation.config_document())
 
 
 @router.post("/save")
@@ -132,7 +138,7 @@ def read_device(rig: RigDep, device: SimulationDeviceDep) -> Any:
     return {
         "config": device.config,
         "values": {
-            path: None if (r := rig.router.reading(s)) is None else r.value
+            path: None if (r := rig.router.reading(s)) is None or not r.usable else r.value
             for path, s in device.signals.items()
         },
     }
@@ -152,7 +158,7 @@ def run_device_command(
 ) -> Any:
     """Run the command with the validated body; respond with whatever it returns."""
     assert isinstance(device, Device)
-    return run(rig, device, command, body)
+    return run(rig, device, command, body).result
 
 
 # endregion

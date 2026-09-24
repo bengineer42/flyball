@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import type { DeviceOut, DeviceSchema, Health, RigError, RigSchema } from "@flyball/client";
+import type { DeviceOut, DeviceSchema, Health, Interrupted, RigError, RigSchema } from "@flyball/client";
 import { useRig } from "../provider.js";
 import { useQuery, type QueryState } from "./useQuery.js";
 
@@ -9,7 +9,7 @@ export function useRigSchema(): QueryState<RigSchema> {
   return useQuery((signal) => rig.schema(signal), [rig]);
 }
 
-/** `GET /api/health`, polled: ok, recording, device liveness, conditions, alarms, waits. */
+/** `GET /api/health`, polled: ok, recording, device liveness, conditions, alarms, activities. */
 export function useHealth(refreshMs = 5000): QueryState<Health> {
   const rig = useRig();
   return useQuery(() => rig.health(), [rig], { refreshMs });
@@ -39,13 +39,14 @@ export function useDeviceSchema(name: string): QueryState<DeviceSchema> {
 }
 
 export interface CommandRunner {
+  /** Resolves to what the method returned (the response's `result`). */
   run(command: string, args?: Record<string, unknown>): Promise<unknown>;
-  /** The last result or error, per command tag, for feedback next to the form. */
-  results: Record<string, { result?: unknown; error?: RigError | Error; at: number }>;
+  /** The last result or error, per command, for feedback next to the form; `interrupted`: the controllers the command put in manual. */
+  results: Record<string, { result?: unknown; interrupted?: Interrupted[]; error?: RigError | Error; at: number }>;
   busy: string | null;
 }
 
-/** Runs a device's commands (`POST /api/devices/{name}/commands/{tag}`) and remembers what came back. */
+/** Runs a device's commands (`POST /api/devices/{name}/commands/{command}`) and remembers what came back. */
 export function useCommands(name: string): CommandRunner {
   const rig = useRig();
   const [results, setResults] = useState<CommandRunner["results"]>({});
@@ -55,8 +56,8 @@ export function useCommands(name: string): CommandRunner {
     async (command: string, args: Record<string, unknown> = {}) => {
       setBusy(command);
       try {
-        const result = await rig.command(name, command, args);
-        setResults((r) => ({ ...r, [command]: { result, at: Date.now() } }));
+        const { result, interrupted } = await rig.command(name, command, args);
+        setResults((r) => ({ ...r, [command]: { result, interrupted, at: Date.now() } }));
         return result;
       } catch (error) {
         setResults((r) => ({ ...r, [command]: { error: error as Error, at: Date.now() } }));

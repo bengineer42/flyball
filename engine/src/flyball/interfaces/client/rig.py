@@ -4,9 +4,9 @@
 validating arguments against the schema before sending:
 
     rig = Rig("http://pi:8000")
-    rig.devices.pumps.set_fraction(wet_fraction=0.25, flow={"tag": "absolute", "flow": 8})
+    rig.devices.pumps.set_fraction(wet_fraction=0.25, flow={"type": "absolute", "flow": 8})
     rig.devices.sht4x.view()["conditions"]
-    rig.demand("heaters.heater1", 1200.0)
+    rig.write("heaters.heater1", 1200.0)
     for frame in rig.watch("controllers"):
         ...
 
@@ -15,14 +15,30 @@ The CLI is this with argparse in front.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
+from urllib.parse import quote
 
 from .validate import SchemaError, validate
 
-__all__ = ["Device", "Devices", "Rig", "RigError", "SchemaError", "Unreachable"]
+__all__ = ["Device", "Devices", "Rig", "RigError", "SchemaError", "Unreachable", "segment"]
+
+
+def segment(value: Any) -> str:
+    """`value` as one path segment of a URL, percent-encoded.
+
+    A name, an address or an id from a caller -- a model, a script -- goes into a path
+    as exactly one segment: `?`, `#`, `%` and the rest are encoded, and a value that is
+    empty, `.` or `..`, or holds a `/`, is refused, since the HTTP client collapses `..`
+    and a name could otherwise reach another route.
+    """
+    text = str(value)
+    if text in ("", ".", "..") or "/" in text:
+        raise SchemaError(f"{text!r} is not a name: no '/', and not empty, '.' or '..'")
+    return quote(text, safe="")
 
 
 class RigError(Exception):
@@ -52,10 +68,15 @@ class Device:
 
     def view(self) -> dict[str, Any]:
         """The device's tree with its current values, inputs, commands and conditions."""
-        return self._rig.get(f"/api/devices/{self.name}")
+        return self._rig.get(f"/api/devices/{segment(self.name)}")
 
     def run(self, command: str, **arguments: Any) -> Any:
-        """Run a command, checking the arguments against its schema first."""
+        """Run a command, checking the arguments against its schema first.
+
+        Returns the response: `{"result": <what the method returned>,
+        "interrupted": [{"controller", "was"}, ...]}`, the controllers an
+        `interrupts` command put into manual.
+        """
         try:
             spec = self.commands[command]
         except KeyError:
@@ -63,7 +84,9 @@ class Device:
                 f"{self.name} has no command {command!r}; it has {sorted(self.commands)}"
             ) from None
         validate(spec["arguments"], arguments, where=f"{self.name}.{command}")
-        return self._rig.post(f"/api/devices/{self.name}/commands/{command}", arguments)
+        return self._rig.post(
+            f"/api/devices/{segment(self.name)}/commands/{segment(command)}", arguments
+        )
 
     def __getattr__(self, command: str) -> Any:
         if command.startswith("_") or command not in self.schema.get("commands", {}):
@@ -111,7 +134,8 @@ class Rig:
     """A running rig, over HTTP. `schema` may be given to work from a saved one.
 
     `token` is sent as a bearer token when the runner was started with one;
-    `FLYBALL_TOKEN` in the environment is the default.
+    `FLYBALL_TOKEN` in the environment is the default. `uds` is a unix socket to reach
+    the runner through, `url` then naming only the host header and the path prefix.
     """
 
     def __init__(
@@ -120,27 +144,45 @@ class Rig:
         timeout: float = 5.0,
         schema: dict[str, Any] | None = None,
         token: str | None = None,
+        *,
+        uds: str | None = None,
     ) -> None:
         self.url = url.rstrip("/")
         self.timeout = timeout
         self._schema = schema
         self.token = os.environ.get("FLYBALL_TOKEN") if token is None else token
+        self.uds = uds
+        self.principal: Callable[[], str] | None = None
+
+    def acting(self, principal: Callable[[], str]) -> Rig:
+        """This rig, each request carrying `principal()` as `X-Flyball-Principal`, not the token.
+
+        The runner's own MCP tools call it back this way: `principal` mints a fresh one
+        per request, so however long a tool runs no request carries a stale one. The copy
+        starts from this one's schema, if fetched, and keeps its own from then on.
+        """
+        other = copy.copy(self)
+        other.principal = principal
+        return other
 
     # region Transport
 
     @property
     def headers(self) -> dict[str, str]:
+        if self.principal is not None:
+            return {"X-Flyball-Principal": self.principal()}
         return {"Authorization": f"Bearer {self.token}"} if self.token else {}
 
     def _request(self, method: str, path: str, body: Any = None) -> Any:
         import httpx  # the one dependency, imported here so the schema-only paths need nothing
 
+        transport = None if self.uds is None else httpx.HTTPTransport(uds=self.uds)
         try:
-            response = httpx.request(
-                method, self.url + path, json=body, timeout=self.timeout, headers=self.headers
-            )
+            with httpx.Client(transport=transport, timeout=self.timeout) as http:
+                response = http.request(method, self.url + path, json=body, headers=self.headers)
         except httpx.HTTPError as e:
-            raise Unreachable(self.url, e) from e
+            where = self.url if self.uds is None else f"{self.url} (over {self.uds})"
+            raise Unreachable(where, e) from e
         if response.status_code >= 400:
             raise RigError(response.status_code, _detail(response))
         return response.json() if response.content else None
@@ -179,27 +221,29 @@ class Rig:
         return Devices(self)
 
     def controllers(self) -> Any:
-        """Every controller, by its target address."""
+        """Every controller, by its output address."""
         return self.get("/api/controllers")
 
     def read(self, address: str, fresh: bool = False) -> Any:
         """A signal's reading, a namespace's sample, or a device's samples."""
         query = "?fresh=true" if fresh else ""
-        return self.get(f"/api/read/{address}{query}")
+        return self.get(f"/api/read/{segment(address)}{query}")
 
-    def demand(self, address: str, value: float) -> Any:
-        """Put `value` on the single writable signal at `address`."""
-        return self.put(f"/api/signals/{address}", value)
+    def write(self, address: str, value: float) -> Any:
+        """Write `value` to the single writable signal at `address`."""
+        return self.put(f"/api/signals/{segment(address)}", value)
 
-    def waits(self) -> dict[str, Any]:
-        """What the rig is waiting on, by name."""
-        return self.get("/api/waits")
+    def activities(self) -> dict[str, Any]:
+        """What the rig is waiting on -- prompts, timed waits, settles, ramps -- by name."""
+        return self.get("/api/activities")
 
-    def fire(self, name: str) -> bool:
-        return bool(self.post(f"/api/waits/{name}/fire")["fired"])
+    def fire_activity(self, name: str) -> bool:
+        """Settle the activity as met: answer a prompt, or skip a wait. False if already settled."""
+        return bool(self.post(f"/api/activities/{segment(name)}/fire")["fired"])
 
-    def interrupt(self, name: str) -> bool:
-        return bool(self.post(f"/api/waits/{name}/interrupt")["interrupted"])
+    def cancel_activity(self, name: str) -> bool:
+        """Cancel the activity; the program stops at this step."""
+        return bool(self.post(f"/api/activities/{segment(name)}/cancel")["cancelled"])
 
     def clock(self) -> dict[str, Any]:
         """The rig's timebase: `start_time_ns`, `now_ns`, `elapsed_ns`, `tags`, `speed`."""

@@ -3,23 +3,39 @@
 This part is for changing flyball itself. Using it is the earlier parts:
 [Running a rig](../1-running/runner/index.md), [Configuration](../2-config/index.md),
 [Extending](../3-extending/index.md), [The server](../4-server/index.md).
-Four conceptual layers. Nothing below imports anything above.
+Built as the layers `import-linter`'s contract enforces (see Layering,
+below), top to bottom -- each may import anything below it, nothing below
+imports anything above:
 
 ```
-application     what is controlled, and with what hardware:
-                the devices that realise a rig's signals
+runner          the flyball-runner entry point: cli, starting, serving
 
-runtime         the timebase and I/O: clock, polling, the delivery, telemetry,
-                recording, controllers wired to signals, and the sequencing
-                of commands into programs
+interfaces      the FastAPI/websocket server, the MCP server, the program
+                dialect, and a pure-HTTP client/CLI built from what the
+                server publishes
 
-control         a controller, a control law, a reference trajectory, and the
-                arithmetic of handing control over. Beside it, identification
-                and the tuning rules
+sequencing      commands sequenced into programs, over a running rig
+
+runtime         the timebase and I/O: clock, polling, delivery, telemetry,
+                recording, retention -- plus `rig`, the runtime container
+                (devices, links, controllers, triggers, polling), which is
+                genuinely coupled to it both ways and so is not yet a layer
+                of its own
+
+hardware        link protocols, beside identification (`adaptive`), the
+                tuning rules (`autotune`) and the sqlite recorder (`record`)
+
+library         saved, named configs -- tunings so far
+
+control         the 9 built-in control laws, feedforwards and setpoint
+                generators -- plus `model` (`Catalog`/`Config`/`Instance`
+                type-registration), the base every one of them, and a
+                device driver's own config, derives from, which is
+                likewise coupled both ways and not yet a layer of its own
 
 foundation      values and infrastructure with no opinions: time, units,
                 quantities, signals, devices, errors, resources,
-                publish/subscribe, config
+                publish/subscribe
 ```
 
 Beside the library sit its **surfaces**: the HTTP/websocket server, the
@@ -35,29 +51,32 @@ writing a device driver rather than editing the rig.
 
 | package | layer | holds |
 | --- | --- | --- |
-| `flyball.foundation` | foundation | `Clock`, `Time`, `Duration`, `Rate`; `units`; `Quantity`; `Signal`, `Node`, `Path`, `Reading`, `Sample`, `Demand`, `WriteState`, `Access`; `Device`, `DriverConfig`; `Config`; errors; `Topic`, `Latest`, `Trigger` |
-| `flyball.control` | control | `Controller`, `ControlLaw` and the laws (`P`, `PI`, `PID`, `OpenLoop`), `SetPointGenerator`, `Feedforward`, `Tuning`, `Transfer` |
-| `flyball.autotune` | `hardware\|adaptive\|autotune\|db` | `StepTest`, `RelayTest`, `FOPDT`, `Ultimate`, the rules |
-| `flyball.adaptive` | `hardware\|adaptive\|autotune\|db` | `Identifier`, `RecursiveLeastSquares`, `SelfTuner` |
-| `flyball.hardware` | `hardware\|adaptive\|autotune\|db` | `I2cLink`, `Bank`; `links`: the `TextLink`/`RegisterLink` protocols only -- their fakes, real implementations (VISA, serial, Modbus) and the table-driven `scpi`/`modbus` devices built over them live in `extensions/visa`, `extensions/modbus` |
+| `flyball.foundation` | foundation | `Clock`, `Time`, `Duration`, `Rate`; `units`; `Quantity`; `Signal`, `Node`, `Path`, `Reading`, `Sample`, `Write`, `WriteState`, `Access`; `Device`, `DriverConfig`; errors; `Topic`, `Latest`, `Trigger` |
+| `flyball.model` | control (unlisted -- a real cycle, see Layering) | `Catalog`/`Catalogs`, `Config`; the base `ControlLaw`, `Feedforward`, `SetpointGenerator`, `Controller`/`ControllerSpec`/`ValueSource`, `Transfer` every registered law, feedforward, generator and `DriverConfig` derives from |
+| `flyball.control` | control | the 9 built-in laws (`P`, `PI`, `PID`, `IMC`, `OnOff`, `OpenLoop`, `Scheduled`, `SlidingMode`, `SmithPredictor`), the `Affine`/`Table` feedforwards, the `Dwell`/`LinearRampSetpoint`/`Profile` generators |
+| `flyball.library` | library | `Tuning`, `Tunings` -- saved, named configs |
+| `flyball.autotune` | `hardware\|adaptive\|autotune\|record` | `StepTest`, `RelayTest`, `FOPDT`, `Ultimate`, the rules |
+| `flyball.adaptive` | `hardware\|adaptive\|autotune\|record` | `Identifier`, `RecursiveLeastSquares`, `SelfTuner` |
+| `flyball.hardware` | `hardware\|adaptive\|autotune\|record` | `I2cLink`, `Bank`; `links`: the `TextLink`/`RegisterLink` protocols only -- their fakes, real implementations (VISA, serial, Modbus) and the table-driven `scpi`/`modbus` devices built over them live in `extensions/visa`, `extensions/modbus` |
 | `flyball.record` | `hardware\|adaptive\|autotune\|record` | `Store`, `SessionWriter`, `SqliteStore`, row types; `documents` for the Bluesky event model |
-| `flyball.runtime` | runtime | `Rig`, `Controllers`, `Polling`, `Recorder`, `Triggers`; `runtime.config`: `RigConfig`, `load_rig`, `rig_schema` — a rig as a file, with overlays |
-| `flyball.sequencing` | `sequencing` | `Command`, `Activity`, `Program`, `Programmer` |
+| `flyball.rig` | runtime (unlisted -- a real cycle, see Layering) | `Rig`, `Controllers`, `Polling`, `Triggers` -- the runtime container: devices, links, controllers, triggers, polling |
+| `flyball.runtime` | runtime | `Recorder`, `Writer`, retention, stats, `drivers`; `runtime.config`: `RigConfig`, `load_rig`, `rig_schema` — a rig as a file, with overlays |
+| `flyball.sequencing` | `sequencing` | `Step`, `Activity`, `Program`, `Programmer` |
 | `flyball.interfaces.server` | `mcp\|server` | the FastAPI app, routes, wire models, the program dialect |
 | `flyball.interfaces.mcp` | `mcp\|server` | the MCP server (stdio and mounted), tools, guides; built entirely on `flyball.interfaces.client` |
 | `flyball.interfaces.client`, `flyball.runner`, `flyball.scaffold` | `runner` (client and scaffold stand outside the contract, see below) | pure HTTP; import nothing from the rig. The `flyball` CLI itself is a separate Go binary (`daemon/cmd/flyball`), not part of this package |
 
 ## The pattern
 
-The same thing four times: a registry keyed by tag, populated on
+The same thing four times: a registry keyed by type, populated on
 subclassing, with a pydantic model derived from the class itself.
 
 | registry | populated by | model derived from |
 | --- | --- | --- |
-| control laws | `class X(ControlLaw, tag=…)` | `__init__` → config; `_state_fields` → state |
-| trajectories | `class X(SetPointGenerator, tag=…)` | the same |
-| commands | `class X(Command, tag=…)` | the dataclass constructor → request |
-| configs | `class X(Config, tag=…)` | the model itself; `union` discriminates on `tag` |
+| control laws | `class X(ControlLaw, type=…)` | `__init__` → config; `_state_fields` → state |
+| trajectories | `class X(SetpointGenerator, type=…)` | the same |
+| program steps | `class X(Step, tag=…)` | the dataclass constructor → request |
+| configs | `class X(Config, type=…)` | the model itself; `union` discriminates on `type` |
 
 Devices do the same without a registry: descriptors in the class body (or
 built from config) collect into the tree on subclassing, `config`'s return
@@ -93,14 +112,31 @@ flyball.interfaces.mcp | flyball.interfaces.server
 flyball.sequencing
 flyball.runtime
 flyball.hardware | flyball.adaptive | flyball.autotune | flyball.record
+flyball.library
 flyball.control
 flyball.foundation
 ```
 
-A second contract keeps `flyball.interfaces.client` and `flyball.scaffold` standing
-apart from all of it: neither may import `flyball.foundation`, `flyball.control`,
-`flyball.runtime`, `flyball.interfaces.server` or `flyball.sequencing`, so a client
-built from the wire alone cannot quietly start depending on the rig's
+`flyball.rig` and `flyball.model` are deliberately left out of this list,
+same as `flyball.scaffold`: each has a real, unavoidable cycle rather than
+an oversight. `flyball.rig` and `flyball.runtime` import each other at real
+module level (`runtime.config`/`writer`/`retention` build or type a `Rig`;
+`rig.rig` imports `runtime.writer`), so neither can sit below the other yet
+-- the fix is moving `writer.py`/`retention.py` into `rig/` and extracting
+just the `Rig`-building half of `runtime.config` out of it. `flyball.model`
+has to sit below `flyball.control` (the built-in laws import `ControlLaw`/
+`Feedforward`/`SetpointGenerator` from it) but also below `flyball.foundation`,
+model's own supposed base layer (`foundation.device.device.DriverConfig`
+subclasses `model.config.Config`) -- the fix is moving `DriverConfig` itself
+into `model/`. Both checked directly with `uv run lint-imports`; the
+reasoning is in `pyproject.toml`'s own comment above the contract.
+
+A second contract keeps `flyball.interfaces.client`, `flyball.scaffold` and
+`flyball.interfaces.mcp` standing apart from all of it: none may import
+`flyball.foundation`, `flyball.control`, `flyball.model`, `flyball.library`,
+`flyball.runtime`, `flyball.rig`, `flyball.interfaces.server` or
+`flyball.sequencing`, so a client built from the wire alone -- and the MCP
+server built on that client -- cannot quietly start depending on the rig's
 internals.
 
 ## Where it is going
@@ -109,13 +145,14 @@ Two intentions shape the extension points:
 
 1. **Devices and control laws as packages.** A `flyball-<device>`
    distribution defines a driver — a device, a control law, a feedforward —
-   and is usable by name (its tag) the moment it is installed.
+   and is usable by name (its type) the moment it is installed.
 2. **Use through config, not code.** A rig is a file: which links, which
    devices, which controller on which signal with which law.
 
 The second exists for the generic devices (`flyball.runtime.config`). The
 first still needs per-rig registries instead of process-wide ones — driver
-tags are one process-wide namespace (`Config.registry`) today, so a second
-plugin declaring the same tag collides; see [Decisions](decisions.md) — a
+tags are one process-wide namespace, a `Catalog` per kind held in one
+process-scoped `Catalogs` (`flyball.model.catalog`), so a second plugin
+declaring the same type still collides; see [Decisions](decisions.md) — a
 frozen public surface, and entry-point discovery. `IDEAS.md` in the
 repository carries the detail.

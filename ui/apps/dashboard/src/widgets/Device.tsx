@@ -1,32 +1,30 @@
 import { memo, useMemo } from "react";
 import { Form as MuiForm } from "@rjsf/mui";
 import { DevicePanel, Ref, useCommands, useDeviceRun, useDeviceSchema, useRig, type PanelSeverity } from "@flyball/react";
-import { describeDevice, type DeviceOut } from "@flyball/client";
-import { useAuth } from "../auth.js";
-import { useBindings } from "../dashboard/context.js";
+import { atLeast, describeDevice, type DeviceOut, type Severity } from "@flyball/client";
+import { useBindings, useCanWrite } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
 import { deviceSchema, SELECTS } from "./schema.js";
 import type { WidgetKind, WidgetComponentProps } from "./types.js";
 
 /** The worst device condition, as the frame's severity dot (DESIGN-SPEC §2); `undefined` (no dot) when none is at warn/alarm. */
-function severityOf(conditions: ReadonlyArray<{ level: number }>): PanelSeverity | undefined {
-  const level = Math.max(0, ...conditions.map((c) => c.level));
-  return level >= 40 ? "alarm" : level >= 30 ? "warn" : undefined;
+function severityOf(conditions: ReadonlyArray<{ severity: Severity }>): PanelSeverity | undefined {
+  return conditions.some((c) => atLeast(c.severity, "error")) ? "alarm" : conditions.some((c) => atLeast(c.severity, "warning")) ? "warn" : undefined;
 }
 
 /** The panel with its hooks: the schema fetched once, commands run through `useCommands`, the run and conditions live from the store. */
 function Wired({ device, commands }: { device: DeviceOut; commands: string[] | undefined }) {
   const rig = useRig();
-  const { canOperate } = useAuth();
+  const canWrite = useCanWrite();
   const schema = useDeviceSchema(device.name);
   const run = useDeviceRun(device.name); // from the store: this widget alone re-renders on its device
   const runner = useCommands(device.name);
   const title = useMemo(() => <Ref kind="device" name={device.name}>{device.label ?? device.name}</Ref>, [device.name, device.label]);
-  useWidgetChrome({ title, subtitle: describeDevice(device.driver ?? device.type), severity: severityOf(run?.conditions ?? device.conditions) });
+  useWidgetChrome({ title, subtitle: describeDevice(device.driver ?? device.class_name), severity: severityOf(run?.conditions ?? device.conditions) });
   if (schema.error) return <Missing what="device schema" name={schema.error.message} failed />;
   if (!schema.data) return null;
-  const panel = (
+  return (
     <DevicePanel
       device={device}
       schema={schema.data}
@@ -36,20 +34,13 @@ function Wired({ device, commands }: { device: DeviceOut; commands: string[] | u
       // description, and only the chosen commands inline (DESIGN-SPEC §3.5).
       bare
       compact
-      onRun={(tag, args) => runner.run(tag, args).catch(() => undefined)}
+      onRun={(command, args) => runner.run(command, args).catch(() => undefined)}
       onRestart={() => rig.restartDevice(device.name)}
       busy={runner.busy}
       results={runner.results}
+      // Commands and Restart greyed out, still shown, below operate or on a read-only dashboard.
+      canOperate={canWrite}
     />
-  );
-  // `@command` buttons and Restart live inside `DevicePanel`, which does not itself know about
-  // auth -- so a sub-operate browser gets the whole panel dimmed and click-blocked, rather than a
-  // per-button `disabled` reaching into content this widget doesn't own.
-  if (canOperate) return panel;
-  return (
-    <div aria-disabled="true" style={{ opacity: 0.5, pointerEvents: "none" }}>
-      {panel}
-    </div>
   );
 }
 

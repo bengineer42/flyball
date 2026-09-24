@@ -3,13 +3,46 @@
 from __future__ import annotations
 
 import pytest
-from flyball.foundation.device import Access
+from flyball.foundation.device import Access, Role
 from flyball.runtime.config import RigConfig, rig_schema
 from pydantic import ValidationError
 
 from flyball_modbus import FakeRegisterLink, Modbus, ModbusRegister
+from flyball_modbus._links import ModbusLink
 
 NS = 1_000_000_000  # a second, in the ns the runtime counts time in
+
+
+class FakePymodbusClient:
+    """Mimics pymodbus's client interface (>=3.10: `device_id=`, not `slave=`)."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    def connect(self) -> None:
+        pass
+
+    def read_holding_registers(self, address: int, count: int, device_id: int):
+        self.calls.append(("read", address, count, device_id))
+        return type("Result", (), {"isError": lambda self: False, "registers": [42] * count})()
+
+    def write_registers(self, address: int, values: list[int], device_id: int):
+        self.calls.append(("write", address, values, device_id))
+        return type("Result", (), {"isError": lambda self: False})()
+
+
+class TestModbusLink:
+    def test_read_registers_passes_device_id_not_slave(self):
+        client = FakePymodbusClient()
+        link = ModbusLink(client)
+        assert link.read_registers(100, 2, unit=7) == [42, 42]
+        assert client.calls == [("read", 100, 2, 7)]
+
+    def test_write_registers_passes_device_id_not_slave(self):
+        client = FakePymodbusClient()
+        link = ModbusLink(client)
+        link.write_registers(100, [1, 2], unit=7)
+        assert client.calls == [("write", 100, [1, 2], 7)]
 
 
 class TestModbusRegister:
@@ -18,6 +51,15 @@ class TestModbusRegister:
 
     def test_write_true_adds_w(self):
         assert ModbusRegister(address=1, unit="°C", write=True).access == Access.RPW
+
+    def test_a_writable_register_is_a_demand_unless_declared_a_setting(self):
+        """C13: `role: setting` keeps a configuration register out of a controller's reach."""
+        assert ModbusRegister(address=1, unit="°C", write=True).signal_role is Role.DEMAND
+        setting = ModbusRegister(address=1, unit="Hz", write=True, role="setting")
+        assert setting.signal_role is Role.SETTING and setting.access == Access.RPW
+        assert ModbusRegister(address=1, unit="°C").signal_role is Role.READOUT
+        with pytest.raises(ValidationError, match="only a writable register"):
+            ModbusRegister(address=1, unit="Hz", role="setting")
 
     def test_an_input_register_cannot_be_written(self):
         with pytest.raises(ValidationError, match="input register cannot be written"):
@@ -53,10 +95,18 @@ class TestModbus:
             link,
             {"a": ModbusRegister(address=1, unit="1"), "b": ModbusRegister(address=2, unit="1")},
         )
-        dev.signals["a"].override(poll_s=10.0)
-        dev.signals["b"].override(poll_s=1.0)
+        dev.signals["a"].set_meta(poll_s=10.0)
+        dev.signals["b"].set_meta(poll_s=1.0)
         assert [s.by_name() for s in dev.read(0)] == [{"a": 10.0}, {"b": 20.0}]
         assert [s.by_name() for s in dev.read(2 * NS)] == [{"b": 20.0}]
+
+    def test_a_slightly_early_poll_still_counts_as_due(self):
+        """`Scan`'s 0.9*period rule: a scaled clock's threads arrive a little early."""
+        link = FakeRegisterLink({1: 10})
+        dev = Modbus("d", link, {"a": ModbusRegister(address=1, unit="1")})
+        dev.signals["a"].set_meta(poll_s=1.0)
+        list(dev.read(0))
+        assert [s.by_name() for s in dev.read(int(0.95 * NS))] == [{"a": 10.0}]
 
     def test_blocking_is_true_for_a_real_bus_false_for_a_fake(self):
         dev = Modbus("d", FakeRegisterLink({}), {"a": ModbusRegister(address=1, unit="1")})
@@ -68,16 +118,14 @@ class TestModbus:
 
 def bench_document() -> dict:
     return {
-        "links": {"chiller": {"tag": "fake_registers", "registers": {100: 215}}},
+        "links": {"chiller": {"type": "fake_registers", "registers": {100: 215}}},
         "devices": {
             "chiller": {
                 "driver": "modbus",
                 "label": "Bench chiller",
-                "config": {
-                    "link": "chiller",
-                    "registers": {
-                        "temperature": {"address": 100, "unit": "°C", "scale": 0.1},
-                    },
+                "link": "chiller",
+                "registers": {
+                    "temperature": {"address": 100, "unit": "°C", "scale": 0.1},
                 },
             },
         },
@@ -91,7 +139,7 @@ class TestBenchRig:
 
     def test_an_undeclared_link_is_refused(self):
         document = bench_document()
-        document["devices"]["chiller"]["config"]["link"] = "nowhere"
+        document["devices"]["chiller"]["link"] = "nowhere"
         with pytest.raises(ValueError, match="link 'nowhere' is not declared"):
             RigConfig.model_validate(document)
 
@@ -104,10 +152,10 @@ class TestBenchRig:
         by_driver = schema["properties"]["devices"]["additionalProperties"]
         tags = {
             shape["properties"]["driver"]["const"]
-            for variant in by_driver["oneOf"]
-            # `.get`: the layer variants (an entry that only adds to a base's device, and `null`
-            # to remove one) have no nested `oneOf` and name no driver.
-            for shape in variant.get("oneOf", [])
+            for shape in by_driver["oneOf"]
+            # The layer variants (an entry that only adds to a base's device, and `null` to
+            # remove one) name no driver.
+            if "driver" in shape.get("properties", {})
         }
         assert "modbus" in tags
 

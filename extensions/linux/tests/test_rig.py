@@ -17,7 +17,7 @@ def bench_document() -> dict:
         "name": "bench",
         "links": {
             "i2c1": {
-                "tag": "fake_i2c",
+                "type": "fake_i2c",
                 "registers": {0x48: {0x00: [0x40, 0x00]}, 0x4A: {0x00: [0x0C, 0x80], 0x01: [0, 0]}},
                 "replies": {
                     0x44: [list(encode(21.5, 55.0))],
@@ -25,23 +25,21 @@ def bench_document() -> dict:
                     0x46: [list(encode(23.0, 95.0))],
                 },
             },
-            "spi0": {"tag": "fake_spi", "replies": [[0, 0x03, 0xFF]]},
-            "header": {"tag": "fake_gpio", "levels": {17: True}},
-            "pwm": {"tag": "fake_pwm"},
-            "w1": {"tag": "fake_onewire", "texts": {"28-1": W1_TEXT}},
+            "spi0": {"type": "fake_spi", "replies": [[0, 0x03, 0xFF]]},
+            "header": {"type": "fake_gpio", "levels": {17: True}},
+            "pwm": {"type": "fake_pwm"},
+            "w1": {"type": "fake_onewire", "texts": {"28-1": W1_TEXT}},
         },
         "devices": {
             "air": {"driver": "sht4x", "poll_s": 2, "link": "i2c1"},
             "hum": {
                 "driver": "sht4x_set",
                 "poll_s": 1,
-                "config": {
-                    "link": "i2c1",
-                    "sensors": {"dry": {"address": 0x45}, "wet": {"address": 0x46}},
-                },
+                "link": "i2c1",
+                "sensors": {"dry": {"address": 0x45}, "wet": {"address": 0x46}},
                 "signals": {
                     "wet": {"poll_s": 5},
-                    "dry": {"signals": {"humidity": {"warn": [0, 10]}}},
+                    "dry": {"signals": {"humidity": {"warning": [0, 10]}}},
                 },
             },
             "adc": {
@@ -88,8 +86,8 @@ def bench_document() -> dict:
         },
         "controllers": {
             "heater.drive": {
-                "signal": "air.temperature",
-                "law": {"tag": "PI", "kp": 1.0, "ki": 0.0},
+                "measured": "air.temperature",
+                "law": {"type": "PI", "kp": 1.0, "ki": 0.0},
                 "default": True,
             }
         },
@@ -124,22 +122,22 @@ def test_the_document_validates_against_every_registered_tag():
         "heater",
         "soil",
     }
-    assert config.devices["adc"].config["channels"] == {
+    assert config.devices["adc"].driver_config["channels"] == {
         "pressure": {"channel": 1, "scale": 25.0, "unit": "kPa"}
     }, "flat driver settings land under config"
 
 
 def test_the_tree_and_the_envelope_s_overrides(rig):
     assert {p: str(s.access) for p, s in rig.devices["chip"].signals.items()} == {
-        "conditions": "rp",
         "temperature": "rp",
         "setpoint": "rpw",
     }
-    assert _signal(rig, "hum.dry.humidity").spec.warn == (0.0, 10.0)
+    assert _signal(rig, "hum.dry.humidity").spec.warning == (0.0, 10.0)
     assert _signal(rig, "hum.wet.humidity").poll_s == 5.0
     assert _signal(rig, "adc.pressure").spec.range == (0.0, 100.0)
     assert _signal(rig, "heater.drive").limits == (10.0, 34.0), "the file narrowed the span"
-    assert _signal(rig, "heater.drive").spec.limits == (10.0, 34.0)
+    assert _signal(rig, "heater.drive").spec.limits == (10.0, 40.0), "the driver's span stays"
+    assert _signal(rig, "heater.drive").narrowed == (10.0, 34.0)
 
 
 @pytest.mark.parametrize(
@@ -175,14 +173,14 @@ def test_a_namespace_reads_as_one_sample(rig):
 
 def test_a_demand_commits_through_the_fake_bus(rig):
     chip = rig.devices["chip"]
-    states = rig.demand(chip.root, {"setpoint": 25.3})
+    states = rig.write(chip.root, {"setpoint": 25.3})
     setpoint = _signal(rig, "chip.setpoint")
     assert chip.link.written == [(0x4A, 0x01, [0x00, 0x33])], "(25.5 / 0.5) = 51 = 0x33"
     assert states[setpoint].value == pytest.approx(25.5), "what the chip holds, quantised"
     fan = rig.devices["fan"]
-    assert rig.demand(fan.root, {"on": 1})[_signal(rig, "fan.on")].value == 1.0
+    assert rig.write(fan.root, {"on": 1})[_signal(rig, "fan.on")].value == 1.0
     assert fan.link.levels[18] is True
-    states = rig.demand(fan.root, {"on": 3})
+    states = rig.write(fan.root, {"on": 3})
     assert states[_signal(rig, "fan.on")].requested == 3.0, "clamped to limits [0, 1]"
 
 
@@ -190,7 +188,7 @@ def test_a_controller_drives_the_heater_and_a_manual_demand_is_refused(rig):
     heater = rig.devices["heater"]
     drive = _signal(rig, "heater.drive")
     controller = rig.controllers.resolve(None)
-    assert controller.name == "heater.drive" and controller.demand_unit == "°C"
+    assert controller.name == "heater.drive" and controller.output_unit == "°C"
     controller.regulate(25.0)
     rig.on_samples(list(rig.devices["air"].read(1 * NS)))
     assert heater.written[drive].controller == "heater.drive"
@@ -201,7 +199,7 @@ def test_a_controller_drives_the_heater_and_a_manual_demand_is_refused(rig):
         (28.5 - 10) / 30, abs=0.001
     )
     with pytest.raises(ConflictError, match="driven by controller"):
-        rig.demand(heater.root, {"drive": 20.0})
+        rig.write(heater.root, {"drive": 20.0})
     controller.regulate(60.0)
     rig.on_samples(list(rig.devices["air"].read(2 * NS)))
     assert heater.written[drive].value == 34.0 and heater.written[drive].at_limit == "high"
@@ -222,19 +220,19 @@ def test_the_entry_point_registers_every_tag():
         "pwm_channel",
         "ds18b20",
     ):
-        assert fresh.devices[tag].config_tag == tag
+        assert fresh.devices[tag].type_name == tag
     for tag in ("i2c", "spi", "gpio", "pwm", "onewire"):
-        assert fresh.links[tag].config_tag == tag
+        assert fresh.links[tag].type_name == tag
 
 
-def test_the_schema_describes_every_driver_flat_and_layered():
+def test_the_schema_describes_every_driver():
     by_driver = rig_schema()["properties"]["devices"]["additionalProperties"]
     tags = {
         shape["properties"]["driver"]["const"]
-        for variant in by_driver["oneOf"]
+        for shape in by_driver["oneOf"]
         # The last variants are the layer forms -- an entry that only adds to a device a base
         # declared, and `null` to remove one -- neither of which names a driver.
-        for shape in variant.get("oneOf", [])
+        if "driver" in shape.get("properties", {})
     }
     assert {
         "sht4x",

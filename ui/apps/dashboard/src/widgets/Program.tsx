@@ -1,6 +1,6 @@
 import { memo, useState } from "react";
 import { Button, Chip, LinearProgress, Typography } from "@mui/material";
-import StopIcon from "@mui/icons-material/Stop";
+import CancelIcon from "@mui/icons-material/CancelOutlined";
 import { useRig } from "@flyball/react";
 import { humanise } from "@flyball/client";
 import { stepOf } from "../model.js";
@@ -16,13 +16,13 @@ const HEAD_PX = 28 + 8 + 4 + 8;
 const ROW_PX = 20;
 
 /**
- * State chip · program · step, an Interrupt button while running, the
+ * State chip · program · step, a Cancel button while running, the
  * progress bar, then as many recent program events as the body holds (never
  * a scrollbar). Body only; the frame is `WidgetFrame`'s.
  */
 const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComponentProps) {
   const rig = useRig();
-  const { programmer, rowHeight } = useRigData();
+  const { programmer, rowHeight, canWrite } = useRigData();
   const events = useEventsData();
   const [busy, setBusy] = useState(false);
   const p = programmer.data;
@@ -32,12 +32,12 @@ const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComp
   const shown = Math.min(Math.max(0, Number(config.events ?? 5)), rowsThatFit(widget.h, rowHeight, true, HEAD_PX, ROW_PX));
   const recent = events.filter((e) => e.scope === "program").slice(-shown).reverse();
   // The programmer says step and command; the program's name is in the step events' subject (`anneal[4]`).
-  const latest = [...events].reverse().find((e) => e.scope === "program" && e.kind === "step");
+  const latest = [...events].reverse().find((e) => e.scope === "program" && e.code === "step");
   const name = latest ? latest.subject.replace(/\[\d+\]$/, "") : null;
-  const interrupt = () => {
+  const cancel = () => {
     setBusy(true);
     rig
-      .interruptProgram()
+      .cancelProgram()
       .catch(() => undefined)
       .finally(() => {
         setBusy(false);
@@ -56,9 +56,9 @@ const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComp
         <Typography variant="body2" noWrap color={failed ? "error" : "text.secondary"} sx={{ minWidth: 0 }}>
           {!p ? "…" : running ? `step ${stepOf(p)}${p.command ? ` · ${humanise(p.command)}` : ""}` : failed ? `failed${p.error ? ` · ${p.error}` : ""}` : "nothing is running"}
         </Typography>
-        {running && config.interrupt !== false && (
-          <Button size="small" variant="outlined" color="error" startIcon={<StopIcon />} onClick={interrupt} disabled={busy} sx={{ ml: "auto", flex: "none" }}>
-            Interrupt
+        {running && config.cancel !== false && (
+          <Button size="small" variant="outlined" color="error" startIcon={<CancelIcon />} onClick={cancel} disabled={busy || !canWrite} sx={{ ml: "auto", flex: "none" }}>
+            Cancel
           </Button>
         )}
       </div>
@@ -73,8 +73,8 @@ const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComp
           {recent.map((e, i) => (
             <div key={`${e.time_ns}-${i}`} className="dash-program-event" title={`${humaniseSubject(e.subject)}: ${e.message}`}>
               <span className="dash-program-time fb-muted">{TIME.format(new Date(e.time_ns / 1e6))}</span>
-              <Typography variant="body2" component="span" color={e.level === "ERROR" ? "error" : e.level === "WARNING" ? "warning.main" : "text.secondary"} noWrap>
-                {humanise(e.kind)}
+              <Typography variant="body2" component="span" color={e.severity === "error" ? "error" : e.severity === "warning" ? "warning.main" : "text.secondary"} noWrap>
+                {humanise(e.code)}
               </Typography>
               <Typography variant="body2" component="span" noWrap>
                 {e.message}
@@ -100,10 +100,10 @@ export const program: WidgetKind = {
     type: "object",
     properties: {
       events: { type: "integer", title: "Recent events", default: 5, minimum: 0, maximum: 50, description: "How many program events to list under the status; 0 for none." },
-      interrupt: { type: "boolean", title: "Interrupt button", default: true },
+      cancel: { type: "boolean", title: "Cancel button", default: true },
     },
   }),
-  defaultConfig: () => ({ events: 5, interrupt: true }),
+  defaultConfig: () => ({ events: 5, cancel: true }),
   titleFor: () => "Program",
   Component: ProgramWidget,
 };

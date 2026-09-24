@@ -1,9 +1,9 @@
-"""The rig's controllers: by target address for people and programs, by source for the tick.
+"""The rig's controllers: by output address for people and programs, by measured signal to tick.
 
-A controller is named by the signal it drives, so its name is that signal's
-address (`"heaters.heater1"`). One controller per target and one per source:
-two on a target would fight over it, two on a source would both step on
-the same reading.
+A controller is named by the demand it drives, its output, so its name is
+that signal's address (`"heaters.heater1"`). One controller per output and
+one per measured signal: two on an output would fight over it, two on a
+measured signal would both step on the same reading.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from collections.abc import ItemsView, Iterator
 
 from flyball.foundation.device import Signal
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
-from flyball.model.controller import Controller, ControllerSettings, ControllerState, ControllerView
+from flyball.model.controller import Controller, ControllerSpec, ControllerState, ControllerView
 
 
 class ControllerNotFoundError(NotFoundError):
@@ -25,11 +25,11 @@ class NoDefaultControllerError(NotReadyError):
         super().__init__("No default controller set")
 
 
-class SourceClaimedError(ConflictError):
-    """A signal already has a controller on it: as its source, or as its target.
+class SignalClaimedError(ConflictError):
+    """A signal already has a controller on it: as its measured signal, or as its output.
 
-    A controller's name is its target's address, so a claimed target reads
-    "driven by" and a claimed source "regulated by".
+    A controller's name is its output's address, so a claimed output reads
+    "driven by" and a claimed measured signal "regulated by".
     """
 
     def __init__(self, signal: Signal, by: str) -> None:
@@ -38,20 +38,24 @@ class SourceClaimedError(ConflictError):
 
 
 class Controllers:
-    """The rig's controllers, keyed by target address; `find` by source is the hot path."""
+    """The rig's controllers, keyed by output address; `find` by measured signal is the hot path."""
 
     _controllers: dict[str, Controller]
-    _sources: dict[Signal, Controller]
-    _targets: dict[Signal, Controller]
+    _measured: dict[Signal, Controller]
+    _outputs: dict[Signal, Controller]
     default: str | None = None
 
     def __init__(self) -> None:
         self._controllers = {}
-        self._sources = {}
-        self._targets = {}
+        self._measured = {}
+        self._outputs = {}
 
     def __getitem__(self, name: str) -> Controller:
         return self._controllers[name]
+
+    def get(self, name: str) -> Controller | None:
+        """By name, or None; one dict lookup, safe without the rig's lock."""
+        return self._controllers.get(name)
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._controllers)
@@ -63,41 +67,41 @@ class Controllers:
         return len(self._controllers)
 
     def add(self, controller: Controller, default: bool = False) -> None:
-        """Register `controller` under its target's address.
+        """Register `controller` under its output's address.
 
         Raises:
-            SourceClaimedError: Another controller already drives its target
-                or regulates its source. Re-adding the same one is a no-op.
+            SignalClaimedError: Another controller already drives its output
+                or regulates its measured signal. Re-adding the same one is a no-op.
         """
-        for signal in (controller.target, controller.source):
-            holder = self._targets.get(signal) or self._sources.get(signal)
+        for signal in (controller.output_signal, controller.measured_signal):
+            holder = self._outputs.get(signal) or self._measured.get(signal)
             if holder is not None and holder is not controller:
-                raise SourceClaimedError(signal, holder.name)
+                raise SignalClaimedError(signal, holder.name)
         self._controllers[controller.name] = controller
-        self._targets[controller.target] = controller
-        self._sources[controller.source] = controller
+        self._outputs[controller.output_signal] = controller
+        self._measured[controller.measured_signal] = controller
         if default or self.default is None:
             self.default = controller.name
 
     def remove(self, name: str) -> Controller:
-        """Detach a controller; its target and source are free for another."""
+        """Detach a controller; its output and measured signal are free for another."""
         try:
             controller = self._controllers.pop(name)
         except KeyError as e:
             raise ControllerNotFoundError(name) from e
-        self._targets.pop(controller.target, None)
-        self._sources.pop(controller.source, None)
+        self._outputs.pop(controller.output_signal, None)
+        self._measured.pop(controller.measured_signal, None)
         if self.default == name:
             self.default = next(iter(self._controllers), None)
         return controller
 
-    def find(self, source: Signal) -> Controller | None:
-        """The controller regulating `source`, or None. The hot path: most signals have none."""
-        return self._sources.get(source)
+    def find(self, measured: Signal) -> Controller | None:
+        """The controller regulating `measured`, or None. The hot path: most signals have none."""
+        return self._measured.get(measured)
 
-    def driving(self, target: Signal) -> Controller | None:
-        """The controller driving `target`, or None; what refuses a manual demand."""
-        return self._targets.get(target)
+    def driving(self, output: Signal) -> Controller | None:
+        """The controller driving `output`, or None; what refuses a manual demand."""
+        return self._outputs.get(output)
 
     def resolve(self, name: str | None = None) -> Controller:
         """By name, or the default. Raises rather than returning None."""
@@ -109,23 +113,23 @@ class Controllers:
         except KeyError as e:
             raise ControllerNotFoundError(name) from e
 
-    def source(self, name: str) -> Signal:
-        return self.resolve(name).source
+    def measured(self, name: str) -> Signal:
+        return self.resolve(name).measured_signal
 
     def items(self) -> ItemsView[str, Controller]:
         return self._controllers.items()
 
     def entries(self) -> Iterator[tuple[Signal, Controller]]:
-        """Every controller with the source it regulates."""
-        return ((controller.source, controller) for controller in self._controllers.values())
+        """Every controller with the measured signal it regulates."""
+        return ((c.measured_signal, c) for c in self._controllers.values())
 
     @property
     def states(self) -> dict[str, ControllerState]:
         return {name: c.state for name, c in self._controllers.items()}
 
     @property
-    def settings(self) -> dict[str, ControllerSettings]:
-        return {name: c.settings for name, c in self._controllers.items()}
+    def specs(self) -> dict[str, ControllerSpec]:
+        return {name: c.spec for name, c in self._controllers.items()}
 
     @property
     def views(self) -> dict[str, ControllerView]:

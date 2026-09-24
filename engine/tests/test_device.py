@@ -58,18 +58,18 @@ def test_reserved_and_duplicate_tags_are_refused():
     with pytest.raises(ValueError, match="reserved"):
 
         class A(Device):
-            @command(tag="schema")
+            @command(name="schema")
             def s(self) -> None:
                 """Stub."""
 
     with pytest.raises(ValueError, match="already used"):
 
         class B(Device):
-            @command(tag="go")
+            @command(name="go")
             def one(self) -> None:
                 """Stub."""
 
-            @command(tag="go")
+            @command(name="go")
             def two(self) -> None:
                 """Stub."""
 
@@ -82,8 +82,8 @@ def test_a_command_without_a_docstring_is_refused():
             def go(self) -> None: ...
 
 
-def test_every_device_has_conditions_first_and_synthesised_setters_last():
-    """`conditions` comes from the base class; `last.<tag>` from its own real commands."""
-    assert [spec.name for spec in DutyHeater.TREE] == ["conditions", "power", "duty", "last"]
+def test_every_device_has_synthesised_setters_last():
+    """`last.<tag>` from its own real commands comes after the driver's own tree."""
+    assert [spec.name for spec in DutyHeater.TREE] == ["power", "duty", "last"]
     heater = DutyHeater("h")
-    assert list(heater.signals) == ["conditions", "power", "duty", "last.set_duty", "last.off"]
+    assert list(heater.signals) == ["power", "duty", "last.set_duty", "last.off"]

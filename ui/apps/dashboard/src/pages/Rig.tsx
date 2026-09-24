@@ -11,6 +11,8 @@ import { useDevices, useQuery, useRig, useRigChanges, useRigDocument, useRigFile
 import { RigError, pageBase, type ControllerSchema, type DeviceOut, type JsonSchema, type RigDocument, type RunnerInfo, type RigVersion } from "@flyball/client";
 import { dumpYaml } from "../programText.js";
 import { Confirm } from "../Confirm.js";
+import { confirmLevel } from "../confirmLevels.js";
+import { RESTART_TEXT, useRigEdit } from "../rigEdit.js";
 import { SectionHead, StateBlock } from "../cards.js";
 import { PAGE_ICONS } from "../icons.js";
 import { when } from "../time.js";
@@ -53,14 +55,15 @@ function YamlBlock({ value, empty, highlight }: { value: unknown; empty?: string
 
 /** One version row: when, why, what files it touched, and a restore button; the head (where the rig is) is marked and has nothing to restore. */
 function VersionRow({ version, onRestore, busy }: { version: RigVersion; onRestore(v: RigVersion): void; busy: boolean }) {
+  const { canOperate } = useAuth();
   const head = version.head === true;
   return (
     <ListItem
       divider
       secondaryAction={
-        <Tooltip title={head ? "The running rig is at this version" : "Rebuild the running rig to match this version"}>
+        <Tooltip title={head ? "The running rig is at this version" : "Save this version again as the newest and restart the rig on it"}>
           <span>
-            <IconButton edge="end" aria-label={`restore version ${version.id}`} onClick={() => onRestore(version)} disabled={busy || head} data-testid={`restore-${version.id}`}>
+            <IconButton edge="end" aria-label={`restore version ${version.id}`} onClick={() => onRestore(version)} disabled={busy || head || !canOperate} data-testid={`restore-${version.id}`}>
               <RestoreIcon fontSize="small" />
             </IconButton>
           </span>
@@ -82,6 +85,7 @@ function VersionRow({ version, onRestore, busy }: { version: RigVersion; onResto
 
 /** Save the running rig: the default overlay beside the loaded file, or the whole rig to a chosen path. */
 function SaveBox({ allowPath }: { allowPath: boolean }) {
+  const { canOperate } = useAuth();
   const rig = useRig();
   const [path, setPath] = useState("");
   const [overwrite, setOverwrite] = useState(false);
@@ -95,7 +99,7 @@ function SaveBox({ allowPath }: { allowPath: boolean }) {
     setSaved(null);
     try {
       const result = await rig.saveRig(path.trim() ? { path: path.trim(), overwrite } : {});
-      setSaved(result.path);
+      setSaved(result.written ? `Written to ${result.path}.` : `Nothing new to save: ${result.path} already holds every change.`);
     } catch (e) {
       setError(detail(e));
     } finally {
@@ -111,8 +115,8 @@ function SaveBox({ allowPath }: { allowPath: boolean }) {
       <Stack spacing={1.5}>
         <Typography variant="body2" color="text.secondary">
           {allowPath
-            ? "With no path, only what changed since the runner started is written, to an overlay beside the rig file it was loaded from. A path writes the whole rig there instead."
-            : "What changed since the runner started is written to an overlay beside the rig file it was loaded from. (Writing the whole rig to a path of your choosing needs the runner started with allow_save.)"}
+            ? "Adding or removing a link or device is saved as it is applied. With no path, Save writes what is left: controllers attached or detached since the runner started, to the overlay beside the rig file. A path writes the whole rig there instead."
+            : "Adding or removing a link or device is saved as it is applied. Save writes what is left: controllers attached or detached since the runner started, to the overlay beside the rig file. (Writing the whole rig to a path of your choosing needs the runner started with allow_save.)"}
         </Typography>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "flex-start", sm: "center" }}>
           {allowPath && (
@@ -132,13 +136,13 @@ function SaveBox({ allowPath }: { allowPath: boolean }) {
               label="overwrite a loaded file"
             />
           )}
-          <Button variant="contained" onClick={() => void save()} disabled={busy} data-testid="save-rig">
+          <Button variant="contained" onClick={() => void save()} disabled={busy || !canOperate} data-testid="save-rig">
             Save
           </Button>
         </Stack>
         {saved && (
           <Alert severity="success" onClose={() => setSaved(null)} data-testid="save-result">
-            Written to {saved}.
+            {saved}
           </Alert>
         )}
         {error && (
@@ -193,13 +197,17 @@ const MCP_MODES: Array<{ mode: "read" | "author" | "operate"; label: string; ser
 /**
  * `GET /mcp/{read,author,operate}`: this runner's MCP server, one tier per mode (book's mcp.md). Shows each
  * tier's absolute URL, the `claude mcp add` line for it, and a client config block. The browser never holds
- * the runner's token (a login is a cookie), so the block carries a placeholder for it when the runner has one.
+ * a token (a login is a cookie), so the block carries a placeholder for one wherever the door (`info.shape`)
+ * is not `local`: a front's named token, or a bare runner's own.
  */
-function ConnectModelCard() {
+export function ConnectModelCard() {
   const { info } = useAuth();
   const base = pageBase();
   const urls = MCP_MODES.map((m) => ({ ...m, url: `${base}/mcp/${m.mode}` }));
-  const needsToken = Boolean(info && (info.token || info.password));
+  // Every shape but `local` refuses a caller with no credential, and a model cannot type a password or
+  // pass a proxy's sign-in: it sends a bearer token. Which token is the door's: a front's named token,
+  // or a bare runner's own.
+  const needsToken = Boolean(info && info.shape !== "local");
   const config = {
     mcpServers: Object.fromEntries(
       urls.map((m) => [m.server, { type: "http", url: m.url, ...(needsToken ? { headers: { Authorization: "Bearer <token>" } } : {}) }]),
@@ -229,14 +237,16 @@ function ConnectModelCard() {
         ))}
         <Box>
           <Typography variant="subtitle2">Client config</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
-            {info?.token
-              ? "Every server here needs the runner's bearer token (--token), since any of them can drive the rig: put it where <token> is."
-              : info?.password
-                ? "This runner has a password but no token, and a model cannot type one: start it with --token as well and put that where <token> is."
-                : "This runner has no password and no token: it is open to anyone who can reach it, so the config below carries no headers."}
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }} data-testid="connect-advice" data-shape={info?.shape}>
+            {!info || info.shape === "local"
+              ? "This rig asks nobody to sign in: it is open to whoever can reach it, so the config below carries no headers."
+              : info.shape === "bare"
+                ? "Every server here needs the runner's bearer token (--token), since any of them can drive the rig: put it where <token> is."
+                : "Every server here needs a named token, since a model cannot sign in as a person does: make one on the rig's host with `flyball token create --name claude --kind agent --config <rig file>` (add `--scope operate` to drive the rig) and put it where <token> is."}
           </Typography>
-          <CopyLine value={JSON.stringify(config, null, 2)} />
+          <Box data-testid="connect-config">
+            <CopyLine value={JSON.stringify(config, null, 2)} />
+          </Box>
         </Box>
       </Stack>
     </Paper>
@@ -245,18 +255,19 @@ function ConnectModelCard() {
 
 /** Where this runner serves from and, when it allows it, the buttons to stop or restart it. */
 function RunnerControls({ runner, busy, onAsk }: { runner: RunnerInfo; busy: boolean; onAsk(what: "shutdown" | "restart"): void }) {
+  const { canOperate } = useAuth();
   return (
     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
       <Typography variant="body2" color="text.secondary" title={runner.files.join("\n")}>
-        {runner.host}:{runner.port}
+        {runner.endpoint ?? ""}
         {runner.root_path ? runner.root_path : ""} · {runner.files.length} file{runner.files.length === 1 ? "" : "s"}
       </Typography>
       {runner.allow_shutdown && (
         <>
-          <Button size="small" variant="outlined" startIcon={<RestartAltIcon />} disabled={busy} onClick={() => onAsk("restart")} data-testid="runner-restart">
+          <Button size="small" variant="outlined" startIcon={<RestartAltIcon />} disabled={busy || !canOperate} onClick={() => onAsk("restart")} data-testid="runner-restart">
             Restart
           </Button>
-          <Button size="small" variant="outlined" color="error" startIcon={<PowerSettingsNewIcon />} disabled={busy} onClick={() => onAsk("shutdown")} data-testid="runner-shutdown">
+          <Button size="small" variant="outlined" color="error" startIcon={<PowerSettingsNewIcon />} disabled={busy || !canOperate} onClick={() => onAsk("shutdown")} data-testid="runner-shutdown">
             Shut down
           </Button>
         </>
@@ -266,12 +277,14 @@ function RunnerControls({ runner, busy, onAsk }: { runner: RunnerInfo; busy: boo
 }
 
 /** The rig's devices, name and driver, each with a remove button; "Add device" opens the same dialog `#/devices` used before this moved here. */
-function DevicesSection({ document, schema, devices, onChanged }: { document: QueryState<RigDocument>; schema: QueryState<JsonSchema>; devices: DeviceOut[]; onChanged(): void }) {
+function DevicesSection({ document, schema, devices }: { document: QueryState<RigDocument>; schema: QueryState<JsonSchema>; devices: DeviceOut[] }) {
+  const { canOperate } = useAuth();
   const rig = useRig();
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const edits = useRigEdit();
   const names = Object.entries(document.data?.devices ?? {});
   const linkNames = Object.keys(document.data?.links ?? {});
 
@@ -279,10 +292,10 @@ function DevicesSection({ document, schema, devices, onChanged }: { document: Qu
     if (!removing) return;
     setBusy(true);
     try {
-      await rig.removeDevice(removing);
+      const target = removing;
+      await edits.apply((options) => rig.removeDevice(target, options));
       setError(null);
       setRemoving(null);
-      onChanged();
     } catch (e) {
       setError(detail(e));
     } finally {
@@ -296,7 +309,7 @@ function DevicesSection({ document, schema, devices, onChanged }: { document: Qu
         <Typography variant="h2" component="h2" color="text.secondary">
           Devices
         </Typography>
-        <Button size="small" startIcon={<AddIcon />} sx={{ ml: "auto" }} onClick={() => setAdding(true)} data-testid="add-device">
+        <Button size="small" startIcon={<AddIcon />} sx={{ ml: "auto" }} disabled={!canOperate} onClick={() => setAdding(true)} data-testid="add-device">
           Add device
         </Button>
       </Stack>
@@ -309,7 +322,7 @@ function DevicesSection({ document, schema, devices, onChanged }: { document: Qu
       {names.length > 0 && (
         <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1}>
           {names.map(([name, entry]) => (
-            <Chip key={name} label={`${name} · ${String(entry.driver ?? "")}`} variant="outlined" onDelete={() => setRemoving(name)} data-testid={`device-${name}`} />
+            <Chip key={name} label={`${name} · ${String(entry.driver ?? "")}`} variant="outlined" onDelete={canOperate ? () => setRemoving(name) : undefined} data-testid={`device-${name}`} />
           ))}
         </Stack>
       )}
@@ -323,26 +336,27 @@ function DevicesSection({ document, schema, devices, onChanged }: { document: Qu
         schema={schema.data}
         linkNames={linkNames}
         onClose={() => setAdding(false)}
-        onCreated={() => {
-          setAdding(false);
-          onChanged();
-        }}
+        onCreated={() => setAdding(false)}
       />
       <Confirm
         open={removing !== null}
         title={`Remove device ${removing}?`}
-        text="Takes it off the rig with everything that hung off it."
-        action="Remove"
+        text={`Takes it off the rig file with everything that hung off it. ${RESTART_TEXT}`}
+        action="Remove and restart"
+        level={confirmLevel("rig.edit.remove")}
+        phrase={removing ?? undefined}
         busy={busy}
         onClose={() => setRemoving(null)}
         onConfirm={() => void remove()}
       />
+      {edits.dialog}
     </Paper>
   );
 }
 
 /** The rig's controllers, target and source, each with a remove button; "Add controller" opens the same stepper `#/controllers` used before this moved here. */
 function ControllersSection({ document, schema, devices, onChanged }: { document: QueryState<RigDocument>; schema: QueryState<ControllerSchema>; devices: DeviceOut[]; onChanged(): void }) {
+  const { canOperate } = useAuth();
   const rig = useRig();
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -371,7 +385,7 @@ function ControllersSection({ document, schema, devices, onChanged }: { document
         <Typography variant="h2" component="h2" color="text.secondary">
           Controllers
         </Typography>
-        <Button size="small" startIcon={<AddIcon />} sx={{ ml: "auto" }} onClick={() => setAdding(true)} data-testid="add-controller">
+        <Button size="small" startIcon={<AddIcon />} sx={{ ml: "auto" }} disabled={!canOperate} onClick={() => setAdding(true)} data-testid="add-controller">
           Add controller
         </Button>
       </Stack>
@@ -384,7 +398,7 @@ function ControllersSection({ document, schema, devices, onChanged }: { document
       {entries.length > 0 && (
         <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1}>
           {entries.map(([target, entry]) => (
-            <Chip key={target} label={`${target} ← ${String(entry.signal ?? "")}`} variant="outlined" onDelete={() => setRemoving(target)} data-testid={`controller-${target}`} />
+            <Chip key={target} label={`${target} ← ${String(entry.measured ?? entry.signal ?? "")}`} variant="outlined" onDelete={canOperate ? () => setRemoving(target) : undefined} data-testid={`controller-${target}`} />
           ))}
         </Stack>
       )}
@@ -421,7 +435,12 @@ function ControllersSection({ document, schema, devices, onChanged }: { document
  * the runner started, its version history with a restore per row, and a box
  * to save it -- the overlay by default, or the whole rig to a path.
  */
-export function RigPage() {
+/**
+ * The running rig, as two Options tabs (D-053): `file` is what the rig is made of -- devices, links,
+ * controllers, the running document and what changed since start; `runner` is what happens to it
+ * as a whole -- versions and restore, save, shutdown/restart, connecting a model.
+ */
+export function RigPage({ part = "file" }: { part?: "file" | "runner" }) {
   const rig = useRig();
   const document = useRigDocument(5000);
   const changes = useRigChanges(5000);
@@ -453,17 +472,16 @@ export function RigPage() {
   };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const edits = useRigEdit();
 
   const restore = async () => {
     if (!restoring) return;
     setBusy(true);
     try {
-      await rig.restoreVersion(restoring.id);
+      const id = restoring.id;
+      await edits.apply((options) => rig.restoreVersion(id, options));
       setError(null);
       setRestoring(null);
-      document.refresh();
-      changes.refresh();
-      versions.refresh();
     } catch (e) {
       setError(detail(e));
     } finally {
@@ -475,9 +493,11 @@ export function RigPage() {
 
   return (
     <>
-      <SectionHead icon={PAGE_ICONS.rig} title="Config" end={runner.data ? <RunnerControls runner={runner.data} busy={busy} onAsk={setPower} /> : undefined} />
+      {part === "file" && (
+      <>
+      <SectionHead icon={PAGE_ICONS.options} title="Rig file" />
       <div className="grid">
-        <DevicesSection document={document} schema={rigSchema} devices={devices.data ?? []} onChanged={composed} />
+        <DevicesSection document={document} schema={rigSchema} devices={devices.data ?? []} />
         <div className="c12 xl6">
           <LinksSection document={document} schema={rigSchema} />
         </div>
@@ -496,6 +516,13 @@ export function RigPage() {
           {changes.error && <Alert severity="error">{changes.error.message}</Alert>}
           {!changes.error && (changes.data !== undefined ? <YamlBlock value={changes.data} empty="Nothing changed." highlight={changeCount > 0} /> : <Typography color="text.secondary">loading…</Typography>)}
         </Paper>
+      </div>
+      </>
+      )}
+      {part === "runner" && (
+      <>
+      <SectionHead icon={PAGE_ICONS.options} title="Runner" end={runner.data ? <RunnerControls runner={runner.data} busy={busy} onAsk={setPower} /> : undefined} />
+      <div className="grid">
         <Paper className="c12 xl6" sx={{ p: 3 }}>
           <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 1.125 }}>
             Versions {versions.data && `· ${versions.data.length}`}
@@ -520,6 +547,8 @@ export function RigPage() {
         </div>
         <ConnectModelCard />
       </div>
+      </>
+      )}
       <Confirm
         open={power !== null}
         title={power === "shutdown" ? "Shut the runner down?" : "Restart the runner?"}
@@ -532,13 +561,16 @@ export function RigPage() {
       <Confirm
         open={restoring !== null}
         title={restoring ? `Restore version #${restoring.id}?` : ""}
-        text="Rebuilds the running rig to match this version: what it lacks is added, what it has that this version does not is removed, and a changed device is rebuilt. Recorded as a new version of its own."
-        action="Restore"
+        text={`Saves a new version with this one's rig and restarts the rig on it. ${RESTART_TEXT}`}
+        action="Restore and restart"
+        level={confirmLevel("rig.restore")}
+        phrase={restoring ? String(restoring.id) : undefined}
         busy={busy}
         danger={false}
         onClose={() => setRestoring(null)}
         onConfirm={() => void restore()}
       />
+      {edits.dialog}
     </>
   );
 }

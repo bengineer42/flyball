@@ -57,5 +57,5 @@ def test_reading_an_unclaimed_line_is_an_error():
         chip.count_edges(5)
 
 
-def test_tag_builds():
+def test_type_builds():
     assert get_catalog().devices["pulse_counter"] is not None

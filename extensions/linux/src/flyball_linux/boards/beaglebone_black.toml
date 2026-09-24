@@ -6,15 +6,15 @@
 name = "BeagleBone Black"
 
 [links.i2c2]
-tag = "i2c"
+type = "i2c"
 bus = 2
 
 [links.gpio1]
-tag = "gpio"
+type = "gpio"
 chip = "gpiochip1"
 
 [links.gpio0]
-tag = "gpio"
+type = "gpio"
 chip = "gpiochip0"
 
 [pins]

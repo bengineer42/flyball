@@ -1,6 +1,6 @@
 import { type SessionDetail, useSessionSeries, useEverShown } from "../hooks/useSession.js";
 import { useEffect, useRef, useState } from "react";
-import { describeDevice, describeEventKind, describeStateKey, describeSubject, isHousekeeping, isNumeric, isScratch, type Dtype, type SignalOut, type SignalRow, fixed } from "@flyball/client";
+import { describeDevice, describeEdge, describeEventCode, describeStateKey, describeSubject, isHousekeeping, isNumeric, isScratch, type Dtype, type SignalOut, type SignalRow, fixed } from "@flyball/client";
 import { MultiSeries, type MultiSeriesTrace } from "./MultiSeries.js";
 import { TimeSeries } from "./TimeSeries.js";
 import type { YScale } from "./yscale.js";
@@ -11,7 +11,7 @@ import { useVisible } from "../hooks/useVisible.js";
 /** A device's recorded config, if any, as a plain object minus what the row already says. */
 function deviceConfig(config: unknown): { label: string | null; rest: Record<string, unknown> } {
   if (!config || typeof config !== "object") return { label: null, rest: {} };
-  const { label, tag: _tag, name: _name, driver: _driver, ...rest } = config as Record<string, unknown>;
+  const { label, type: _type, name: _name, driver: _driver, ...rest } = config as Record<string, unknown>;
   return { label: typeof label === "string" ? label : null, rest };
 }
 
@@ -25,9 +25,9 @@ function asDtype(dtype: string): Dtype {
 }
 
 /** The last point of a trace, formatted -- a generator-based controller write can record a non-numeric value (a ramp's `regulate` object, say), so this guards the same way `ControllerPanel.tsx`'s `value()`/`describeReference` do. */
-function latest(v: number[], precision: number): string {
+function latest(v: (number | null)[], precision: number): string {
   const last = v[v.length - 1];
-  return typeof last === "number" ? fixed(last, precision) : "?";
+  return typeof last === "number" ? fixed(last, precision) : last === null ? "—" : "?";
 }
 
 /** A recorded signal as the charts take one: the row's metadata, no role or tags (not recorded) and no live values. */
@@ -42,12 +42,12 @@ function asSignal(row: SignalRow): SignalOut {
     dimension: null,
     dtype: asDtype(row.dtype),
     shape: row.shape,
-    role: "output",
+    role: "readout",
     tags: {},
     initial: null,
     range: row.range,
     precision: row.precision,
-    warn: row.warn,
+    warning: row.warning,
     alarm: row.alarm,
     poll_s: null,
     limits: row.limits,
@@ -56,23 +56,22 @@ function asSignal(row: SignalRow): SignalOut {
   };
 }
 
-/** A law config (`{tag, kp, ki, tt, ...}`) as `PI` plus a short `kp 100 · ki 0.15 · tt 30 s` line: the gains as the field names a controls engineer already knows, a unit only where one is fixed. */
-function lawSummary(config: unknown): { tag: string | null; gains: string } {
-  if (!config || typeof config !== "object") return { tag: null, gains: "" };
-  const { tag, ...gains } = config as Record<string, unknown>;
+/** A law config (`{type, kp, ki, tt, ...}`) as `PI` plus a short `kp 100 · ki 0.15 · tt 30 s` line: the gains as the field names a controls engineer already knows, a unit only where one is fixed. */
+function lawSummary(config: unknown): { type: string | null; gains: string } {
+  if (!config || typeof config !== "object") return { type: null, gains: "" };
+  const { type, ...gains } = config as Record<string, unknown>;
   const gains_ = Object.entries(gains)
     .filter(([, v]) => v !== null && v !== undefined && typeof v !== "object")
     .map(([k, v]) => `${k} ${String(v)}${k === "tt" ? " s" : ""}`)
     .join(" · ");
-  return { tag: typeof tag === "string" ? tag : null, gains: gains_ };
+  return { type: typeof type === "string" ? type : null, gains: gains_ };
 }
 
-/** `recorder.py`'s `event()` wraps the level, scope and message around the emitter's own `details`. */
-const LEVEL_NAME: Record<number, string> = { 10: "DEBUG", 20: "INFO", 30: "WARNING", 40: "ERROR" };
-function storedEvent(detail: unknown): { level?: string; message?: string; details: unknown } {
+/** `recorder.py`'s `event()` wraps the severity, scope and message around the emitter's own `details`. */
+function storedEvent(detail: unknown): { severity?: string; message?: string; details: unknown } {
   if (!detail || typeof detail !== "object" || !("message" in detail)) return { details: detail };
-  const { level, message, details } = detail as { level?: number; message?: string; details?: unknown };
-  return { level: typeof level === "number" ? LEVEL_NAME[level] : undefined, message, details };
+  const { severity, message, details } = detail as { severity?: string; message?: string; details?: unknown };
+  return { severity: typeof severity === "string" ? severity : undefined, message, details };
 }
 
 export type SessionGrouping = "unit" | "signal";
@@ -478,7 +477,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
               </div>
             ))}
             {controllers.map((c) => {
-              const { tag, gains } = lawSummary(c.law);
+              const { type, gains } = lawSummary(c.law);
               return (
                 <div key={c.name} className="fb-state-row">
                   <dt>
@@ -486,8 +485,8 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                     {exports && <Download what={`${c.name}'s ticks`} href={(f) => exports.ticks(c.name, f)} />}
                   </dt>
                   <dd>
-                    <Ref kind="signal" name={c.source} /> → <Ref kind="signal" name={c.name} />
-                    {tag && <> · <span className="fb-tag">{tag}</span></>}
+                    <Ref kind="signal" name={c.measured} /> → <Ref kind="signal" name={c.name} />
+                    {type && <> · <span className="fb-tag">{type}</span></>}
                     {gains && <span className="fb-muted"> · {gains}</span>}
                   </dd>
                 </div>
@@ -508,12 +507,13 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
           <table className="fb-table">
             <tbody>
               {events.map((e, i) => {
-                const { level, message, details } = storedEvent(e.detail);
+                const { severity, message, details } = storedEvent(e.detail);
                 return (
                 <tr key={e.id ?? i}>
                   <td className="fb-muted">+{duration(e.offset_ns / 1e9)}</td>
-                  <td title={e.kind}>
-                    {level && <span className={`fb-badge fb-event-${level}`}>{level}</span>} <span className="fb-tag">{describeEventKind(e.kind)}</span>
+                  <td title={e.code}>
+                    {severity && <span className={`fb-badge fb-event-${severity}`}>{severity}</span>} <span className="fb-tag">{describeEventCode(e.code)}</span>
+                    {e.edge && <span className={`fb-event-edge fb-event-${e.edge}`}>{describeEdge(e.edge, details)}</span>}
                   </td>
                   <td>{e.source ? describeSubject(e.source) : ""}</td>
                   <td>

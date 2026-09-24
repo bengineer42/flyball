@@ -5,16 +5,16 @@ import { Gauge, Readout, type GaugeKind } from "@flyball/react";
 import "@flyball/react/styles.css";
 
 /** A publishing signal with the given bands, as `GET /api/devices` would list it. */
-function signal(address: string, label: string, quantity: string, unit: string, bands: Pick<SignalOut, "range" | "precision" | "warn" | "alarm">): SignalOut {
+function signal(address: string, label: string, quantity: string, unit: string, bands: Pick<SignalOut, "range" | "precision" | "warning" | "alarm">): SignalOut {
   return {
     name: address.slice(address.indexOf(".") + 1), address, access: "rp", label, quantity, unit, dimension: null, dtype: "float64", shape: [],
     poll_s: null, limits: null, together: [], latest: null, write: null, ...bands,
   };
 }
-const thermo = signal("thermocouple.temperature", "Temperature", "temperature", "°C", { range: [0, 120], precision: 2, warn: [30, 90], alarm: [10, 110] });
-const rh = signal("probe.humidity", "Humidity", "humidity", "%RH", { range: [0, 100], precision: 1, warn: [40, 60], alarm: [20, 80] });
-const pressure = signal("gauge.pressure", "Pressure", "pressure", "bar", { range: [0, 10], precision: 2, warn: [2, 8], alarm: null });
-const plain = signal("meter.flow", "Flow", "flow", "L/min", { range: [0, 50], precision: 1, warn: null, alarm: null });
+const thermo = signal("thermocouple.temperature", "Temperature", "temperature", "°C", { range: [0, 120], precision: 2, warning: [30, 90], alarm: [10, 110] });
+const rh = signal("probe.humidity", "Humidity", "humidity", "%RH", { range: [0, 100], precision: 1, warning: [40, 60], alarm: [20, 80] });
+const pressure = signal("gauge.pressure", "Pressure", "pressure", "bar", { range: [0, 10], precision: 2, warning: [2, 8], alarm: null });
+const plain = signal("meter.flow", "Flow", "flow", "L/min", { range: [0, 50], precision: 1, warning: null, alarm: null });
 
 const kinds: GaugeKind[] = ["thermometer", "tank", "dial", "bar"];
 const values = { "below alarm": 5, "in warn": 20, ok: 60, "above alarm": 115, none: undefined } as const;

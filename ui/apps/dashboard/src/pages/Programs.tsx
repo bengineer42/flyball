@@ -42,11 +42,12 @@ import SaveAsIcon from "@mui/icons-material/SaveAs";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
-import StopIcon from "@mui/icons-material/Stop";
+import CancelIcon from "@mui/icons-material/CancelOutlined";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { useQuery, useRig, useRigSchema } from "@flyball/react";
 import { RigError, type ProgramCheck, type ProgramFormat, type RigEvent } from "@flyball/client";
 import { hashFor } from "../router.js";
+import { useAuth } from "../auth.js";
 import { Confirm } from "../Confirm.js";
 import { NEW, stepOf, type Programmer } from "../model.js";
 import { clickThrough, clickableSx, SectionHead, StateBlock } from "../cards.js";
@@ -57,8 +58,9 @@ import { dumpText, hasComments, parseText, SUPPORTED } from "../programText.js";
 // Lazy: the builder's own tree of step editors pulls in every step kind's form, ~31 kB gzip
 // the overview/loops/etc. routes never need.
 const ProgramBuilder = lazy(() => import("./ProgramBuilder.js").then((m) => ({ default: m.ProgramBuilder })));
+const RunStepDialog = lazy(() => import("./RunStep.js").then((m) => ({ default: m.RunStepDialog })));
 import { when } from "../time.js";
-import { Crumbs } from "./Inputs.js";
+import { Crumbs } from "./Readings.js";
 
 const FORMATS: ProgramFormat[] = ["yaml", "toml", "json"];
 const TEMPLATE = "steps: []\n";
@@ -114,7 +116,7 @@ function CheckChip({ check }: { check: { data: ProgramCheck | undefined; error: 
   );
 }
 
-/** A section heading in the Overview's style. */
+/** A section heading in the app's style. */
 export function Heading({ children, end }: { children: ReactNode; end?: ReactNode }) {
   return (
     <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.125 }}>
@@ -128,7 +130,8 @@ export function Heading({ children, end }: { children: ReactNode; end?: ReactNod
 }
 
 /** What the programmer is doing, and the recent program events for `name` (all programs when omitted). */
-export function ProgramStatus({ programmer, events, name, onInterrupt }: { programmer: Programmer; events: RigEvent[]; /** One program's page: its events only, and "Status" rather than "Programmer". */ name?: string; onInterrupt?(): void }) {
+export function ProgramStatus({ programmer, events, name, onCancel }: { programmer: Programmer; events: RigEvent[]; /** One program's page: its events only, and "Status" rather than "Programmer". */ name?: string; onCancel?(): void }) {
+  const { canOperate } = useAuth();
   const p = programmer.data;
   const recent = events
     .filter((e) => e.scope === "program" && (name === undefined || e.subject === name || e.subject.startsWith(`${name}[`)))
@@ -150,9 +153,9 @@ export function ProgramStatus({ programmer, events, name, onInterrupt }: { progr
     <Paper sx={{ p: 2.25, display: "flex", flexDirection: "column", gap: 1.5 }}>
       <Heading
         end={
-          running && onInterrupt ? (
-            <Button variant="outlined" color="error" startIcon={<StopIcon />} onClick={onInterrupt}>
-              Interrupt
+          running && onCancel ? (
+            <Button variant="outlined" color="error" startIcon={<CancelIcon />} onClick={onCancel} disabled={!canOperate}>
+              Cancel
             </Button>
           ) : undefined
         }
@@ -175,7 +178,7 @@ export function ProgramStatus({ programmer, events, name, onInterrupt }: { progr
                 <TableRow key={`${e.time_ns}-${i}`}>
                   <TableCell sx={{ color: "text.secondary", whiteSpace: "nowrap", width: "1%" }}>{new Date(e.time_ns / 1e6).toLocaleTimeString()}</TableCell>
                   <TableCell sx={{ width: "1%" }}>
-                    <Chip label={e.kind} variant="outlined" color={e.level === "ERROR" ? "error" : e.level === "WARNING" ? "warning" : "default"} />
+                    <Chip label={e.code} variant="outlined" color={e.severity === "error" ? "error" : e.severity === "warning" ? "warning" : "default"} />
                   </TableCell>
                   <TableCell sx={{ color: "text.secondary", whiteSpace: "nowrap", width: "1%", fontFamily: "monospace" }}>{e.subject}</TableCell>
                   <TableCell>{e.message}</TableCell>
@@ -195,6 +198,7 @@ export function ProgramStatus({ programmer, events, name, onInterrupt }: { progr
 
 /** One row of the library: the whole row opens the program; check and step summary are fetched lazily. */
 function ProgramRow({ program: p, running, busy, onRun, onDelete }: { program: { name: string; id: number; format: ProgramFormat; body?: string; label?: string | null; created_ns: number; notes?: unknown }; running: boolean; busy: boolean; onRun(): void; onDelete(): void }) {
+  const { canOperate } = useAuth();
   const rig = useRig();
   const check = useQuery(() => rig.checkStoredProgram(p.name), [rig, p.name, p.id]);
   const href = hashFor("programs", p.name);
@@ -233,7 +237,7 @@ function ProgramRow({ program: p, running, busy, onRun, onDelete }: { program: {
         <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
           <Tooltip title={running ? "A program is running" : "Run"}>
             <span>
-              <IconButton aria-label={`run ${p.name}`} disabled={running || busy} onClick={onRun}>
+              <IconButton aria-label={`run ${p.name}`} disabled={running || busy || !canOperate} onClick={onRun}>
                 <PlayArrowIcon fontSize="small" />
               </IconButton>
             </span>
@@ -242,7 +246,7 @@ function ProgramRow({ program: p, running, busy, onRun, onDelete }: { program: {
         <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
           <Tooltip title="Delete">
             <span>
-              <IconButton aria-label={`delete ${p.name}`} disabled={busy} onClick={onDelete}>
+              <IconButton aria-label={`delete ${p.name}`} disabled={busy || !canOperate} onClick={onDelete}>
                 <DeleteOutlineIcon fontSize="small" />
               </IconButton>
             </span>
@@ -277,14 +281,17 @@ export interface ProgramsProps {
 /** The program library: every stored program, with check, run, delete, upload and new. */
 export function Programs({ programmer, events, onOpen }: ProgramsProps) {
   const rig = useRig();
+  const { canOperate } = useAuth();
+  const [runningStep, setRunningStep] = useState(false);
   // Files in the runner's programs directory are imported on arrival here and on "Rescan"; the list is fetched after.
   const [rescans, setRescans] = useState(0);
   const [imported, setImported] = useState<string[] | null>(null);
   const programs = useQuery(async () => {
-    const fresh = await rig.importPrograms().catch(() => []); // no directory, or an older runner: nothing to import
+    // Importing writes to the store, so a viewer only lists what is already there.
+    const fresh = canOperate ? await rig.importPrograms().catch(() => []) : []; // no directory, or an older runner: nothing to import
     setImported(fresh.map((p) => p.name));
     return rig.programs();
-  }, [rig, rescans]);
+  }, [rig, rescans, canOperate]);
   const [error, setError] = useState<string | null>(null);
   const [toRun, setToRun] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<string | null>(null);
@@ -323,23 +330,35 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
     <>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2.25 }}>
         <input ref={file} type="file" accept=".yaml,.yml,.toml,.json" hidden onChange={(e) => void upload(e)} aria-label="upload program file" />
-        <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => file.current?.click()} disabled={busy}>
+        <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => file.current?.click()} disabled={busy || !canOperate}>
           Upload
         </Button>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => onOpen(NEW)}>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => onOpen(NEW)} disabled={!canOperate}>
           New
         </Button>
         <Tooltip title="Import any new files from the runner's programs directory">
           <span>
             <Tooltip title="Re-read the program files on the rig's disk; changed files become new versions">
               <span>
-                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => setRescans((n) => n + 1)} disabled={programs.loading} data-testid="rescan">
+                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => setRescans((n) => n + 1)} disabled={programs.loading || !canOperate} data-testid="rescan">
                   Reload files
                 </Button>
               </span>
             </Tooltip>
           </span>
         </Tooltip>
+        <Tooltip title={canOperate ? "Run one step now, without making a program of it" : "Sign in to operate to run a step"}>
+          <span>
+            <Button variant="outlined" startIcon={<PlayArrowIcon />} onClick={() => setRunningStep(true)} disabled={!canOperate} data-testid="run-step">
+              Run a step
+            </Button>
+          </span>
+        </Tooltip>
+        {runningStep && (
+          <Suspense fallback={null}>
+            <RunStepDialog open={runningStep} busyProgram={running ? (programmer.data?.command ?? "a program") : null} onClose={() => setRunningStep(false)} onRan={() => programmer.refresh()} />
+          </Suspense>
+        )}
         {imported && imported.length > 0 && <Chip label={`imported ${imported.join(", ")}`} color="info" variant="outlined" onDelete={() => setImported(null)} />}
         <Box sx={{ flexGrow: 1 }} />
         <Tooltip title={failed ? (programmer.data?.error ?? "") : ""}>
@@ -386,12 +405,12 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
         </TableContainer>
       )}
       <Box sx={{ mt: 2.25 }}>
-        <ProgramStatus programmer={programmer} events={events} onInterrupt={() => void act(() => rig.interruptProgram()).then(programmer.refresh)} />
+        <ProgramStatus programmer={programmer} events={events} onCancel={() => void act(() => rig.cancelProgram()).then(programmer.refresh)} />
       </Box>
       <Confirm
         open={toRun !== null}
         title={`Run ${toRun}?`}
-        text="The programmer takes over the rig until the program finishes or is interrupted."
+        text="The programmer takes over the rig until the program ends or is cancelled."
         action="Run"
         danger={false}
         busy={busy}
@@ -505,15 +524,9 @@ function parseProgram(text: string, format: ProgramFormat): { tree: ProgramTree;
   }
 }
 
-/**
- * One program: the step builder and the text, two views of one document tree,
- * each editable; format, save, download, history, run/interrupt, live status.
- */
-export function ProgramDetail({ name: routeName, programmer, events, onSaved, onDeleted }: ProgramDetailProps) {
+/** What the step builder needs from the rig: the dialect's schema, the controllers, and each device's commands and demands. */
+export function useProgramEditorInputs() {
   const rig = useRig();
-  const creating = routeName === NEW;
-  const stored = useQuery(async () => (creating ? null : rig.program(routeName)), [rig, routeName, creating]);
-  const history = useQuery(async () => (creating ? [] : rig.programHistory(routeName)), [rig, routeName, creating]);
   const programSchema = useQuery(() => rig.programSchema(), [rig]);
   const controllers = useQuery(async () => (await rig.controllers()).map((c) => c.name), [rig]);
   const rigSchema = useRigSchema();
@@ -531,6 +544,20 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
       ),
     };
   }, [rigSchema.data]);
+  return { programSchema, controllers, devices };
+}
+
+/**
+ * One program: the step builder and the text, two views of one document tree,
+ * each editable; format, save, download, history, run/cancel, live status.
+ */
+export function ProgramDetail({ name: routeName, programmer, events, onSaved, onDeleted }: ProgramDetailProps) {
+  const { canOperate } = useAuth();
+  const rig = useRig();
+  const creating = routeName === NEW;
+  const stored = useQuery(async () => (creating ? null : rig.program(routeName)), [rig, routeName, creating]);
+  const history = useQuery(async () => (creating ? [] : rig.programHistory(routeName)), [rig, routeName, creating]);
+  const { programSchema, controllers, devices } = useProgramEditorInputs();
   const [format, setFormat] = useState<ProgramFormat>("yaml");
   // The tree is the truth; the text is what the user sees and saves. Either side may be edited: the other follows.
   const [tree, setTree] = useState<ProgramTree>(EMPTY);
@@ -858,20 +885,20 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
                   </MenuItem>
                 ))}
               </Menu>
-              <Button startIcon={<DriveFileRenameOutlineIcon />} onClick={() => setRename(true)} disabled={busy}>
+              <Button startIcon={<DriveFileRenameOutlineIcon />} onClick={() => setRename(true)} disabled={busy || !canOperate}>
                 Rename…
               </Button>
-              <Button variant="contained" startIcon={<PlayArrowIcon />} disabled={running || busy} onClick={() => setRunVersion("latest")}>
+              <Button variant="contained" startIcon={<PlayArrowIcon />} disabled={running || busy || !canOperate} onClick={() => setRunVersion("latest")}>
                 Run
               </Button>
               {running && (
-                <Button variant="outlined" color="error" startIcon={<StopIcon />} onClick={() => void act(() => rig.interruptProgram()).then(programmer.refresh)}>
-                  Interrupt
+                <Button variant="outlined" color="error" startIcon={<CancelIcon />} disabled={!canOperate} onClick={() => void act(() => rig.cancelProgram()).then(programmer.refresh)}>
+                  Cancel
                 </Button>
               )}
               <Tooltip title="Delete program">
                 <span>
-                  <IconButton aria-label={`delete ${routeName}`} onClick={() => setConfirmDelete(true)} disabled={busy}>
+                  <IconButton aria-label={`delete ${routeName}`} onClick={() => setConfirmDelete(true)} disabled={busy || !canOperate}>
                     <DeleteOutlineIcon fontSize="small" />
                   </IconButton>
                 </span>
@@ -896,14 +923,14 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
         <Stack direction="row" spacing={1.5} alignItems="flex-start" flexWrap="wrap" useFlexGap>
           <TextField label="label" value={label} onChange={(e) => setLabel(e.target.value)} sx={{ minWidth: 200 }} />
           {creating ? (
-            <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || Boolean(parseError) || !programName} data-testid="create">
+            <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || Boolean(parseError) || !programName || !canOperate} data-testid="create">
               Create {programName || "…"}
             </Button>
           ) : (
             <>
               <Tooltip title="Adds a version; earlier versions stay under Versions and can be loaded or run.">
                 <span>
-                  <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || Boolean(parseError) || (!dirty && label === (stored.data?.label ?? ""))} data-testid="update">
+                  <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={() => void save()} disabled={busy || Boolean(parseError) || !canOperate || (!dirty && label === (stored.data?.label ?? ""))} data-testid="update">
                     Update {routeName}
                     {versions !== undefined ? ` (version ${versions + 1})` : ""}
                   </Button>
@@ -911,7 +938,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
               </Tooltip>
               <Tooltip title={`Creates a new program; ${routeName} is unchanged.`}>
                 <span>
-                  <Button variant="outlined" startIcon={<SaveAsIcon />} onClick={() => setSaveAs(true)} disabled={busy || Boolean(parseError)} data-testid="save-as">
+                  <Button variant="outlined" startIcon={<SaveAsIcon />} onClick={() => setSaveAs(true)} disabled={busy || Boolean(parseError) || !canOperate} data-testid="save-as">
                     Save as…
                   </Button>
                 </span>
@@ -937,7 +964,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
 
       {!creating && (
         <Box sx={{ mb: 2.25 }}>
-          <ProgramStatus programmer={programmer} events={events} name={routeName} onInterrupt={() => void act(() => rig.interruptProgram()).then(programmer.refresh)} />
+          <ProgramStatus programmer={programmer} events={events} name={routeName} onCancel={() => void act(() => rig.cancelProgram()).then(programmer.refresh)} />
         </Box>
       )}
 
@@ -965,7 +992,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
                   <TableCell sx={{ fontFamily: "monospace" }}>{h.sha256.slice(0, 12)}</TableCell>
                   <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
                     <Button onClick={() => loadText(h.body, h.format)}>load this version</Button>
-                    <Button disabled={running || busy} onClick={() => setRunVersion(h.id)}>
+                    <Button disabled={running || busy || !canOperate} onClick={() => setRunVersion(h.id)}>
                       run this version
                     </Button>
                   </TableCell>
@@ -986,7 +1013,7 @@ export function ProgramDetail({ name: routeName, programmer, events, onSaved, on
       <Confirm
         open={runVersion !== null}
         title={runVersion === "latest" ? `Run ${routeName}?` : `Run ${routeName} version ${runVersion}?`}
-        text={dirty ? "Unsaved edits are not run; the stored program is." : "The programmer takes over the rig until the program finishes or is interrupted."}
+        text={dirty ? "Unsaved edits are not run; the stored program is." : "The programmer takes over the rig until the program ends or is cancelled."}
         action="Run"
         danger={false}
         busy={busy}

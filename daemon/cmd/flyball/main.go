@@ -3,8 +3,8 @@
 // alongside the daemon, sharing internal/client with it.
 //
 // Capability parity with the old Python cli.py (engine/src/flyball/cli.py):
-// every HTTP-addressed capability is here (read/demand/watch/status/waits/
-// wait/clock/schema/devices/controllers/device view+invoke/sessions/
+// every HTTP-addressed capability is here (read/demand/watch/status/activities/
+// activity/clock/schema/devices/controllers/device view+invoke/sessions/
 // export/program */sim */logs), plus daemon-management commands the
 // Python CLI never had (it predates the Go daemon). `rig check`, `rig
 // schema` and `program schema` are all local operations reimplemented
@@ -28,6 +28,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -65,11 +66,11 @@ func main() {
 	// daemon just to run one rig. Checked before addressing resolution
 	// since there's nothing to address yet.
 	if args[0] == "run" {
-		if err := runDirect(args[1:]); err != nil {
+		err := runDirect(args[1:])
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "flyball:", err)
-			os.Exit(1)
 		}
-		return
+		os.Exit(runExitCode(err))
 	}
 
 	// `rig ...` is a local operation against the rig file/schema itself,
@@ -88,6 +89,17 @@ func main() {
 	// everything else, so it's dispatched before target resolution too.
 	if args[0] == "daemon" {
 		if err := runDaemonCommand(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// `runners stop NAME|--all` ends runner processes through flyballd's
+	// management API (D-037) -- daemon-addressed, with the daemon's own
+	// token (--token, else FLYBALLD_TOKEN), never routed through a runner.
+	if args[0] == "runners" {
+		if err := runRunnersCommand(flagToken(), args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "flyball:", err)
 			os.Exit(1)
 		}
@@ -136,25 +148,45 @@ func main() {
 		return
 	}
 
-	// `login`/`logout` sign in/out of a runner's password or token door
-	// (engine/src/flyball/server/auth.py) -- addressed like every other
-	// runner command (-s/FLYBALLD_URL or FLYBALL_URL direct), so
-	// dispatched after target resolution, unlike the local/daemon
-	// commands above.
-	if args[0] == "login" || args[0] == "logout" {
-		target, err := resolveTarget(server)
-		if err != nil {
+	// `login`/`logout` sign in/out of a front's password door
+	// (daemon/internal/front/auth.go) -- login resolves its own target
+	// (an explicit URL argument, or the usual -s/FLYBALLD_URL/FLYBALL_URL
+	// precedence), since it may need to reach a front before any token
+	// exists to resolve-and-authenticate with.
+	if args[0] == "login" {
+		if err := runLoginCommand(server, args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "flyball:", err)
 			os.Exit(1)
 		}
-		var runErr error
-		if args[0] == "login" {
-			runErr = runLoginCommand(target.WithToken(token), args[1:])
-		} else {
-			runErr = runLogoutCommand(target.WithToken(token))
+		return
+	}
+	if args[0] == "logout" {
+		if err := runLogoutCommand(server); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
 		}
-		if runErr != nil {
-			fmt.Fprintln(os.Stderr, "flyball:", runErr)
+		return
+	}
+
+	// `token ...` manages the named-tokens file offline, the same file a
+	// running front reads (daemon/internal/front/store.Tokens re-reads on
+	// stat change) -- no runner or daemon request at all, so dispatched
+	// before target resolution like `rig`/`daemon`.
+	if args[0] == "token" {
+		if err := runTokenCommand(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// `stop` resolves its own target rather than sharing the generic block
+	// below: a rig named locally (--front-dir, RIG-FILE, --pid) is stopped
+	// by SIGUSR1 with no HTTP at all (D-042), and -s NAME with --front-dir
+	// is a usage error.
+	if args[0] == "stop" {
+		if err := runStopCommand(server, token, args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
 			os.Exit(1)
 		}
 		return
@@ -177,11 +209,17 @@ func main() {
 // if FLYBALLD_URL is set (a daemon is in play) use the default-runner
 // rules; else FLYBALL_URL alone, direct-to-runner, unchanged from today.
 func resolveTarget(server string) (client.Target, error) {
+	return resolveTargetContext(context.Background(), server)
+}
+
+// resolveTargetContext is resolveTarget with flyballd's runner list (the
+// only network call in it) bound to ctx.
+func resolveTargetContext(ctx context.Context, server string) (client.Target, error) {
 	if server != "" {
 		return client.Resolve(server)
 	}
 	if daemonURL := os.Getenv("FLYBALLD_URL"); daemonURL != "" {
-		return client.ResolveDefault(daemonURL)
+		return client.ResolveDefaultContext(ctx, daemonURL)
 	}
 	return client.Resolve("")
 }
@@ -190,15 +228,21 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `usage: flyball [-s NAME] [--token TOKEN] <command> ...
 
 runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
-  login [SECRET]                      sign in to a password-protected runner
-  logout                              drop the saved session
+  login [URL] [--scope SCOPE]...       admin password -> a saved named token (prompted, never on argv)
+  logout                              drop the saved token (locally only; see token revoke)
+  stop [NAME] [--reason TEXT]         POST /api/rig/stop through the front (-s NAME / NAME: via flyballd)
+  stop RIG-FILE | --front-dir DIR | --pid N
+                                      on the rig's host: SIGUSR1 to its runner, no HTTP; the report
+                                      goes to the runner's log (RIG-FILE: its run.log)
+  stop --all [--reason TEXT]          the rig stop on every rig flyballd lists (needs operate on each);
+                                      runners stay up; non-zero if any stop was refused or failed
   read ADDRESS [--fresh]              GET /api/read/{address}
   demand ADDRESS VALUE                PUT /api/signals/{address}
-  status [--json]                     one screen: devices, controllers, waits
+  status [--json]                     one screen: devices, controllers, activities
   schema                              the rig's schema
   clock                               the rig's timebase
-  waits                               what the rig is waiting on
-  wait fire|interrupt NAME            answer or cancel a wait
+  activities                          what the rig is waiting on: prompts, timed waits, settles
+  activity fire|cancel NAME           answer a prompt (or skip a wait), or cancel it
   watch samples|controllers|writes|signals   follow a live stream
   devices / controllers               list them
   view DEVICE                         one device's tree
@@ -207,19 +251,30 @@ runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
   sessions                            list recorded sessions
   export SESSION [--format csv|json|zip] [--out PATH]
                                       a session's data, as the runner exports it
-  program check|run|status|stop PATH  program files
-  sim show|clock|step|set|reset|config|save   a simulated rig's knobs
+  program check|run|status|cancel PATH  program files
+  sim show|clock|advance|set|reset|config|save   a simulated rig's knobs
 
 local (no runner or daemon involved):
   rig schema                          the rig file's JSON Schema, for an editor
-  run RIG-FILE [--serve-ui ADDR] [--uv] [flyball-runner flags...]   start a runner directly, foreground
-  password [PASSWORD]                 hash a password for runner.auth.password
+  run RIG-FILE [RIG-FILE ...] [--listen ADDR] [--uv] [--insecure-open] [--set KEY=VALUE ...] [flyball-runner flags...]
+                                      start a runner directly, foreground; the front reads every file and --set
+  password [PASSWORD]                 hash a password for a front: runner.front.password in a rig
+                                      file, or password: in flyballd.yaml
   new NAME [--dir PATH]                write a starting point for a device driver
+  token create --name N --config PATH [--config PATH ...] [--set KEY=VALUE ...] [--daemon]
+               [--scope S ...] [--kind human|service|agent] [--expires D]
+                                      write a token into the front's tokens.json offline; prints it once;
+                                      rig files and --set merge as flyball run merges them
+  token list --config PATH [--daemon] list tokens (never their secrets)
+  token revoke ID --config PATH [--daemon]
+                                      remove a token; the front picks this up at its next check
 
 daemon-managed (talks to flyballd via FLYBALLD_URL, never routed through a runner):
   daemon runners                      list registered runners
   daemon start MANIFEST.json          POST /api/runners
   daemon stop NAME                    DELETE /api/runners/{name}
+  runners stop NAME | --all           end runner processes (needs a manage token: --token or FLYBALLD_TOKEN);
+                                      flyballd leaves its runners running when it stops, and adopts them again
   daemon restart NAME                 POST /api/runners/{name}/restart
   logs NAME                           GET /api/runners/{name}/logs
 `)

@@ -7,18 +7,18 @@ here too -- they live on the Simulation tab in the UI, not in this vocabulary.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 from flyball.foundation import AddressNotFoundError, NotFoundError, Operator
 from flyball.foundation.device import Access, Signal
 from flyball.rig import Rig
 
-from .command import Activity, Command
+from .step import Activity, Step
 
 
 @dataclass(frozen=True)
-class Set(Command, tag="set"):
-    """Put `values` on `device`'s writable signals, as one demand -- `rig.demand` in a step."""
+class Set(Step, tag="set"):
+    """Put `values` on `device`'s writable signals, as one demand -- `rig.write` in a step."""
 
     device: str
     values: dict[str, float]
@@ -27,7 +27,7 @@ class Set(Command, tag="set"):
         node = rig.resolve(self.device)
         if isinstance(node, Signal):
             raise NotFoundError(f"'{self.device}' is a signal, not a device or namespace")
-        rig.demand(node, {**self.values})
+        rig.write(node, {**self.values}, writer="program")
         return None
 
     def missing(self, rig: Rig) -> list[str]:
@@ -52,13 +52,15 @@ class Set(Command, tag="set"):
 
 
 @dataclass(frozen=True)
-class RunCommand(Command, tag="command"):
+class RunCommand(Step, tag="command"):
     """Call one of `device`'s own commands, exactly as `POST /api/devices/{name}/{tag}` would.
 
     `device_command`, not `command`: every step's wire form reserves `command`
     for its own tag (`"command"`, here), so the device command it should run
     needs a different name.
     """
+
+    locked: ClassVar[bool] = False  # `run_command` takes the rig lock; a long one waits off it
 
     device_command: str
     device: str
@@ -70,6 +72,7 @@ class RunCommand(Command, tag="command"):
         except KeyError:
             raise NotFoundError(f"device {self.device!r} not found") from None
         rig.run_command(found, self.device_command, self.args)
+        rig.polling.revive(found.name)  # as the HTTP route does: a command that succeeds is the fix
         return None
 
     def missing(self, rig: Rig) -> list[str]:

@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import contextlib
-import secrets
+import logging
 from collections.abc import AsyncIterator
 from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from anyio import to_thread
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.staticfiles import StaticFiles
 
 from flyball.foundation.errors import (
@@ -22,9 +24,17 @@ from flyball.foundation.errors import (
     NotReadyError,
     UnachievableError,
 )
-from flyball.interfaces.server.auth import Auth
-from flyball.interfaces.server.deps import current_retention, current_rig
+from flyball.interfaces.server.audit import Audit
+from flyball.interfaces.server.auth import Door, Fronted
+from flyball.interfaces.server.deps import (
+    current_retention,
+    current_rig,
+    current_runner,
+    rig_stopper,
+)
+from flyball.interfaces.server.redact import redact_access_logs
 from flyball.interfaces.server.routes import (
+    activities_router,
     composition_router,
     controllers_router,
     dashboards_router,
@@ -42,9 +52,10 @@ from flyball.interfaces.server.routes import (
     schema_router,
     sim_router,
     telemetry_router,
-    waits_router,
 )
 from flyball.interfaces.server.routes.auth import router as auth_router
+from flyball.interfaces.server.routes.stop import router as stop_router
+from flyball.rig.stopping import Actor
 from flyball.runtime.config import AuthConfig
 
 # The UI is served from its own dev server during development.
@@ -75,6 +86,16 @@ def _find_dashboard_dist() -> Path:
 
 DASHBOARD_DIST = _find_dashboard_dist()
 
+# Swagger UI for `/docs`, served by the runner so the page works with no internet (FastAPI's
+# default loads it from a CDN). Vendored verbatim from npm `swagger-ui-dist` 5.33.0, whose
+# tarball's integrity is sha512-wpdK+m6BU5yj6pmUdMskZVTSWYG4DLglAx3sIhylloY37i8O37IrH+YEpqd
+# XNfpaTGxILRBFzUqLF2jKqbfI7A== (one string, split here): `swagger-ui-bundle.js`,
+# `swagger-ui.css` and `favicon-32x32.png`. Apache-2.0: `LICENSE`, `NOTICE` and the
+# bundle's third-party notices are beside them.
+SWAGGER = Path(__file__).parent / "swagger"
+
+log = logging.getLogger("flyball.stop")
+
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -82,17 +103,50 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        rig = current_rig()
-        if rig is not None:
+        # Joins threads and writes the store: on a worker thread, as every store call is.
+        await to_thread.run_sync(_stop)
+
+
+def _stop() -> None:
+    rig = current_rig()
+    if rig is not None:
+        _shutdown_stop()
+        with contextlib.suppress(Exception):
+            rig.polling.stop_all()
+        # Close the session so it does not stay "open" forever in the store;
+        # the runner's sweeps stop first, or they would open the scratch record again.
+        if (retention := current_retention()) is not None:
             with contextlib.suppress(Exception):
-                rig.polling.stop_all()
-            # Close the session so it does not stay "open" forever in the store;
-            # the runner's sweeps stop first, or they would open the scratch record again.
-            if (retention := current_retention()) is not None:
-                with contextlib.suppress(Exception):
-                    retention.stop()
-            with contextlib.suppress(Exception):
-                rig.stop_recording()
+                retention.stop()
+        with contextlib.suppress(Exception):
+            rig.stop_recording()
+
+
+SHUTDOWN_ACTOR = Actor(sub="local:shutdown", sid="", kind="service", via="signal")
+
+
+def _shutdown_stop() -> None:
+    """The runner's shutdown: each device's resolved stop, unless `on_shutdown: keep` says not.
+
+    Only for a runner serving (`current_runner()`), not a test's app on a rig of its
+    own. Best-effort within the supervisor's window; its report is logged, and a
+    `stop_applied` event says what it did. Not latched: the next start is passive.
+    """
+    runner = current_runner()
+    stopper = rig_stopper()
+    if runner is None or stopper is None:
+        return
+    keep = runner.settings.on_shutdown == "keep"
+    try:
+        report = stopper.shutdown(SHUTDOWN_ACTOR, keep=keep)
+    except Exception:
+        log.exception("shutdown: the stop failed")
+        return
+    log.info(
+        "shutdown %s: %s",
+        "kept every output (on_shutdown: keep)" if keep else "stopped the rig",
+        ", ".join(f"{n} {d['state']}" for n, d in report.devices.items()) or "no devices",
+    )
 
 
 class _Installed:
@@ -137,27 +191,54 @@ class RootPath:
         await response(scope, receive, send)
 
 
+def _docs(app: FastAPI) -> None:
+    """`/docs`: Swagger UI from `SWAGGER`, every URL on the page the runner's own."""
+    app.mount("/docs/assets", StaticFiles(directory=SWAGGER), name="swagger")
+
+    @app.get("/docs", include_in_schema=False)
+    def docs(request: Request) -> HTMLResponse:
+        root = (request.scope.get("root_path") or "").rstrip("/")
+        return get_swagger_ui_html(
+            openapi_url=f"{root}{app.openapi_url}",
+            title=f"{app.title} - Swagger UI",
+            swagger_js_url=f"{root}/docs/assets/swagger-ui-bundle.js",
+            swagger_css_url=f"{root}/docs/assets/swagger-ui.css",
+            swagger_favicon_url=f"{root}/docs/assets/favicon-32x32.png",
+            oauth2_redirect_url=None,
+            # Swagger UI's default sends the spec to validator.swagger.io for a badge.
+            swagger_ui_parameters={"validatorUrl": None},
+        )
+
+
 def create_app(
     auth: AuthConfig | None = None,
     root_path: str | None = None,
     *,
-    secret: bytes | None = None,
-    internal_token: str | None = None,
+    front: Fronted | None = None,
+    port: int | None = None,
     login_delay: float = 0.5,
+    open_network: bool = False,
 ) -> FastAPI:
-    """The app.
+    """The app, behind its door (see [flyball.interfaces.server.auth][]).
 
-    With `auth` naming a password or a token, everything it serves is behind
-    the door (see [flyball.interfaces.server.auth][]; `secret` signs the sessions,
-    `internal_token` is the runner's own way in for its MCP mount); with
-    `root_path`, everything it serves is under that prefix (see `RootPath`).
+    With `front` (a runner the front started: the front-dir's key and audience) the signed
+    principal is the only credential, `auth` is ignored and no UI is served: the front
+    serves its own. Without, the runner is *bare*: `auth`'s token (and anonymous access)
+    decide, and with no token it is open, to loopback names only -- or to any name with
+    `open_network`, an open runner the user chose to serve on the network
+    (`--insecure-open`). `port` names the bare session cookie. With `root_path`,
+    everything it serves is under that prefix (see `RootPath`).
     """
+    redact_access_logs()  # uvicorn's request lines would keep `?token=`
     app = FastAPI(
         title="flyball",
         summary="flyball control rig",
         version="0.1.0",
         lifespan=lifespan,
+        docs_url=None,  # served below, from the package rather than a CDN
+        redoc_url=None,  # ReDoc too loads from a CDN; `/docs` is the one API page
     )
+    _docs(app)
 
     app.add_middleware(
         CORSMiddleware,
@@ -198,7 +279,7 @@ def create_app(
     app.include_router(drivers_router)
     app.include_router(read_router)
     app.include_router(recording_router)
-    app.include_router(waits_router)
+    app.include_router(activities_router)
     app.include_router(events_router)
     app.include_router(program_router)
     app.include_router(schema_router)
@@ -209,25 +290,32 @@ def create_app(
     app.include_router(library_router)
     app.include_router(telemetry_router)
     app.include_router(auth_router)
-    app.state.auth = None  # open: no password, no token
-    if auth is not None and auth.enabled:
-        door = Auth(
-            app,
-            auth,
-            secret if secret is not None else secrets.token_bytes(32),
-            internal_token=internal_token,
-            delay=login_delay,
-        )
-        app.state.auth = door
-        # `add_middleware` would build its own instance; the routes need this one.
-        app.add_middleware(_Installed, instance=door)
+    app.include_router(stop_router)
+    # Every runner has the door. An open one (no token) still refuses other names for itself
+    # and other sites' pages; `app.state.auth` is None there, which MCP's rebinding check
+    # reads as "open".
+    door = Door(
+        app,
+        auth if auth is not None else AuthConfig(),
+        fronted=front,
+        port=port,
+        delay=login_delay,
+        open_network=open_network,
+    )
+    app.state.door = door
+    app.state.auth = None if door.open else door
+    app.state.open_network = door.open_network  # the MCP transport's rebinding check reads it
+    # `add_middleware` would build its own instance; the routes need this one.
+    app.add_middleware(_Installed, instance=door)
+    app.add_middleware(Audit)  # outside the door: it records who was refused, too
     if root_path and root_path != "/":
         if not root_path.startswith("/"):
             raise ValueError(f"root_path must start with '/': {root_path!r}")
         app.add_middleware(RootPath, prefix=root_path.rstrip("/"))
     # Registered last so it doesn't shadow the API routers above; a headless/no-UI
-    # install (no built dist) just keeps today's API-only behaviour.
-    if DASHBOARD_DIST.is_dir():
+    # install (no built dist) just keeps today's API-only behaviour, and so does a fronted
+    # runner: the front serves the UI.
+    if front is None and DASHBOARD_DIST.is_dir():
         app.mount("/", StaticFiles(directory=DASHBOARD_DIST, html=True), name="dashboard")
     return app
 

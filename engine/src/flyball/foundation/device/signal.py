@@ -8,24 +8,29 @@ device (`Device.bind`) makes one [Node][flyball.foundation.device.signal.Node] o
 are identity-hashed and created once, so a
 [Reading][flyball.foundation.device.signal.Reading], a
 [Sample][flyball.foundation.device.signal.Sample]
-or a [Demand][flyball.foundation.device.signal.Demand] holds a reference and nothing on the
+or a [Write][flyball.foundation.device.signal.Write] holds a reference and nothing on the
 hot path looks a name up. Addresses are parsed once, at the boundary.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum, Flag, StrEnum, auto
-from typing import TYPE_CHECKING, Any
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Literal
 
-from ..errors import NotFoundError
+from ..errors import NotFoundError, NotReadyError, UnachievableError
 from ..quantities import Unit
 from ..quantities.quantity import Quantity
 from ..time.clock import Rate
+from .novalue import NoValue, OnNoValue, Quality, Railed, Readback, invalid
+from .state import Code
 
 if TYPE_CHECKING:
     from ..router.router import Router
+    from .binding import InputBinding
     from .device import Device
 
 
@@ -50,7 +55,7 @@ def dtype_of(vtype: Any) -> str:
 
 
 class Access(Flag):
-    """Which of readable, publishing and writable a signal supports.
+    """Which of readable, published and writable a signal supports.
 
     `P` implies `R`: what a device publishes on its own schedule can also be
     read on demand, so a set with `P` but not `R` is refused wherever one is
@@ -83,7 +88,7 @@ class Access(Flag):
     def check(cls, access: Access) -> Access:
         """`access` back, or a ValueError when it has `P` without `R`."""
         if cls.P in access and cls.R not in access:
-            raise ValueError(f"access {access!s}: P without R, but a publishing signal is readable")
+            raise ValueError(f"access {access!s}: P without R, but a published signal is readable")
         return access
 
     @classmethod
@@ -119,7 +124,24 @@ def _excess(requested: Access, allowed: Access) -> str:
     return "".join(letter for letter, flag in _LETTERS if extra & flag.value)
 
 
-type Band = tuple[float, float]
+def _check_band(name: str, field_name: str, band: tuple[Any, Any] | None) -> None:
+    """Refuse an inverted or non-finite band, when both ends are plain numbers.
+
+    A `limits` bound may be a [SignalRef][flyball.foundation.device.signal.SignalRef]
+    rather than a number; those are resolved on the instance and are not checked here.
+    """
+    if band is None:
+        return
+    lo, hi = band
+    if not (isinstance(lo, (int, float)) and isinstance(hi, (int, float))):
+        return
+    if not (math.isfinite(lo) and math.isfinite(hi)):
+        raise ValueError(f"signal {name!r}: {field_name} {band!r}: must be finite")
+    if lo > hi:
+        raise ValueError(f"signal {name!r}: {field_name} {band!r}: inverted, low above high")
+
+
+type Bounds = tuple[float, float]
 
 
 class Limit(StrEnum):
@@ -135,24 +157,26 @@ class Limit(StrEnum):
 
 
 class Role(Enum):
-    """What a signal is to its device: given, set, produced, or built from.
+    """What a signal is to its device: set, produced, or re-set.
 
     - `DEMAND`: settable, with a current value (its readback) that updates;
-      what a controller drives. Access `RPW`.
-    - `OUTPUT`: produced, never set; a measurement, a derived value, a mode. `RP`.
+      the only thing a controller drives (its output). Access `RPW`.
+    - `READOUT`: produced by the device, never written from outside; a
+      measurement, a derived value, a mode. `RP`.
     - `SETTING`: re-set by a command while the device runs, shown; not a
-      scalar a controller could drive (a blend flow, a PWM frequency). `RP`.
-    - `CONFIG`: effective at build, shown, never set at run time. `R`.
-    - `INPUT`: another device's signal, bound by the rig to a role; not in
-      the tree, but declared beside it so the schema can show what the
-      device follows.
+      scalar a controller could drive (a blend flow, a PWM frequency). `RP`;
+      an operator-entered value (`driver: values`) is a setting with `RPW`.
+
+    A number a device is built from is not a signal: it is a driver config
+    field, or metadata on the signal it bounds (a pump's max flow is the top
+    of its flow's `limits`). An input (another device's signal, or a number,
+    bound by the rig) is not a role either: it is not in the device's tree.
+    See [Input][flyball.foundation.device.descriptors.Input].
     """
 
-    INPUT = "input"
     DEMAND = "demand"
-    OUTPUT = "output"
+    READOUT = "readout"
     SETTING = "setting"
-    CONFIG = "config"
 
     @property
     def access(self) -> Access:
@@ -160,30 +184,10 @@ class Role(Enum):
 
 
 _ROLE_ACCESS.update({
-    Role.INPUT: Access(0),
     Role.DEMAND: Access.RPW,
-    Role.OUTPUT: Access.RP,
+    Role.READOUT: Access.RP,
     Role.SETTING: Access.RP,
-    Role.CONFIG: Access.R,
 })
-
-
-@dataclass(frozen=True, slots=True)
-class Section:
-    """A second grouping axis across a device's tree: `dry` / `wet` / `total`, `ch1` / `ch2`.
-
-    A tag on the signal, never part of its address: `flows.dry` and
-    `efforts.dry` share the section `dry`, so a UI can pivot the tree by
-    section as well as by namespace. `axis` names what the sections are
-    (`"line"`, `"channel"`) for a device with more than one grouping.
-    """
-
-    name: str
-    label: str = ""
-    axis: str = "line"
-
-    def __post_init__(self) -> None:
-        _check_segment(self.name)
 
 
 type Bound = float | SignalRef
@@ -193,8 +197,9 @@ type Bound = float | SignalRef
 class SignalRef:
     """A reference to another signal of the same device, by path, resolved on the instance.
 
-    What a descriptor is on a class (`limits=(0.0, dry_max_flow)`): the
-    bound signal's `limits` resolve it to that signal's current value.
+    What a descriptor is on a class (`limits=(0.0, dry_max_flow)`): when the
+    device binds, each bound signal resolves it once to the signal or input
+    it names, and its `limits` read that object's current value.
     """
 
     __slots__ = ("path",)
@@ -210,7 +215,7 @@ class SignalRef:
 class SignalSpec:
     """A device's declaration of one signal.
 
-    From the driver; the rig file may restrict `access` and override the
+    From the driver; the rig file may restrict `access` and set the
     metadata, never add access the driver cannot honour -- except up to
     `ceiling`, when the driver names one.
     """
@@ -224,11 +229,11 @@ class SignalSpec:
     set `access` to anything from the driver's declared value up to and including `ceiling` --
     a driver opting a signal into being widened (an internal detail's `R` raised to `RP` for
     recording) without ever sanctioning access it did not name here."""
-    role: Role = Role.OUTPUT
-    section: Section | None = None
+    role: Role = Role.READOUT
     tags: dict[str, str] = field(default_factory=dict)
-    """Groupings across the tree, `{axis: name}`: the section's, plus any a driver or the rig
-    file adds (`signals: {dry: {tags: {line: dry}}}`); a namespace's apply to all under it."""
+    """Groupings across the tree, `{axis: name}` (`{"line": "dry"}`): what the driver declares,
+    plus any the rig file adds (`signals: {dry: {tags: {line: dry}}}`); a namespace's apply to
+    all under it. Never part of the address: `flows.dry` and `efforts.dry` share `line: dry`."""
     initial: Any = None
     """A value the signal has before anything reads or sets it: a mode's starting state."""
     vtype: Any = float
@@ -237,33 +242,53 @@ class SignalSpec:
     shape: tuple[int, ...] = ()
     """The dimensions of a value: `()` a scalar. Only scalars are carried yet."""
     label: str = ""
-    """The display text; `""` shows the titlecased name. The rig file may override it."""
+    """The display text; `""` shows the titlecased name. The rig file may set it."""
     # read side (R / P)
-    range: Band | None = None
+    range: Bounds | None = None
     """The values a reading can plausibly take, for a gauge or an axis; None if unbounded."""
     precision: int | None = None
     """Decimal places worth showing; None if the driver has not said."""
-    warn: Band | None = None
+    warning: Bounds | None = None
     """The band a value is normal inside (EPICS LOW/HIGH); outside it, a warning."""
-    alarm: Band | None = None
+    alarm: Bounds | None = None
     """The band a value is acceptable inside (EPICS LOLO/HIHI); outside it, an alarm."""
     poll_s: float | None = None
     """None: the enclosing node's; only meaningful with `P`."""
-    stale_after: float | None = None
+    stale_after_s: float | None = None
     """Seconds since the last reading beyond which a controller regulated from this signal
     treats it as untrustworthy: its demand is held rather than applied. None (default):
     never checked, today's behaviour."""
     # write side (W)
     limits: tuple[Bound, Bound] | None = None
     """What a demand is clamped to, in the signal's unit: numbers, or references to signals of
-    the same device whose current values bound it (a config's max flow, an input's humidity)."""
+    the same device whose current values bound it (a measured maximum, an input's humidity).
+    A demand while a referenced signal has no value yet, or a non-finite one (NaN, inf), is
+    refused, never passed unclamped."""
     max_rate: Rate | None = None
     """How fast a demand may move, in the signal's unit per `Rate.per`: a demand that would
     move further than the elapsed time since the last commit allows is clamped to the
     largest step allowed, not refused. None (default): unlimited, today's behaviour."""
+    readback: Readback = Readback.ECHO
+    """A demand's: `echo` (default) when its reading is the value the rig committed, so it is
+    `stale(write_failed)` while its device's writes fail; `sensed` when the driver reads it back
+    from the hardware, so it is a measurement like any readout's."""
+    on_no_value: OnNoValue | None = None
+    """A banded signal's: whether a fault with no value (`invalid`) raises `band_unknown` after
+    its grace. None (default): `fire` with an `alarm` band, `ignore` with only `warning`."""
+    record: bool = True
+    """Whether a recording started with the default selection keeps it. False for a raw
+    value only the rig needs (what a derived signal is computed from)."""
+    off: float | None = None
+    """A demand's inactive level, in its unit: what a stop writes when the rig file says
+    nothing for it (a PWM duty's 0). A fact the driver declares only where it cannot be
+    wrong -- never on an inverted output, never on a span that straddles 0 -- and a logical
+    value, before any `invert`. Written even outside `limits`: limits bound regulation, not
+    de-energising. None (default): a stop leaves the output as it is (`keep`)."""
 
     def __post_init__(self) -> None:
         _check_segment(self.name)
+        if self.off is not None and not math.isfinite(self.off):
+            raise ValueError(f"signal {self.name!r}: off {self.off!r} is not finite")
         Access.check(self.access)
         if self.ceiling is not None:
             Access.check(self.ceiling)
@@ -274,8 +299,10 @@ class SignalSpec:
                 )
         if self.shape != ():
             raise ValueError(f"signal {self.name!r}: shape {self.shape!r}: only scalars yet")
-        if self.section is not None and self.section.axis not in self.tags:
-            object.__setattr__(self, "tags", {self.section.axis: self.section.name, **self.tags})
+        _check_band(self.name, "range", self.range)
+        _check_band(self.name, "warning", self.warning)
+        _check_band(self.name, "alarm", self.alarm)
+        _check_band(self.name, "limits", self.limits)
 
     @property
     def dtype(self) -> str:
@@ -290,7 +317,7 @@ class NodeSpec:
     name: str
     children: tuple[NodeSpec | SignalSpec, ...]
     atomic: bool = False
-    """Read (and written) as one Sample / one Demand."""
+    """Read (and written) as one Sample / one Write."""
     label: str = ""
     poll_s: float | None = None
     """Inherited downwards; a child may override."""
@@ -470,11 +497,137 @@ class Node:
             raise ValueError(f"'{signal.address}' is not under '{self.address}'")
         return str(Path(signal.path[len(self.path) :]))
 
-    def override(self, **changes: Any) -> None:
+    def set_meta(self, **changes: Any) -> None:
         """Replace fields of the spec in place; the bound object keeps its identity."""
         if self.spec is None:
-            raise ValueError(f"Node '{self.address}' is a device root; override the device")
+            raise ValueError(f"Node '{self.address}' is a device root; set the device's own")
         self.spec = replace(self.spec, **changes)
+
+
+type Followed = float | Signal | InputBinding
+"""One end of a bound signal's limits: a number, or the signal or input a `SignalRef` named."""
+
+
+def _value_of(bound: Followed) -> float | None:
+    """A limit's current value: the number, or what it follows now; None if that is not known.
+
+    A followed signal whose newest reading is a no-value is not known: the limit fails closed.
+    """
+    if isinstance(bound, (int, float)):
+        return bound
+    if isinstance(bound, Signal):
+        reading = bound.router.reading(bound)
+        return None if reading is None else _finite(reading.value)
+    try:
+        return _finite(bound.value)
+    except NotReadyError:
+        return None
+
+
+def _name(bound: Followed) -> str:
+    """How a followed limit is named in a refusal: its path, or the input's name."""
+    if isinstance(bound, (int, float)):
+        return str(bound)
+    return str(bound.path) if isinstance(bound, Signal) else bound.name
+
+
+def _why(bound: Followed) -> tuple[str, str]:
+    """A followed bound's quality and reason now, as strings: why it is not known."""
+    if isinstance(bound, (int, float)):
+        return "ok", ""
+    if isinstance(bound, Signal):
+        reading = bound.router.reading(bound)
+        if reading is None:
+            return "pending", ""
+        return reading.quality.value, reading.reason
+    return bound.quality.value, bound.reason
+
+
+def _shown(limits: tuple[Bound, Bound]) -> str:
+    """A driver's limits for a message: numbers as numbers, a reference by its path."""
+    return (
+        "("
+        + ", ".join(
+            str(bound) if isinstance(bound, (int, float)) else repr(bound.path) for bound in limits
+        )
+        + ")"
+    )
+
+
+def _finite(value: Any) -> float | None:
+    """A referenced bound as a number, or None: not known -- no value, or not a finite one."""
+    if value is None or isinstance(value, NoValue):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+class LimitNotKnownError(NotReadyError):
+    """A demand was refused: a limit follows a signal that has no value yet, or a non-finite one.
+
+    Fail closed: an unresolved limit never lets a demand through unclamped
+    -- nor clamped to the other end, as `min(max(v, lo), nan)` would be.
+    The demand succeeds once the bound reads a finite value. `why` gives each
+    unknown bound's quality and reason (`pending`, `stale`: `device_offline`):
+    a hold on a `pending` input is benign, on a `stale` or `invalid` one a fault.
+    """
+
+    def __init__(
+        self,
+        address: str,
+        unknown: list[str],
+        why: dict[str, tuple[str, str]] | None = None,
+    ) -> None:
+        self.address = address
+        self.unknown = unknown
+        self.why = why or {}
+        which = (
+            ", ".join(
+                repr(path) + (f" ({_said(*self.why[path])})" if path in self.why else "")
+                for path in unknown
+            )
+            or "a referenced signal"
+        )
+        super().__init__(
+            f"Demand on '{address}' refused: its limit follows {which}, which has no value yet, "
+            "or not a finite one"
+        )
+
+    @property
+    def benign(self) -> bool:
+        """Whether every unknown bound is only `pending` or `not_applicable`: no fault."""
+        return all(q in ("pending", "not_applicable", "ok") for q, _ in self.why.values())
+
+
+def _said(quality: str, reason: str) -> str:
+    return f"{quality}: {reason}" if reason else quality
+
+
+class LimitsInvertedError(UnachievableError):
+    """A demand was refused: the effective limits, as they resolve now, have low above high.
+
+    A limit that follows a signal (a dry supply read wetter than the wet
+    one), or a rig file's narrowing that the driver's live band has moved
+    clear of, leaves no value a demand could be clamped to. Refused rather
+    than held at either end.
+    """
+
+    def __init__(self, address: str, limits: Bounds) -> None:
+        self.address = address
+        self.limits = limits
+        self.unknown: list[str] = []
+        super().__init__(
+            f"Demand on '{address}' refused: its limits are inverted now,"
+            f" low {limits[0]:g} above high {limits[1]:g}"
+        )
+
+
+type Keep = Literal["keep"]
+KEEP: Keep = "keep"
+"""The stop value that means "leave the output as it is"."""
 
 
 @dataclass(eq=False, slots=True)
@@ -496,6 +649,16 @@ class Signal:
     at_limit: Limit | None = None
     """What the driver says of the last demand on it: railed low or high, or neither. Set in
     `commit`; the rig puts it on the demand's write state."""
+    narrowed: Bounds | None = None
+    """The rig file's `limits`: a band a demand is held inside as well as the driver's, never
+    instead of them. Set through [narrow][flyball.foundation.device.signal.Signal.narrow]."""
+    stop: float | Keep | None = None
+    """The rig file's `stop:` for this demand: a number, or `"keep"` (leave it as it is).
+    None: it said nothing, and a stop writes the driver's `off`, else keeps it."""
+    _bounds: tuple[Followed, Followed] | None = field(default=None, repr=False)
+    """`spec.limits` with each `SignalRef` resolved to what it follows; see `bind_limits`."""
+    _bounds_for: SignalSpec | None = field(default=None, repr=False)
+    """The spec `_bounds` came from: `set_meta` replaces the spec, and they resolve again."""
 
     def __repr__(self) -> str:
         return f"Signal({self.address} [{self.access}])"
@@ -529,7 +692,7 @@ class Signal:
         return self.spec.label
 
     @property
-    def range(self) -> Band | None:
+    def range(self) -> Bounds | None:
         """What a gauge or an axis spans: the signal's own, else its limits, else the unit's scale.
 
         None if none of them say.
@@ -537,30 +700,120 @@ class Signal:
         return self.spec.range or self.limits or self.unit.scale
 
     @property
-    def limits(self) -> Band | None:
-        """The effective limits now: a referenced signal's current value stands for it.
+    def limits(self) -> Bounds | None:
+        """The effective limits now: the driver's, intersected with the rig file's narrowing.
 
-        A reference names a signal of the device by path, or one of its
-        inputs by role (the bound source's newest value, or the input's
-        default). None if there are none, or a reference has no value yet.
+        A reference in the driver's names a signal of the device by path, or
+        one of its inputs by name (the bound source's newest value, or the
+        number it is bound to); its current value stands for it. None if there are
+        none, if a reference has no value yet or a non-finite one (NaN, inf),
+        or if the band is inverted now -- for display; a demand goes through
+        [clamp][flyball.foundation.device.signal.Signal.clamp], which refuses
+        it in the last two cases rather than pass it unclamped.
         """
-        if (limits := self.spec.limits) is None:
+        band, unknown = self._resolved()
+        if unknown or band is None or band[0] > band[1]:
             return None
-        resolved: list[float] = []
-        for bound in limits:
-            if isinstance(bound, SignalRef):
-                value = self.node.device.referenced(bound.path)
-                if value is None:
-                    return None
-                resolved.append(float(value))
-            else:
-                resolved.append(bound)
-        return (resolved[0], resolved[1])
+        return band
+
+    def _resolved(self) -> tuple[Bounds | None, list[Followed]]:
+        """The effective band, maybe inverted, and the bounds that are not known now."""
+        narrowed = self.narrowed
+        if (bounds := self.bind_limits()) is None:
+            return narrowed, []
+        low, high = _value_of(bounds[0]), _value_of(bounds[1])
+        if low is None or high is None:
+            return None, [bound for bound in bounds if _value_of(bound) is None]
+        if narrowed is not None:
+            low, high = max(low, narrowed[0]), min(high, narrowed[1])
+        return (low, high), []
+
+    def narrow(self, band: Bounds | None) -> None:
+        """Hold demands inside `band` as well as the driver's limits; None drops the narrowing.
+
+        The rig file's `limits`. The effective limits are the intersection,
+        worked out at every clamp: a driver bound that follows a signal is
+        intersected with its value then. A rig file may only narrow.
+
+        Raises:
+            ValueError: `band` is inverted or not finite, or reaches past an
+                end of the driver's limits that is a number.
+        """
+        if band is not None:
+            _check_band(self.name, "limits", band)
+            if (declared := self.spec.limits) is not None:
+                low, high = declared
+                if (isinstance(low, (int, float)) and band[0] < low) or (
+                    isinstance(high, (int, float)) and band[1] > high
+                ):
+                    raise ValueError(
+                        f"'{self.address}': limits {tuple(band)!r} reach outside the driver's"
+                        f" {_shown(declared)}; a rig file may only narrow them"
+                    )
+        self.narrowed = band
+
+    def bind_limits(self) -> tuple[Followed, Followed] | None:
+        """The spec's limits with each reference resolved to the signal or input it follows.
+
+        Resolved once, when the device binds, and again only if `set_meta`
+        replaces the spec; reading a limit then costs no lookup by name.
+        None if the signal has no limits.
+
+        Raises:
+            ValueError: A reference names neither a signal of this device nor
+                one of its inputs.
+        """
+        if self._bounds_for is not self.spec:
+            limits = self.spec.limits
+            self._bounds = (
+                None if limits is None else (self._follow(limits[0]), self._follow(limits[1]))
+            )
+            self._bounds_for = self.spec
+        return self._bounds
+
+    def _follow(self, bound: Bound) -> Followed:
+        if not isinstance(bound, SignalRef):
+            return bound
+        device = self.node.device
+        if (signal := device.signals.get(bound.path)) is not None:
+            return signal
+        if (input_ := device.INPUTS.get(bound.path)) is not None:
+            return input_.on(device)  # the binding: the rig points it at its source later
+        raise ValueError(
+            f"'{self.address}': a limit follows {bound.path!r}, which is neither a signal"
+            f" nor an input of {device.name!r}"
+        )
+
+    def clamp(self, value: float) -> float:
+        """`value` held inside the effective limits; unchanged for a signal without limits.
+
+        The effective limits are the driver's intersected with the rig
+        file's narrowing, resolved now. Fails closed: when a bound follows a
+        signal with no value yet, or a non-finite one (NaN, inf), the demand
+        is refused rather than passed through unclamped -- even when the
+        other end is a number, since the unknown end is the one that matters
+        (a supply's humidity, a max flow read from the device).
+
+        Raises:
+            LimitNotKnownError: A bound follows a signal that has no value yet,
+                or a non-finite one.
+            LimitsInvertedError: The limits resolve with low above high.
+        """
+        band, unknown = self._resolved()
+        if unknown:
+            raise LimitNotKnownError(
+                self.address, [_name(b) for b in unknown], {_name(b): _why(b) for b in unknown}
+            )
+        if band is None:
+            return value
+        if band[0] > band[1]:
+            raise LimitsInvertedError(self.address, band)
+        return min(max(value, band[0]), band[1])
 
     @property
-    def pending(self) -> float | None:
-        """The demand recorded on this signal since the last commit, if any."""
-        return self.node.device.pending.get(self)
+    def staged(self) -> float | None:
+        """The value written to this signal and staged since the last commit, if any."""
+        return self.node.device.staged.get(self)
 
     @property
     def poll_s(self) -> float | None:
@@ -593,9 +846,19 @@ class Signal:
         """
         self.node.device.push_one(self, value, time_ns)
 
-    def override(self, **changes: Any) -> None:
-        """Replace metadata fields of the spec in place; the bound object keeps its identity."""
-        self.spec = replace(self.spec, **changes)
+    def set_meta(self, **changes: Any) -> None:
+        """Replace metadata fields of the spec in place; the bound object keeps its identity.
+
+        A `warning` or `alarm` band removed takes its condition with it
+        (`band_warning`, `band_alarm`; `band_unknown` with the last band),
+        cleared at once: there is no band left for a reading to come back inside.
+        """
+        before, self.spec = self.spec, replace(self.spec, **changes)
+        for band, code in (("warning", Code.BAND_WARNING), ("alarm", Code.BAND_ALARM)):
+            if getattr(before, band) is not None and getattr(self.spec, band) is None:
+                self.node.device.conditions.clear(self, code, message=f"{band} band removed")
+        if self.spec.warning is None and self.spec.alarm is None:
+            self.node.device.conditions.clear(self, Code.BAND_UNKNOWN, message="no band left")
 
     def restrict(self, access: Access) -> None:
         """Set `access` to a subset of what the driver declared, or up to its `ceiling`.
@@ -634,15 +897,42 @@ class Reading:
     signal: Signal
     time_ns: int
     value: Value
+    """The value, or a [NoValue][flyball.foundation.device.novalue.NoValue]: test `usable`."""
     requested: float | None = None
     """What was asked for, when the clamp changed it."""
     at_limit: Limit | None = None
+    """The caveat `at_limit`: the rig clamped this demand to an end of its limits, or the driver
+    reported the value railed at an end of what it can read."""
     controller: str | None = None
     """The controller driving the signal, if any."""
+    received_ns: int | None = field(default=None, compare=False)
+    """When the rig took delivery of it, on the rig's clock (`time_ns` is when it was read):
+    what liveness and `age_s` count from. None on a reading no rig has delivered."""
 
     @property
     def seconds(self) -> float:
         return self.time_ns / 1e9
+
+    @property
+    def usable(self) -> bool:
+        """Whether it has a value a consumer may use: not a no-value."""
+        return not isinstance(self.value, NoValue)
+
+    @property
+    def quality(self) -> Quality:
+        """`ok`, or the no-value's quality."""
+        value = self.value
+        return value.quality if isinstance(value, NoValue) else Quality.OK
+
+    @property
+    def reason(self) -> str:
+        """The no-value's reason; `""` for a usable value."""
+        value = self.value
+        return value.reason if isinstance(value, NoValue) else ""
+
+
+_NO_MARKS: Mapping[Any, Limit] = MappingProxyType({})
+"""A sample's `marks` when it has none: one shared, read-only, so a sample costs no dict."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -656,20 +946,38 @@ class Sample:
     relative to the node, never nested. Any readable signal under the node
     may appear and any may be missing -- not read at this instant -- but
     there is always at least one. Only what publishes leaves the rig.
+
+    A value may be a [NoValue][flyball.foundation.device.novalue.NoValue]: read, and none.
+    `marks` are the caveat `at_limit` of the values that carry it, sparse; a driver yields
+    `railed(value, "high")` and [normalised][flyball.foundation.device.signal.normalised]
+    moves it here.
     """
 
     node: Node
     time_ns: int
     values: Mapping[Signal, Value]
+    marks: Mapping[Signal, Limit] = _NO_MARKS
 
     @property
     def seconds(self) -> float:
         return self.time_ns / 1e9
 
-    def readings(self) -> Iterator[Reading]:
-        """One [Reading][flyball.foundation.device.signal.Reading] per value, its bound signal."""
+    def readings(self, received_ns: int | None = None) -> Iterator[Reading]:
+        """One [Reading][flyball.foundation.device.signal.Reading] per value, its bound signal.
+
+        `received_ns`: when the rig took delivery, stamped on each.
+        """
         time_ns = self.time_ns
-        return (Reading(signal, time_ns, value) for signal, value in self.values.items())
+        marks = self.marks
+        if not marks:
+            return (
+                Reading(signal, time_ns, value, received_ns=received_ns)
+                for signal, value in self.values.items()
+            )
+        return (
+            Reading(signal, time_ns, value, at_limit=marks.get(signal), received_ns=received_ns)
+            for signal, value in self.values.items()
+        )
 
     def by_name(self, relative_to: Node | None = None) -> dict[str, Value]:
         """The wire form: each value by its dotted path relative to `relative_to` (default `node`).
@@ -681,11 +989,11 @@ class Sample:
         return {node.relative(signal): value for signal, value in self.values.items()}
 
     def published(self) -> Sample | None:
-        """Without the values on non-publishing signals: itself if none, None if nothing is left."""
+        """Without the values on non-published signals: itself if none, None if nothing is left."""
         kept = {s: v for s, v in self.values.items() if Access.P in s.access}
         if len(kept) == len(self.values):
             return self
-        return Sample(self.node, self.time_ns, kept) if kept else None
+        return Sample(self.node, self.time_ns, kept, _kept(self.marks, kept)) if kept else None
 
     def under(self, node: Node) -> Sample | None:
         """The values under `node`, as a sample on it; None if there are none.
@@ -696,12 +1004,58 @@ class Sample:
         if node is self.node:
             return self
         kept = {s: v for s, v in self.values.items() if node.contains(s)}
-        return Sample(node, self.time_ns, kept) if kept else None
+        return Sample(node, self.time_ns, kept, _kept(self.marks, kept)) if kept else None
+
+
+def _kept(marks: Mapping[Signal, Limit], kept: Mapping[Signal, Value]) -> Mapping[Signal, Limit]:
+    """The marks of the values `kept`: what a sample cut down to them carries."""
+    return {s: m for s, m in marks.items() if s in kept} if marks else marks
+
+
+def _gate(value: Value) -> tuple[Value, Limit | None, bool]:
+    """One value through the gate: the value (or a no-value), its mark, whether it changed."""
+    if value is None:
+        return invalid("no value"), None, True
+    if isinstance(value, float) and not math.isfinite(value):
+        return invalid("not finite"), None, True
+    if isinstance(value, Railed):
+        inner, _, _ = _gate(value.value)
+        if isinstance(inner, NoValue):
+            return inner, None, True
+        return inner, Limit(value.side), True
+    return value, None, False
+
+
+def normalised(sample: Sample) -> Sample:
+    """`sample` through the value gate: itself when every value is already a value or a no-value.
+
+    `None`, NaN and the infinities become `invalid` no-values (`"no value"`, `"not finite"`): a
+    number nobody can use is not passed on as one. A `railed(value, side)` becomes the value,
+    with its side in `marks`.
+    """
+    values: dict[Signal, Value] | None = None
+    marks: dict[Signal, Limit] | None = None
+    for signal, value in sample.values.items():
+        gated, mark, changed = _gate(value)
+        if not changed:
+            continue
+        if values is None:
+            values, marks = dict(sample.values), dict(sample.marks)
+        assert marks is not None
+        values[signal] = gated
+        if mark is None:
+            marks.pop(signal, None)
+        else:
+            marks[signal] = mark
+    if values is None:
+        return sample
+    assert marks is not None
+    return Sample(sample.node, sample.time_ns, values, marks)
 
 
 @dataclass(frozen=True, slots=True)
-class Demand:
-    """One or more values put on W signals under one node at one instant: a Sample in reverse.
+class Write:
+    """One or more values written to W signals under one node at one instant: a Sample in reverse.
 
     A rig-level object: the rig validates it whole, then fans it out to
     `Device.apply` one signal at a time. `values` are keyed by the bound

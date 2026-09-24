@@ -5,6 +5,7 @@ import BoltIcon from "@mui/icons-material/Bolt";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import LoopIcon from "@mui/icons-material/Loop";
 import MemoryIcon from "@mui/icons-material/Memory";
 import MultilineChartIcon from "@mui/icons-material/MultilineChart";
@@ -13,6 +14,7 @@ import PlaylistPlayIcon from "@mui/icons-material/PlaylistPlay";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import SensorsIcon from "@mui/icons-material/Sensors";
+import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import ShowChartIcon from "@mui/icons-material/ShowChart";
 import SpaceDashboardOutlinedIcon from "@mui/icons-material/SpaceDashboardOutlined";
 import SpeedIcon from "@mui/icons-material/Speed";
@@ -27,17 +29,16 @@ import type { Page } from "./router.js";
 export type IconComponent = typeof SvgIcon;
 
 export const PAGE_ICONS: Record<Page, IconComponent> = {
-  overview: SpaceDashboardOutlinedIcon,
   dashboards: DashboardOutlinedIcon,
-  inputs: ShowChartIcon,
+  readings: ShowChartIcon,
   graph: MultilineChartIcon,
   controllers: LoopIcon,
   devices: MemoryIcon,
-  rig: AccountTreeOutlinedIcon,
   programs: PlaylistPlayIcon,
   events: NotificationsNoneIcon,
   sessions: StorageOutlinedIcon,
   simulation: ScienceOutlinedIcon,
+  options: SettingsOutlinedIcon,
 };
 
 /** An icon for a signal from what it measures — the quantity first, then the unit as a fallback. */
@@ -58,4 +59,6 @@ export {
   TuneIcon as WriteIcon,
   WarningAmberIcon as WarnIcon,
   ErrorOutlineIcon as ErrorIcon,
+  /** A band the rig cannot judge (`band_unknown`): no value because of a fault. Never the alarm icon. */
+  HelpOutlineIcon as UnknownIcon,
 };

@@ -19,6 +19,8 @@ from .types import (
     DeviceRow,
     Downsample,
     Event,
+    LatchRow,
+    LiveValueRow,
     ProgramFormat,
     ProgramRow,
     RigVersionRow,
@@ -60,7 +62,7 @@ class SessionWriter(Protocol):
         ...
 
     def declare_controller(self, controller: Controller) -> None:
-        """`controller.target` and `.source` must already be declared."""
+        """`controller.output_signal` and `.measured_signal` must already be declared."""
         ...
 
     # endregion
@@ -143,7 +145,18 @@ class Store(Protocol):
         ...
 
     def delete_session(self, session_id: int) -> None:
-        """Everything the session owns goes with it."""
+        """Everything the session owns goes with it.
+
+        Need not be atomic: a store may delete a large session a piece at a
+        time, so as not to shut everyone else out meanwhile, and marks it
+        `details.deleting` before it starts. A reader between the pieces sees
+        it partly gone; one cut off part-way is in `deleting_sessions()`, and
+        deleting it again finishes it.
+        """
+        ...
+
+    def deleting_sessions(self) -> list[SessionRow]:
+        """Sessions whose `delete_session` never finished: delete each again."""
         ...
 
     def set_pinned(self, session_id: int, pinned: bool) -> SessionRow:
@@ -163,7 +176,9 @@ class Store(Protocol):
 
         Its `start_ns` moves up to `before_ns` -- the oldest it can now hold --
         but never past its end. A span still open, or ending later, stays.
-        How the runner keeps a scratch session to the last `keep`.
+        How the runner keeps a scratch session to the last `keep`. Need not be
+        atomic, as `delete_session`; one cut off part-way leaves `start_ns`
+        where it was, and the next trim finishes it.
         """
         ...
 
@@ -257,7 +272,7 @@ class Store(Protocol):
         ...
 
     def events(
-        self, session_id: int, window: Window | None = None, kind: str | None = None
+        self, session_id: int, window: Window | None = None, code: str | None = None
     ) -> list[Event]: ...
 
     def spans(self, session_id: int) -> list[Span]:
@@ -360,6 +375,42 @@ class Store(Protocol):
     def rename_dashboard(self, name: str, new_name: str) -> list[DashboardRow]: ...
 
     # endregion
+
+    # endregion
+
+    # region Live values
+
+    def live_values(self) -> list[LiveValueRow]:
+        """Every live value kept across restarts, by device then signal."""
+        ...
+
+    def put_live_value(self, row: LiveValueRow) -> None:
+        """Keep `row`, replacing what was kept for its `(device, signal)`.
+
+        Raises:
+            ValueError: Its value is a secret (a `SecretStr`, `SecretBytes`): never kept.
+        """
+        ...
+
+    def delete_live_value(self, device: str, signal: str) -> None:
+        """Forget what was kept for `(device, signal)`; nothing if there was none."""
+        ...
+
+    # endregion
+
+    # region Latches
+
+    def latches(self) -> list[LatchRow]:
+        """Every latch kept across restarts, oldest first."""
+        ...
+
+    def put_latch(self, row: LatchRow) -> None:
+        """Keep `row`, replacing what was kept for its `cause`."""
+        ...
+
+    def delete_latch(self, cause: str) -> None:
+        """Forget the latch kept for `cause`; nothing if there was none."""
+        ...
 
     # endregion
 

@@ -20,7 +20,7 @@ import time
 from collections.abc import Iterator
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import Access, DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import Access, DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.errors import HardwareError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import PartsPerBillion, PartsPerMillion
@@ -125,8 +125,12 @@ class Ccs811Sensor:
             self.address, ENV_DATA, encode_env_data(humidity_percent_rh, temperature_c)
         )
 
-    def measure(self) -> tuple[int, int]:
-        """(eCO2 ppm, TVOC ppb): one register read.
+    def measure(self) -> tuple[int, int] | None:
+        """(eCO2 ppm, TVOC ppb): one register read; None while no new result is ready.
+
+        `STATUS`'s DATA_READY is clear before the first measurement completes and
+        between one result's read and the next: `ALG_RESULT_DATA` then holds
+        nothing new (zeros, before the first), so nothing is read.
 
         Raises:
             HardwareError: `STATUS` reports an error, or the chip is not in app mode.
@@ -137,14 +141,16 @@ class Ccs811Sensor:
         if status & STATUS_ERROR:
             error = self.link.read_register(self.address, ERROR_ID, 1)[0]
             raise HardwareError(f"CCS811 reports an error: ERROR_ID=0x{error:02x}")
+        if not (status & STATUS_DATA_READY):
+            return None
         return decode_alg_result(self.link.read_register(self.address, ALG_RESULT_DATA, 4))
 
 
 class Ccs811(Readable):
     """One chip on the device root: `co2eq`, `tvoc` [RP], booted once, a register read per read."""
 
-    co2eq = Output("co2eq", quantity=CO2EQ, access=Access.RP, range=(400.0, 8192.0), precision=0)
-    tvoc = Output("tvoc", quantity=TVOC, access=Access.RP, range=(0.0, 1187.0), precision=0)
+    co2eq = Readout("co2eq", quantity=CO2EQ, access=Access.RP, range=(400.0, 8192.0), precision=0)
+    tvoc = Readout("tvoc", quantity=TVOC, access=Access.RP, range=(0.0, 1187.0), precision=0)
 
     def __init__(
         self,
@@ -164,11 +170,14 @@ class Ccs811(Readable):
         return Ccs811Config(link="", address=self.sensor.address)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
-        co2eq, tvoc = self.sensor.measure()
+        """One result, when the chip has a new one; nothing (not read this time) when not."""
+        if (result := self.sensor.measure()) is None:
+            return
+        co2eq, tvoc = result
         yield self.sample(time_ns, co2eq=co2eq, tvoc=tvoc)
 
 
-class Ccs811Config(DriverConfig[Ccs811], tag="ccs811"):
+class Ccs811Config(DriverConfig[Ccs811], type="ccs811"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

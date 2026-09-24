@@ -8,20 +8,20 @@ description: >-
   a cooldown, and a prompt to unload.
 steps:
   - regulate:
-      loop:
+      controllers:
         [heaters.heater1, heaters.heater2, heaters.heater3, heaters.heater4, heaters.heater5, heaters.heater6, heaters.heater7, heaters.heater8, heaters.heater9, heaters.heater10, heaters.heater11, heaters.heater12]
       setpoint: 20
-  - ramp: { loop: [heaters.heater1, heaters.heater2, heaters.heater3], to: 300, per_minute: 10, wait: false }
-  - ramp: { loop: [heaters.heater4, heaters.heater5, heaters.heater6], to: 600, per_minute: 10, wait: false }
-  - ramp: { loop: [heaters.heater7, heaters.heater8, heaters.heater9], to: 450, per_minute: 10, wait: false }
-  - ramp: { loop: [heaters.heater10, heaters.heater11, heaters.heater12], to: 300, per_minute: 10 }
-  - hold: { minutes: 20, message: "gradient 300 / 600 / 450 / 300 along the tube" }
+  - ramp: { controllers: [heaters.heater1, heaters.heater2, heaters.heater3], to: 300, per_minute: 10, wait: false }
+  - ramp: { controllers: [heaters.heater4, heaters.heater5, heaters.heater6], to: 600, per_minute: 10, wait: false }
+  - ramp: { controllers: [heaters.heater7, heaters.heater8, heaters.heater9], to: 450, per_minute: 10, wait: false }
+  - ramp: { controllers: [heaters.heater10, heaters.heater11, heaters.heater12], to: 300, per_minute: 10 }
+  - wait: { duration: { minutes: 20 }, message: "gradient 300 / 600 / 450 / 300 along the tube" }
   - ramp:
-      loop:
+      controllers:
         [heaters.heater1, heaters.heater2, heaters.heater3, heaters.heater4, heaters.heater5, heaters.heater6, heaters.heater7, heaters.heater8, heaters.heater9, heaters.heater10, heaters.heater11, heaters.heater12]
       to: 60
       per_minute: 15
   - manual:
-      loop:
+      controllers:
         [heaters.heater1, heaters.heater2, heaters.heater3, heaters.heater4, heaters.heater5, heaters.heater6, heaters.heater7, heaters.heater8, heaters.heater9, heaters.heater10, heaters.heater11, heaters.heater12]
-  - wait: { message: "unload the sample, then press go", timeout: { minutes: 10 } }
+  - prompt: { message: "unload the sample, then press go", timeout: { minutes: 10 } }

@@ -2,8 +2,8 @@
 # Overlay: no hardware. The real EZO/pwm_channel drivers stay -- only the
 # links change, to `fake_uart`/`fake_pwm`, exactly the `bench.yaml` pattern
 # ("the exact file shape a real bench uses -- change two link tags and it is
-# hardware"). `fake_uart`'s `replies` is a fixed script: a single reply
-# repeats forever (`FakeUart._next`), so this reads as a constant probe
+# hardware"). `fake_uart`'s `replies` is a fixed script: the last reply
+# repeats for ever (`FakeUart` in flyball-sim), so this reads as a constant probe
 # value -- there is no scripted drift here, unlike the humidity example's
 # `sim_humidity_chamber`.
 
@@ -11,11 +11,11 @@ name: dosing-skid-sim
 clock: { speed: 1 }
 
 links:
-  ph_uart: { tag: fake_uart, replies: ["6.200\r"] }
-  ec_uart: { tag: fake_uart, replies: ["1.850\r"] }     # mS/cm-scale reading, as the probe would report it
-  orp_uart: { tag: fake_uart, replies: ["185\r"] }
-  do_uart: { tag: fake_uart, replies: ["7.20\r"] }
-  pump_pwm: { tag: fake_pwm }
+  ph_uart: { type: fake_uart, replies: ["6.200\r"] }
+  ec_uart: { type: fake_uart, replies: ["1.850\r"] }     # mS/cm-scale reading, as the probe would report it
+  orp_uart: { type: fake_uart, replies: ["185\r"] }
+  do_uart: { type: fake_uart, replies: ["7.20\r"] }
+  pump_pwm: { type: fake_pwm }
 
 # devices: unchanged from rig.yaml -- ph/ec/orp/do/doser keep their real
 # drivers; only the four uart links plus pump_pwm above are overlaid, so a

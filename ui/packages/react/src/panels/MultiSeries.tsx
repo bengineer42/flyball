@@ -20,13 +20,20 @@ export interface MultiSeriesTrace {
   quantity?: string;
   /** Seconds since the epoch, ascending. Traces need not share the same times. Omitted when the chart draws from a `source`. */
   t?: number[];
-  v?: (number | null)[];
+  /** `null` (or `NaN`) where a reading had none: a break; `undefined` where there was no reading to take (joined across). */
+  v?: (number | null | undefined)[];
   /** The signal in the `source` store this trace draws from (its address); the trace at the same index of `source.keys` otherwise. */
   key?: string;
   /** Any CSS colour. Defaults cycle through `--fb-series-1` … `--fb-series-6`. */
   color?: string;
-  /** Dashed line: `true` for a default dash, or a canvas dash array. */
+  /** Dashed line: `true` for a default dash, or a canvas dash array. A stroke style only -- it
+   * says nothing about how the segments between points are drawn; see `stepped` for that. */
   dash?: boolean | number[];
+  /** Draws as a step (holds the previous value until the next point, then jumps) rather than
+   * interpolating a straight line between points: for a value that only actually changes at a
+   * tick -- a written setpoint, a fixed clamp limit -- confirmed against a sim rig's controller
+   * ticks (a `regulate` write lands between two ticks as an instant step, not a ramp). */
+  stepped?: boolean;
   width?: number;
   /** Shown on hover over the legend entry: what this trace is, in a sentence. */
   hint?: string;
@@ -102,12 +109,29 @@ const scaleOf = (trace: MultiSeriesTrace, unit: string | undefined) => (trace.un
 const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): string =>
   typeof raw === "number" && Number.isFinite(raw) ? withUnit(fixed(raw, s.precision ?? 2), s.unit) : "—";
 
-/** Align traces with different time bases onto one x array, nulls where a trace has no point. */
-function align(series: Array<{ t: number[]; v: (number | null)[] }>): uPlot.AlignedData {
+/**
+ * A real dead-time break lands in a trace's own `v` as `NaN` (the ring's gap
+ * insertion, a controller setpoint's null-as-NaN) -- `null` is the sentinel
+ * uPlot itself treats as a break, so it is converted here before the array
+ * ever reaches uPlot. Left as `NaN`, uPlot draws a point at `pixelForY(NaN)`
+ * instead of breaking the line.
+ */
+export const toBreaks = <V extends number | null | undefined>(v: V[]): (V | null)[] =>
+  v.some((x) => typeof x === "number" && Number.isNaN(x)) ? v.map((x) => (typeof x === "number" && Number.isNaN(x) ? null : x)) : v;
+
+/**
+ * Align traces with different time bases onto one x array. A real gap
+ * (`null`, after `toBreaks`) draws as a break; a point only *missing because
+ * another trace's time won this alignment slot* comes out of `uPlot.join` as
+ * `undefined` (its default `nullMode` retains real nulls but leaves
+ * alignment artifacts undefined) and stays connected -- see `spanGaps: false`
+ * below, which relies on that distinction.
+ */
+export function align(series: Array<{ t: number[]; v: (number | null | undefined)[] }>): uPlot.AlignedData {
   if (series.length === 0) return [[]];
   const shared = series.every((s) => s.t === series[0]!.t);
-  if (shared) return [series[0]!.t, ...series.map((s) => s.v)] as uPlot.AlignedData;
-  return uPlot.join(series.map((s) => [s.t, s.v] as uPlot.AlignedData));
+  if (shared) return [series[0]!.t, ...series.map((s) => toBreaks(s.v))] as uPlot.AlignedData;
+  return uPlot.join(series.map((s) => [s.t, toBreaks(s.v)] as uPlot.AlignedData));
 }
 
 const EMPTY: number[] = [];
@@ -143,7 +167,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
   const latest = useRef<uPlot.AlignedData>([[]]);
   // Rebuild only when something structural changes, not on every data tick.
   const shape = JSON.stringify(
-    series.map((s) => [s.label, s.unit ?? null, s.quantity ?? null, s.color ?? null, s.dash ?? null, s.width ?? null, s.precision ?? null]),
+    series.map((s) => [s.label, s.unit ?? null, s.quantity ?? null, s.color ?? null, s.dash ?? null, s.stepped ?? null, s.width ?? null, s.precision ?? null]),
   );
 
   const [yFit, setYFit] = useState<YScale | null>(null);
@@ -218,11 +242,15 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         scale,
         stroke: strokeColor,
         width: s.width ?? 1.5,
-        spanGaps: true,
+        // false so a real gap (`align`'s `toBreaks`, a `null`) still draws a visible break;
+        // the alignment fill uPlot inserts for a trace with no point at another trace's time
+        // is `undefined`, which draws connected regardless of this setting.
+        spanGaps: false,
         points: { show: false }, // a thinned or sparse trace stays a line, not a row of dots
         value: (_u, raw) => displayValue(raw, s),
       };
       if (s.dash) line.dash = Array.isArray(s.dash) ? s.dash : DASH;
+      if (s.stepped) line.paths = uPlot.paths!.stepped!({ align: 1 });
       plotted.push(line);
     });
 
@@ -298,7 +326,7 @@ export function MultiSeries({ series, source, paused, syncKey, id, unit, height 
         // sum of their points near the cap, not each of them, or eight traces make a
         // 20 000-row axis every series has to walk.
         const maxPoints = Math.max(300, Math.floor(pointCap(u?.width ?? host.current?.clientWidth ?? 400) / Math.max(1, keys.length)));
-        const opts = { every: everyRef.current, maxPoints };
+        const opts = { every: everyRef.current, maxPoints, spanS: windowS };
         latest.current = align(keys.map((key, i) => source.store.read(key, views.current[i]!, opts)));
       }
       u?.setData(latest.current);

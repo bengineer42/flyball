@@ -11,7 +11,7 @@
 
 ::: flyball.interfaces.server.routes.controllers
 
-::: flyball.interfaces.server.routes.waits
+::: flyball.interfaces.server.routes.activities
 
 ::: flyball.interfaces.server.routes.history
 

@@ -11,7 +11,7 @@ FLOW = {
         "Absolute": {
             "type": "object",
             "title": "Absolute",
-            "properties": {"flow": {"type": "number", "minimum": 0}, "tag": {"const": "absolute"}},
+            "properties": {"flow": {"type": "number", "minimum": 0}, "type": {"const": "absolute"}},
             "required": ["flow"],
         },
         "Relative": {
@@ -58,7 +58,7 @@ class TestValidate:
 
 
 class TestClientSurfaces:
-    """`Rig.demand`/`.read`/`.controllers` build the routes the plan documents."""
+    """`Rig.write`/`.read`/`.controllers` build the routes the plan documents."""
 
     def test_demand_read_and_controllers_build_the_documented_routes(self):
         from flyball.interfaces.client import Rig
@@ -68,7 +68,7 @@ class TestClientSurfaces:
         rig.put = lambda path, body=None: calls.append(("PUT", path, body))
         rig.get = lambda path: calls.append(("GET", path, None)) or {"ok": True}
 
-        rig.demand("heaters.heater1", 1200.0)
+        rig.write("heaters.heater1", 1200.0)
         rig.read("furnace.zone1")
         rig.read("furnace.zone1", fresh=True)
         rig.controllers()

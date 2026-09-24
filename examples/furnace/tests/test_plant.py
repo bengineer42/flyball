@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pytest
 from flyball.control.feedforward import Table
+from flyball.foundation.device import invalid
 from flyball.model.feedforward import NoFeedforward
-from flyball.sequencing import Hold, Manual, Program, Programmer, Ramp, Regulate
+from flyball.sequencing import Manual, Program, Programmer, Ramp, Regulate, Wait
 from flyball.runtime.config import RigConfig, resolve_document
 from flyball_sim import Port, SteppedClock
 
@@ -19,10 +20,10 @@ RIG = Path(__file__).resolve().parents[1] / "rig.yaml"
 class TestFurnace:
     def test_rests_at_ambient_and_heats_when_driven(self):
         furnace = Furnace(zones=2, sensor_lag_s=0)
-        furnace.step(600)
+        furnace.advance(600)
         assert furnace.temperature == [20.0, 20.0]
         furnace.inputs["heater1"] = 1.0
-        furnace.step(600)
+        furnace.advance(600)
         assert furnace.temperature[0] > 100 and 20 < furnace.temperature[1] < furnace.temperature[0]
         assert furnace.output("zone1") == pytest.approx(furnace.temperature[0])
 
@@ -47,7 +48,7 @@ class TestFurnace:
     def test_sample_and_sensors_lag(self):
         furnace = Furnace(zones=1, sample_zone=1, sensor_lag_s=10)
         furnace.inputs["heater1"] = 1.0
-        furnace.step(60)
+        furnace.advance(60)
         assert furnace.sample < furnace.temperature[0]
         assert furnace.measured[0] < furnace.temperature[0]
         furnace.reset(300)
@@ -56,10 +57,10 @@ class TestFurnace:
     def test_advance_steps_once_per_instant(self):
         furnace = Furnace(zones=1, sample_zone=1)
         furnace.inputs["heater1"] = 1.0
-        furnace.advance(0)
-        furnace.advance(60_000_000_000)
+        furnace.advance_to(0)
+        furnace.advance_to(60_000_000_000)
         after_one = furnace.temperature[0]
-        furnace.advance(60_000_000_000)  # the same instant again: no second step
+        furnace.advance_to(60_000_000_000)  # the same instant again: no second step
         assert furnace.temperature[0] == after_one
 
     def test_ports_and_bad_names(self):
@@ -86,7 +87,7 @@ def _fresh_furnace_rig():
 def furnace_rig():
     rig = _fresh_furnace_rig()
     yield rig
-    rig.stop()
+    rig.close()
 
 
 def _zone(rig, name: str) -> float:
@@ -96,11 +97,12 @@ def _zone(rig, name: str) -> float:
 def test_the_example_reads_every_port_from_one_plant(furnace_rig):
     rig = furnace_rig
     clock = rig.clock
-    assert isinstance(clock, SteppedClock) and clock.scheduled == 1, "one daq polled, on the clock"
+    assert isinstance(clock, SteppedClock), "on the clock"
+    assert list(rig.polling.periodic) == ["furnace"], "one daq polled"
     assert set(rig.devices) == {"furnace", "heaters"}
     assert rig.devices["furnace"].plant is rig.devices["heaters"].plant is rig.links["tube"]
     rig.detach_controller("heaters.heater1")  # a driven signal refuses a manual demand
-    (state,) = rig.demand(rig.resolve("heaters"), {"heater1": 600}).values()
+    (state,) = rig.write(rig.resolve("heaters"), {"heater1": 600}).values()
     assert state.value == 600.0 and state.at_limit is None
     assert rig.links["tube"].inputs["heater1"] == pytest.approx(600 / 2500)
     clock.advance(600)
@@ -122,38 +124,64 @@ def test_a_firing_runs_deterministically_on_the_stepped_clock(furnace_rig):
     programmer = Programmer(rig)
     programmer.start(
         Program([
-            Regulate(20, loop=HEATERS),
-            Ramp(300, pace=Rate_per_minute(10), loop=HEATERS),
-            Hold(Duration_minutes(10)),
-            Manual(loop=HEATERS),
+            Regulate(20, controllers=HEATERS),
+            Ramp(300, pace=Rate_per_minute(10), controllers=HEATERS),
+            Wait(Duration_minutes(10)),
+            Manual(controllers=HEATERS),
         ])
     )
     programmer.join(30)
     assert programmer.running is False
     elapsed_min = (clock.now_ns() - start) / 60e9
-    assert elapsed_min == pytest.approx(28 + 10, abs=0.1), "28 min ramp + 10 min hold, no waiting"
+    assert elapsed_min == pytest.approx(28 + 10, abs=0.1), "28 min ramp + 10 min wait, all rig time"
     for name in ("zone1", "zone2", "zone3"):
         assert _zone(rig, name) == pytest.approx(300, abs=50)  # it overshoots
         assert rig.controllers[f"heaters.{name.replace('zone', 'heater')}"].mode.value == "manual"
 
 
-def test_a_failed_thermocouple_takes_the_daq_offline_with_an_event(furnace_rig):
+def test_a_dead_bus_takes_the_daq_offline_and_it_retries(furnace_rig):
     rig = furnace_rig
     furnace = rig.devices["furnace"]
-    furnace.fail("zone3")
+    furnace.fail("zone3", raises=True)
     rig.clock.advance(2)
+    assert rig.conditions.of(furnace) == [], "two failed reads: under the budget of 3"
+    rig.clock.advance(1)
     run = rig.polling.run("furnace")
-    assert run.running is False and run.conditions[0].kind == "offline"
-    assert "zone3" in run.conditions[0].message
-    assert any(e.kind == "offline" and e.subject == "furnace" for e in rig.recent)
+    (offline,) = rig.conditions.of(furnace)
+    assert run.running is True and offline.code == "offline", "offline, and still retrying"
+    assert "zone3" in offline.message and run.consecutive_failures == 3
+    assert any(
+        e.code == "offline" and e.edge == "raised" and e.subject == "furnace" for e in rig.recent
+    )
     assert furnace.broken == ("zone3",)
     furnace.restore("zone3")
-    assert furnace.conditions.value == () and furnace.broken == ()
+    assert all(c.code != "broken" for c in furnace.held_conditions()) and furnace.broken == ()
     zone1 = rig.resolve("furnace.zone1")
-    assert zone1 not in rig.latest, "it failed on the first poll: nothing was ever read"
-    rig.polling.restart("furnace")
-    rig.clock.advance(2)
+    assert zone1 not in rig.latest, "it failed from the first poll: nothing was ever read"
+    rig.clock.advance(1)  # the first retry, 1 s after going offline
+    assert rig.conditions.of(furnace) == [], "the first good read clears it"
     assert rig.latest[zone1].time_ns > 0, "polled again"
+
+
+def test_an_open_thermocouple_reads_invalid_and_freezes_its_zone_s_loop(furnace_rig):
+    rig = furnace_rig
+    furnace = rig.devices["furnace"]
+    controller = rig.controllers["heaters.heater3"]
+    rig.clock.advance(1)
+    controller.regulate(200.0)
+    rig.clock.advance(5)
+    output = controller.output
+    furnace.fail("zone3")
+    rig.clock.advance(5)
+    zone3 = rig.resolve("furnace.zone3")
+    assert rig.latest[zone3].value == invalid("sensor_failed")
+    assert rig.conditions.of(furnace) == [], "a no-value is a good read: never offline"
+    assert controller.held == "frozen" and controller.output == output, "the law never saw it"
+    zone1 = rig.latest[rig.resolve("furnace.zone1")]
+    assert zone1.usable and zone1.time_ns == rig.latest[zone3].time_ns, "the others read on"
+    furnace.restore("zone3")
+    rig.clock.advance(3)
+    assert rig.latest[zone3].usable and controller.held is None
 
 
 # The single-zone losses curve for the furnace's shared loss model
@@ -166,7 +194,7 @@ def _zone_losses(temperature_c: float) -> float:
 
 
 def _run_ramp_to_700(rig, feedforward) -> float:
-    """Ramp all three zones to 700 at 15 degC/min, hold 20 min; zone2's peak overshoot."""
+    """Ramp all three zones to 700 at 15 degC/min, wait 20 min; zone2's peak overshoot."""
     controller = rig.controllers["heaters.heater2"]
     controller.feedforward = feedforward
     peak = float("-inf")
@@ -180,16 +208,16 @@ def _run_ramp_to_700(rig, feedforward) -> float:
     programmer = Programmer(rig)
     programmer.start(
         Program([
-            Regulate(20, loop=HEATERS),
-            Ramp(700, pace=Rate_per_minute(15), loop=HEATERS),
-            Hold(Duration_minutes(20)),
-            Manual(loop=HEATERS),
+            Regulate(20, controllers=HEATERS),
+            Ramp(700, pace=Rate_per_minute(15), controllers=HEATERS),
+            Wait(Duration_minutes(20)),
+            Manual(controllers=HEATERS),
         ])
     )
     programmer.join(60)
     assert programmer.running is False, "program did not finish"
     controller.detach_on_tick(record)
-    rig.stop()
+    rig.close()
     return peak - 700.0
 
 

@@ -24,7 +24,7 @@ from collections.abc import Iterator
 from typing import Literal
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.errors import HardwareError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Pascal
@@ -36,7 +36,7 @@ from flyball_chips._links import I2cLinkConfig
 MS5611_ADDRESS = 0x77
 """CSB pin low; CSB high answers at 0x76."""
 
-RESET = 0xA0 | 0x1E  # ADC RESET: 0x1E, top bits ignored
+RESET = 0x1E  # TE MS5611-01BA03 datasheet, command table: Reset 0x1E
 _PROM_BASE = 0xA0  # PROM read: 0xA0 + 2*address, address 0..7
 _D1_BASE = 0x40  # convert D1 (pressure)
 _D2_BASE = 0x50  # convert D2 (temperature)
@@ -137,8 +137,8 @@ class Ms5611Sensor:
 class Ms5611(Readable):
     """One chip on the device root: `pressure`, `temperature [RP]`."""
 
-    pressure = Output("pressure", quantity=PRESSURE, range=(10000.0, 120000.0), precision=1)
-    temperature = Output("temperature", quantity=TEMPERATURE, range=(-40.0, 85.0), precision=2)
+    pressure = Readout("pressure", quantity=PRESSURE, range=(10000.0, 120000.0), precision=1)
+    temperature = Readout("temperature", quantity=TEMPERATURE, range=(-40.0, 85.0), precision=2)
 
     def __init__(
         self,
@@ -162,7 +162,7 @@ class Ms5611(Readable):
         yield self.sample(time_ns, pressure=pressure, temperature=temperature)
 
 
-class Ms5611Config(DriverConfig[Ms5611], tag="ms5611"):
+class Ms5611Config(DriverConfig[Ms5611], type="ms5611"):
     """One chip by its I2C address; `osr` trades conversion time for resolution."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

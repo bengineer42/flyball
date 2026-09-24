@@ -6,16 +6,26 @@ that declares one uses a name unique to that test (``fresh``).
 
 from __future__ import annotations
 
+import asyncio
 import itertools
+import socket
+import threading
+import traceback
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
+from urllib.parse import urljoin
 
 import pytest
+from fastapi.testclient import TestClient as _StarletteClient
 from flyball_sim.clock import SteppedClock
 
+import flyball.record.sqlite
+import flyball.rig.rig
 from flyball.model.catalog import Catalogs, set_catalog
 from flyball.rig import Rig
 from flyball.runtime.config import RunnerConfig
+from flyball.runtime.edits import Origin
 
 _counter = itertools.count()
 
@@ -37,6 +47,64 @@ def _catalog() -> Iterator[Catalogs]:
     set_catalog(None)
 
 
+class _LoopGuardedLock:
+    """An `RLock` (the store's, the rig's), noting each acquisition on an event loop's thread.
+
+    The server's loop must never wait for the store (`deps.py`) nor for the rig
+    (a delivery holds its lock); a TestClient runs the app's loop on a thread of
+    its own, so an acquisition there is a route or task taking the lock on the
+    loop. The main thread is left out: an `async def` test may take it itself.
+    """
+
+    def __init__(self, seen: list[str]) -> None:
+        self._inner = threading.RLock()
+        self._seen = seen
+
+    def acquire(self, *args: Any, **kwargs: Any) -> bool:
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+            else:
+                self._seen.append("".join(traceback.format_stack(limit=12)))
+        return self._inner.acquire(*args, **kwargs)
+
+    def release(self) -> None:
+        self._inner.release()
+
+    def _is_owned(self) -> bool:
+        return self._inner._is_owned()  # type: ignore[attr-defined]
+
+    def __enter__(self) -> bool:
+        return self.acquire()
+
+    def __exit__(self, *exc: object) -> None:
+        self.release()
+
+
+@pytest.fixture(autouse=True)
+def _store_off_the_loop(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Fail any test in which the app's event loop took the store's lock."""
+    seen: list[str] = []
+    monkeypatch.setattr(flyball.record.sqlite, "RLock", lambda: _LoopGuardedLock(seen))
+    yield
+    assert not seen, "the store was called on the event loop:\n" + seen[0]
+
+
+@pytest.fixture(autouse=True)
+def _rig_lock_off_the_loop(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Fail any test in which the app's event loop took `rig.lock` (ENG-26).
+
+    A delivery holds it for as long as it runs; the loop that waits for it
+    stalls every request and websocket the runner serves.
+    """
+    seen: list[str] = []
+    monkeypatch.setattr(flyball.rig.rig, "RLock", lambda: _LoopGuardedLock(seen))
+    yield
+    assert not seen, "rig.lock was taken on the event loop:\n" + seen[0]
+
+
 @pytest.fixture
 def fresh() -> Callable[[str], str]:
     """A name no other test has used: ``fresh("probe")`` -> ``probe_17``."""
@@ -55,16 +123,59 @@ def rig(clock: SteppedClock) -> Rig:
     return rig
 
 
+class TestClient(_StarletteClient):
+    """The test client as a browser on the runner's own machine: `localhost`, not `testserver`.
+
+    An open runner answers only loopback names (`interfaces/server/auth.py`), and
+    Starlette's client sends `testserver` -- for its sockets whatever `base_url` says.
+    """
+
+    __test__ = False  # not a test class, whatever its name
+
+    def __init__(self, app: Any, base_url: str = "http://localhost", **kwargs: Any) -> None:
+        super().__init__(app, base_url=base_url, **kwargs)
+
+    def websocket_connect(self, url: str, subprotocols: Any = None, **kwargs: Any) -> Any:
+        base = str(self.base_url).replace("http", "ws", 1)
+        return super().websocket_connect(urljoin(base, url), subprotocols, **kwargs)
+
+
 class FakeRunner:
     """A stand-in for `flyball.runner.Handle`: what `set_runner` takes; remembers what was asked."""
 
-    def __init__(self, settings: RunnerConfig | None = None, files: list[Path] | None = None):
+    def __init__(
+        self,
+        settings: RunnerConfig | None = None,
+        files: list[Path] | None = None,
+        origin: Origin | None = None,
+    ):
         self.settings = settings or RunnerConfig()
         self.files = files or []
         self.asked: list[str] = []
+        self.exposure = None
+        self.origin = origin or Origin()
+        self.restarting = False
+        self.edits: list[tuple[int, int | None, bool]] = []
+        """Each `restart_for_edit`: the version, the one before, whether it records."""
 
     def shutdown(self) -> None:
         self.asked.append("shutdown")
 
     def restart(self) -> None:
         self.asked.append("restart")
+
+    def restart_for_edit(self, version: int, previous: int | None, record: bool = False) -> None:
+        self.asked.append("restart")
+        self.edits.append((version, previous, record))
+        self.restarting = True
+
+
+def free_port() -> int:
+    """A TCP port on 127.0.0.1 that nothing listens on now (the OS's pick), for a real server.
+
+    Never a fixed port: two suites running at once (another worktree's) would each take
+    the other's server for their own.
+    """
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])

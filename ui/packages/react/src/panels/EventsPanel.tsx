@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { EventLevel, RigEvent } from "@flyball/client";
-import { describeEventKind, describeSubject } from "@flyball/client";
+import type { RigEvent, Severity } from "@flyball/client";
+import { SEVERITIES, describeEdge, describeEventCode, describeSubject } from "@flyball/client";
 import { PanelFrame } from "./PanelFrame.js";
 import { ValueView } from "./ValueView.js";
 import { Ref, type RefKind } from "../links.js";
@@ -8,8 +8,8 @@ import { Ref, type RefKind } from "../links.js";
 export interface EventsPanelProps {
   /** Oldest first, as `useEvents` holds them; the panel shows newest first. */
   events: RigEvent[];
-  /** Levels shown until the viewer changes the filter. Default: all. */
-  levels?: EventLevel[];
+  /** Severities shown until the viewer changes the filter. Default: all. */
+  severities?: Severity[];
   /** Called when a row is clicked, as well as toggling its details. */
   onSelect?(event: RigEvent): void;
   /** Rendered at the end of the header. */
@@ -25,10 +25,8 @@ export interface EventsPanelProps {
   unread?: ReadonlySet<string>;
 }
 
-export const EVENT_LEVELS: EventLevel[] = ["DEBUG", "INFO", "WARNING", "ERROR"];
-
-/** A glyph per level, so severity does not rely on colour alone. */
-const LEVEL_ICON: Record<EventLevel, string> = { DEBUG: "○", INFO: "ℹ", WARNING: "▲", ERROR: "✕" };
+/** A glyph per severity, so it does not rely on colour alone. */
+const SEVERITY_ICON: Record<Severity, string> = { debug: "○", info: "ℹ", warning: "▲", error: "✕" };
 
 /** `42 s ago`, `3 m ago`, `2 h ago`; the day for anything older. */
 function relative(ms: number, now: number): string {
@@ -45,16 +43,27 @@ function relative(ms: number, now: number): string {
 /** Event scopes that name a thing with a page (`device` is the one the backend emits today; the rest are for a scope a driver might add). */
 const SCOPE_KINDS: Record<string, RefKind> = { device: "device", controller: "controller", signal: "signal", session: "session" };
 
+/**
+ * The code as a person reads it. A controller's `interrupted` is "Put in
+ * manual" (by a command that interrupts, or by a stop; its details are
+ * `{was, by}` and its message names who), not a program's "Interrupted".
+ */
+export function describeEvent(e: Pick<RigEvent, "scope" | "code">): string {
+  if (e.scope === "controller" && e.code === "interrupted") return "Put in manual";
+  return describeEventCode(e.code);
+}
+
 /** An event's identity, stable across the seed/live boundary: used to key rows, track expansion and track read/unread (`useUnreadEvents`). */
-export const eventKey = (e: RigEvent) => `${e.time_ns}:${e.scope}:${e.subject}:${e.kind}`;
+export const eventKey = (e: RigEvent) => `${e.time_ns}:${e.scope}:${e.subject}:${e.code}:${e.edge ?? ""}`;
 
 /**
- * The rig's events as a table, newest first: time, level, scope·subject,
- * kind, message; click a row for its details. The level and text filters
+ * The rig's events as a table, newest first: time, severity, scope·subject,
+ * code, message; click a row for its details. A condition's start and end
+ * are marked `raised` and `cleared after <how long>` beside the code. The severity and text filters
  * are view state and live here. Pure; `useEvents` supplies the events.
  */
-export function EventsPanel({ events, levels: initialLevels, onSelect, controls, nowS, unread }: EventsPanelProps) {
-  const [levels, setLevels] = useState<Set<EventLevel>>(() => new Set(initialLevels ?? EVENT_LEVELS));
+export function EventsPanel({ events, severities: initialSeverities, onSelect, controls, nowS, unread }: EventsPanelProps) {
+  const [severities, setSeverities] = useState<Set<Severity>>(() => new Set(initialSeverities ?? SEVERITIES));
   const [text, setText] = useState("");
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   // Ticks the "42 s ago" times without waiting on new events. A simulated
@@ -73,18 +82,18 @@ export function EventsPanel({ events, levels: initialLevels, onSelect, controls,
     const out: RigEvent[] = [];
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i]!;
-      if (!levels.has(e.level)) continue;
-      if (needle && !`${e.scope} ${e.subject} ${e.kind} ${e.message}`.toLowerCase().includes(needle)) continue;
+      if (!severities.has(e.severity)) continue;
+      if (needle && !`${e.scope} ${e.subject} ${e.code} ${e.edge ?? ""} ${e.message}`.toLowerCase().includes(needle)) continue;
       out.push(e);
     }
     return out;
-  }, [events, levels, text]);
+  }, [events, severities, text]);
 
-  const toggleLevel = (level: EventLevel) =>
-    setLevels((s) => {
+  const toggleSeverity = (severity: Severity) =>
+    setSeverities((s) => {
       const next = new Set(s);
-      if (next.has(level)) next.delete(level);
-      else next.add(level);
+      if (next.has(severity)) next.delete(severity);
+      else next.add(severity);
       return next;
     });
 
@@ -106,10 +115,10 @@ export function EventsPanel({ events, levels: initialLevels, onSelect, controls,
       subtitle={`${shown.length} of ${events.length}`}
       status={
         <span className="fb-events-filters">
-          {EVENT_LEVELS.map((level) => (
-            <label key={level} className={`fb-events-filter fb-event-${level}`}>
-              <input type="checkbox" checked={levels.has(level)} onChange={() => toggleLevel(level)} />
-              {level}
+          {SEVERITIES.map((severity) => (
+            <label key={severity} className={`fb-events-filter fb-event-${severity}`}>
+              <input type="checkbox" checked={severities.has(severity)} onChange={() => toggleSeverity(severity)} />
+              {severity}
             </label>
           ))}
           <input
@@ -128,9 +137,9 @@ export function EventsPanel({ events, levels: initialLevels, onSelect, controls,
           <thead>
             <tr>
               <th>time</th>
-              <th>level</th>
+              <th>severity</th>
               <th>scope</th>
-              <th>kind</th>
+              <th>code</th>
               <th>message</th>
             </tr>
           </thead>
@@ -159,8 +168,9 @@ export function EventsPanel({ events, levels: initialLevels, onSelect, controls,
                     {relative(date.getTime(), now)}
                   </td>
                   <td>
-                    <span className={`fb-badge fb-event-level fb-event-${e.level}`} title={e.level}>
-                      <span aria-hidden="true">{LEVEL_ICON[e.level]}</span> {e.level}
+                    {/* `band_unknown`: its severity as the rig gave it, but its own colour and glyph -- a band that cannot be judged is not an alarm. */}
+                    <span className={`fb-badge fb-event-severity ${e.code === "band_unknown" ? "fb-event-unknown" : `fb-event-${e.severity}`}`} title={e.code === "band_unknown" ? `${e.severity}: band unknown, no value because of a fault` : e.severity}>
+                      <span aria-hidden="true">{e.code === "band_unknown" ? "?" : SEVERITY_ICON[e.severity]}</span> {e.severity}
                     </span>
                   </td>
                   <td className="fb-event-scope" onClick={(ev) => ev.stopPropagation()}>
@@ -168,7 +178,14 @@ export function EventsPanel({ events, levels: initialLevels, onSelect, controls,
                     <span className="fb-muted">·</span>
                     {SCOPE_KINDS[e.scope] ? <Ref kind={SCOPE_KINDS[e.scope]!} name={e.subject} /> : describeSubject(e.subject)}
                   </td>
-                  <td className="fb-event-kind" title={e.kind}>{describeEventKind(e.kind)}</td>
+                  <td className="fb-event-code" title={e.edge ? `${e.code} ${e.edge}` : e.code}>
+                    {describeEvent(e)}
+                    {e.edge && (
+                      <span className={`fb-event-edge fb-event-${e.edge}`} data-testid="event-edge">
+                        {describeEdge(e.edge, e.details)}
+                      </span>
+                    )}
+                  </td>
                   <td className="fb-event-message">{e.message}</td>
                 </tr>,
                 expanded && (

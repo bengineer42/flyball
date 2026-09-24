@@ -16,13 +16,13 @@ SIM = EXAMPLES / "sim.yaml"
 def test_the_real_file_resolves_its_pins_from_the_board():
     document, files = resolve_documents(REAL)
     assert files == [REAL, BOARDS / "rpi5.toml"]
-    assert document["links"]["header"] == {"tag": "gpio", "chip": "gpiochip4"}
+    assert document["links"]["header"] == {"type": "gpio", "chip": "gpiochip4"}
     fan = document["devices"]["fan"]
     assert fan["link"] == "header" and fan["line"] == 18 and "pin" not in fan
     assert document["devices"]["heater"]["link"] == "pwm"
     config = load_rig_config(REAL)
     assert config.board == "rpi5" and len(config.links) == 5
-    assert config.devices["heater"].config == {
+    assert config.devices["heater"].driver_config == {
         "link": "pwm",
         "channel": 0,
         "frequency_hz": 1000,
@@ -38,7 +38,7 @@ def test_the_overlay_keeps_every_name_and_address_on_fake_links():
     assert sim.board == "sim" and sim.name == "greenhouse"
     assert set(sim.devices) == set(real.devices)
     assert {e.driver for e in sim.devices.values()} == {e.driver for e in real.devices.values()}
-    assert all(tag.startswith("fake_") for tag in (link.config_tag for link in sim.links.values()))
+    assert all(tag.startswith("fake_") for tag in (link.type_name for link in sim.links.values()))
     assert sim.simulated
 
 
@@ -46,7 +46,6 @@ def test_the_sim_rig_builds_reads_and_regulates():
     rig = load_rig_config([REAL, SIM]).build(clock=SteppedClock(0), start=False)
     rig.devices["air"].sensor.sleep = False
     assert {p: str(s.access) for p, s in rig.devices["heater"].signals.items()} == {
-        "conditions": "rp",
         "drive": "rpw",
         "frequency_hz": "rp",
         "last.set_frequency": "rp",

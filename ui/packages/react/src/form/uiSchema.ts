@@ -5,7 +5,7 @@
  */
 
 import type { UiSchema } from "@rjsf/utils";
-import { deref, type JsonSchema } from "@flyball/client";
+import { deref, humanise, type JsonSchema } from "@flyball/client";
 
 export const UNSET = "— leave unchanged —";
 
@@ -46,6 +46,17 @@ export function simplifyNullables(schema: JsonSchema): JsonSchema {
       }
     }
     const out: JsonSchema = { ...node };
+    // A union of a bare value and an object (`blend_flow: 1.0 | {keep, fallback}`): RJSF's picker
+    // would read "option 1"; name each untitled branch -- the value by the field, an object by its own title.
+    for (const key of ["anyOf", "oneOf"] as const) {
+      const branches = node[key];
+      if (!branches || branches.length < 2 || branches.every((b) => b.title || "const" in b)) continue;
+      out[key] = branches.map((b) => {
+        if (b.title || b.type === "null") return b;
+        const title = deref(b, schema).title;
+        return { ...b, title: b.$ref && title ? humanise(title) : (node.title ?? humanise(String(b.type ?? "value"))) };
+      });
+    }
     if (Array.isArray(node.prefixItems) && !node.items) {
       const { prefixItems, ...rest } = out;
       void prefixItems;
@@ -91,8 +102,8 @@ export function isBounded(schema: JsonSchema): boolean {
   return (schema.minimum ?? schema.exclusiveMinimum) !== undefined && (schema.maximum ?? schema.exclusiveMaximum) !== undefined;
 }
 
-/** The `[low, high]` tuple `simplifyNullables` rewrites a `Band` (`tuple[float, float]`) into. */
-function isBand(schema: JsonSchema): boolean {
+/** The `[low, high]` tuple `simplifyNullables` rewrites a `Bounds` (`tuple[float, float]`) into. */
+function isBounds(schema: JsonSchema): boolean {
   return Array.isArray(schema.items) && schema.items.length === 2 && schema.items.every((i) => i.type === "number" || i.type === "integer");
 }
 
@@ -102,13 +113,15 @@ function isBand(schema: JsonSchema): boolean {
  * `label: false` to stop the template drawing another.
  */
 function widgetFor(schema: JsonSchema): string | undefined {
+  // A `const` (`keep: true`) only marks which branch of a union this is: RJSF fills it, nobody edits it.
+  if (schema.const !== undefined && !schema.oneOf) return "constant";
   const type = schema.type;
   if (type === "number" || type === "integer") return isBounded(schema) ? "slider" : "unitNumber";
   if (type === "boolean") return "toggle";
   const n = enumCount(schema);
   if (n > 0 && n <= SEGMENTED_MAX) return "segmented";
   if (n === 0 && type === "string") return "text";
-  if (isBand(schema)) return "band";
+  if (isBounds(schema)) return "band";
   return undefined;
 }
 

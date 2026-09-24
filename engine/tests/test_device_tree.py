@@ -70,7 +70,7 @@ class SimFurnace(Readable, Committable):
         self.bind(tree)
 
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:
-        temps = {s: 20.0 for s in self.publishing.values() if s is not self.conditions}
+        temps = {s: 20.0 for s in self.published.values()}
         yield Sample(self.root, time_ns, temps)
 
     def write_signal(self, signal: Signal, value: float) -> None:
@@ -100,7 +100,7 @@ class Blender(Committable):
         for role, signal in self.bound.items():
             if isinstance(signal, Signal) and (reading := signal.reading) is not None:
                 self.supply[role] = reading.value
-        pending = {signal.name: value for signal, value in self.pending.items()}
+        pending = {signal.name: value for signal, value in self.staged.items()}
         self.target = pending.get("humidity", self.target)
         self.blend_flow = pending.get("blend_flow", self.blend_flow)
         self.pump_writes.append((self.blend_flow, self.target))
@@ -113,7 +113,6 @@ class TestBinding:
         assert sensors.root.spec is None and sensors.root.device is sensors
         assert list(sensors.nodes) == ["chamber", "dry", "wet"]
         assert list(sensors.signals) == [
-            "conditions",
             "chamber.humidity",
             "chamber.temperature",
             "dry.humidity",
@@ -127,12 +126,11 @@ class TestBinding:
         assert sensors.signals["dry.humidity"].node is dry
         assert dry.signals["humidity"] is sensors.signals["dry.humidity"]
         assert sensors.root.children["dry"] is dry
-        assert list(sensors.root.signals) == ["conditions"], "a literal TREE adds to the base"
+        assert list(sensors.root.signals) == [], "a literal TREE adds to the base"
 
     def test_a_dynamic_tree_is_bound_by_the_driver(self):
         furnace = SimFurnace("furnace", zones=3, power_w=(2500.0, 6000.0, 2000.0))
         assert list(furnace.signals) == [
-            "conditions",
             "zone1",
             "zone2",
             "zone3",
@@ -148,13 +146,13 @@ class TestBinding:
 
     def test_views_by_access(self):
         furnace = SimFurnace("f", zones=2, power_w=(1.0, 1.0))
-        assert list(furnace.publishing) == ["conditions", "zone1", "zone2", "sample"]
-        assert list(furnace.readables) == ["conditions", "zone1", "zone2", "sample"]
+        assert list(furnace.published) == ["zone1", "zone2", "sample"]
+        assert list(furnace.readables) == ["zone1", "zone2", "sample"]
         assert list(furnace.writables) == ["heater1", "heater2"]
         blender = Blender("b")
         assert list(blender.writables) == ["humidity", "dry_flow", "wet_flow", "blend_flow"]
-        assert list(blender.readables) == ["conditions", "blend_flow", "expected_humidity"]
-        assert list(blender.publishing) == ["conditions", "expected_humidity"]
+        assert list(blender.readables) == ["blend_flow", "expected_humidity"]
+        assert list(blender.published) == ["expected_humidity"]
 
     def test_a_namespace_two_deep(self):
         class Stage(Device):
@@ -177,10 +175,7 @@ class TestBinding:
         assert stage.nodes["left.dry"].address == "stage.left.dry"
         assert stage.signals["left.dry.humidity"].address == "stage.left.dry.humidity"
         assert stage.signals["left.dry.humidity"].path == Path.parse("left.dry.humidity")
-        assert list(stage.root.walk()) == [
-            stage.signals["conditions"],
-            stage.signals["left.dry.humidity"],
-        ]
+        assert list(stage.root.walk()) == [stage.signals["left.dry.humidity"]]
 
     def test_duplicate_names_are_refused(self):
         class Twice(Device):
@@ -192,14 +187,14 @@ class TestBinding:
         with pytest.raises(ValueError, match="'d.x' is declared twice"):
             Twice("d")
 
-    def test_a_bare_device_has_an_empty_tree_beyond_conditions(self):
+    def test_a_bare_device_has_an_empty_tree(self):
         bare = Device("bare")
-        assert list(bare.signals) == ["conditions"], "every device has this much"
-        assert bare.pending == {} and bare.bound == {}
+        assert list(bare.signals) == []
+        assert bare.staged == {} and bare.bound == {}
         assert bare.poll_s is None and bare.label is None
         assert bare.root.address == "bare" and bare.nodes == {}
-        assert list(bare.root.walk()) == [bare.signals["conditions"]]
-        assert list(bare.publishing) == ["conditions"]
+        assert list(bare.root.walk()) == []
+        assert list(bare.published) == []
 
 
 class TestPollPeriod:
@@ -210,11 +205,11 @@ class TestPollPeriod:
         assert sensors.root.poll_s == 1.0
         assert sensors.nodes["dry"].poll_s == 1.0
         assert sensors.signals["dry.humidity"].poll_s == 1.0
-        sensors.nodes["dry"].override(poll_s=5.0)
+        sensors.nodes["dry"].set_meta(poll_s=5.0)
         assert sensors.signals["dry.humidity"].poll_s == 5.0
         assert sensors.signals["dry.temperature"].poll_s == 5.0
         assert sensors.signals["wet.humidity"].poll_s == 1.0
-        sensors.signals["dry.temperature"].override(poll_s=0.5)
+        sensors.signals["dry.temperature"].set_meta(poll_s=0.5)
         assert sensors.signals["dry.temperature"].poll_s == 0.5
         assert sensors.signals["dry.humidity"].poll_s == 5.0
 
@@ -225,11 +220,11 @@ class TestWriteSide:
         h1, h2 = furnace.signals["heater1"], furnace.signals["heater2"]
         furnace.apply(h1, 10, 1250.0)
         furnace.apply(h2, 10, 6000.0)
-        assert furnace.pending == {h1: 1250.0, h2: 6000.0}
+        assert furnace.staged == {h1: 1250.0, h2: 6000.0}
         assert furnace.written == {}
         assert furnace.commit(10) is None
         assert furnace.inputs == {"heater1": 0.5, "heater2": 1.0}
-        assert furnace.pending == {h1: 1250.0, h2: 6000.0}, "the rig clears pending, not the driver"
+        assert furnace.staged == {h1: 1250.0, h2: 6000.0}, "the rig clears staged, not the driver"
         assert furnace.written == {}, "the rig fills it in, not the driver"
 
         furnace.apply(h1, 20, 0.0)
@@ -244,7 +239,7 @@ class TestWriteSide:
         setpoint = holder.signals["setpoint"]
         holder.apply(setpoint, 1, 50.0)
         assert holder.commit(1) is None
-        assert holder.pending == {setpoint: 50.0}, "the driver never clears it; the rig does"
+        assert holder.staged == {setpoint: 50.0}, "the driver never clears it; the rig does"
         assert holder.commit(2) is None
 
     def test_a_composite_device_sees_every_pending_value_at_once(self):
@@ -256,7 +251,7 @@ class TestWriteSide:
         assert blender.pump_writes == []
         assert blender.commit(1) is None
         assert blender.pump_writes == [(1.5, 47.0)]
-        assert blender.pending == {humidity: 47.0, flow: 1.5}, "the rig clears pending"
+        assert blender.staged == {humidity: 47.0, flow: 1.5}, "the rig clears staged"
 
     def test_a_bound_input_s_newest_value_is_read_in_commit(self):
         blender = Blender("b")
@@ -301,7 +296,7 @@ class SensorsConfig(DriverConfig[HumSensors]):
 def furnace_tag(fresh, _catalog) -> str:
     tag = fresh("sim_furnace")
 
-    class Tagged(FurnaceConfig, tag=tag):
+    class Tagged(FurnaceConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -312,7 +307,7 @@ def furnace_tag(fresh, _catalog) -> str:
 def sensors_tag(fresh, _catalog) -> str:
     tag = fresh("sht4x_set")
 
-    class Tagged(SensorsConfig, tag=tag):
+    class Tagged(SensorsConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -320,32 +315,28 @@ def sensors_tag(fresh, _catalog) -> str:
 
 
 class TestDeviceEntry:
-    def test_flat_and_layered_parse_to_the_same_thing(self):
-        flat = DeviceEntry.model_validate({
+    def test_the_driver_config_sits_flat_beside_the_envelope(self):
+        entry = DeviceEntry.model_validate({
             "driver": "sht4x",
             "label": "Wet supply",
             "poll_s": 5,
             "link": "i2c1",
             "address": 0x46,
         })
-        layered = DeviceEntry.model_validate({
+        assert entry.driver_config == {"link": "i2c1", "address": 70}
+        assert entry.driver == "sht4x" and entry.poll_s == 5.0 and entry.label == "Wet supply"
+        assert entry.signals == {} and entry.inputs == {}
+        assert entry.model_dump(exclude_defaults=True) == {
             "driver": "sht4x",
             "label": "Wet supply",
-            "poll_s": 5,
-            "config": {"link": "i2c1", "address": 0x46},
-        })
-        assert flat == layered
-        assert flat.config == {"link": "i2c1", "address": 70}
-        assert flat.driver == "sht4x" and flat.poll_s == 5.0 and flat.label == "Wet supply"
-        assert flat.signals == {} and flat.bound == {}
+            "poll_s": 5.0,
+            "link": "i2c1",
+            "address": 70,
+        }, "dumped as it was written: flat"
 
-    def test_config_plus_a_leftover_key_is_an_error(self):
-        with pytest.raises(ValidationError, match="address beside `config`"):
-            DeviceEntry.model_validate({
-                "driver": "sht4x",
-                "config": {"link": "i2c1"},
-                "address": 0x46,
-            })
+    def test_a_nested_config_key_is_refused(self):
+        with pytest.raises(ValidationError, match="the driver's fields sit flat beside `driver:`"):
+            DeviceEntry.model_validate({"driver": "sht4x", "config": {"link": "i2c1"}})
 
     def test_envelope_keys_are_reserved_in_a_driver_config(self):
         with pytest.raises(TypeError, match="Clashing: signals is an envelope key"):
@@ -365,19 +356,17 @@ class TestDeviceEntry:
             "driver": "sht4x_set",
             "label": "Humidity sensors",
             "poll_s": 1,
-            "config": {
-                "link": "i2c1",
-                "sensors": {"chamber": {"address": 0x44}, "dry": {"address": 0x45}},
-            },
+            "link": "i2c1",
+            "sensors": {"chamber": {"address": 0x44}, "dry": {"address": 0x45}},
             "signals": {
-                "chamber": {"signals": {"humidity": {"warn": [20, 80]}}},
+                "chamber": {"signals": {"humidity": {"warning": [20, 80]}}},
                 "dry": {"poll_s": 5},
                 "wet": {"poll_s": 5},
             },
         })
-        assert entry.config["sensors"]["chamber"] == {"address": 0x44}
+        assert entry.driver_config["sensors"]["chamber"] == {"address": 0x44}
         chamber = entry.signals["chamber"]
-        assert chamber.signals["humidity"].warn == (20.0, 80.0)  # type: ignore[union-attr]
+        assert chamber.signals["humidity"].warning == (20.0, 80.0)  # type: ignore[union-attr]
         with pytest.raises(ValidationError, match="config"):  # a namespace has no driver config
             DeviceEntry.model_validate({
                 "driver": "sht4x_set",
@@ -394,7 +383,7 @@ class TestDeviceEntry:
             "power_w": [2500, 6000],
             "signals": {
                 "zone1": {"label": "Zone 1 (entry)", "range": [0, 1200], "precision": 1},
-                "sample": {"poll_s": 2, "warn": [0, 1100]},
+                "sample": {"poll_s": 2, "warning": [0, 1100]},
                 "heater2": {"limits": [0, 5000]},
             },
         })
@@ -406,7 +395,7 @@ class TestDeviceEntry:
         assert zone1.label == "Zone 1 (entry)" and zone1.spec.range == (0.0, 1200.0)
         assert zone1.spec.precision == 1 and zone1.poll_s == 1.0
         assert furnace.signals["sample"].poll_s == 2.0
-        assert furnace.signals["sample"].spec.warn == (0.0, 1100.0)
+        assert furnace.signals["sample"].spec.warning == (0.0, 1100.0)
         assert furnace.signals["heater2"].limits == (0.0, 5000.0)
         assert furnace.signals["heater1"].limits == (0.0, 2500.0), "untouched"
         assert furnace.signals["zone1"].access is Access.RP, "untouched"
@@ -416,14 +405,14 @@ class TestDeviceEntry:
             "driver": sensors_tag,
             "poll_s": 1,
             "signals": {
-                "chamber": {"label": "Chamber", "signals": {"humidity": {"warn": [20, 80]}}},
+                "chamber": {"label": "Chamber", "signals": {"humidity": {"warning": [20, 80]}}},
                 "dry": {"poll_s": 5, "signals": {"temperature": {"poll_s": 10}}},
                 "wet": {"poll_s": 5},
             },
         })
         sensors = entry.build("hum")
         assert sensors.nodes["chamber"].label == "Chamber"
-        assert sensors.signals["chamber.humidity"].spec.warn == (20.0, 80.0)
+        assert sensors.signals["chamber.humidity"].spec.warning == (20.0, 80.0)
         assert sensors.signals["chamber.humidity"].poll_s == 1.0
         assert sensors.signals["dry.humidity"].poll_s == 5.0
         assert sensors.signals["dry.temperature"].poll_s == 10.0
@@ -477,13 +466,13 @@ class TestDeviceEntry:
     def test_access_can_be_removed_but_not_added(self, furnace_tag):
         entry = DeviceEntry.model_validate({
             "driver": furnace_tag,
-            "signals": {"sample": {"publishing": False}, "zone2": {"access": "r"}},
+            "signals": {"sample": {"published": False}, "zone2": {"access": "r"}},
         })
         furnace = entry.build("furnace")
         assert furnace.signals["sample"].access is Access.R
         assert furnace.signals["sample"].spec.access is Access.RP, "the driver's stays"
         assert furnace.signals["zone2"].access is Access.R
-        assert "zone2" not in furnace.publishing and "zone2" in furnace.readables
+        assert "zone2" not in furnace.published and "zone2" in furnace.readables
 
         entry = DeviceEntry.model_validate({
             "driver": furnace_tag,
@@ -497,14 +486,14 @@ class TestDeviceEntry:
             "signals": {"zone1": {"readable": False}},
         })
         with pytest.raises(
-            ValueError, match="'furnace.zone1': readable: false leaves it publishing"
+            ValueError, match="'furnace.zone1': readable: false leaves it published"
         ):
             entry.build("furnace")
 
         with pytest.raises(ValidationError, match="only `false` is allowed"):
             DeviceEntry.model_validate({
                 "driver": furnace_tag,
-                "signals": {"heater1": {"publishing": True}},
+                "signals": {"heater1": {"published": True}},
             })
         with pytest.raises(ValidationError, match="P without R"):
             DeviceEntry.model_validate({
@@ -518,7 +507,7 @@ class TestDeviceEntry:
 
         tag = fresh("bus")
 
-        class Bus(Config[object], tag=tag):
+        class Bus(Config[object], type=tag):
             def build(self) -> object:
                 return object()
 
@@ -535,7 +524,7 @@ class TestDeviceEntry:
     def test_a_link_s_tag_is_not_a_driver(self, fresh, _catalog):
         tag = fresh("bus")
 
-        class Bus(Config[object], tag=tag):
+        class Bus(Config[object], type=tag):
             def build(self) -> object:
                 return object()
 
@@ -555,4 +544,4 @@ def test_a_device_binds_once(fresh):
         furnace.bind(())
     bare = Device(fresh("bare"))
     bare.bind((SignalSpec(name="x", quantity=TEMP, access=Access.R),))
-    assert list(bare.signals) == ["conditions", "x"], "the base tree is extended, not replaced"
+    assert list(bare.signals) == ["x"], "a bare device's tree is exactly what it binds"

@@ -58,7 +58,7 @@ class Channel(BaseModel):
     """One input as a signal: which pin, what it measures, and how volts become that.
 
     Range, precision and bands are not here -- they are the envelope's
-    `signals:` overrides, the same for every driver.
+    `signals:` metadata, the same for every driver.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -131,7 +131,7 @@ class Ads1115(Readable):
             yield Sample(self.root, time_ns, {signal: self._value(signal) for signal in due})
 
 
-class Ads1115Config(DriverConfig[Ads1115], tag="ads1115"):
+class Ads1115Config(DriverConfig[Ads1115], type="ads1115"):
     """`channels: { pressure: { channel: 0, scale: 25.0, unit: kPa } }`."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

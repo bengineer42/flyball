@@ -64,7 +64,7 @@ def discriminated_union[T](
     discriminator: str,
     parser: Callable[[type[T]], type[Any]] = lambda x: x,
 ) -> Any:
-    """One model per registry entry, discriminated by the tag field.
+    """One model per registry entry, discriminated by the type field.
 
     `Annotated[A | B | ..., Field(discriminator=...)]` over `parser(member)`,
     so a union built from a registry admits whatever is registered.

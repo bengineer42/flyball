@@ -1,6 +1,6 @@
-"""`SetPointGenerator`: the base a trajectory subclasses, and the schema it generates by doing so.
+"""`SetpointGenerator`: the base a trajectory subclasses, and the schema it generates by doing so.
 
-`control/setpoint.py` holds the concrete generators that ship (`Hold`,
+`control/setpoint.py` holds the concrete generators that ship (`Dwell`,
 `LinearRampSetpoint`, `Profile`, ...) and `GeneratorConfig`, the discriminated
 union over every one registered here -- built lazily, from
 `registered_generator_configs()` below, not fixed to what `control/setpoint.py`
@@ -10,6 +10,7 @@ shape [ControlLaw][flyball.model.law.ControlLaw] gives laws.
 
 from __future__ import annotations
 
+import builtins
 from inspect import signature
 from typing import Any, ClassVar, Literal
 
@@ -19,78 +20,79 @@ from pydantic_core import core_schema
 
 from flyball.model.model import ModelOf, creation_model
 
-_configs: dict[str, type[SetPointGeneratorConfig]] = {}
-"""Every generator's config, by tag, as subclasses of `SetPointGenerator` are defined --
+_configs: dict[str, builtins.type[SetpointGeneratorConfig]] = {}
+"""Every generator's config, by type, as subclasses of `SetpointGenerator` are defined --
 wherever they live: engine's own (`control/setpoint.py`) or an extension's. Read by
 `registered_generator_configs()`, not written to directly."""
 
 
-def registered_generator_configs() -> dict[str, type[SetPointGeneratorConfig]]:
-    """Every generator's config registered so far, by tag.
+def registered_generator_configs() -> dict[str, builtins.type[SetpointGeneratorConfig]]:
+    """Every generator's config registered so far, by type.
 
-    Grows as more subclass `SetPointGenerator`, at whatever point that happens
+    Grows as more subclass `SetpointGenerator`, at whatever point that happens
     to be imported -- an extension's module included, once `Catalogs.discover()`
     (or a plain import) has run it. A snapshot, safe to keep or iterate.
     """
     return dict(_configs)
 
 
-class SetPointGeneratorConfig(BaseModel):
-    """How a generator was specified: its constructor arguments and its tag.
+class SetpointGeneratorConfig(BaseModel):
+    """How a generator was specified: its constructor arguments and its type.
 
-    `tag` is declared on the base so the base has a schema; each subclass
+    `type` is declared on the base so the base has a schema; each subclass
     narrows it to a `Literal`, which lets a union of configs discriminate on
     it -- the same shape [ControlLawConfig][flyball.model.law.ControlLawConfig]
     gives laws.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    # A NaN or infinite end, value or rate would carry straight into the setpoint.
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    generator: ClassVar[type[SetPointGenerator]]
+    generator: ClassVar[builtins.type[SetpointGenerator]]
     init_names: ClassVar[tuple[str, ...]] = ()
 
-    tag: str
+    type: str
 
-    def build(self) -> SetPointGenerator:
+    def build(self) -> SetpointGenerator:
         """A fresh generator, not yet started."""
         return self.generator(**{name: getattr(self, name) for name in self.init_names})
 
 
-class SetPointGenerator:
+class SetpointGenerator:
     """A reference trajectory. Subclassing derives `config`; registering is explicit.
 
-    A tag is assigned when subclassed (`class Hold(SetPointGenerator, tag="hold")`),
+    A type is assigned when subclassed (`class Dwell(SetpointGenerator, type="dwell")`),
     but nothing is written into a shared registry any more -- see
     [Catalogs][flyball.model.catalog.Catalogs].
     """
 
-    tag: ClassVar[str] = ""
+    type: ClassVar[str] = ""
     config: ClassVar[Any] = None
     view_fields: ClassVar[tuple[str, ...]] = ()
     """Attributes beyond the constructor's that a running instance shows on the wire."""
     end_time: float | None = None
     """When the trajectory lands, in the time `start` was given; None until started, or endless."""
 
-    def __init_subclass__(cls, tag: str | None = None, **kwargs: Any) -> None:
+    def __init_subclass__(cls, type: str | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        cls.tag = tag or cls.__dict__.get("tag") or to_snake(cls.__name__)
+        cls.type = type or cls.__dict__.get("type") or to_snake(cls.__name__)
 
         # Every generator gets its own config, derived from `__init__`: the
-        # field list a form needs to build one, plus the tag that names it.
+        # field list a form needs to build one, plus the type that names it.
         if "config" not in cls.__dict__:
             config_model = creation_model(
                 cls,
                 suffix="Config",
-                base=SetPointGeneratorConfig,
-                extra={"tag": (Literal[cls.tag], cls.tag)},
+                base=SetpointGeneratorConfig,
+                extra={"type": (Literal[cls.type], cls.type)},
             )
             config_model.generator = cls  # pyright: ignore[reportAttributeAccessIssue]
             config_model.init_names = tuple(signature(cls).parameters)  # pyright: ignore[reportAttributeAccessIssue]
             cls.config = ModelOf(config_model, tuple(config_model.model_fields))
 
-        # Registered under its tag whichever way `config` came to be -- derived just above,
+        # Registered under its type whichever way `config` came to be -- derived just above,
         # or written out by hand (`Profile`'s, which refers back to this same registry).
-        _configs[cls.tag] = cls.config
+        _configs[cls.type] = cls.config
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:
@@ -108,7 +110,7 @@ class SetPointGenerator:
         raise ValueError("a running trajectory cannot be built from the wire")
 
     def wire(self) -> dict[str, Any]:
-        """`{"tag": ..., **the constructor's arguments, **view_fields present so far}`."""
+        """`{"type": ..., **the constructor's arguments, **view_fields present so far}`."""
         data = self.config.model_dump(mode="json")
         for name in type(self).view_fields:
             value = getattr(self, name, None)
@@ -124,8 +126,17 @@ class SetPointGenerator:
     def start(self, time: float, value: float) -> None:
         """Bind to the rig: `time` is the origin, `value` the process value then."""
 
+    def reseed(self, time: float, value: float) -> bool:
+        """Go on from `value` at `time`, at the trajectory's own rate: whether anything changed.
+
+        What a controller resuming after a hold calls, so the setpoint does not jump to
+        where the trajectory's clock took it meanwhile. Default: nothing (a dwell holds its
+        value whatever the reading).
+        """
+        return False
+
     def generate(self, time: float) -> float:
-        """The set point at `time`."""
+        """The setpoint at `time`."""
         raise NotImplementedError
 
     def finished(self, time: float) -> bool:
@@ -138,7 +149,7 @@ class SetPointGenerator:
         return False
 
     def rate(self, time: float) -> float:
-        """How fast the set point is moving at `time`, per second.
+        """How fast the setpoint is moving at `time`, per second.
 
         Zero unless overridden: a generator with no notion of a rate (or one
         that has landed) is not moving. A rate feedforward uses this rather

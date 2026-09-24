@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Regenerates program.schema.json from the Python package's own dialect
 # module (engine/src/flyball/server/dialect.py's program_schema()), built
-# from the static Commands registry (engine/src/flyball/programmer/command.py)
-# -- populated by Command subclasses as their modules import, not by plugin
+# from the step catalog (engine/src/flyball/sequencing/step.py)
+# -- populated by Step subclasses as their modules import, not by plugin
 # discovery, so this is a genuinely static schema. Run this after adding or
-# changing a built-in program command, then commit the result --
+# changing a built-in program step, then commit the result --
 # program_schema_stale_test.go fails CI if the checked-in copy drifts.
 #
 # Calls program_schema() directly rather than through the old `flyball
@@ -26,6 +26,6 @@ fi
 import json
 from flyball.interfaces.server.dialect import Dialect, program_schema
 from flyball.model.catalog import ensure_discovered
-commands = dict(ensure_discovered().commands.items())
-print(json.dumps(program_schema(Dialect(commands=commands)), indent=2))
+commands = dict(ensure_discovered().steps.items())
+print(json.dumps(program_schema(Dialect(steps=commands)), indent=2))
 ') > "$out"

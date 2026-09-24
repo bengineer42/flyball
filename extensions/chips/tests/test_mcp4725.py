@@ -95,3 +95,14 @@ class TestMcp4725Device:
         assert config.address == 0x61
         assert config.unit == "V"
         assert config.span == (0.0, 10.0)
+
+
+class TestStop:
+    def test_power_down_is_the_stop_and_no_off_is_declared(self):
+        bus = FakeI2c()
+        dac = mcp4725.Mcp4725("dac", bus, address=0x60, unit="V", quantity="v", span=(0.0, 10.0))
+        assert dac.stops_by() == "power_down"
+        assert dac.signals["drive"].spec.off is None, "0 V is a setpoint, not off"
+        dac.power_down()
+        assert bus.written[-1] == (0x60, None, list(mcp4725.encode(0, power_down=1)))
+        assert dac.signals["drive"].value == 0.0

@@ -7,16 +7,16 @@ import { READOUT_MS, useStoreStatus } from "../store/hooks.js";
 
 /**
  * A controller's recent ticks as parallel arrays, oldest first: `t` in
- * seconds since the epoch, `reference` and `reading` in the source's unit,
- * `demand`, `expected` and `correction` in the target's
- * (`ControllerOut.demand_unit`). Null where the controller had no value at
+ * seconds since the epoch, `reference` and `measured` in the measured unit,
+ * `output`, `expected` and `correction` in the output's
+ * (`ControllerOut.output_unit`). Null where the controller had no value at
  * that tick, e.g. `expected` for a device that returns none, or `reference`
  * while a ramp runs under a feedforward the setpoint cannot be recovered
  * through (see `setpointOf`).
  */
 export type ControllerTrace = ControllerView;
 
-/** Traces by controller name (the target's address). */
+/** Traces by controller name (the output's address). */
 export type ControllerTraces = Record<Address, ControllerTrace>;
 
 /**
@@ -54,9 +54,13 @@ export function useControllers(windowS = 3600, every?: number): { controllers: R
   for (const name of Object.keys(controllers)) {
     const version = store.controllerVersion(name);
     if (name in next && current.seen.get(name) === version) continue;
-    const last = store.controller(name)?.reading;
+    const last = store.controller(name)?.measured;
     const fromS = windowS < store.windowS && last ? last.time_ns / 1e9 - windowS : undefined;
-    next[name] = store.readController(name, emptyControllerView(), { ...(fromS !== undefined ? { fromS } : {}), ...(every && every > 1 ? { every } : {}) });
+    next[name] = store.readController(name, emptyControllerView(), {
+      ...(fromS !== undefined ? { fromS } : {}),
+      ...(every && every > 1 ? { every } : {}),
+      spanS: windowS,
+    });
     current.seen.set(name, version);
     changed = true;
   }

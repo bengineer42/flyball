@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { RigClient, RigError, addressOf, captionFor, describeSignal, describeUnit, deviceOf, deviceTitle, fixed, humanise, isNamespace, placeOf, publishes, signalsOf, titleFor, unitTitle, verbLabel, withUnit, writable, type ReadOut, type Request, type Transport, type TreeNode } from "@flyball/client";
+import { OPERATE, RigClient, RigError, addressOf, captionFor, describeSignal, describeUnit, deviceOf, deviceTitle, fixed, humanise, isNamespace, placeOf, publishes, signalsOf, titleFor, unitTitle, verbLabel, withUnit, writable, type AuthInfo, type ReadOut, type Request, type StopReport, type Transport, type TreeNode } from "@flyball/client";
 
 /** A transport answering from a table of `METHOD path` → body, recording what was asked. */
-function fakeTransport(routes: Record<string, unknown>, status = 200) {
+function fakeTransport(routes: Record<string, unknown>, status = 200, token?: string) {
   const asked: Request[] = [];
   const transport: Transport = {
     base: "",
+    token,
     async request(request) {
       asked.push(request);
       const key = `${request.method} ${request.path}`;
@@ -72,30 +73,30 @@ describe("RigClient.read", () => {
 });
 
 describe("RigClient routes by address", () => {
-  it("puts a demand on a signal and on a device, and drives a controller by its target", async () => {
+  it("writes a signal and a device, and drives a controller by its output", async () => {
     const write = { value: 500, requested: null, at_limit: null, controller: null };
     const { transport, asked } = fakeTransport({
       "PUT /api/signals/heaters.heater1": { "heaters.heater1": write },
-      "PUT /api/devices/heaters/demand": { "heaters.heater1": write, "heaters.heater2": write },
+      "PUT /api/devices/heaters/write": { "heaters.heater1": write, "heaters.heater2": write },
       "POST /api/controllers/heaters.heater1/regulate": {},
-      "PUT /api/controllers/heaters.heater1/reference": {},
+      "PUT /api/controllers/heaters.heater1/setpoint": {},
       "POST /api/devices/furnace/commands/fail": null,
-      "POST /api/waits/step-1/fire": { name: "step-1", fired: true },
+      "POST /api/activities/step-1/fire": { name: "step-1", fired: true },
     });
     const rig = new RigClient(transport);
-    expect(await rig.demand("heaters.heater1", 500)).toEqual({ "heaters.heater1": write });
-    expect(Object.keys(await rig.demandNode("heaters", { heater1: 500, heater2: 500 }))).toEqual(["heaters.heater1", "heaters.heater2"]);
+    expect(await rig.write("heaters.heater1", 500)).toEqual({ "heaters.heater1": write });
+    expect(Object.keys(await rig.writeNode("heaters", { heater1: 500, heater2: 500 }))).toEqual(["heaters.heater1", "heaters.heater2"]);
     await rig.regulate("heaters.heater1", { at: 100 });
-    await rig.setReference("heaters.heater1", "process");
+    await rig.setSetpoint("heaters.heater1", "measured");
     await rig.command("furnace", "fail", { signal: "zone1" });
-    expect(await rig.fireWait("step-1")).toEqual({ name: "step-1", fired: true });
+    expect(await rig.fireActivity("step-1")).toEqual({ name: "step-1", fired: true });
     expect(asked.map((r) => [r.method, r.path, r.body])).toEqual([
       ["PUT", "/api/signals/heaters.heater1", 500],
-      ["PUT", "/api/devices/heaters/demand", { heater1: 500, heater2: 500 }],
+      ["PUT", "/api/devices/heaters/write", { heater1: 500, heater2: 500 }],
       ["POST", "/api/controllers/heaters.heater1/regulate", { at: 100 }],
-      ["PUT", "/api/controllers/heaters.heater1/reference", { at: "process" }],
+      ["PUT", "/api/controllers/heaters.heater1/setpoint", { at: "measured" }],
       ["POST", "/api/devices/furnace/commands/fail", { signal: "zone1" }],
-      ["POST", "/api/waits/step-1/fire", undefined],
+      ["POST", "/api/activities/step-1/fire", undefined],
     ]);
   });
 
@@ -130,7 +131,7 @@ describe("address helpers", () => {
 
   it("flattens a device tree to its signals, namespaces recursed", () => {
     const signal = (address: string, access: string): TreeNode =>
-      ({ name: address.split(".").pop()!, address, access, label: "", quantity: "q", unit: "", dimension: null, dtype: "float", shape: [], range: null, precision: null, warn: null, alarm: null, poll_s: null, limits: null, role: "output", tags: {}, initial: null, latest: null, write: null }) as TreeNode;
+      ({ name: address.split(".").pop()!, address, access, label: "", quantity: "q", unit: "", dimension: null, dtype: "float", shape: [], range: null, precision: null, warning: null, alarm: null, poll_s: null, limits: null, role: "readout", tags: {}, initial: null, latest: null, write: null }) as TreeNode;
     const tree: TreeNode[] = [
       signal("d.a", "rp"),
       { name: "ns", address: "d.ns", atomic: true, label: "", poll_s: null, signals: [signal("d.ns.b", "w"), signal("d.ns.c", "rw")] },
@@ -146,7 +147,7 @@ describe("address helpers", () => {
 
 describe("titles from labels", () => {
   const signal = (address: string, unit: string, quantity = "q", label = ""): TreeNode =>
-    ({ name: address.split(".").pop()!, address, access: "rp", label, quantity, unit, dimension: null, dtype: "float", shape: [], range: null, precision: null, warn: null, alarm: null, poll_s: null, limits: null, role: "output", tags: {}, initial: null, latest: null, write: null }) as TreeNode;
+    ({ name: address.split(".").pop()!, address, access: "rp", label, quantity, unit, dimension: null, dtype: "float", shape: [], range: null, precision: null, warning: null, alarm: null, poll_s: null, limits: null, role: "readout", tags: {}, initial: null, latest: null, write: null }) as TreeNode;
   const sensors = {
     name: "hum_sensors",
     label: "Humidity sensors",
@@ -200,7 +201,7 @@ describe("titles from labels", () => {
 describe("fixed() is total", () => {
   // A generator-based controller write records an object, not a number; it reaches
   // formatting through uPlot's legend and axis callbacks, where a throw takes the page
-  // down. Ben hit exactly that twice on 22 Sep, from two different call sites.
+  // down, hit from two different call sites on a real rig.
   it.each([
     ["an object, as a ramp's recorded value is", { kind: "ramp", to: 80 }],
     ["a string", "80"],
@@ -216,5 +217,69 @@ describe("fixed() is total", () => {
   it("still formats a real number, and never prints -0", () => {
     expect(fixed(1.234, 2)).toBe("1.23");
     expect(fixed(-0.001, 2)).toBe("0.00");
+  });
+});
+
+// AuthInfo v2 (WP0-2): the wire shape a `password`-shape front, `flyball run`'s own local shape,
+// or a bare runner answers with. Not application-specific -- these are the routes, not the door's
+// UI, which is covered in apps/dashboard/test/auth.test.tsx.
+describe("RigClient.login posts the credential the door offers", () => {
+  it("posts {password} for a password-shape front", async () => {
+    const answer: AuthInfo = { v: 2, shape: "password", scheme: "session", user: { id: "local:admin", name: "admin", kind: "human" }, verbs: [OPERATE, "read"], anonymous: "read", login: { password: true, token: false, passkey: false, sso: null } };
+    const { transport, asked } = fakeTransport({ "POST /api/auth/login": answer });
+    const rig = new RigClient(transport);
+    expect(await rig.login({ password: "hunter2" })).toEqual(answer);
+    expect(asked).toEqual([{ method: "POST", path: "/api/auth/login", body: { password: "hunter2" } }]);
+  });
+
+  it("posts {token} for a bare runner's pasted token", async () => {
+    const answer: AuthInfo = { v: 2, shape: "bare", scheme: "session", user: { id: "local:console", name: "", kind: "human" }, verbs: [OPERATE, "read"], anonymous: "none", login: { password: false, token: true, passkey: false, sso: null } };
+    const { transport, asked } = fakeTransport({ "POST /api/auth/login": answer });
+    const rig = new RigClient(transport);
+    expect(await rig.login({ token: "abc.def" })).toEqual(answer);
+    expect(asked).toEqual([{ method: "POST", path: "/api/auth/login", body: { token: "abc.def" } }]);
+  });
+
+  it("logout answers the anonymous view", async () => {
+    const answer: AuthInfo = { v: 2, shape: "password", scheme: "anonymous", user: null, verbs: ["read"], anonymous: "read", login: { password: true, token: false, passkey: false, sso: null } };
+    const { transport, asked } = fakeTransport({ "POST /api/auth/logout": answer });
+    const rig = new RigClient(transport);
+    expect(await rig.logout()).toEqual(answer);
+    expect(asked).toEqual([{ method: "POST", path: "/api/auth/logout", body: undefined }]);
+  });
+});
+
+describe("RigClient.stopRig", () => {
+  it("posts to /api/rig/stop, with a reason when given", async () => {
+    const report: StopReport = { at_ns: 1, actor: { sub: "local:admin", sid: "s1", kind: "human", via: "http", detail: "" }, reason: "done", devices: {}, program_interrupted: true, controllers_manual: [], interim: true };
+    const { transport, asked } = fakeTransport({ "POST /api/rig/stop": report });
+    const rig = new RigClient(transport);
+    expect(await rig.stopRig("done")).toEqual(report);
+    expect(await rig.stopRig()).toEqual(report);
+    expect(asked.map((r) => r.body)).toEqual([{ reason: "done" }, {}]);
+  });
+
+  it("501 (not wired up yet, A8) surfaces as a RigError, never as a report", async () => {
+    const { transport } = fakeTransport({ "POST /api/rig/stop": { detail: "stop not wired yet" } }, 501);
+    const rig = new RigClient(transport);
+    await expect(rig.stopRig()).rejects.toMatchObject({ status: 501, detail: "stop not wired yet" });
+  });
+
+  it("403 without OPERATE surfaces as a RigError", async () => {
+    const { transport } = fakeTransport({ "POST /api/rig/stop": { detail: "needs operate" } }, 403);
+    const rig = new RigClient(transport);
+    await expect(rig.stopRig()).rejects.toBeInstanceOf(RigError);
+  });
+});
+
+describe("no credential rides in a URL", () => {
+  it("a download URL carries no ?token=, even when the transport holds one", async () => {
+    const { transport } = fakeTransport({}, 200, "shh-secret-token");
+    const rig = new RigClient(transport);
+    expect(rig.exportUrl(3, { format: "json" })).not.toContain("token");
+    expect(rig.seriesExportUrl(3, "furnace.zone1")).not.toContain("token");
+    expect(rig.writesExportUrl(3, "heaters.heater1")).not.toContain("token");
+    expect(rig.ticksExportUrl(3, "heaters.heater1")).not.toContain("token");
+    expect(rig.eventsExportUrl(3)).not.toContain("token");
   });
 });

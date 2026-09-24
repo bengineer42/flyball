@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=program.schema.json
 name: drive
 steps:
-  - regulate: { loop: heater.drive, setpoint: 70 }
-  - hold: { minutes: 15, message: "holding 70 -- the heater is driven hard but 'zone.temperature' is wired to the wrong sensor and barely moves" }
+  - regulate: { controllers: heater.drive, setpoint: 70 }
+  - wait: { duration: { minutes: 15 }, message: "holding 70 -- the heater is driven hard but 'zone.temperature' is wired to the wrong sensor and barely moves" }

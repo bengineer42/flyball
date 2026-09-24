@@ -1,6 +1,7 @@
 # The humidity simulation as one runner: `uv run flyball-runner humidity.yaml`
 # from examples/humidity (its venv has the humidity drivers). The rig is
-# examples/humidity's; this file only says how to serve it.
+# the humidity rig's (https://bengineer42.github.io/humctrl/, its own repo,
+# cloned to examples/humidity); this file only says how to serve it.
 extends: [../humidity/rig-multi-sensor.yaml, ../humidity/sim.yaml]
 runner:
   port: 8001
@@ -10,5 +11,5 @@ runner:
   programs: ../humidity/programs      # the daemon looks beside THIS file otherwise
   tunings: ../humidity/tunings
   auth:
-    anonymous: read  # anyone may watch; the password below to drive
-    password: change-me  # `flyball password` for a hashed line, or FLYBALL_PASSWORD
+    anonymous: read  # anyone may watch; the token below to drive
+    token: change-me  # a bare runner has no password login -- put a real token here, or set FLYBALL_TOKEN

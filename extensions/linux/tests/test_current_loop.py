@@ -1,7 +1,7 @@
 """4-20mA current-loop scaling and fault detection, against a fake ADS1115 bus."""
 
 import pytest
-from flyball.foundation.errors import HardwareError
+from flyball.foundation.device import invalid, normalised
 from flyball_chips import ads1115
 from flyball_sim.links import FakeI2c, FakeI2cConfig
 
@@ -62,7 +62,7 @@ class TestCurrentLoop:
             (sample,) = loop.read(1)
             assert sample.by_name() == {"o2": pytest.approx(expected, abs=0.01)}
 
-    def test_a_reading_below_the_low_fault_band_is_a_hardware_error(self):
+    def test_a_reading_below_the_low_fault_band_is_invalid_low(self):
         # 0.5 V at 250 ohm is 2 mA: well under the NE43-style 3.6 mA floor.
         bus = FakeI2c(registers={0x48: {0x00: _raw_for(0.5)}})
         adc = ads1115.Ads1115(
@@ -71,10 +71,10 @@ class TestCurrentLoop:
         loop = current_loop.CurrentLoop(
             "oxygen", adc, {"o2": current_loop.CurrentLoopChannel(channel=0, resistor_ohms=250.0)}
         )
-        with pytest.raises(HardwareError, match="mA"):
-            list(loop.read(1))
+        (sample,) = loop.read(1)
+        assert sample.by_name() == {"o2": invalid("ne43_low", side="low")}, "a read, not a raise"
 
-    def test_a_reading_above_the_high_fault_band_is_a_hardware_error(self):
+    def test_a_reading_above_the_high_fault_band_is_invalid_high(self):
         # 5.5 V at 250 ohm is 22 mA: over the NE43-style 21 mA ceiling (open/short).
         bus = FakeI2c(registers={0x48: {0x00: _raw_for(5.5, gain=2 / 3)}})
         adc = ads1115.Ads1115(
@@ -87,8 +87,28 @@ class TestCurrentLoop:
         loop = current_loop.CurrentLoop(
             "oxygen", adc, {"o2": current_loop.CurrentLoopChannel(channel=0, resistor_ohms=250.0)}
         )
-        with pytest.raises(HardwareError, match="mA"):
-            list(loop.read(1))
+        (sample,) = loop.read(1)
+        assert sample.by_name() == {"o2": invalid("ne43_high", side="high")}
+
+    @pytest.mark.parametrize(("volts", "side"), [(0.94, "low"), (5.15, "high")])
+    def test_a_saturated_current_is_its_value_railed_at_that_end(self, volts, side):
+        # 3.76 mA and 20.6 mA at 250 ohm: pinned, not faulted.
+        bus = FakeI2c(registers={0x48: {0x00: _raw_for(volts, gain=2 / 3)}})
+        adc = ads1115.Ads1115(
+            "adc",
+            bus,
+            {"o2": ads1115.Channel(channel=0, unit="mA", scale=4.0)},
+            gain=2 / 3,
+            sleep=False,
+        )
+        loop = current_loop.CurrentLoop(
+            "oxygen", adc, {"o2": current_loop.CurrentLoopChannel(channel=0, resistor_ohms=250.0)}
+        )
+        (sample,) = loop.read(1)
+        marked = sample.by_name()["o2"]
+        assert marked.side == side and marked.value == pytest.approx(volts * 4.0, abs=0.01)
+        (gated,) = normalised(sample).readings()
+        assert gated.usable and gated.at_limit == side
 
     def test_no_channels_is_refused(self):
         adc = ads1115.Ads1115("adc", FakeI2c(), {"a": ads1115.Channel(channel=0)}, sleep=False)

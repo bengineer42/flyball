@@ -19,8 +19,8 @@ from flyball.foundation.device import (
     DriverConfig,
     Node,
     NodeSpec,
-    Output,
     Readable,
+    Readout,
     Sample,
     SignalSpec,
 )
@@ -110,8 +110,8 @@ def _tree() -> tuple[SignalSpec, ...]:
 class Sht4x(Readable):
     """One chip on the device root: `humidity`, `temperature [RP]`, one I2C transaction."""
 
-    humidity = Output("humidity", quantity=HUMIDITY, range=(0.0, 100.0), precision=2)
-    temperature = Output("temperature", quantity=TEMPERATURE, range=(-40.0, 125.0), precision=2)
+    humidity = Readout("humidity", quantity=HUMIDITY, range=(0.0, 100.0), precision=2)
+    temperature = Readout("temperature", quantity=TEMPERATURE, range=(-40.0, 125.0), precision=2)
 
     def __init__(
         self,
@@ -135,7 +135,7 @@ class Sht4x(Readable):
         yield self.sample(time_ns, humidity=humidity, temperature=temperature)
 
 
-class Sht4xConfig(DriverConfig[Sht4x], tag="sht4x"):
+class Sht4xConfig(DriverConfig[Sht4x], type="sht4x"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
@@ -226,7 +226,7 @@ class Sht4xSet(Readable):
                 yield self._sample(child, time_ns)
 
 
-class Sht4xSetConfig(DriverConfig[Sht4xSet], tag="sht4x_set"):
+class Sht4xSetConfig(DriverConfig[Sht4xSet], type="sht4x_set"):
     """Several chips on one bus, one namespace per sensor: `sensors: {dry: {address: 0x45}}`."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

@@ -103,7 +103,7 @@ class GpiodChip:
             self._chip.close()
 
 
-class GpioConfig(Config[GpioLink], tag="gpio"):
+class GpioConfig(Config[GpioLink], type="gpio"):
     """A kernel GPIO chip: `chip = "gpiochip4"` is `/dev/gpiochip4`."""
 
     chip: str = "gpiochip0"

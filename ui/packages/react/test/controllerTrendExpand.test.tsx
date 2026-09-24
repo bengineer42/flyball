@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 // alone -- stubbed out, same as `canOperate.test.tsx`.
 vi.mock("uplot", () => ({
   default: class {
+    static paths = { stepped: () => () => ({}) };
     cursor = { idx: null };
     data = [[]];
     setData() {}
@@ -61,12 +62,12 @@ const SOURCE: SignalOut = {
   dimension: null,
   dtype: "float",
   shape: [],
-  role: "output",
+  role: "readout",
   tags: {},
   initial: null,
   range: [0, 100],
   precision: 1,
-  warn: null,
+  warning: null,
   alarm: null,
   poll_s: null,
   limits: null,
@@ -77,20 +78,20 @@ const SOURCE: SignalOut = {
 const CONTROLLER: ControllerOut = {
   name: "heater.demand",
   label: null,
-  target: "heater.demand",
-  source: "chamber.temp",
+  output_signal: "heater.demand",
+  measured_signal: "chamber.temp",
   default: false,
   mode: "regulating",
   law: null,
-  feedforward: { tag: "none" },
-  demand_unit: "W",
+  feedforward: { type: "none" },
+  output_unit: "W",
   reference: 50,
   setpoint: 50,
   correction: 0,
-  demand: 10,
+  output: 10,
   expected: 10,
   delivered_correction: 0,
-  reading: null,
+  measured: null,
 };
 
 /**
@@ -119,7 +120,7 @@ describe("ControllerPanel's trends open the same full-screen overlay as any othe
   });
 
   it("stays open through a double-click: the second click must not dismiss it", () => {
-    // Ben double-clicked a controller's trend on the real rig and saw nothing happen: the first
+    // Double-clicking a controller's trend on a real rig showed nothing happening: the first
     // click opened the overlay, the second landed on its backdrop and closed it again.
     render(withRig(createElement(ControllerPanel, { controller: CONTROLLER, source: SOURCE, trends: true })));
 

@@ -1,9 +1,12 @@
 """The SQLite store.
 
-One locked connection per [SqliteStore][flyball.record.sqlite.SqliteStore]; the
-rig's writer and the server's reader normally each open their own on the same
-file, and WAL lets them overlap. Declarations are interned in the writer so a
-delivery is one `executemany` per table.
+One locked connection per [SqliteStore][flyball.record.sqlite.SqliteStore]. The
+runner shares one store between the recorder's thread, the retention sweep and
+the server, so every call waits for whoever holds the lock: nothing may call it
+from an event loop, and nothing holds it for long (`delete_session` goes in
+batches). Another process can open the same file beside it; WAL lets them
+overlap. Declarations are interned in the writer so a delivery is one
+`executemany` per table.
 """
 
 from __future__ import annotations
@@ -11,23 +14,36 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import time
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from threading import RLock
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 
+from pydantic import SecretBytes, SecretStr
 from pydantic_core import to_jsonable_python
 
-from flyball.foundation.device import Access, Band, Device, Limit, Sample, Signal, WriteState
+from flyball.foundation.device import (
+    Access,
+    Bounds,
+    Device,
+    Limit,
+    NoValue,
+    Sample,
+    Signal,
+    WriteState,
+)
 from flyball.foundation.errors import ConflictError, NotFoundError
 
 from .errors import (
+    ConstraintError,
     DashboardNotFoundError,
     NotDeclaredError,
     ProgramNotFoundError,
     SessionEndedError,
     SessionNotFoundError,
+    StoreUnavailableError,
     TuningNotFoundError,
 )
 from .migrate import migrate
@@ -37,6 +53,9 @@ from .types import (
     DeviceRow,
     Downsample,
     Event,
+    Flag,
+    LatchRow,
+    LiveValueRow,
     Point,
     ProgramFormat,
     ProgramRow,
@@ -84,13 +103,32 @@ def _encode_reading(dtype: str, value: Any) -> Any:
     return json.dumps(value)
 
 
+def _stored(dtype: str, value: Any, mark: Limit | None) -> tuple[Any, int | None]:
+    """A reading as its row takes it: `(value, flag)`.
+
+    A no-value is NULL with its code; a float that is not finite (a sample that did
+    not pass the value gate) is NULL and `invalid`, never dropped; a value is
+    `_encode_reading`'s, with its mark's code or NULL.
+    """
+    if isinstance(value, NoValue):
+        return None, int(Flag.of(value))
+    if value is None or (isinstance(value, float) and value != value):  # NaN
+        return None, int(Flag.INVALID)
+    if isinstance(value, float) and value in (float("inf"), float("-inf")):
+        return None, int(Flag.INVALID)
+    mark_flag = Flag.mark(mark)
+    return _encode_reading(dtype, value), None if mark_flag is None else int(mark_flag)
+
+
 def _decode_reading(dtype: str, raw: Any) -> Any:
-    """The column's value back to a reading: undoes `_encode_reading`.
+    """The column's value back to a reading: undoes `_encode_reading`. NULL is None.
 
     SQLite's REAL affinity turns numeric-looking JSON text (an int, a bare
     digit) into a number on the way in, so a non-float value may already be
     numeric here rather than the str `_encode_reading` wrote.
     """
+    if raw is None:
+        return None
     if dtype == "float":
         return raw
     if isinstance(raw, str):
@@ -102,7 +140,7 @@ def _decode_reading(dtype: str, raw: Any) -> Any:
     return raw
 
 
-def _band(text: str | None) -> Band | None:
+def _band(text: str | None) -> Bounds | None:
     if text is None:
         return None
     lo, hi = json.loads(text)
@@ -134,7 +172,7 @@ def _signal_row(row: sqlite3.Row) -> SignalRow:
         label=row["label"],
         range=_band(row["range"]),
         precision=row["precision"],
-        warn=_band(row["warn"]),
+        warning=_band(row["warning"]),
         alarm=_band(row["alarm"]),
         limits=_band(row["limits"]),
     )
@@ -212,6 +250,21 @@ def _session_row(row: sqlite3.Row) -> SessionRow:
     )
 
 
+def _live_value_row(row: sqlite3.Row) -> LiveValueRow:
+    return LiveValueRow(
+        device=row["device"],
+        signal=row["signal"],
+        kind=row["kind"],
+        value=_loads(row["value"]),
+        unit=row["unit"],
+        initial=_loads(row["initial"]),
+        writer=row["writer"],
+        written_ns=row["written_ns"],
+        config_field=row["config_field"],
+        head_version=row["head_version"],
+    )
+
+
 def _rig_version_row(row: sqlite3.Row) -> RigVersionRow:
     return RigVersionRow(
         id=row["id"],
@@ -226,15 +279,33 @@ def _rig_version_row(row: sqlite3.Row) -> RigVersionRow:
 # endregion
 
 
+def _raise_classified(error: sqlite3.Error, path: str | Path) -> NoReturn:
+    """Raise `error` as the store error it is, or as itself if it is not one.
+
+    `IntegrityError` is a write the store refuses; `OperationalError` a store it
+    cannot reach. Anything else (a closed connection, a bad parameter) is a bug,
+    and stays one: dressed as an outage it would have someone wait out a retry
+    that can never work.
+    """
+    if isinstance(error, sqlite3.IntegrityError):
+        raise ConstraintError(str(error), path) from error
+    if isinstance(error, sqlite3.OperationalError):
+        raise StoreUnavailableError(str(error), path) from error
+    raise error
+
+
 class SqliteSessionWriter:
     """Appends to one session. Not thread-safe on its own; the store's lock covers it."""
 
     __slots__ = (
         "_controllers",
+        "_device_ids",
         "_devices",
         "_ended",
         "_seq",
         "_session",
+        "_signal_ids",
+        "_signal_written",
         "_signals",
         "_store",
         "_writes",
@@ -246,6 +317,10 @@ class SqliteSessionWriter:
         self._devices: dict[Device, int] = {}
         self._signals: dict[Signal, int] = {}
         self._writes: set[Signal] = set()
+        # By address, so a device or signal object rebuilt at the same address reuses its row.
+        self._device_ids: dict[str, int] = {}
+        self._signal_ids: dict[str, int] = {}
+        self._signal_written: dict[str, bool] = {}
         self._controllers: set[str] = set()
         self._seq: dict[int, int] = {}  # the last seq written, per device id
         self._ended = False
@@ -264,9 +339,15 @@ class SqliteSessionWriter:
         self._open()
         if device in self._devices:
             return
+        # A device removed and added back (a version restore, DELETE then POST)
+        # is a new object at an address this session already holds: it keeps
+        # that row, rather than a second insert breaking UNIQUE(session, address).
+        if (did := self._device_ids.get(device.name)) is not None:
+            self._devices[device] = did
+            return
         config = device.config
         with self._store._transaction() as connection:
-            did = len(self._devices) + 1
+            did = len(self._device_ids) + 1
             connection.execute(
                 "INSERT INTO device (session_id, id, address, driver, config, label)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
@@ -274,25 +355,31 @@ class SqliteSessionWriter:
                     self._session.id,
                     did,
                     device.name,
-                    config.config_tag or type(device).__name__,
+                    config.type_name or type(device).__name__,
                     _dumps(_config_json(device)),
                     device.label,
                 ),
             )
             self._devices[device] = did
+            self._device_ids[device.name] = did
 
     def declare_signal(self, signal: Signal) -> None:
         self._open()
         if signal in self._signals:
             return
+        if (sid := self._signal_ids.get(signal.address)) is not None:  # re-added, as above
+            self._signals[signal] = sid
+            if Access.W in signal.access and self._signal_written.get(signal.address):
+                self._writes.add(signal)
+            return
         if (did := self._devices.get(signal.device)) is None:
             raise NotDeclaredError("device", signal.device.name)
         spec = signal.spec
         with self._store._transaction() as connection:
-            sid = len(self._signals) + 1
+            sid = len(self._signal_ids) + 1
             connection.execute(
                 "INSERT INTO signal (session_id, id, device_id, address, quantity, unit, access,"
-                " dtype, shape, label, range, precision, warn, alarm, limits)"
+                " dtype, shape, label, range, precision, warning, alarm, limits)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     self._session.id,
@@ -307,7 +394,7 @@ class SqliteSessionWriter:
                     spec.label or None,
                     _dumps(spec.range),
                     spec.precision,
-                    _dumps(spec.warn),
+                    _dumps(spec.warning),
                     _dumps(spec.alarm),
                     _dumps(signal.limits),  # effective: a limit that follows a signal, as a number
                 ),
@@ -318,32 +405,34 @@ class SqliteSessionWriter:
                     (
                         self._session.id,
                         sid,
-                        signal.device.config.config_tag or type(signal.device).__name__,
+                        signal.device.config.type_name or type(signal.device).__name__,
                         _dumps(signal.limits),
                     ),
                 )
                 self._writes.add(signal)
             self._signals[signal] = sid
+            self._signal_ids[signal.address] = sid
+            self._signal_written[signal.address] = Access.W in signal.access
 
     def declare_controller(self, controller: Controller) -> None:
         self._open()
         name = controller.name
         if name in self._controllers:
             return
-        if controller.target not in self._writes:
-            raise NotDeclaredError("write", controller.target.address)
-        if controller.source not in self._signals:
-            raise NotDeclaredError("signal", controller.source.address)
+        if controller.output_signal not in self._writes:
+            raise NotDeclaredError("write", controller.output_signal.address)
+        if controller.measured_signal not in self._signals:
+            raise NotDeclaredError("signal", controller.measured_signal.address)
         law = None if controller.law is None else controller.law.config.model_dump(mode="json")
         feedforward = controller.feedforward.config.model_dump(mode="json")
         with self._store._transaction() as connection:
             connection.execute(
-                "INSERT INTO controller (session_id, name, source, law, feedforward)"
+                "INSERT INTO controller (session_id, name, measured, law, feedforward)"
                 " VALUES (?, ?, ?, ?, ?)",
                 (
                     self._session.id,
                     name,
-                    controller.source.address,
+                    controller.measured_signal.address,
                     _dumps(law),
                     _dumps(feedforward),
                 ),
@@ -358,7 +447,7 @@ class SqliteSessionWriter:
         self._open()
         session_id = self._session.id
         sample_rows: list[tuple[int, int, int, str, int]] = []
-        reading_rows: list[tuple[int, int, int, int, int, Any]] = []
+        reading_rows: list[tuple[int, int, int, int, int, Any, int | None]] = []
         seqs = dict(self._seq)
         for sample in samples:
             node = sample.node
@@ -367,22 +456,12 @@ class SqliteSessionWriter:
             offset = sample.time_ns - self._session.start_ns
             seq = seqs[did] = seqs.get(did, 0) + 1
             sample_rows.append((session_id, did, seq, node.address, offset))
+            marks = sample.marks
             for signal, value in sample.values.items():
                 if (sid := self._signals.get(signal)) is None:
                     raise NotDeclaredError("signal", signal.address)
-                dtype = signal.spec.dtype
-                if dtype == "float":
-                    if value == value:  # NaN is a fault, not a reading; the writer routes those
-                        reading_rows.append((session_id, did, seq, sid, offset, value))
-                else:
-                    reading_rows.append((
-                        session_id,
-                        did,
-                        seq,
-                        sid,
-                        offset,
-                        _encode_reading(dtype, value),
-                    ))
+                stored, flag = _stored(signal.spec.dtype, value, marks.get(signal))
+                reading_rows.append((session_id, did, seq, sid, offset, stored, flag))
         if not sample_rows:
             return
         with self._store._transaction() as connection:
@@ -392,8 +471,9 @@ class SqliteSessionWriter:
                 sample_rows,
             )
             connection.executemany(
-                "INSERT INTO reading (session_id, device_id, seq, signal_id, offset_ns, value)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO reading"
+                " (session_id, device_id, seq, signal_id, offset_ns, value, flag)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 reading_rows,
             )
         self._seq = seqs
@@ -431,38 +511,49 @@ class SqliteSessionWriter:
     def write_ticks(self, ticks: Iterable[Tick]) -> None:
         self._open()
         rows = []
+        reapplied = []
         for tick in ticks:
             if tick.controller not in self._controllers:
                 raise NotDeclaredError("controller", tick.controller)
-            rows.append((
+            (reapplied if tick.reapplied else rows).append((
                 self._session.id,
                 tick.controller,
                 tick.offset_ns,
                 tick.mode,
-                tick.reading,
+                tick.measured,
                 tick.setpoint,
                 tick.correction,
-                tick.demand,
+                tick.output,
                 tick.expected,
                 tick.delivered_correction,
+                int(tick.reapplied),
             ))
-        if not rows:
+        if not rows and not reapplied:
             return
+        insert = (
+            " INTO tick (session_id, controller, offset_ns, mode, measured, setpoint,"
+            " correction, output, expected, delivered_correction, reapplied)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
         with self._store._transaction() as connection:
-            connection.executemany(
-                "INSERT INTO tick (session_id, controller, offset_ns, mode, reading, setpoint,"
-                " correction, demand, expected, delivered_correction)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                rows,
-            )
+            connection.executemany("INSERT" + insert, rows)
+            # A re-apply at the instant of a reading's tick gives way to it.
+            connection.executemany("INSERT OR IGNORE" + insert, reapplied)
 
     def write_event(self, event: Event) -> int:
         self._open()
         with self._store._transaction() as connection:
             cursor = connection.execute(
-                "INSERT INTO event (session_id, offset_ns, source, kind, detail)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (self._session.id, event.offset_ns, event.source, event.kind, _dumps(event.detail)),
+                "INSERT INTO event (session_id, offset_ns, source, code, edge, detail)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    self._session.id,
+                    event.offset_ns,
+                    event.source,
+                    event.code,
+                    event.edge,
+                    _dumps(event.detail),
+                ),
             )
             return int(cursor.lastrowid or 0)
 
@@ -522,18 +613,40 @@ class SqliteStore:
 
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
+        """One transaction. Its sqlite errors, and its body's, leave classified.
+
+        `BEGIN` stays outside the body's `try`: if it fails there is nothing to roll back.
+        """
         with self._lock:
-            self._connection.execute("BEGIN")
+            try:
+                self._connection.execute("BEGIN")
+            except sqlite3.Error as e:
+                _raise_classified(e, self.path)
             try:
                 yield self._connection
-            except BaseException:
-                self._connection.execute("ROLLBACK")
+            except BaseException as e:
+                self._rollback()
+                if isinstance(e, sqlite3.Error):
+                    _raise_classified(e, self.path)
                 raise
-            self._connection.execute("COMMIT")
+            try:
+                self._connection.execute("COMMIT")
+            except sqlite3.Error as e:
+                self._rollback()
+                _raise_classified(e, self.path)
+
+    def _rollback(self) -> None:
+        # A ROLLBACK that fails (the connection closed, or sqlite already rolled
+        # back) must not replace the error that caused it.
+        with suppress(sqlite3.Error):
+            self._connection.execute("ROLLBACK")
 
     def _query(self, sql: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:
         with self._lock:
-            return self._connection.execute(sql, tuple(params)).fetchall()
+            try:
+                return self._connection.execute(sql, tuple(params)).fetchall()
+            except sqlite3.Error as e:
+                _raise_classified(e, self.path)
 
     def close(self) -> None:
         with self._lock:
@@ -645,10 +758,83 @@ class SqliteStore:
             connection.execute("UPDATE session SET end_ns = ? WHERE id = ?", (end_ns, session_id))
         return self.session(session_id)
 
+    _DELETE_ROWS: ClassVar[int] = 1000
+    """Readings (or ticks, states, events) one transaction of a batched delete removes.
+
+    About 15 ms on a desktop SSD: how long anyone else may wait for the lock.
+    """
+
+    # The data tables, each by the key its rows are picked out by within a session.
+    # A sample's readings go with it (the cascade), so `reading` is not listed.
+    _DATA_KEYS: ClassVar[tuple[tuple[str, str], ...]] = (
+        ("tick", "controller, offset_ns"),
+        ("write_state", "signal_id, offset_ns"),
+        ("event", "id"),
+        ("sample", "device_id, seq"),
+    )
+
+    def _delete_data(self, session_id: int, before: int | None = None) -> None:
+        """Delete the session's data -- all of it, or what lies before offset `before`.
+
+        A batch at a time, each its own transaction, with the lock released
+        between them: a week at 1 Hz is 8 s of deleting, and no one else
+        should wait all of it.
+        """
+        signals = self._query(
+            "SELECT COUNT(*) AS n FROM signal WHERE session_id = ?", (session_id,)
+        )
+        # A sample carries up to one reading per signal: size its batch in readings.
+        per_sample = max(1, int(signals[0]["n"]))
+        where = "session_id = ?" + ("" if before is None else " AND offset_ns < ?")
+        params = (session_id,) if before is None else (session_id, before)
+        for table, key in self._DATA_KEYS:
+            batch = max(1, self._DELETE_ROWS // (per_sample if table == "sample" else 1))
+            while True:
+                with self._transaction() as connection:
+                    deleted = connection.execute(
+                        f"DELETE FROM {table} WHERE session_id = ? AND ({key}) IN"
+                        f" (SELECT {key} FROM {table} WHERE {where} LIMIT ?)",
+                        (session_id, *params, batch),
+                    ).rowcount
+                if deleted < batch:
+                    break
+                time.sleep(0)  # a switch point: a thread waiting for the lock may take it now
+
     def delete_session(self, session_id: int) -> None:
+        """Delete the session in many short transactions, not one long one.
+
+        The row is marked `details.deleting` first, the data goes a batch at a
+        time (`_delete_data`), and the row and its declarations go last. What
+        is traded is atomicity: a reader between batches sees the session
+        partly gone, and a crash leaves it marked and part-deleted --
+        `deleting_sessions()` finds it, and deleting it again (the runner
+        does, on start) finishes the job.
+        """
+        with self._transaction() as connection:
+            rows = connection.execute(
+                "SELECT details FROM session WHERE id = ?", (session_id,)
+            ).fetchall()
+            if not rows:
+                raise SessionNotFoundError(session_id)
+            details = _loads(rows[0]["details"])
+            details = dict(details) if isinstance(details, dict) else {}
+            details["deleting"] = True
+            connection.execute(
+                "UPDATE session SET details = ? WHERE id = ?", (_dumps(details), session_id)
+            )
+        self._delete_data(session_id)
         with self._transaction() as connection:
             if connection.execute("DELETE FROM session WHERE id = ?", (session_id,)).rowcount == 0:
                 raise SessionNotFoundError(session_id)
+
+    def deleting_sessions(self) -> list[SessionRow]:
+        """Sessions a `delete_session` started and did not finish: a crash, a lost power."""
+        return [
+            _session_row(r)
+            for r in self._query(
+                "SELECT * FROM session WHERE json_extract(details, '$.deleting') IS NOT NULL"
+            )
+        ]
 
     def set_pinned(self, session_id: int, pinned: bool) -> SessionRow:
         with self._transaction() as connection:
@@ -686,16 +872,9 @@ class SqliteStore:
             return session
         # Offsets count from the origin; the row's start_ns is what the reader sees.
         cut = before_ns - (session.start_ns - self._shift(session_id))
+        # In batches, as a delete is; cut off part-way, the next trim finishes it.
+        self._delete_data(session_id, cut)
         with self._transaction() as connection:
-            # Readings go with their samples (the cascade; the range is on sample_by_time).
-            connection.execute(
-                "DELETE FROM sample WHERE session_id = ? AND offset_ns < ?", (session_id, cut)
-            )
-            for table in ("tick", "write_state", "event"):
-                connection.execute(
-                    f"DELETE FROM {table} WHERE session_id = ? AND offset_ns < ?",
-                    (session_id, cut),
-                )
             connection.execute(
                 "DELETE FROM span WHERE session_id = ? AND end_ns IS NOT NULL AND end_ns < ?",
                 (session_id, cut),
@@ -738,10 +917,10 @@ class SqliteStore:
                 (
                     "signal",
                     "id, device_id, address, quantity, unit, access, dtype, shape, label,"
-                    " range, precision, warn, alarm, limits",
+                    " range, precision, warning, alarm, limits",
                 ),
                 ("write", "signal_id, driver, limits"),
-                ("controller", "name, source, law, feedforward"),
+                ("controller", "name, measured, law, feedforward"),
             ):
                 connection.execute(
                     f"INSERT INTO {table} (session_id, {columns})"
@@ -819,8 +998,8 @@ class SqliteStore:
             else ""
         )
         readings = connection.execute(
-            f"INSERT INTO reading (session_id, device_id, seq, signal_id, offset_ns, value)"
-            f" SELECT ?, {device_map}, {seq}, {signal_map}, r.offset_ns + ?, r.value"
+            "INSERT INTO reading (session_id, device_id, seq, signal_id, offset_ns, value, flag)"
+            f" SELECT ?, {device_map}, {seq}, {signal_map}, r.offset_ns + ?, r.value, r.flag"
             " FROM reading r JOIN sample s ON s.session_id = r.session_id"
             f" AND s.device_id = r.device_id AND s.seq = r.seq{signal_joins}"
             " WHERE r.session_id = ? AND r.offset_ns >= ? AND r.offset_ns < ?",
@@ -845,17 +1024,17 @@ class SqliteStore:
             " JOIN controller tc ON tc.session_id = ? AND tc.name = t.controller" if mapped else ""
         )
         connection.execute(
-            "INSERT OR REPLACE INTO tick (session_id, controller, offset_ns, mode, reading,"
-            " setpoint, correction, demand, expected, delivered_correction)"
-            " SELECT ?, t.controller, t.offset_ns + ?, t.mode, t.reading, t.setpoint,"
-            " t.correction, t.demand, t.expected, t.delivered_correction"
+            "INSERT OR REPLACE INTO tick (session_id, controller, offset_ns, mode, measured,"
+            " setpoint, correction, output, expected, delivered_correction, reapplied)"
+            " SELECT ?, t.controller, t.offset_ns + ?, t.mode, t.measured, t.setpoint,"
+            " t.correction, t.output, t.expected, t.delivered_correction, t.reapplied"
             f" FROM tick t{controller_map}"
             " WHERE t.session_id = ? AND t.offset_ns >= ? AND t.offset_ns < ?",
             (target_id, delta, *([target_id] if mapped else []), source.id, lo, hi),
         )
         connection.execute(
-            "INSERT INTO event (session_id, offset_ns, source, kind, detail)"
-            " SELECT ?, offset_ns + ?, source, kind, detail FROM event"
+            "INSERT INTO event (session_id, offset_ns, source, code, edge, detail)"
+            " SELECT ?, offset_ns + ?, source, code, edge, detail FROM event"
             " WHERE session_id = ? AND offset_ns >= ? AND offset_ns < ? ORDER BY offset_ns, id",
             (target_id, delta, source.id, lo, hi),
         )
@@ -883,6 +1062,8 @@ class SqliteStore:
         return total
 
     def used_bytes(self) -> int:
+        # Bypasses _query, so its sqlite errors come out raw. Its one caller,
+        # retention's sweep, catches everything and tries again.
         with self._lock:
             page_size = self._connection.execute("PRAGMA page_size").fetchone()[0]
             pages = self._connection.execute("PRAGMA page_count").fetchone()[0]
@@ -928,7 +1109,7 @@ class SqliteStore:
 
     def controllers(self, session_id: int) -> list[ControllerRow]:
         return [
-            ControllerRow(r["name"], r["source"], _loads(r["law"]), _loads(r["feedforward"]))
+            ControllerRow(r["name"], r["measured"], _loads(r["law"]), _loads(r["feedforward"]))
             for r in self._query(
                 "SELECT * FROM controller WHERE session_id = ? ORDER BY name", (session_id,)
             )
@@ -945,7 +1126,9 @@ class SqliteStore:
         shift = self._shift(session_id)
         where, params = _window_clause(window, "offset_ns", shift)
         # Every form below is one range scan of reading_by_signal: the index
-        # carries offset_ns and value, so neither the table nor sample is read.
+        # carries offset_ns, value and flag, so neither the table nor sample is read.
+        # A reading with no value is a NULL value with its flag: every form keeps it,
+        # so a chart breaks where it did.
         base = " FROM reading WHERE session_id = ? AND signal_id = ?" + where
         key = [session_id, signal.id, *params]
 
@@ -954,23 +1137,25 @@ class SqliteStore:
             # is not an error -- a page asks for every signal the same way --
             # it just does not apply; the series says so with `downsample` None.
             rows = self._query(
-                "SELECT offset_ns AS t, value AS v" + base + " ORDER BY offset_ns", key
+                "SELECT offset_ns AS t, value AS v, flag AS f" + base + " ORDER BY offset_ns", key
             )
             points = tuple(
-                Point(r["t"] - shift, _decode_reading(signal.dtype, r["v"])) for r in rows
+                Point(r["t"] - shift, _decode_reading(signal.dtype, r["v"]), r["f"]) for r in rows
             )
             return Series(signal, points, None)
 
         match downsample:
             case None:
                 rows = self._query(
-                    "SELECT offset_ns AS t, value AS v" + base + " ORDER BY offset_ns", key
+                    "SELECT offset_ns AS t, value AS v, flag AS f" + base + " ORDER BY offset_ns",
+                    key,
                 )
             case Downsample(every=int(n)):
+                # Every nth, and every reading with no value: thinning never hides a break.
                 rows = self._query(
-                    "SELECT offset_ns AS t, value AS v"
+                    "SELECT offset_ns AS t, value AS v, flag AS f"
                     + base
-                    + " AND seq % ? = 0 ORDER BY offset_ns",
+                    + " AND (seq % ? = 0 OR value IS NULL) ORDER BY offset_ns",
                     [*key, n],
                 )
             case Downsample(max_points=int(max_points)):
@@ -985,15 +1170,21 @@ class SqliteStore:
             case Downsample(bucket_ns=int(bucket_ns)):
                 # Buckets are laid from start_ns, not the origin, so a trimmed
                 # session's first bucket is not labelled before its start.
+                # A bucket with any reading that had no value is itself none, with
+                # the lowest no-value code in it: an average would bridge the break.
                 rows = self._query(
-                    "SELECT ((offset_ns - ?) / ?) * ? + ? AS t, AVG(value) AS v"
+                    "SELECT ((offset_ns - ?) / ?) * ? + ? AS t,"
+                    " CASE WHEN COUNT(value) < COUNT(*) THEN NULL ELSE AVG(value) END AS v,"
+                    " MIN(CASE WHEN value IS NULL THEN flag END) AS f"
                     + base
                     + " GROUP BY (offset_ns - ?) / ? ORDER BY t",
                     [shift, bucket_ns, bucket_ns, shift, *key, shift, bucket_ns],
                 )
             case _:
                 raise ValueError(f"{downsample!r} names none of every, bucket_ns or max_points")
-        return Series(signal, tuple(Point(r["t"] - shift, r["v"]) for r in rows), downsample)
+        return Series(
+            signal, tuple(Point(r["t"] - shift, r["v"], r["f"]) for r in rows), downsample
+        )
 
     def samples(
         self, session_id: int, address: str, window: Window | None = None
@@ -1008,7 +1199,7 @@ class SqliteStore:
         # A namespace's address selects the samples on it and under it.
         under = "" if address == name else " AND (node = ? OR node LIKE ?)"
         rows = self._query(
-            "SELECT s.seq, s.node, r.signal_id, r.offset_ns, r.value FROM sample s"
+            "SELECT s.seq, s.node, r.signal_id, r.offset_ns, r.value, r.flag FROM sample s"
             " JOIN reading r ON r.session_id = s.session_id AND r.device_id = s.device_id"
             " AND r.seq = s.seq WHERE s.session_id = ? AND s.device_id = ?"
             + under
@@ -1023,6 +1214,8 @@ class SqliteStore:
                 row = samples[r["seq"]] = SampleRow(r["seq"], r["offset_ns"] - shift, r["node"], {})
             signal = signals[r["signal_id"]]
             row.values[signal.address] = _decode_reading(signal.dtype, r["value"])
+            if r["flag"] is not None:
+                row.flags[signal.address] = r["flag"]
         return list(samples.values())
 
     def write_states(
@@ -1064,11 +1257,12 @@ class SqliteStore:
                 offset_ns=r["offset_ns"] - shift,
                 mode=r["mode"],
                 correction=r["correction"],
-                reading=r["reading"],
+                measured=r["measured"],
                 setpoint=r["setpoint"],
-                demand=r["demand"],
+                output=r["output"],
                 expected=r["expected"],
                 delivered_correction=r["delivered_correction"],
+                reapplied=bool(r["reapplied"]),
             )
             for r in self._query(
                 "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY offset_ns) AS rn"
@@ -1082,15 +1276,22 @@ class SqliteStore:
         ]
 
     def events(
-        self, session_id: int, window: Window | None = None, kind: str | None = None
+        self, session_id: int, window: Window | None = None, code: str | None = None
     ) -> list[Event]:
         shift = self._shift(session_id)
         where, params = _window_clause(window, "offset_ns", shift)
-        if kind is not None:
-            where += " AND kind = ?"
-            params.append(kind)  # type: ignore[arg-type]
+        if code is not None:
+            where += " AND code = ?"
+            params.append(code)  # type: ignore[arg-type]
         return [
-            Event(r["offset_ns"] - shift, r["kind"], r["source"], _loads(r["detail"]), r["id"])
+            Event(
+                r["offset_ns"] - shift,
+                r["code"],
+                r["source"],
+                _loads(r["detail"]),
+                r["id"],
+                r["edge"],
+            )
             for r in self._query(
                 "SELECT * FROM event WHERE session_id = ?" + where + " ORDER BY offset_ns, id",
                 [session_id, *params],
@@ -1154,6 +1355,80 @@ class SqliteStore:
     def head_rig_version(self) -> RigVersionRow | None:
         rows = self._query("SELECT v.* FROM rig_version v JOIN rig_head h ON h.version_id = v.id")
         return _rig_version_row(rows[0]) if rows else None
+
+    def live_values(self) -> list[LiveValueRow]:
+        rows = self._query("SELECT * FROM live_value ORDER BY device, signal")
+        return [_live_value_row(r) for r in rows]
+
+    def put_live_value(self, row: LiveValueRow) -> None:
+        if isinstance(row.value, (SecretStr, SecretBytes)) or isinstance(
+            row.initial, (SecretStr, SecretBytes)
+        ):
+            raise ValueError(f"{row.device}.{row.signal}: a secret is never kept as a live value")
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT INTO live_value (device, signal, kind, value, unit, initial,"
+                " config_field, writer, written_ns, head_version)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT (device, signal) DO UPDATE SET kind = excluded.kind,"
+                " value = excluded.value, unit = excluded.unit, initial = excluded.initial,"
+                " config_field = excluded.config_field, writer = excluded.writer,"
+                " written_ns = excluded.written_ns, head_version = excluded.head_version",
+                (
+                    row.device,
+                    row.signal,
+                    row.kind,
+                    json.dumps(to_jsonable_python(row.value), separators=(",", ":")),
+                    row.unit,
+                    _dumps(to_jsonable_python(row.initial)),
+                    row.config_field,
+                    row.writer,
+                    row.written_ns,
+                    row.head_version,
+                ),
+            )
+
+    def delete_live_value(self, device: str, signal: str) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                "DELETE FROM live_value WHERE device = ? AND signal = ?", (device, signal)
+            )
+
+    def latches(self) -> list[LatchRow]:
+        rows = self._query("SELECT * FROM latch ORDER BY at_ns, cause")
+        return [
+            LatchRow(
+                cause=r["cause"],
+                subjects=json.loads(r["subjects"]),
+                by=r["by"],
+                at_ns=r["at_ns"],
+                reason=r["reason"],
+                action=r["action"],
+            )
+            for r in rows
+        ]
+
+    def put_latch(self, row: LatchRow) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT INTO latch (cause, subjects, by, at_ns, reason, action)"
+                " VALUES (?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT (cause) DO UPDATE SET subjects = excluded.subjects,"
+                " by = excluded.by, at_ns = excluded.at_ns, reason = excluded.reason,"
+                " action = excluded.action",
+                (
+                    row.cause,
+                    json.dumps(row.subjects, separators=(",", ":")),
+                    row.by,
+                    row.at_ns,
+                    row.reason,
+                    row.action,
+                ),
+            )
+
+    def delete_latch(self, cause: str) -> None:
+        with self._transaction() as connection:
+            connection.execute("DELETE FROM latch WHERE cause = ?", (cause,))
 
     def set_rig_head(self, version_id: int) -> RigVersionRow:
         row = self.rig_version(version_id)  # 404 before anything moves

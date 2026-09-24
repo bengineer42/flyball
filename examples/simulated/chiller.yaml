@@ -11,7 +11,7 @@ name: chiller
 
 links:
   bath:
-    tag: sim_plant
+    type: sim_plant
     model: lag
     tau_s: 45.0
     gain: -30.0        # full compressor pulls 30 °C below ambient
@@ -25,30 +25,28 @@ devices:
     driver: sim_daq
     label: Bath probe
     poll_s: 1.0
-    config:
-      link: bath
-      ports:
-        temperature: { port: output, quantity: temperature, unit: "°C" }
+    link: bath
+    ports:
+      temperature: { port: output, quantity: temperature, unit: "°C" }
     signals:
       temperature:
         range: [-20, 40]
         precision: 2
-        warn: [0, 30]
+        warning: [0, 30]
         alarm: [-10, 35]
   compressor:
     driver: sim_drive
     label: Chiller compressor
     # compressor.drive [W] °C, smart: `limits` defaults to the plant's own
     # static range, -8..22 °C (ambient + gain to ambient, sorted rising).
-    config:
-      link: bath
-      ports:
-        drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
+    link: bath
+    ports:
+      drive: { port: input, demand: output, quantity: temperature, unit: "°C" }
 
 # The old °C-per-°C tuning: positive, since the plant's negative gain does
 # the inverting.
 controllers:
   compressor.drive:
-    signal: probe.temperature
-    law: { tag: PI, kp: 0.05, ki: 0.0015 }
+    measured: probe.temperature
+    law: { type: PI, kp: 0.05, ki: 0.0015 }
     default: true

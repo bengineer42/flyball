@@ -38,8 +38,8 @@ class TestMerge:
 
 class TestParseSet:
     def test_splits_the_path_on_dots(self):
-        path, value = parse_set("devices.furnace.config.noise=0.3")
-        assert path == ["devices", "furnace", "config", "noise"]
+        path, value = parse_set("devices.furnace.noise=0.3")
+        assert path == ["devices", "furnace", "noise"]
         assert value == 0.3 and isinstance(value, float)
 
     def test_types_a_bool(self):
@@ -91,18 +91,18 @@ class TestResolveLayers:
         assert files == [tmp_path / "a.yaml"]
 
     def test_a_later_file_overlays_an_earlier_one(self, tmp_path):
-        (tmp_path / "a.yaml").write_text("name: a\nlinks: {l1: {tag: sim_plant}}\n")
+        (tmp_path / "a.yaml").write_text("name: a\nlinks: {l1: {type: sim_plant}}\n")
         (tmp_path / "b.yaml").write_text("name: b\n")
         document, files = resolve_layers([tmp_path / "a.yaml", tmp_path / "b.yaml"])
-        assert document == {"name": "b", "links": {"l1": {"tag": "sim_plant"}}}
+        assert document == {"name": "b", "links": {"l1": {"type": "sim_plant"}}}
         assert files == [tmp_path / "a.yaml", tmp_path / "b.yaml"]
 
     def test_extends_is_applied_underneath_and_relative_to_the_extending_file(self, tmp_path):
         (tmp_path / "base").mkdir()
-        (tmp_path / "base" / "b.yaml").write_text("name: base\nlinks: {l1: {tag: sim_plant}}\n")
+        (tmp_path / "base" / "b.yaml").write_text("name: base\nlinks: {l1: {type: sim_plant}}\n")
         (tmp_path / "top.yaml").write_text('extends: ["base/b.yaml"]\nname: top\n')
         document, files = resolve_layers([tmp_path / "top.yaml"])
-        assert document == {"name": "top", "links": {"l1": {"tag": "sim_plant"}}}
+        assert document == {"name": "top", "links": {"l1": {"type": "sim_plant"}}}
         assert "extends" not in document
         assert files == [tmp_path / "base" / "b.yaml", tmp_path / "top.yaml"]
 
@@ -121,13 +121,40 @@ class TestResolveLayers:
             resolve_layers([tmp_path / "a.yaml"])
 
     def test_set_is_applied_last(self, tmp_path):
-        (tmp_path / "a.yaml").write_text("links: {l1: {tag: sim_plant, noise: 0.1}}\n")
+        (tmp_path / "a.yaml").write_text("links: {l1: {type: sim_plant, noise: 0.1}}\n")
         document, _ = resolve_layers(
             [tmp_path / "a.yaml"], ["links.l1.noise=0.5", "links.l1.seed=7"]
         )
-        assert document == {"links": {"l1": {"tag": "sim_plant", "noise": 0.5, "seed": 7}}}
+        assert document == {"links": {"l1": {"type": "sim_plant", "noise": 0.5, "seed": 7}}}
 
     def test_a_duplicate_key_in_a_layer_still_fails_strictly(self, tmp_path):
         (tmp_path / "a.yaml").write_text("a: 1\nb: 2\na: 3\n")
         with pytest.raises(ValueError, match="'a'"):
             resolve_layers([tmp_path / "a.yaml"])
+
+
+def test_a_file_s_deletions_survive_until_it_is_laid_over_the_files_below(tmp_path) -> None:
+    # sim.yaml deletes rig.yaml's real links: its nulls must reach the layering, not be
+    # dropped while the file is loaded on its own (the aging-room / mushroom-room overlays).
+    rig = tmp_path / "rig.yaml"
+    rig.write_text("links:\n  i2c1: {type: i2c}\n  plant: {type: sim_plant}\n")
+    sim = tmp_path / "sim.yaml"
+    sim.write_text("links:\n  i2c1: null\n")
+    document, _ = resolve_layers([rig, sim])
+    assert document["links"] == {"plant": {"type": "sim_plant"}}
+    base = tmp_path / "base.yaml"
+    base.write_text("name: lab\n")
+    child = tmp_path / "child.yaml"
+    child.write_text("extends: [base.yaml]\nlinks:\n  i2c1: null\n")
+    document, _ = resolve_layers([rig, child])
+    assert document["links"] == {"plant": {"type": "sim_plant"}}, "through an extends too"
+
+
+def test_a_deletion_with_nothing_beneath_leaves_nothing_behind(tmp_path) -> None:
+    # A saved overlay can delete a device an earlier save added, over files that never had it.
+    rig = tmp_path / "lab.yaml"
+    rig.write_text("name: lab\n")
+    added = tmp_path / "added.yaml"
+    added.write_text("devices:\n  probe: null\n")
+    document, _ = resolve_layers([rig, added])
+    assert document == {"name": "lab", "devices": {}}

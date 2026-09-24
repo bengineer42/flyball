@@ -1,12 +1,12 @@
 import { Alert, Badge, Button } from "@mui/material";
-import { EventsPanel, EVENT_LEVELS, useNowS } from "@flyball/react";
-import type { EventLevel, RigEvent } from "@flyball/client";
+import { EventsPanel, useNowS } from "@flyball/react";
+import { SEVERITIES, type RigEvent, type Severity } from "@flyball/client";
 import { StateBlock } from "../cards.js";
 
 export interface EventsProps {
   events: RigEvent[];
   error: Error | undefined;
-  /** `#/events?level=WARNING`: show that level and above until the viewer changes the filter. */
+  /** `#/events?level=warning`: show that severity and above until the viewer changes the filter. */
   level?: string;
   /** Keys (`eventKey(e)`) of events not yet read (`useUnreadEvents`, WARNING+ only). Omit to show no read/unread state. */
   unread?: ReadonlySet<string>;
@@ -18,8 +18,8 @@ export interface EventsProps {
 
 /** The rig's event log, live from `/ws/events` (seeded from `/api/events`); the app holds the events. */
 export function Events({ events, error, level, unread, onMarkRead, onMarkAllRead }: EventsProps) {
-  const from = EVENT_LEVELS.indexOf((level ?? "").toUpperCase() as EventLevel);
-  const levels = from > 0 ? EVENT_LEVELS.slice(from) : undefined;
+  const from = SEVERITIES.indexOf((level ?? "").toLowerCase() as Severity);
+  const severities = from > 0 ? SEVERITIES.slice(from) : undefined;
   const nowS = useNowS();
   return (
     <>
@@ -31,11 +31,11 @@ export function Events({ events, error, level, unread, onMarkRead, onMarkAllRead
       {events.length === 0 ? (
         <StateBlock state="empty" message="No events yet — nothing has happened on this rig since it started." />
       ) : (
-        // Keyed so arriving with another level resets the panel's own filter.
+        // Keyed so arriving with another severity resets the panel's own filter.
         <EventsPanel
-          key={levels?.join() ?? "all"}
+          key={severities?.join() ?? "all"}
           events={events}
-          levels={levels}
+          severities={severities}
           nowS={nowS}
           unread={unread}
           onSelect={onMarkRead}

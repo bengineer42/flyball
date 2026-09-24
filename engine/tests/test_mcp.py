@@ -3,25 +3,31 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import tempfile
+import threading
+import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import anyio
 import pytest
-from fastapi.testclient import TestClient
 from mcp import types
 from mcp.client.session import ClientSession
 from mcp.shared.memory import create_client_server_memory_streams
 
+from conftest import FakeRunner, TestClient, free_port
 from flyball.interfaces.client import Rig as Client
 from flyball.interfaces.client import RigError
 from flyball.interfaces.mcp import Tier, tools_for
 from flyball.interfaces.mcp.server import build
 from flyball.interfaces.server import create_app, set_rig
-from flyball.interfaces.server.deps import set_rig_config, set_store
+from flyball.interfaces.server.deps import set_rig_config, set_runner, set_store
 from flyball.model.catalog import get_catalog
 from flyball.record.sqlite import SqliteStore
-from flyball.sequencing.command import Command
+from flyball.sequencing.step import Step
 from test_server import Daq, Drive
 
 
@@ -33,7 +39,7 @@ class InProcess(Client):
         self.http = http
 
     def _request(self, method: str, path: str, body: Any = None) -> Any:
-        response = self.http.request(method, path, json=body)
+        response = self.http.request(method, path, json=body, headers=self.headers)
         if response.status_code >= 400:
             from flyball.interfaces.client.rig import RigError
 
@@ -61,12 +67,12 @@ def setpoint(fresh) -> str:
     tag = fresh("setpoint")
 
     @dataclass(frozen=True)
-    class Setpoint(Command, tag=tag, primary="at"):
+    class Setpoint(Step, tag=tag, primary="at"):
         at: float
 
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
-    get_catalog().register_command(Setpoint)
+    get_catalog().register_step(Setpoint)
     return tag
 
 
@@ -106,12 +112,12 @@ class TestModes:
     def test_author_adds_the_store_and_nothing_that_moves(self, client):
         author = names(tools_for(client, "author"))
         assert {"save_program", "update_dashboard", "save_tuning"} <= author
-        assert not {"set_demand", "run_program", "heaters-set_duty"} & author
+        assert not {"write", "run_program", "heaters-set_duty"} & author
 
     def test_operate_adds_the_rig_s_own_commands(self, client):
         operate = names(tools_for(client, "operate"))
         assert {
-            "set_demand",
+            "write",
             "regulate",
             "run_program",
             "heaters-set_duty",
@@ -135,7 +141,7 @@ class TestTools:
         assert self.tool(client, "status").run(client, {})["rig"] == "t"
         devices = self.tool(client, "list_devices").run(client, {})["devices"]
         assert [d["name"] for d in devices] == ["furnace", "heaters"]
-        assert set(devices[0]) == {"name", "type", "label", "description"}, (
+        assert set(devices[0]) == {"name", "class_name", "label", "description"}, (
             "projected: not the full tree"
         )
         detailed = self.tool(client, "list_devices").run(client, {"detail": True})["devices"]
@@ -145,11 +151,32 @@ class TestTools:
         kinds = self.tool(client, "widget_schema").run(client, {})["kinds"]
         assert [k["kind"] for k in kinds][:3] == ["readout", "gauge", "chart"]
 
+    @pytest.mark.parametrize("name", ["..", ".", "", "../health", "heaters/../../health"])
+    def test_a_name_cannot_climb_to_another_route(self, client, name):
+        """Httpx collapses `..` in a path, so `/api/devices/../health` would be `/api/health`."""
+        from flyball.interfaces.client import SchemaError
+
+        for tool, arguments in (
+            ("view_device", {"name": name}),
+            ("describe_device", {"name": name}),
+            ("read", {"address": name}),
+            ("manual", {"controller": name}),
+        ):
+            with pytest.raises(SchemaError, match="not a name"):
+                self.tool(client, tool).run(client, arguments)
+
+    def test_a_name_is_one_path_segment_whatever_it_holds(self, client):
+        """`?`, `#` and `%` are encoded: a name cannot add a query or cut the path short."""
+        for name in ("heaters?fresh=true", "heaters#x", "heaters%"):
+            with pytest.raises(RigError) as refused:
+                self.tool(client, "view_device").run(client, {"name": name})
+            assert refused.value.status == 404, name
+
     def test_a_device_command_runs_and_is_validated(self, client):
         from flyball.interfaces.client import SchemaError
 
         tool = self.tool(client, "heaters-set_duty")
-        assert tool.run(client, {"duty": 0.4}) == 0.4
+        assert tool.run(client, {"duty": 0.4}) == {"result": 0.4, "interrupted": []}
         with pytest.raises(SchemaError, match="missing"):
             tool.run(client, {})
 
@@ -298,7 +325,7 @@ class TestOverTheWire:
                     by_name = {t.name: t for t in listed.tools}
                     assert by_name["status"].annotations.read_only_hint is True
                     assert by_name["delete_program"].annotations.destructive_hint is True
-                    assert "set_demand" not in by_name
+                    assert "write" not in by_name
                     result = await session.call_tool("view_device", {"name": "heaters"})
                     assert not result.is_error
                     assert isinstance(result.content[0], types.TextContent)
@@ -357,7 +384,7 @@ class TestMounted:
         )
         listed = self.rpc(http, "read", "tools/list", session=session, id=2).json()["result"]
         names = {t["name"] for t in listed["tools"]}
-        assert "status" in names and "set_demand" not in names
+        assert "status" in names and "write" not in names
         called = self.rpc(
             http,
             "read",
@@ -367,6 +394,57 @@ class TestMounted:
             id=3,
         ).json()["result"]
         assert not called.get("isError") and "heaters" in called["content"][0]["text"]
+
+    def test_an_open_runner_s_mcp_refuses_a_rebound_name_itself(self, rig):
+        """DNS rebinding protection is on in the MCP transport too, not only at the door.
+
+        A bare app (no door in front) so the transport's own check is what answers.
+        """
+        from fastapi import FastAPI
+
+        from flyball.interfaces.mcp.http import mount
+
+        rig.name = "t"
+        set_rig(rig)
+        app = FastAPI()
+        http = TestClient(app)
+        mount(app, InProcess(http))
+        body = {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}}
+        accept = {"Accept": "application/json, text/event-stream"}
+        try:
+            with http:
+                rebound = http.post(
+                    "/mcp/read", json=body, headers={**accept, "Host": "evil.example"}
+                )
+                assert rebound.status_code == 421, rebound.text
+                foreign = http.post(
+                    "/mcp/read", json=body, headers={**accept, "Origin": "http://evil.example"}
+                )
+                assert foreign.status_code == 403, foreign.text
+                own = {**accept, "Host": "127.0.0.1:8000", "Origin": "http://127.0.0.1:8000"}
+                assert http.post("/mcp/read", json=body, headers=own).status_code != 421
+        finally:
+            set_rig(None)
+
+    def test_an_insecure_open_runner_s_mcp_answers_its_network_name(self, rig):
+        """`--insecure-open`: the transport's loopback-only check is off, as the door's is."""
+        from flyball.interfaces.mcp.http import mount
+
+        rig.name = "t"
+        set_rig(rig)
+        app = create_app(open_network=True)
+        http = TestClient(app, base_url="http://192.168.1.3:8000")
+        mount(app, InProcess(http))
+        body = {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}}
+        headers = {"Accept": "application/json, text/event-stream"}
+        try:
+            with http:
+                lan = http.post("/mcp/read", json=body, headers=headers)
+                assert lan.status_code not in (403, 421), lan.text
+                foreign = {**headers, "Origin": "http://evil.example"}
+                assert http.post("/mcp/read", json=body, headers=foreign).status_code == 403
+        finally:
+            set_rig(None)
 
     def test_each_mode_has_a_route(self, http):
         for mode in ("read", "author", "operate"):
@@ -441,11 +519,27 @@ class TestDriverTools:
         with pytest.raises(RigError, match="no drivers directory"):
             self.tool(client, "reload_drivers").run(client, {})
 
+    def test_probe_hardware_posts_at_every_tier(self, client):
+        """A scan drives the bus, so `/api/probe` is a POST; the read tier never scans."""
+        seen: list[tuple[str, str]] = []
+
+        class Recorder:
+            def get(self, path: str) -> Any:
+                seen.append(("get", path))
+
+            def post(self, path: str, body: Any = None) -> Any:
+                seen.append(("post", path))
+
+        self.tool(client, "probe_hardware", "read").run(Recorder(), {})
+        self.tool(client, "probe_hardware").run(Recorder(), {"scan": True})
+        assert seen == [("post", "/api/probe?scan=false"), ("post", "/api/probe?scan=true")]
+        assert self.tool(client, "probe_hardware").route == ("post", "/api/probe")
+
     def test_guide_and_scaffold(self, client):
         guide = self.tool(client, "driver_guide", "read").run(client, {})
         assert guide.startswith("# Writing a device driver")
         out = self.tool(client, "driver_scaffold", "read").run(client, {"name": "foo-200"})
-        assert 'tag="foo_200"' in out["source"]
+        assert 'type="foo_200"' in out["source"]
         from flyball.interfaces.client import SchemaError
 
         with pytest.raises(SchemaError, match="identifier"):
@@ -460,8 +554,8 @@ class TestDriverTools:
         report = self.tool(client, "check_driver").run(client, {"path": str(path)})
         assert report["ok"], report
         (driver,) = report["drivers"]
-        assert driver["tag"] == name and driver["readable"] and not driver["writable"]
-        assert driver["descriptors"] == ["conditions", "value"] and driver["commands"] == ["reset"]
+        assert driver["type"] == name and driver["readable"] and not driver["writable"]
+        assert driver["descriptors"] == ["value"] and driver["commands"] == ["reset"]
         assert "properties" in driver["schema"]
 
     def test_check_driver_reports_a_broken_module(self, client, tmp_path):
@@ -498,29 +592,41 @@ class TestComposition:
     def tool(self, client, name):
         return next(t for t in tools_for(client, "operate") if t.name == name)
 
-    def test_link_device_document_and_changes(self, client):
+    def test_an_edit_is_saved_and_restarts_the_rig(self, client, rig):
         assert {"attach_link", "attach_device", "attach_document", "rig_versions"} <= names(
             tools_for(client, "operate")
         )
-        assert "spare" not in self.tool(client, "rig_document").run(client, {})["devices"]
-        self.tool(client, "attach_link").run(
-            client, {"name": "plant", "config": {"tag": "sim_furnace"}}
-        )
-        added = self.tool(client, "attach_device").run(
-            client,
-            {
-                "name": "spare",
-                "entry": {"driver": "sim_drive", "link": "plant", "ports": {"power": "heater1"}},
-            },
-        )
-        assert added["name"] == "spare"
-        client.refresh()  # the server does this after a tool that changes the rig
-        assert "spare" in client.schema["devices"]
-        assert "spare-disturb" not in names(tools_for(client, "operate")), "simulation-only: hidden"
-        assert isinstance(self.tool(client, "rig_changes").run(client, {}), dict)
-        self.tool(client, "detach_device").run(client, {"name": "spare"})
-        assert "spare" not in self.tool(client, "rig_document").run(client, {})["devices"]
-        # Versions and restore need the runner's change hook on the store: test_composition.
+        restore = self.tool(client, "restore_rig_version")
+        assert "Not applied in place" in restore.description
+        assert "restarts" in restore.description and "force" in restore.schema["properties"]
+        runner = FakeRunner()
+        set_runner(runner)
+        try:
+            out = self.tool(client, "attach_document").run(
+                client,
+                {
+                    "document": {
+                        "links": {"plant": {"type": "sim_furnace"}},
+                        "devices": {
+                            "spare": {
+                                "driver": "sim_drive",
+                                "link": "plant",
+                                "ports": {"power": "heater1"},
+                            }
+                        },
+                    }
+                },
+            )
+            assert out["restarting"] is True and out["reason"].startswith("edited: added a doc")
+            assert runner.edits == [(out["version"], out["previous"], False)]
+            assert "spare" not in self.tool(client, "rig_document").run(client, {})["devices"]
+            saved = self.tool(client, "rig_version").run(client, {"version_id": out["version"]})
+            assert "spare" in saved["document"]["devices"], "saved: the restart builds it"
+            again = self.tool(client, "attach_link")
+            with pytest.raises(RigError, match="restarting"):
+                again.run(client, {"name": "p2", "config": {"type": "sim_furnace"}, "force": True})
+        finally:
+            set_runner(None)
 
     async def test_attaching_announces_a_new_tool_list(self, client):
         server = build(client, "operate")
@@ -529,32 +635,352 @@ class TestComposition:
         async def handler(message: Any) -> None:
             seen.append(type(message).__name__)
 
-        async with create_client_server_memory_streams() as (client_streams, server_streams):
+        set_runner(FakeRunner())
+        try:
+            async with create_client_server_memory_streams() as (client_streams, server_streams):
 
-            async def serve() -> None:
-                await server.run(*server_streams, server.create_initialization_options())
+                async def serve() -> None:
+                    await server.run(*server_streams, server.create_initialization_options())
 
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(serve)
-                async with ClientSession(*client_streams, message_handler=handler) as session:
-                    await session.initialize()
-                    await session.list_tools()
-                    await session.call_tool(
-                        "attach_link", {"name": "plant", "config": {"tag": "sim_furnace"}}
-                    )
-                    result = await session.call_tool(
-                        "attach_device",
-                        {
-                            "name": "spare",
-                            "entry": {
-                                "driver": "sim_drive",
-                                "link": "plant",
-                                "ports": {"power": "heater1"},
+                async with anyio.create_task_group() as tg:
+                    tg.start_soon(serve)
+                    async with ClientSession(*client_streams, message_handler=handler) as session:
+                        await session.initialize()
+                        await session.list_tools()
+                        result = await session.call_tool(
+                            "attach_document",
+                            {
+                                "document": {
+                                    "links": {"plant": {"type": "sim_furnace"}},
+                                    "devices": {
+                                        "spare": {
+                                            "driver": "sim_drive",
+                                            "link": "plant",
+                                            "ports": {"power": "heater1"},
+                                        }
+                                    },
+                                }
                             },
-                        },
-                    )
-                    assert not result.is_error, result.content
-                    assert "ToolListChangedNotification" in seen
-                    described = await session.call_tool("describe_device", {"name": "spare"})
-                    assert not described.is_error
-                tg.cancel_scope.cancel()
+                        )
+                        assert not result.is_error, result.content
+                        assert "ToolListChangedNotification" in seen
+                    tg.cancel_scope.cancel()
+        finally:
+            set_runner(None)
+
+
+# region The re-mint: an MCP tool's inner call carries its caller, capped to the mode
+
+
+class Spy:
+    """ASGI: the `X-Flyball-Principal` of every request that is not an MCP request itself."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+        self.inner: list[tuple[str, str | None]] = []
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] == "http" and "/mcp/" not in scope["path"]:
+            headers = dict(scope.get("headers") or [])
+            token = headers.get(b"x-flyball-principal")
+            self.inner.append((scope["path"], None if token is None else token.decode()))
+        await self.app(scope, receive, send)
+
+
+@dataclass
+class Served:
+    """A runner's app with MCP mounted as `serve` mounts it, serving on a real socket."""
+
+    app: Any
+    spy: Spy
+    base: str
+    uds: str | None
+    key: bytes
+    aud: str
+    fronted: bool
+    token: str | None = None
+
+    def http(self) -> Any:
+        import httpx
+
+        transport = httpx.HTTPTransport(uds=self.uds) if self.uds else None
+        return httpx.Client(base_url=self.base, transport=transport, timeout=10)
+
+    def caller(self, scp: set[str], sid: str = "s-caller") -> dict[str, str]:
+        """The credential the outer request carries: a front's principal, or the token."""
+        from flyball.interfaces.server import principal
+
+        if not self.fronted:
+            return {"Authorization": f"Bearer {self.token}"}
+        now = int(time.time())
+        claims = principal.Claims(
+            sub="token:ci",
+            sid=sid,
+            scp=frozenset(scp),
+            kind="agent",
+            aud=self.aud,
+            cip="192.0.2.7",
+            sch="https",
+            iat=now,
+            exp=now + principal.LIFETIME,
+            nm="CI",
+        )
+        return {"X-Flyball-Principal": principal.mint(self.key, claims)}
+
+    def session(self, http: Any, mode: str, auth: dict[str, str]) -> dict[str, str]:
+        headers = {"Accept": "application/json, text/event-stream", **auth}
+        init = http.post(
+            f"/mcp/{mode}",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "t", "version": "0"},
+                },
+            },
+            headers=headers,
+        )
+        assert init.status_code == 200, init.text
+        headers["mcp-session-id"] = init.headers["mcp-session-id"]
+        http.post(
+            f"/mcp/{mode}",
+            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            headers=headers,
+        )
+        return headers
+
+    def call(
+        self, mode: str, tool: str, arguments: dict[str, Any] | None = None, *, scp: set[str]
+    ) -> dict[str, Any]:
+        with self.http() as http:
+            headers = self.session(http, mode, self.caller(scp))
+            body = {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": tool, "arguments": arguments or {}},
+            }
+            answer = http.post(f"/mcp/{mode}", json=body, headers=headers)
+            assert answer.status_code == 200, answer.text
+            return answer.json()["result"]
+
+    def listed(self, mode: str, *, scp: set[str]) -> set[str]:
+        with self.http() as http:
+            headers = self.session(http, mode, self.caller(scp))
+            body = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
+            answer = http.post(f"/mcp/{mode}", json=body, headers=headers)
+            return {t["name"] for t in answer.json()["result"]["tools"]}
+
+    def minted(self) -> list[Any]:
+        """The claims of every inner call so far, verified as the door did when it came."""
+        import base64
+
+        from flyball.interfaces.server import principal
+
+        def iat(token: str) -> int:
+            payload = token.split(".")[1]
+            return json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))["iat"]
+
+        return [
+            principal.verify(token, self.key, self.aud, now=iat(token))
+            for path, token in self.spy.inner
+            if token is not None
+        ]
+
+
+@pytest.fixture(params=["fronted", "bare"])
+def served(request, rig, tmp_path) -> Any:
+    """`serve`'s app and MCP mount, fronted over a unix socket or bare over loopback TCP."""
+    import uvicorn
+
+    from flyball.interfaces.server.auth import Fronted
+    from flyball.runner.frontdir import FrontDir
+    from flyball.runner.serving import mount_mcp
+    from flyball.runtime.config import AuthConfig, RunnerConfig
+
+    rig.name = "t"
+    rig.add_device(Drive("heaters"))
+    set_rig(rig)
+    set_store(SqliteStore(tmp_path / "t.db"))
+    fronted = request.param == "fronted"
+    folder = Path(tempfile.mkdtemp(prefix="a6-"))
+    if fronted:
+        key, aud = os.urandom(32), "rig-a6"
+        sock = str(folder / "endpoint.sock")
+        front = FrontDir(folder, key, aud, f"unix:{sock}")
+        settings = RunnerConfig()
+        app = create_app(front=Fronted(key, aud))
+        bind: dict[str, Any] = {"uds": sock}
+        base, uds, token = "http://localhost", sock, None
+    else:
+        front, token, port = None, "s3cret-token", free_port()
+        settings = RunnerConfig(port=port, auth=AuthConfig(token=token))
+        app = create_app(settings.auth, port=port, login_delay=0)
+        bind = {"host": "127.0.0.1", "port": port}
+        base, uds = f"http://127.0.0.1:{port}", None
+    mount_mcp(app, "t", settings, front)
+    door = app.state.door
+    spy = Spy(app)
+    server = uvicorn.Server(uvicorn.Config(spy, log_level="warning", **bind))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    while not server.started:
+        assert time.monotonic() < deadline, "the server did not start"
+        time.sleep(0.02)
+    try:
+        yield Served(app, spy, base, uds, door.key, door.aud, fronted, token)
+    finally:
+        server.should_exit = True
+        thread.join(10)
+        set_rig(None)
+        set_store(None)
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def _sneak(rig: Any, a: dict[str, Any]) -> Any:
+    """A read-tier tool that acts anyway: what the re-mint is there to catch."""
+    return rig.post("/api/devices/heaters/commands/set_duty", {"duty": 0.5})
+
+
+def _twice(rig: Any, a: dict[str, Any]) -> Any:
+    """Two inner calls with more than a principal's lifetime between them."""
+    first = rig.get("/api/health")
+    _CLOCK[0] += 70
+    second = rig.get("/api/health")
+    return {"first": first["rig"], "second": second["rig"]}
+
+
+_CLOCK = [0.0]
+
+
+@pytest.fixture
+def extra_tools(monkeypatch):
+    from flyball.interfaces.mcp import tools
+
+    extra = (
+        tools.Tool("sneak", "Acts from the read tier.", tools._object(), Tier.READ, _sneak),
+        tools.Tool("twice", "Two calls, 70 s apart.", tools._object(), Tier.READ, _twice),
+    )
+    monkeypatch.setattr(tools, "READ", (*tools.READ, *extra))
+
+
+class TestReMint:
+    def test_inner_call_carries_caller(self, served):
+        """`sub`/`sid`/`kind` are the caller's, `via` is mcp, `scp` is caller ∩ the mode."""
+        result = served.call("read", "status", scp={"read", "operate"})
+        assert not result.get("isError"), result
+        inner = served.minted()
+        assert inner, "the tool's calls carry a principal"
+        calls = [c for c in inner if c.via == "mcp"]
+        assert calls, inner
+        want_sub = "token:ci" if served.fronted else "token:bare"
+        for claims in calls:
+            assert claims.sub == want_sub
+            assert claims.scp == {"read"}, "read mode: operate is dropped"
+            assert claims.aud == served.aud
+            assert claims.exp - claims.iat == 60
+        if served.fronted:
+            assert {c.sid for c in calls} == {"s-caller"}
+            assert {(c.kind, c.nm, c.cip, c.sch) for c in calls} == {
+                ("agent", "CI", "192.0.2.7", "https")
+            }
+        served.spy.inner.clear()
+        served.call("operate", "status", scp={"read", "operate"})
+        assert {c.scp for c in served.minted() if c.via == "mcp"} == {
+            frozenset({"read", "operate"})
+        }
+
+    def test_the_runner_s_own_reads_are_its_own(self, served):
+        """Listing the tools is the runner's read, not the caller's: no `via`, only read."""
+        assert "status" in served.listed("operate", scp={"read", "operate"})
+        own = [c for c in served.minted() if c.via != "mcp"]
+        assert own and {(c.sub, c.kind, c.scp) for c in own} == {
+            ("runner:mcp", "service", frozenset({"read"}))
+        }
+
+    def test_no_request_goes_without_a_principal(self, served):
+        served.call("operate", "status", scp={"read", "operate"})
+        assert served.spy.inner
+        assert all(token is not None for _, token in served.spy.inner), served.spy.inner
+
+    def test_read_caller_cannot_reach_operate_route(self, served, extra_tools, rig):
+        """F1, merge requirement 7: a read-mode tool that acts is refused at the door."""
+        refused = served.call("read", "sneak", scp={"read", "operate"})
+        assert refused.get("isError"), refused
+        assert "operate" in refused["content"][0]["text"]
+        assert rig.devices["heaters"].duty.value == 0.0
+        allowed = served.call("operate", "sneak", scp={"read", "operate"})
+        assert not allowed.get("isError"), allowed
+        assert rig.devices["heaters"].duty.value == 0.5
+
+    def test_long_tool_call_survives_60s(self, served, extra_tools, monkeypatch):
+        """Each inner call is minted when it is made, so a slow tool never sends a stale one."""
+        real = time.time
+        _CLOCK[0] = 0.0
+        monkeypatch.setattr(time, "time", lambda: real() + _CLOCK[0])
+        result = served.call("read", "twice", scp={"read"})
+        assert not result.get("isError"), result
+        assert result["structuredContent"] == {"first": "t", "second": "t"}
+        health = [c for c in served.minted() if c.via == "mcp"]
+        assert len(health) == 2 and health[1].iat - health[0].iat >= 70
+
+    def test_no_code_exec_tools_over_http(self, served):
+        for mode in ("read", "author", "operate"):
+            listed = served.listed(mode, scp={"read", "operate"})
+            assert not {"check_driver", "search_drivers"} & listed, mode
+
+    def test_stop_rig_tool(self, served):
+        assert "stop_rig" not in served.listed("author", scp={"read", "operate"})
+        result = served.call(
+            "operate", "stop_rig", {"reason": "agent saw smoke"}, scp={"read", "operate"}
+        )
+        assert not result.get("isError"), result
+        report = result["structuredContent"]
+        assert report["reason"] == "agent saw smoke"
+        assert report["actor"]["via"] == "mcp"
+        assert report["actor"]["sub"] == ("token:ci" if served.fronted else "token:bare")
+
+
+class TestSelfCall:
+    def test_self_call_over_uds(self, tmp_path):
+        """A fronted runner's tools dial its own socket, not a TCP port nothing listens on."""
+        from flyball.runner.frontdir import FrontDir
+        from flyball.runner.serving import mcp_client
+        from flyball.runtime.config import RunnerConfig
+
+        front = FrontDir(tmp_path, b"k" * 32, "a", "unix:/run/x/endpoint")
+        client = mcp_client(RunnerConfig(port=8123, root_path="/r"), front)
+        assert client.uds == "/run/x/endpoint"
+        assert client.url == "http://localhost/r"
+        bare = mcp_client(RunnerConfig(port=8123), None)
+        assert bare.uds is None and bare.url == "http://127.0.0.1:8123"
+        tcp = mcp_client(RunnerConfig(), FrontDir(tmp_path, b"k" * 32, "a", "tcp:127.0.0.1:8102"))
+        assert tcp.uds is None and tcp.url == "http://127.0.0.1:8102"
+
+    def test_stdio_keeps_the_code_exec_tools(self, client):
+        assert {"check_driver", "search_drivers"} <= names(tools_for(client, "operate"))
+        for mode in ("read", "author", "operate"):
+            over_http = names(tools_for(client, mode, host_code=False))
+            assert not {"check_driver", "search_drivers"} & over_http, mode
+
+    def test_the_cap_is_the_mode_s_verbs_and_those_below(self):
+        """Placeholder MCP_MODES admit author/operate on `operate` alone; the cap keeps read."""
+        from flyball.runner.serving import mcp_caps
+
+        caps = mcp_caps()
+        assert caps["read"] == {"read"}
+        assert caps["author"] == {"read", "operate"}
+        assert caps["operate"] == {"read", "operate"}
+
+    def test_a_signed_rig_sends_a_fresh_principal_each_request(self):
+        minted = iter(["p1", "p2"])
+        rig = Client("http://x", token="bearer-ignored").acting(lambda: next(minted))
+        assert rig.headers == {"X-Flyball-Principal": "p1"}
+        assert rig.headers == {"X-Flyball-Principal": "p2"}
+
+
+# endregion

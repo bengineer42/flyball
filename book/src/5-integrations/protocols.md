@@ -10,7 +10,9 @@ becomes a signal with a unit: `query` alone is `[RP]`, `write` alone `[W]`,
 both `[RPW]`; a `holding` register with `write: true` is `[RPW]`. Replies are
 parsed as numbers; `scale` converts. The `scpi` driver adds `write` and
 `query` commands for bring-up. An instrument that stops answering marks its
-device `offline` until the next good read.
+device `offline` after [`reads.fail_after`](../2-config/devices/index.md#reads)
+failed reads in a row (default 3); it is retried with backoff, and the next
+good read clears it.
 
 **Configure.** A link per connection under `links:`
 ([`visa`, `serial`, `modbus_tcp`, `modbus_rtu`](../2-config/links.md#text-instruments)),

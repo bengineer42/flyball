@@ -19,7 +19,7 @@ same attributes drives the tests.
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from typing import Any
+from typing import Any, Literal
 
 from flyball.foundation.config import import_object
 from flyball.foundation.device import (
@@ -28,6 +28,7 @@ from flyball.foundation.device import (
     DriverConfig,
     Node,
     Readable,
+    Readback,
     Role,
     Sample,
     Signal,
@@ -37,6 +38,7 @@ from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.dimension import Unit
 from flyball.foundation.quantities.errors import UnitNotFoundError
 from flyball.foundation.quantities.si import One
+from flyball.hardware.scan import Scan
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -99,6 +101,14 @@ class QCoDeSSignal(BaseModel):
     )
     unit: str | None = Field(default=None, description="Overrides the parameter's own `unit`.")
     publish: bool = False
+    role: Literal["setting"] | None = Field(
+        default=None,
+        description=(
+            "`setting`: a writable entry that changes how the instrument behaves (a range,"
+            " a frequency, a configuration register), not what controls the process; a"
+            " controller cannot drive it. Omitted: a writable entry is a demand."
+        ),
+    )
 
 
 class QCoDeS(Readable, Committable):
@@ -128,7 +138,7 @@ class QCoDeS(Readable, Committable):
         self.channels = dict(channels)
         self._parameters: dict[str, Any] = {}
         self._gettable: dict[str, bool] = {}
-        self._last_read: dict[Signal, int] = {}
+        self._scan = Scan()
         tree: list[SignalSpec] = []
         for key, channel in self.channels.items():
             parameter = _parameter(instrument, channel.property)
@@ -138,58 +148,60 @@ class QCoDeS(Readable, Committable):
                 raise ValueError(f"{key!r}: {channel.property} is neither gettable nor settable")
             if channel.publish and not gettable:
                 raise ValueError(f"{key!r}: publish needs a gettable parameter")
+            if channel.role is not None and not settable:
+                raise ValueError(f"{key!r}: only a settable parameter can be declared a setting")
             self._gettable[key] = gettable
             if settable:
-                role, access = Role.DEMAND, Access.RPW
+                role = Role.SETTING if channel.role == "setting" else Role.DEMAND
+                access = Access.RPW
             else:
-                role, access = Role.OUTPUT, (Access.RP if channel.publish else Access.R)
+                role, access = Role.READOUT, (Access.RP if channel.publish else Access.R)
             unit = (
                 Unit.get(channel.unit)
                 if channel.unit
                 else unit_for(getattr(parameter, "unit", None))
             )
             tree.append(
-                SignalSpec(name=key, quantity=Quantity(key, unit), access=access, role=role)
+                SignalSpec(
+                    name=key,
+                    quantity=Quantity(key, unit),
+                    access=access,
+                    role=role,
+                    # A demand with a getter is read back from the instrument by polling.
+                    readback=Readback.SENSED if gettable and role is Role.DEMAND else Readback.ECHO,
+                )
             )
         self.bind(tree)
-
-    def _due(self, signal: Signal, time_ns: int) -> bool:
-        poll_s = signal.poll_s
-        if poll_s is None:
-            return True
-        last = self._last_read.get(signal)
-        return last is None or (time_ns - last) >= poll_s * 1e9
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """One `get()` per due, published, actually-gettable channel under `node`.
 
-        Walks `channels`, not the tree: `conditions` and any `last.*` are in
-        every device's tree now, and neither has a parameter behind it. A
+        Walks `channels`, not the tree: any `last.*` is in the device's
+        tree too, and has no parameter behind it. A
         demand whose parameter has no getter is skipped here -- its reading
         is the value last committed, not a poll.
         """
         target = node if node is not None else self.root
-        for key in self.channels:
-            if not self._gettable[key]:
-                continue
-            signal = self.signals[key]
-            if Access.P not in signal.access or not target.contains(signal):
-                continue
-            if not self._due(signal, time_ns):
-                continue
-            value = self._parameters[key].get()
-            self._last_read[signal] = time_ns
-            yield Sample(self.root, time_ns, {signal: float(value)})
+        candidates = {
+            self.signals[key]: key
+            for key in self.channels
+            if self._gettable[key] and target.contains(self.signals[key])
+        }
+        for signal in self._scan.due(candidates, time_ns, whole=False):
+            value = self._parameters[candidates[signal]].get()
+            # None (the instrument had nothing to give) and NaN are no-values: the rig makes
+            # them `invalid`; a failed get raises and counts toward the failure budget.
+            yield Sample(self.root, time_ns, {signal: None if value is None else float(value)})
 
     def write_signal(self, signal: Signal, value: float) -> None:
         self._parameters[signal.name].set(value)
 
 
-class QCoDeSConfig(DriverConfig[QCoDeS], tag="qcodes"):
+class QCoDeSConfig(DriverConfig[QCoDeS], type="qcodes"):
     """`driver: qcodes`. `channels` is the driver's own tree -- see `QCoDeSSignal`.
 
     Named `channels`, not `signals`: the envelope's `signals:` key is
-    reserved for overrides, the same for every driver.
+    reserved for signal metadata, the same for every driver.
     """
 
     instrument: str = Field(

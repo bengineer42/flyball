@@ -1,7 +1,7 @@
 """Each device against its fake bus, to the byte."""
 
 import pytest
-from flyball.foundation.device import Access
+from flyball.foundation.device import Access, Role
 from flyball.foundation.errors import ConflictError, HardwareError
 
 from flyball_linux.devices.gpio import GpioLine
@@ -39,6 +39,14 @@ class TestRegister:
         assert Register(address=0).access is Access.RP
         assert Register(address=0, write=True).access is Access.RPW
 
+    def test_a_writable_register_is_a_demand_unless_declared_a_setting(self):
+        """C13: `role: setting` keeps a configuration register out of a controller's reach."""
+        assert Register(address=0, write=True).signal_role is Role.DEMAND
+        assert Register(address=0, write=True, role="setting").signal_role is Role.SETTING
+        assert Register(address=0).signal_role is Role.READOUT
+        with pytest.raises(ValueError, match="only a writable register"):
+            Register(address=0, role="setting")
+
 
 class TestI2cTable:
     def test_reads_every_register_into_one_sample(self):
@@ -62,7 +70,7 @@ class TestI2cTable:
         bus = FakeI2c(registers={0x48: {0x00: [0, 1], 0x01: [0, 2]}})
         chip = I2cTable("c", bus, 0x48, {"a": Register(address=0), "b": Register(address=1)})
         chip.poll_s = 1.0
-        chip.signals["b"].override(poll_s=10.0)
+        chip.signals["b"].set_meta(poll_s=10.0)
         assert [s.by_name() for s in chip.read(0)] == [{"a": 1.0, "b": 2.0}]
         assert [s.by_name() for s in chip.read(1 * NS)] == [{"a": 1.0}]
 
@@ -80,7 +88,7 @@ class TestI2cTable:
         dac.commit(1)
         assert bus.written == [(0x60, 0x40, [0x04, 0xD2])]
         assert out.value == pytest.approx(1.234), "1234.5 LSB rounds to even; differs, so pushed"
-        assert dac.pending == {out: 1.2345}, "commit does not clear pending -- the rig does"
+        assert dac.staged == {out: 1.2345}, "commit does not clear staged -- the rig does"
         (sample,) = dac.read(2)
         assert sample.by_name() == {"out": pytest.approx(1.234)}, "read back from the register"
 
@@ -94,7 +102,6 @@ class TestGpioLine:
         chip = FakeGpio()
         relay = GpioLine("relay", chip, 18, invert=True)
         assert {p: str(s.access) for p, s in relay.signals.items()} == {
-            "conditions": "rp",
             "on": "rpw",
             "last.on": "rp",
             "last.off": "rp",
@@ -125,7 +132,6 @@ class TestGpioLine:
         chip = FakeGpio(levels={17: True})
         door = GpioLine("door", chip, 17, direction="input", pull_up=True, invert=True)
         assert {p: str(s.access) for p, s in door.signals.items()} == {
-            "conditions": "rp",
             "level": "rp",
             "last.on": "rp",
             "last.off": "rp",
@@ -214,9 +220,32 @@ class TestDs18b20:
         bus = FakeOneWire({"28-1": self.GOOD})
         probe = Ds18b20("soil", bus, "28-1")
         assert {p: str(s.access) for p, s in probe.signals.items()} == {
-            "conditions": "rp",
             "temperature": "rp",
         }
         (sample,) = probe.read(3)
         assert sample.by_name() == {"temperature": pytest.approx(21.875)}
         assert probe.config.device == "28-1"
+
+
+class TestDeclaredOff:
+    """What a stop writes: `off` only where the driver cannot be wrong."""
+
+    def test_a_pwm_channel_declares_zero_duty_unless_inverted_or_across_zero(self):
+        assert PwmChannel("a", FakePwm(), 0).signals["drive"].spec.off == 0.0
+        spanned = PwmChannel("b", FakePwm(), 1, unit="°C", quantity="temperature", span=(10, 40))
+        assert spanned.signals["drive"].spec.off == 10.0, "span[0] is 0 % duty"
+        assert PwmChannel("c", FakePwm(), 2, invert=True).signals["drive"].spec.off is None
+        bridge = PwmChannel("d", FakePwm(), 3, unit="W", quantity="power", span=(-50, 50))
+        assert bridge.signals["drive"].spec.off is None, "span[0] is full reverse"
+
+    def test_a_gpio_output_declares_zero_unless_inverted(self):
+        assert GpioLine("fan", FakeGpio(), 4).signals["on"].spec.off == 0.0
+        assert GpioLine("relay", FakeGpio(), 18, invert=True).signals["on"].spec.off is None
+
+    def test_a_stepper_and_a_dosing_pump_are_stopped_by_their_stop_command(self):
+        from flyball_linux.devices.dosing_pump import DosingPump
+        from flyball_linux.devices.stepper import Stepper
+
+        assert Stepper.stop_command == "stop"
+        assert DosingPump.stop_command == "stop"
+        assert PwmChannel.stop_command is None, "off disables the channel: not the stop"

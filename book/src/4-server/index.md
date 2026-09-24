@@ -19,16 +19,20 @@ knows anything the API does not publish.
 
 | page | |
 | --- | --- |
-| [HTTP and websocket API](api.md) | every route, by area: the runner, the rig and its composition, devices, reading, controllers, waits, history and export, programs, dashboards, simulation, events; the websockets |
+| [HTTP and websocket API](api.md) | every route, by area: the runner, the rig and its composition, devices, reading, controllers, activities, history and export, programs, dashboards, simulation, events; the websockets |
 | [Wire format](wire.md) | how a time, a signal, a unit, a device, a controller and an error are spelled in JSON |
 | [The MCP server](mcp.md) | the three tiers a model may be given, and what each sees |
 | [How the server is built](internals.md) | assembly, resolution at request time, the wire models, telemetry, the program dialect |
 
 ## Finding a rig
 
-`http://host:8000` by default; `--host 0.0.0.0` to be reachable; a
-[sub-path](../1-running/runner/access.md#a-sub-path) (`--root-path /furnace`) puts
-everything under a prefix. `GET /api/health` is the one-look status;
+`http://127.0.0.1:8000` by default: the front `flyball run` starts, or a
+bare `flyball-runner`. From another machine it needs a door with a sign-in
+-- a front's `password` or `proxy` shape, or a bare runner's token
+([Access](../1-running/runner/access.md)). Under `flyballd`
+(`http://127.0.0.1:9000`) each rig is under its root path, `/furnace/api/…`,
+as is a bare runner started with `--root-path /furnace`
+([a sub-path](../1-running/runner/access.md#a-sub-path)). `GET /api/health` is the one-look status;
 `GET /api/schema` describes every device; `GET /api/runner` says how the
 process was started and what it allows.
 
@@ -49,17 +53,21 @@ from flyball.interfaces.client import Rig
 
 rig = Rig("http://127.0.0.1:8000")          # or "http://host/furnace" behind a prefix
 print(rig.read("furnace.zone1"))             # a signal by address
-rig.demand("heaters.heater1", 0.4)           # a writable signal, directly
+rig.write("heaters.heater1", 0.4)           # a writable signal, directly
 rig.post("/api/controllers/heaters.heater1/regulate", {"at": 400})   # any route
 rig.devices["furnace"].fail(signal="zone1")  # a device command, checked against its schema
 ```
 
 ## Authentication and what is allowed
 
-Open by default. With a password every request needs the session a login
-sets; with a token, `Authorization: Bearer` (`?token=` on a socket or a
-download link); `auth.anonymous: read` lets reads through regardless
-([authentication](api.md#authentication)). Independently, some things are
+Open by default, on this machine only (the `local` shape). Behind a front
+with a sign-in, a person's browser carries the session cookie a sign-in set,
+and code sends a named token as `Authorization: Bearer`; `anonymous: read`
+lets reads through regardless. Each route needs a verb, `read` or
+`operate` (pending D-034), and a stop needs `operate`
+([authentication](api.md#authentication)). A token never goes in a URL.
+The Python client takes it as `Rig(url, token=…)` or `FLYBALL_TOKEN`.
+Independently, some things are
 off unless the runner was started allowing them: building up a hardware
 rig (`--compose`), writing rig files (`--allow-save`), stopping or
 restarting (`--allow-shutdown`), the MCP mount (`--no-mcp` turns it off).

@@ -21,7 +21,7 @@ import threading
 from collections.abc import Callable
 from typing import Any, get_origin
 
-from flyball.foundation.device import Access, Node, Signal
+from flyball.foundation.device import Access, Node, NoValue, Quality, Reading, Signal
 from flyball.foundation.router import Trigger
 from flyball.rig import Rig
 
@@ -58,6 +58,20 @@ def _describe(signal: Signal) -> DataKey:
     return key
 
 
+def _reading(reading: Reading) -> dict[str, Any]:
+    """A reading as Bluesky's `Reading`: with no value, `value` None and why, as an alarm.
+
+    `alarm_severity` follows EPICS: 2 (major) for `invalid`, -1 (not known) for `stale` and
+    `not_applicable`; `message` is the quality and its reason. A usable value has neither.
+    """
+    out: dict[str, Any] = {"value": reading.value, "timestamp": reading.seconds}
+    if isinstance(value := reading.value, NoValue):
+        out["value"] = None
+        out["alarm_severity"] = 2 if value.quality is Quality.INVALID else -1
+        out["message"] = value.quality.value + (f": {value.reason}" if value.reason else "")
+    return out
+
+
 class NodeReadable:
     """A device or namespace as a Bluesky *Readable*: one data key per publishing signal."""
 
@@ -74,7 +88,7 @@ class NodeReadable:
         values: Value = {}
         for signal in _publishing(self._node):
             if (reading := self._rig.latest.get(signal)) is not None:
-                values[signal.address] = {"value": reading.value, "timestamp": reading.seconds}
+                values[signal.address] = _reading(reading)
         return values
 
     def describe_configuration(self) -> dict[str, DataKey]:
@@ -150,7 +164,7 @@ class SignalMovable:
         self._last: float | None = None
 
     def set(self, value: float) -> Status:
-        self._rig.demand(self._signal.node, {self._signal: value})
+        self._rig.write(self._signal.node, {self._signal: value})
         self._last = value
         signal = Trigger()
         signal.fire()

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import math
+import threading
+import time
+from collections.abc import Callable, Iterator
+from typing import Annotated
 
 import pytest
 
@@ -11,15 +15,20 @@ from flyball.foundation.device import (
     Access,
     AddressNotFoundError,
     Committable,
+    Demand,
     Node,
     NodeSpec,
     Readable,
     Reading,
+    Readout,
     Role,
     Sample,
+    Severity,
     Signal,
+    SignalRef,
     SignalSpec,
     WriteState,
+    command,
 )
 from flyball.foundation.errors import ConflictError, NotReadyError
 from flyball.foundation.quantities import Quantity
@@ -27,7 +36,8 @@ from flyball.foundation.quantities.si import Celsius, Percent, Watt
 from flyball.foundation.time import Rate, TimeUnit
 from flyball.model.feedforward import NoFeedforward
 from flyball.model.law import Transfer
-from flyball.rig import SourceClaimedError
+from flyball.rig import Rig, SignalClaimedError
+from flyball.rig.stopping import Actor
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -146,7 +156,8 @@ class Blender(Readable, Committable):
     def commit(self, time_ns: int) -> None:
         """Pull every bound input's newest value -- there is no callback any more."""
         self.commits += 1
-        for role, target in self.bound.items():
+        for role, binding in self.bound.items():
+            target = binding.source
             if isinstance(target, Signal):
                 if (reading := target.reading) is not None:
                     self.supply[role] = reading.value
@@ -155,7 +166,7 @@ class Blender(Readable, Committable):
                 published = None if sample is None else sample.published()
                 if published is not None:
                     self.supply[role] = published.by_name()
-        pending = {signal.name: value for signal, value in self.pending.items()}
+        pending = {signal.name: value for signal, value in self.staged.items()}
         self.target = pending.get("humidity", self.target)
         self.blend_flow = pending.get("blend_flow", self.blend_flow)
         dry = self.supply.get("dry", 0.0)
@@ -181,9 +192,22 @@ class Thermostat(Committable):
     """A demand driven off a source that goes stale after 5s unread."""
 
     TREE = (
-        SignalSpec(name="zone", quantity=TEMP, access=Access.RP, stale_after=5.0),
+        SignalSpec(name="zone", quantity=TEMP, access=Access.RP, stale_after_s=5.0),
         SignalSpec(name="heater", quantity=POWER, role=Role.DEMAND, access=Access.RPW),
     )
+
+
+class Supplied(Committable):
+    """A demand bounded by a reading that may not have arrived yet: a supply line's humidity."""
+
+    supply = Readout("supply", "Supply humidity", HUMIDITY)
+    chamber = Readout("chamber", "Chamber humidity", HUMIDITY)
+    humidity = Demand("humidity", "Target humidity", HUMIDITY, limits=(0.0, supply))
+
+    @command
+    def aim(self, humidity: Annotated[float, humidity]) -> float:
+        """Aim at a humidity: a linked argument, clamped like a demand."""
+        return humidity
 
 
 class Stage(Committable):
@@ -284,9 +308,7 @@ class TestDelivery:
             ValueError, match=f"Sample on '{furnace.name}' carries 'nowhere', not a bound signal"
         ):
             rig.on_samples([Sample(furnace.root, 0, {"nowhere": 1.0})])  # type: ignore[dict-item]
-        assert set(rig.latest) == {furnace.signals["conditions"]}, (
-            "refused before any of it was applied; conditions is pushed when the device is added"
-        )
+        assert set(rig.latest) == set(), "refused before any of it was applied"
 
     def test_a_key_must_be_a_signal_under_the_node(self, rig, sensors, furnace):
         hum, dry = sensors.name, sensors.nodes["dry"]
@@ -307,7 +329,7 @@ class TestDelivery:
             match=f"Sample on '{hum}.dry' carries '{furnace.name}.zone1', which is not under it",
         ):
             rig.on_samples([Sample(dry, 0, {dry_h: 1.0, zone1: 1.0})])
-        assert set(rig.latest) == {sensors.signals["conditions"], furnace.signals["conditions"]}
+        assert set(rig.latest) == set()
 
     def test_a_sample_on_the_root_carries_its_subtree(self, rig, sensors):
         dry, wet = sensors.nodes["dry"], sensors.nodes["wet"]
@@ -316,9 +338,7 @@ class TestDelivery:
         whole = Sample(sensors.root, 7, {dry_h: 4.0, wet_h: 96.0})
         with rig.samples.watch():
             rig.on_samples([whole])
-        conditions = sensors.signals["conditions"]
         assert rig.latest == {
-            conditions: rig.latest[conditions],
             dry_h: Reading(dry_h, 7, 4.0),
             wet_h: Reading(wet_h, 7, 96.0),
         }
@@ -339,9 +359,7 @@ class TestDelivery:
         with rig.samples.watch():
             rig.on_samples([Sample(blender.root, 3, {flow: 1.5, expected: 49.0})])
             rig.on_samples([Sample(blender.root, 4, {flow: 1.6})])
-        conditions = blender.signals["conditions"]
         assert rig.latest == {
-            conditions: rig.latest[conditions],
             flow: Reading(flow, 4, 1.6),
             expected: Reading(expected, 3, 49.0),
         }
@@ -350,7 +368,7 @@ class TestDelivery:
         }, "cut to what publishes; a sample with nothing left is not set at all"
         assert rig.recent_readings(flow) == [Reading(flow, 3, 1.5), Reading(flow, 4, 1.6)]
         # A fresh read of the setting goes through the same delivery.
-        rig.demand(blender.root, {"blend_flow": 2.5})
+        rig.write(blender.root, {"blend_flow": 2.5})
         clock.advance(1.0)
         assert rig.read(flow, fresh=True) == Reading(flow, clock.now_ns(), 2.5)
         assert rig.latest[flow].value == 2.5
@@ -414,11 +432,10 @@ class TestRead:
         assert sample.values == {dry.signals["humidity"]: 4.1, dry.signals["temperature"]: 21.9}
         assert sensors.reads == [dry], "the bound node reaches the driver"
         assert rig.latest[sensors.signals["dry.humidity"]].value == 4.1
-        initial = rig.router.samples[sensors.root]  # conditions, pushed when the device was added
-        assert list(rig.read(sensors.root)) == [initial, sample], "not fresh: what is known"
+        assert list(rig.read(sensors.root)) == [sample], "not fresh: what is known"
         samples = list(rig.read(sensors.root, fresh=True))
-        assert [s.node for s in samples] == [sensors.root, sensors.nodes["chamber"], dry, wet]
-        assert rig.read(wet) is samples[3]
+        assert [s.node for s in samples] == [sensors.nodes["chamber"], dry, wet]
+        assert rig.read(wet) is samples[2]
 
     def test_several_targets_read_in_order_with_one_read_per_device(
         self, rig, sensors, furnace, clock
@@ -441,32 +458,32 @@ class TestRead:
 class TestDemand:
     def test_refuses_a_signal_that_is_not_writable(self, rig, furnace):
         with pytest.raises(ConflictError, match=rf"'{furnace.name}.zone1' \[rp\] is not writable"):
-            rig.demand(furnace.root, {"zone1": 1.0})
+            rig.write(furnace.root, {"zone1": 1.0})
         with pytest.raises(AddressNotFoundError, match=f"no 'heater9' under {furnace.name}"):
-            rig.demand(furnace.root, {"heater9": 1.0})
+            rig.write(furnace.root, {"heater9": 1.0})
         with pytest.raises(ValueError, match=f"Demand on '{furnace.name}' carries no values"):
-            rig.demand(furnace.root, {})
-        assert furnace.pending == {} and furnace.commits == 0
+            rig.write(furnace.root, {})
+        assert furnace.staged == {} and furnace.commits == 0
 
     def test_dry_and_wet_flow_are_independent_demands(self, rig, blender):
         """`together` is gone: each flow signal is its own demand now."""
         dry_flow, wet_flow = blender.signals["dry_flow"], blender.signals["wet_flow"]
-        states = rig.demand(blender.root, {"dry_flow": 0.4})
+        states = rig.write(blender.root, {"dry_flow": 0.4})
         assert states == {dry_flow: WriteState(value=0.4)}
-        states = rig.demand(blender.root, {dry_flow: 0.5, "wet_flow": 0.5})
+        states = rig.write(blender.root, {dry_flow: 0.5, "wet_flow": 0.5})
         assert states == {dry_flow: WriteState(value=0.5), wet_flow: WriteState(value=0.5)}
 
     def test_signal_keys_and_names_are_the_same_demand(self, rig, furnace):
         heater1, heater2 = furnace.signals["heater1"], furnace.signals["heater2"]
-        by_name = rig.demand(furnace.root, {"heater1": 3000.0, "heater2": 100.0})
-        by_signal = rig.demand(furnace.root, {heater1: 3000.0, heater2: 100.0})
+        by_name = rig.write(furnace.root, {"heater1": 3000.0, "heater2": 100.0})
+        by_signal = rig.write(furnace.root, {heater1: 3000.0, heater2: 100.0})
         assert by_name == by_signal
         assert by_signal[heater1] == WriteState(value=2500.0, requested=3000.0, at_limit="high")
         assert furnace.commits == 2 and furnace.inputs == {"heater1": 2500.0, "heater2": 100.0}
         with pytest.raises(
             ValueError, match=f"Demand on '{furnace.name}' names '{heater1.address}' twice"
         ):
-            rig.demand(furnace.root, {"heater1": 1.0, heater1: 2.0})
+            rig.write(furnace.root, {"heater1": 1.0, heater1: 2.0})
         assert furnace.commits == 2
 
     def test_a_signal_key_must_be_under_the_node(self, rig, furnace, fresh):
@@ -474,67 +491,67 @@ class TestDemand:
         rig.add_device(stage)
         heater1, x = furnace.signals["heater1"], stage.signals["position.x"]
         with pytest.raises(ConflictError, match=f"'{x.address}' is not under '{furnace.name}'"):
-            rig.demand(furnace.root, {heater1: 1.0, x: 1.0})
+            rig.write(furnace.root, {heater1: 1.0, x: 1.0})
         with pytest.raises(
             ConflictError, match=f"'{heater1.address}' is not under '{stage.name}.position'"
         ):
-            rig.demand(stage.nodes["position"], {heater1: 1.0})
-        assert furnace.pending == {} and stage.pending == {}
-        assert rig.demand(stage.root, {x: 1.0}) == {x: WriteState(value=1.0)}
+            rig.write(stage.nodes["position"], {heater1: 1.0})
+        assert furnace.staged == {} and stage.staged == {}
+        assert rig.write(stage.root, {x: 1.0}) == {x: WriteState(value=1.0)}
 
     def test_a_manual_demand_commits_now_and_reports_the_clamp(self, rig, furnace):
         heater1, heater2 = furnace.signals["heater1"], furnace.signals["heater2"]
-        states = rig.demand(furnace.root, {"heater1": 3000.0, "heater2": 100.0})
+        states = rig.write(furnace.root, {"heater1": 3000.0, "heater2": 100.0})
         assert furnace.commits == 1 and furnace.inputs == {"heater1": 2500.0, "heater2": 100.0}
         assert states[heater1] == WriteState(value=2500.0, requested=3000.0, at_limit="high")
         assert states[heater2] == WriteState(value=100.0)
         assert furnace.written[heater1] == states[heater1], "the wire sees the same"
         with rig.write_states.watch():
-            rig.demand(furnace.root, {"heater1": -1.0})
+            rig.write(furnace.root, {"heater1": -1.0})
         assert rig.write_states.changed_since(0)[1] == {
             f"{furnace.name}.heater1": WriteState(value=0.0, requested=-1.0, at_limit="low")
         }
-        assert rig.demand(furnace.root, {"heater1": 2500.0})[heater1].requested is None
+        assert rig.write(furnace.root, {"heater1": 2500.0})[heater1].requested is None
 
     def test_a_dotted_name_reaches_a_signal_under_a_namespace(self, rig, fresh):
         stage = Stage(fresh("stage"))
         rig.add_device(stage)
         x, y = stage.signals["position.x"], stage.signals["position.y"]
-        assert rig.demand(stage.root, {"position.x": 1.0}) == {x: WriteState(value=1.0)}
-        assert rig.demand(stage.nodes["position"], {"x": 2.0, "y": 3.0}) == {
+        assert rig.write(stage.root, {"position.x": 1.0}) == {x: WriteState(value=1.0)}
+        assert rig.write(stage.nodes["position"], {"x": 2.0, "y": 3.0}) == {
             x: WriteState(value=2.0),
             y: WriteState(value=3.0),
         }
         with pytest.raises(ConflictError, match=f"'{stage.name}.position' is a namespace"):
-            rig.demand(stage.root, {"position": 1.0})
+            rig.write(stage.root, {"position": 1.0})
 
     def test_a_controller_owned_signal_refuses_a_manual_demand(self, rig, furnace):
         heater1 = furnace.signals["heater1"]
         controller = rig.attach_controller(heater1, furnace.signals["zone1"], law=P(kp=1.0))
-        rig.demand(furnace.root, {"heater1": 0.5})  # attached but manual: takes demands
+        rig.write(furnace.root, {"heater1": 0.5})  # attached but manual: takes demands
         controller.regulate(50.0)
         with pytest.raises(
             ConflictError,
             match=f"'{heater1.address}' is driven by controller '{controller.name}'",
         ):
-            rig.demand(furnace.root, {"heater1": 1.0})
-        assert rig.demand(furnace.root, {"heater2": 1.0}) == {
+            rig.write(furnace.root, {"heater1": 1.0})
+        assert rig.write(furnace.root, {"heater2": 1.0}) == {
             furnace.signals["heater2"]: WriteState(value=1.0)
         }
         assert rig.detach_controller(controller.name) is controller
         assert controller.name not in rig.controllers and controller.mode.value == "manual"
-        state = rig.demand(furnace.root, {"heater1": 1.0})[heater1]
+        state = rig.write(furnace.root, {"heater1": 1.0})[heater1]
         assert state == WriteState(value=1.0, controller=None)
-        controller.regulate(50.0, transfer=Transfer.RESET)
+        controller.regulate(50.0, transfer=Transfer.COLD)
         assert furnace.written[heater1].value == 1.0, "detached: its demands go nowhere"
 
     def test_a_demand_within_the_rate_limit_passes_through_unchanged(self, rig, fresh, clock):
         dev = RateLimited(fresh("rated"))
         rig.add_device(dev)
         limited = dev.signals["limited"]
-        assert rig.demand(dev.root, {limited: 5.0}) == {limited: WriteState(value=5.0)}
+        assert rig.write(dev.root, {limited: 5.0}) == {limited: WriteState(value=5.0)}
         clock.advance(1.0)  # 10 units/s allows up to 15.0 now
-        assert rig.demand(dev.root, {limited: 12.0}) == {limited: WriteState(value=12.0)}
+        assert rig.write(dev.root, {limited: 12.0}) == {limited: WriteState(value=12.0)}
 
     def test_a_demand_exceeding_the_rate_limit_is_clamped_and_the_clamped_value_is_recorded(
         self, rig, fresh, clock
@@ -542,9 +559,9 @@ class TestDemand:
         dev = RateLimited(fresh("rated"))
         rig.add_device(dev)
         limited = dev.signals["limited"]
-        rig.demand(dev.root, {limited: 5.0})
+        rig.write(dev.root, {limited: 5.0})
         clock.advance(1.0)  # 10 units/s allows a step of at most 10.0: 5.0 -> 15.0
-        states = rig.demand(dev.root, {limited: 100.0})
+        states = rig.write(dev.root, {limited: 100.0})
         assert states == {limited: WriteState(value=15.0, requested=100.0)}
         assert dev.written[limited].value == 15.0, "the clamped value committed, not the ask"
 
@@ -553,9 +570,9 @@ class TestDemand:
         dev = RateLimited(fresh("rated"))
         rig.add_device(dev)
         unlimited = dev.signals["unlimited"]
-        rig.demand(dev.root, {unlimited: 0.0})
+        rig.write(dev.root, {unlimited: 0.0})
         clock.advance(0.001)
-        states = rig.demand(dev.root, {unlimited: 10_000.0})
+        states = rig.write(dev.root, {unlimited: 10_000.0})
         assert states == {unlimited: WriteState(value=10_000.0)}
 
     def test_a_controller_demand_is_held_once_its_source_goes_stale(self, rig, fresh, clock):
@@ -565,12 +582,169 @@ class TestDemand:
         controller = rig.attach_controller(heater, zone, law=P(kp=1.0))
         rig.on_samples([Sample(thermo.root, clock.now_ns(), {zone: 20.0})])
         clock.advance(4.9)  # under the 5s threshold: still trusted
-        assert rig.demand(thermo.root, {heater: 10.0}, by=controller) == {
+        assert rig.write(thermo.root, {heater: 10.0}, by=controller) == {
             heater: WriteState(value=10.0, controller=controller.name)
         }
         clock.advance(0.2)  # 5.1s since the reading: now stale
-        assert rig.demand(thermo.root, {heater: 20.0}, by=controller) == {}
+        assert rig.write(thermo.root, {heater: 20.0}, by=controller) == {}
         assert thermo.written[heater].value == 10.0, "held: the last applied value stands"
+
+
+class TestOneControllerFailing:
+    """A controller whose step raises is an event, not the end of everyone else's delivery."""
+
+    def test_the_others_still_commit_and_the_failure_is_one_event(self, rig, furnace, clock):
+        zone1, zone2 = furnace.signals["zone1"], furnace.signals["zone2"]
+        good = rig.attach_controller(furnace.signals["heater1"], zone1, law=P(kp=10.0))
+        bad = rig.attach_controller(furnace.signals["heater2"], zone2)  # no law
+        good.regulate(30.0)
+        bad.regulate(30.0)
+
+        for _ in range(3):
+            clock.advance(1.0)
+            rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 20.0, zone2: 20.0})])
+        assert good.expected == pytest.approx(100.0), "10 * (30 - 20), committed each time"
+        assert furnace.commits >= 3
+        failed = [e for e in rig.recent if e.code == "step_failed"]
+        assert len(failed) == 1 and failed[0].subject == bad.name, "one event per outage"
+        assert bad.mode.value == "manual", "a law error takes at least on_fault: manual"
+        assert good.mode.value == "regulating", "the others are left alone"
+        assert rig.latest[zone1].value == 20.0, "the delivery's readings landed"
+        with pytest.raises(ConflictError, match="reset it first"):
+            bad.regulate(30.0)
+
+        bad.set_law(P(kp=1.0))
+        rig.stopping.reset(f"on_fault:{bad.name}", Actor("ben", "", "human", "http"))
+        bad.regulate(30.0)
+        clock.advance(1.0)
+        rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 20.0, zone2: 20.0})])
+        last = rig.recent[-1]
+        assert (last.code, last.edge, last.subject) == ("step_failed", "cleared", bad.name)
+
+
+class TestLimitsThatFollowASignal:
+    """A limit bound to a signal with no value yet fails closed: never an unclamped demand."""
+
+    @pytest.fixture
+    def supplied(self, rig, fresh) -> Supplied:
+        device = Supplied(fresh("supplied"))
+        rig.add_device(device)
+        return device
+
+    def test_a_demand_before_the_bound_is_known_is_refused_not_passed_unclamped(
+        self, rig, supplied
+    ):
+        humidity = supplied.signals["humidity"]
+        assert humidity.limits is None, "nothing read on the supply yet"
+        with pytest.raises(
+            NotReadyError, match=r"limit follows 'supply' \(pending\), which has no value yet"
+        ):
+            rig.write(supplied.root, {humidity: 150.0})
+        assert supplied.written == {} and supplied.staged == {}, "nothing reached the device"
+        assert humidity.reading is None
+
+    def test_the_first_reading_of_the_bound_lifts_the_refusal_and_clamps_to_it(
+        self, rig, supplied, clock
+    ):
+        humidity, supply = supplied.signals["humidity"], supplied.signals["supply"]
+        with pytest.raises(NotReadyError):
+            rig.write(supplied.root, {humidity: 150.0})
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
+        assert rig.write(supplied.root, {humidity: 150.0}) == {
+            humidity: WriteState(value=95.0, requested=150.0, at_limit="high")
+        }
+
+    def test_a_linked_command_argument_is_refused_while_its_limit_is_unknown(
+        self, rig, supplied, clock
+    ):
+        with pytest.raises(NotReadyError, match="limit"):
+            rig.run_command(supplied, "aim", {"humidity": 150.0})
+        assert supplied.signals["humidity"].reading is None
+        supply = supplied.signals["supply"]
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
+        assert rig.run_command(supplied, "aim", {"humidity": 150.0}) == 95.0
+
+    def test_a_controller_write_is_held_with_one_event_until_the_bound_is_known(
+        self, rig, supplied, clock
+    ):
+        humidity, supply = supplied.signals["humidity"], supplied.signals["supply"]
+        chamber = supplied.signals["chamber"]
+        controller = rig.attach_controller(humidity, chamber, law=P(kp=1.0))
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])
+        controller.regulate(150.0, transfer=Transfer.COLD)  # the write goes through the rig
+        assert controller.expected is None, "held: nothing was applied"
+        assert supplied.written == {} and humidity.reading is None
+        clock.advance(1.0)
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])  # a step
+        assert supplied.written == {}, "still held on the next step"
+        held = [e for e in rig.recent if e.code == "limit_unknown"]
+        assert len(held) == 1, "one event on entering the hold, not one per step"
+        assert held[0].severity is Severity.INFO, "benign: what it follows is only pending"
+        assert held[0].subject == controller.name
+        assert held[0].details["why"] == {"supply": ("pending", "")}
+
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
+        clock.advance(1.0)
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])
+        assert supplied.written[humidity].value == 95.0, "applied, clamped to the supply"
+        assert supplied.written[humidity].requested is not None
+        assert [(e.code, e.edge) for e in rig.recent if e.code.startswith("limit_")] == [
+            ("limit_unknown", "raised"),
+            ("limit_unknown", "cleared"),
+        ]
+
+    def test_a_nan_bound_is_not_known_a_demand_is_refused_not_clamped_to_the_other_end(
+        self, rig, supplied, clock
+    ):
+        humidity, supply = supplied.signals["humidity"], supplied.signals["supply"]
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: math.nan})])
+        assert humidity.limits is None, "a NaN bound is no bound to display"
+        with pytest.raises(
+            NotReadyError,
+            match=r"'supply' \(invalid: not finite\), which has no value yet, or not a finite",
+        ):
+            rig.write(supplied.root, {humidity: 150.0})
+        assert supplied.written == {} and supplied.staged == {}, "nothing reached the device"
+        with pytest.raises(NotReadyError, match="limit"):
+            rig.run_command(supplied, "aim", {"humidity": 150.0})
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
+        assert rig.write(supplied.root, {humidity: 150.0})[humidity].value == 95.0
+
+    def test_a_controller_is_held_while_its_bound_is_nan(self, rig, supplied, clock):
+        humidity, supply = supplied.signals["humidity"], supplied.signals["supply"]
+        chamber = supplied.signals["chamber"]
+        controller = rig.attach_controller(humidity, chamber, law=P(kp=1.0))
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: math.inf, chamber: 40.0})])
+        controller.regulate(150.0, transfer=Transfer.COLD)
+        assert supplied.written == {} and controller.expected is None, "held, not clamped"
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {supply: 95.0})])
+        clock.advance(1.0)
+        rig.on_samples([Sample(supplied.root, clock.now_ns(), {chamber: 40.0})])
+        assert supplied.written[humidity].value == 95.0
+        assert [(e.code, e.edge) for e in rig.recent if e.code.startswith("limit_")] == [
+            ("limit_unknown", "raised"),
+            ("limit_unknown", "cleared"),
+        ]
+
+    def test_a_limit_resolves_once_to_the_signal_it_follows(self, supplied):
+        humidity, supply = supplied.signals["humidity"], supplied.signals["supply"]
+        bounds = humidity.bind_limits()
+        assert bounds == (0.0, supply) and bounds[1] is supply, "the object, not its path"
+        assert humidity.bind_limits() is bounds, "not resolved again on the next read"
+
+    def test_an_override_of_the_limits_resolves_them_again(self, supplied):
+        humidity = supplied.signals["humidity"]
+        humidity.set_meta(limits=(0.0, 80.0))
+        assert humidity.bind_limits() == (0.0, 80.0)
+        assert humidity.limits == (0.0, 80.0), "a number now, known without a supply reading"
+
+    def test_a_limit_that_follows_nothing_fails_when_the_device_is_added(self, rig, fresh):
+        device = Supplied(fresh("typo"))
+        humidity = device.signals["humidity"]
+        humidity.set_meta(limits=(0.0, SignalRef("suply")))
+        with pytest.raises(ValueError, match=r"follows 'suply', which is neither a signal nor"):
+            rig.add_device(device)
+        assert device.name not in rig.devices, "refused before the name is claimed"
 
 
 class TestControllers:
@@ -581,15 +755,15 @@ class TestControllers:
         assert rig.controllers[heater1.address] is controller
         assert rig.controllers.default == controller.name
         assert isinstance(controller.feedforward, NoFeedforward)
-        with pytest.raises(SourceClaimedError, match=f"{heater1.address} is already driven by"):
+        with pytest.raises(SignalClaimedError, match=f"{heater1.address} is already driven by"):
             rig.attach_controller(heater1, zone2)
-        with pytest.raises(SourceClaimedError, match=f"{zone1.address} is already regulated by"):
+        with pytest.raises(SignalClaimedError, match=f"{zone1.address} is already regulated by"):
             rig.attach_controller(heater2, zone1)
 
         # From outside a delivery -- a program, a route -- the write commits at once.
         rig.on_samples([Sample(furnace.root, 0, {zone1: 40.0})])
         assert furnace.commits == 0, "manual: the tick wrote nothing"
-        controller.regulate(50.0, transfer=Transfer.RESET)
+        controller.regulate(50.0, transfer=Transfer.COLD)
         assert furnace.commits == 1 and furnace.inputs == {"heater1": 0.0}
         assert controller.expected == 0.0, "the write returned the committed value"
         assert furnace.written[heater1] == WriteState(
@@ -602,8 +776,8 @@ class TestControllers:
         c1 = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
         c2 = rig.attach_controller(heater2, zone2, law=P(kp=10.0))
         rig.on_samples([Sample(furnace.root, 0, {zone1: 40.0, zone2: 40.0})])
-        c1.regulate(50.0, transfer=Transfer.RESET)
-        c2.regulate(60.0, transfer=Transfer.RESET)
+        c1.regulate(50.0, transfer=Transfer.COLD)
+        c2.regulate(60.0, transfer=Transfer.COLD)
         assert furnace.commits == 2, "two handovers outside a delivery: one commit each"
         rig.on_samples([Sample(furnace.root, 1_000_000_000, {zone1: 40.0, zone2: 40.0})])
         assert furnace.commits == 3, "one delivery, two controllers, one commit"
@@ -617,18 +791,18 @@ class TestControllers:
         heater1, zone1 = furnace.signals["heater1"], furnace.signals["zone1"]
         controller = rig.attach_controller(heater1, zone1, law=P(kp=1000.0))
         rig.on_samples([Sample(furnace.root, 0, {zone1: 40.0})])
-        controller.regulate(50.0, transfer=Transfer.RESET)
+        controller.regulate(50.0, transfer=Transfer.COLD)
         with rig.controller_states.watch(), rig.write_states.watch():
             rig.on_samples([Sample(furnace.root, 1_000_000_000, {zone1: 40.0})])
-        assert controller.demand == 10_000.0 and controller.expected == 2500.0, "clamped"
+        assert controller.output == 10_000.0 and controller.expected == 2500.0, "clamped"
         assert rig.write_states.changed_since(0)[1] == {
             heater1.address: WriteState(
                 value=2500.0, requested=10_000.0, at_limit="high", controller=controller.name
             )
         }
         state = rig.controller_states.changed_since(0)[1][controller.name]
-        assert state.expected == 2500.0 and state.reading is not None
-        assert state.reading.value == 40.0
+        assert state.expected == 2500.0 and state.measured is not None
+        assert state.measured.value == 40.0
 
 
 class TestBoundInputs:
@@ -637,7 +811,7 @@ class TestBoundInputs:
         dry_h, dry_t = sensors.signals["dry.humidity"], sensors.signals["dry.temperature"]
         chamber_h, chamber_t = chamber.signals["humidity"], chamber.signals["temperature"]
         rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry.humidity"})
-        assert blender.bound == {"dry": dry_h}
+        assert blender.bound["dry"].source is dry_h and list(blender.bound) == ["dry"]
         rig.on_samples([Sample(dry, 5, {dry_h: 3.0, dry_t: 20.0})])
         assert blender.supply == {"dry": 3.0} and blender.commits == 1
         assert blender.pump_writes == [(3.0, 50.0)]
@@ -646,7 +820,7 @@ class TestBoundInputs:
         controller = rig.attach_controller(
             blender.signals["humidity"], sensors.signals["chamber.humidity"], law=P(kp=1.0)
         )
-        controller.regulate(47.0, transfer=Transfer.RESET)
+        controller.regulate(47.0, transfer=Transfer.COLD)
         assert blender.commits == 2 and blender.target == 47.0
         rig.on_samples([
             Sample(dry, 6, {dry_h: 4.0}),
@@ -663,7 +837,7 @@ class TestBoundInputs:
         dry_h, dry_t = sensors.signals["dry.humidity"], sensors.signals["dry.temperature"]
         wet_h = sensors.signals["wet.humidity"]
         rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry", "wet": wet_h.address})
-        assert blender.bound == {"dry": dry, "wet": wet_h}
+        assert {n: b.source for n, b in blender.bound.items()} == {"dry": dry, "wet": wet_h}
         rig.on_samples([Sample(dry, 5, {dry_h: 3.0, dry_t: 20.0})])
         assert blender.commits == 1, "the sample itself when it is the node's"
         assert blender.supply["dry"] == {"humidity": 3.0, "temperature": 20.0}
@@ -687,7 +861,7 @@ class TestBoundInputs:
     def test_bind_inputs_refuses_what_cannot_be_followed(self, rig, sensors, blender, fresh):
         with pytest.raises(AddressNotFoundError, match=f"no 'humidty' under {sensors.name}.dry"):
             rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry.humidty"})
-        with pytest.raises(ConflictError, match=r"\[rw\] is not publishing"):
+        with pytest.raises(ConflictError, match=r"\[rw\] is not published"):
             rig.bind_inputs(blender, {"dry": f"{blender.name}.blend_flow"})
         stage = Stage(fresh("stage"))
         stage.signals["position.x"].restrict(Access.W)
@@ -695,10 +869,10 @@ class TestBoundInputs:
         rig.add_device(stage)
         with pytest.raises(
             ConflictError,
-            match=f"{blender.name}.bound.dry: nothing under '{stage.name}.position' publishes",
+            match=f"{blender.name}.inputs.dry: nothing under '{stage.name}.position' publishes",
         ):
             rig.bind_inputs(blender, {"dry": f"{stage.name}.position"})
-        assert blender.bound == {}
+        assert not any(b.bound for b in blender.bound.values()), "nothing stays bound"
 
 
 def test_a_trailing_or_doubled_dot_resolves_to_nothing(rig, sensors):
@@ -717,3 +891,146 @@ def test_a_device_may_declare_its_root_atomic(rig, fresh):
     assert device.root.atomic and not Sensors(fresh("set")).root.atomic
     got = rig.read(device.root, fresh=True)
     assert isinstance(got, Sample), "an atomic root reads as one sample, like an atomic namespace"
+
+
+class Stuck(Sensors):
+    """A read that sits on the bus until released, as a slow transaction would."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.inside = threading.Event()
+        self.release = threading.Event()
+
+    def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        self.inside.set()
+        self.release.wait(2.0)
+        return super().read(time_ns, node)
+
+
+class Gated(Committable):
+    """A blocking device with one demand and no readback; its commit waits on a gate."""
+
+    blocking = True
+    TREE = (SignalSpec(name="heater", quantity=POWER, role=Role.DEMAND, access=Access.RPW),)
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.gate = threading.Event()
+        self.committed: list[float] = []
+
+    def commit(self, time_ns: int) -> None:
+        self.gate.wait(2.0)
+        self.committed.extend(self.staged.values())
+
+
+def _within(seconds: float, fn: Callable[[], object]) -> bool:
+    """Run `fn` on a thread; whether it returned within `seconds` of wall time."""
+    done = threading.Event()
+
+    def run() -> None:
+        fn()
+        done.set()
+
+    threading.Thread(target=run, daemon=True).start()
+    return done.wait(seconds)
+
+
+class TestRemoval:
+    """Removing a device never waits, under the rig lock, on a thread that needs the lock."""
+
+    def test_removing_a_device_mid_read_returns_at_once(self, fresh):
+        rig = Rig()  # the wall clock: the poller is a real thread
+        stuck = Stuck(fresh("stuck"))
+        rig.add_device(stuck)
+        rig.polling.start(stuck, 0.05)
+        loop = rig.polling.periodic[stuck.name]
+        assert stuck.inside.wait(1.0), "the poller is inside read()"
+        removed = _within(1.0, lambda: rig.remove_device(stuck.name))
+        stuck.release.set()
+        assert removed, "remove_device returned within 1 s"
+        assert loop._thread is not None
+        loop._thread.join(1.0)
+        assert not loop.running, "the poll loop exited after its read"
+        assert stuck.name not in rig.polling.by_name and rig.polling.runs.get(stuck.name) is None
+        assert not any(s.device is stuck for s in rig.router.latest), "the late read was dropped"
+
+    def test_a_write_completing_after_removal_is_dropped(self, rig, fresh):
+        gated = Gated(fresh("gated"))
+        rig.add_device(gated)
+        heater = gated.signals["heater"]
+        rig.write(gated.root, {heater: 1.0})
+        writer = rig._writers[gated]
+        assert _within(0.5, lambda: rig.remove_device(gated.name)), "no wait on the writer"
+        gated.gate.set()
+        writer._thread.join(1.0)
+        assert not writer._thread.is_alive(), "the writer exited after its commit"
+        assert gated.committed == [1.0], "the write in flight reached the bus"
+        assert heater not in gated.written and heater not in rig.router.latest
+
+
+def test_a_blocking_write_with_no_readback_reports_each_committed_value(rig, fresh):
+    """The writer snapshots the router before each commit: the second write is not the first's."""
+    gated = Gated(fresh("gated"))
+    gated.gate.set()
+    rig.add_device(gated)
+    heater = gated.signals["heater"]
+    for value in (1.0, 3.0):
+        rig.write(gated.root, {heater: value})
+        deadline = time.monotonic() + 2.0
+        while gated.written.get(heater) != WriteState(value=value):
+            assert time.monotonic() < deadline, f"{value} was reported as {gated.written[heater]}"
+            time.sleep(0.005)
+        assert rig.router.value(heater) == value
+    assert gated.committed == [1.0, 3.0]
+    rig.close()
+
+
+class TestNonFinite:
+    """NaN and infinity never reach a device: a demand refuses them, the rate clamp survives one."""
+
+    @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+    def test_a_demand_refuses_a_value_that_is_not_finite(self, rig, furnace, bad):
+        rig.write(furnace.root, {"heater1": 10.0})
+        with pytest.raises(ValueError, match=rf"'{furnace.name}.heater1' .* not finite"):
+            rig.write(furnace.root, {"heater2": 5.0, "heater1": bad})
+        assert furnace.inputs == {"heater1": 10.0}, "nothing of the demand was applied"
+        assert furnace.commits == 1 and furnace.staged == {}
+
+    def test_a_non_finite_last_value_is_no_rate_reference(self, rig, fresh, clock):
+        dev = RateLimited(fresh("rated"))
+        rig.add_device(dev)
+        limited = dev.signals["limited"]
+        limited.push(math.nan, clock.now_ns())  # a driver's readback gone wrong
+        assert rig.write(dev.root, {limited: 5.0}) == {limited: WriteState(value=5.0)}
+        clock.advance(1.0)
+        states = rig.write(dev.root, {limited: 100.0})
+        assert states == {limited: WriteState(value=15.0, requested=100.0)}, "5.0 is the reference"
+
+    def test_a_non_finite_demand_over_http_is_a_422(self, rig, furnace):
+        from conftest import TestClient
+        from flyball.interfaces.server import create_app, set_rig
+
+        set_rig(rig)
+        try:
+            with TestClient(create_app()) as client:
+                put = client.put(
+                    f"/api/signals/{furnace.name}.heater1",
+                    content="NaN",
+                    headers={"content-type": "application/json"},
+                )
+                assert put.status_code == 422, put.text
+                put = client.put(
+                    f"/api/devices/{furnace.name}/write",
+                    content='{"heater1": Infinity}',
+                    headers={"content-type": "application/json"},
+                )
+                assert put.status_code == 422, put.text
+                post = client.post(
+                    f"/api/devices/{furnace.name}/commands/set_heater1",
+                    content='{"value": NaN}',
+                    headers={"content-type": "application/json"},
+                )
+                assert post.status_code == 422, post.text
+        finally:
+            set_rig(None)
+        assert furnace.commits == 0

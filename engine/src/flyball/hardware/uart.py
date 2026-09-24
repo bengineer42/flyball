@@ -2,8 +2,8 @@
 
 OS-independent -- no bus implementation lives here. `extensions/linux`
 supplies `SerialUart` (a real `/dev/ttyUSBn`-style port through pyserial) and
-`FakeUart` (a scripted one for tests and hardware-free rigs), both built
-from tagged configs.
+`flyball-sim` supplies `FakeUart` (a scripted one for tests and hardware-free
+rigs), both built from typed configs.
 """
 
 from __future__ import annotations

@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 
-from conftest import FakeRunner
+from conftest import FakeRunner, TestClient
 from flyball.interfaces.server import create_app
 from flyball.interfaces.server.deps import set_runner
 from flyball.runtime.config import RunnerConfig
@@ -50,3 +49,21 @@ def test_asks_the_handle(client):
     client.post("/api/runner/shutdown")
     client.post("/api/runner/restart")
     assert runner.asked == ["shutdown", "restart"]
+
+
+def test_the_door_and_health_say_where_the_runner_is_exposed(client):
+    from flyball.runtime.config import settle_exposure
+
+    assert client.get("/api/auth").json()["exposure"] is None, "no runner: nothing to say"
+    assert client.get("/api/health").json()["exposure"] is None
+    runner = FakeRunner(RunnerConfig(host="127.0.0.1"))
+    runner.exposure = settle_exposure(RunnerConfig(host="0.0.0.0", port=8123))
+    set_runner(runner)
+    for path in ("/api/auth", "/api/health"):
+        exposure = client.get(path).json()["exposure"]
+        assert exposure["host"] == "127.0.0.1" and exposure["requested"] == "0.0.0.0", path
+        assert exposure["restricted"] and not exposure["open_network"], path
+        assert "--insecure-open" in exposure["warning"], path
+    runner.exposure = settle_exposure(RunnerConfig(host="0.0.0.0"), insecure_open=True)
+    exposure = client.get("/api/auth").json()["exposure"]
+    assert exposure["open_network"] and not exposure["restricted"]

@@ -28,9 +28,11 @@ export interface DashboardWidget {
 
 /**
  * The document a dashboard is saved as; `extra` fields are refused at every
- * level. `schema_version` 2 binds by address and controller name; a
- * version-1 document (channels, loops, actuators) is migrated by the server
- * on read.
+ * level. `schema_version` 2 binds by address and controller name; 3 adds
+ * `readonly` and `order`; 4 names a program widget's button `cancel`. The
+ * server migrates an older document on read: version 1's channels, loops and
+ * actuators become addresses and names, a version-2 document is writable and
+ * unordered, and a program widget's `interrupt` becomes `cancel`.
  */
 export interface DashboardDocument {
   schema_version: number;
@@ -41,6 +43,15 @@ export interface DashboardDocument {
   description?: string | null;
   grid: DashboardGrid;
   widgets: DashboardWidget[];
+  /**
+   * Its widgets' write controls render disabled, for everyone. A convenience for
+   * a wall display, not access control: whoever may save it may clear it.
+   * Layout editing is unaffected. Absent in a document not yet read back from
+   * the server; treat as `false`.
+   */
+  readonly?: boolean;
+  /** Where its tab sits: ascending, then unordered ones newest first. A float, so a move rewrites one document. */
+  order?: number | null;
 }
 
 /**

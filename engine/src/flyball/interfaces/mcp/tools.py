@@ -15,8 +15,9 @@ from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
-from flyball.interfaces.client import Rig, RigError, SchemaError
+from flyball.interfaces.client import Rig, RigError, SchemaError, segment
 from flyball.scaffold import render
 
 __all__ = ["GUIDES", "MODES", "Tier", "Tool", "tools_for"]
@@ -52,6 +53,9 @@ class Tool:
     output_schema: dict[str, Any] | None = None
     """Declared shape of a non-text result; set on a tool whose `run` returns a named
     envelope (`_list_of`) rather than the client's bare JSON, so the two stay in sync."""
+    host_code: bool = False
+    """Runs code on the machine this server runs on, making no call the runner's door
+    sees (`check_driver`, `search_drivers`): stdio only, never over HTTP MCP."""
 
 
 # region Schema shorthands
@@ -113,8 +117,10 @@ SESSION = _int("A recorded session's id, from `list_sessions`.")
 
 
 def _query(**params: Any) -> str:
+    """`?k=v&...` for the values given, each percent-encoded (a `,` list stays readable)."""
     given = {k: v for k, v in params.items() if v is not None}
-    return "?" + "&".join(f"{k}={v}" for k, v in given.items()) if given else ""
+    pairs = (f"{k}={quote(str(v), safe=',')}" for k, v in given.items())
+    return "?" + "&".join(pairs) if given else ""
 
 
 def _list_devices(rig: Rig, a: dict[str, Any]) -> Any:
@@ -133,7 +139,7 @@ def _list_devices(rig: Rig, a: dict[str, Any]) -> Any:
         "devices": [
             {
                 "name": d["name"],
-                "type": d["type"],
+                "class_name": d["class_name"],
                 "label": d["label"],
                 "description": described.get(d["name"], {}).get("description"),
             }
@@ -146,7 +152,7 @@ READ: tuple[Tool, ...] = (
     Tool(
         "status",
         "One look at the rig: ok or not, uptime, devices polling, controller modes, conditions, "
-        "alarms, waits, recording.",
+        "alarms, activities, recording.",
         _object(),
         Tier.READ,
         lambda rig, a: rig.get("/api/health"),
@@ -169,20 +175,21 @@ READ: tuple[Tool, ...] = (
         "dashboard that names its signals.",
         _object({"name": NAME}, "name"),
         Tier.READ,
-        lambda rig, a: rig.get(f"/api/devices/{a['name']}/schema"),
+        lambda rig, a: rig.get(f"/api/devices/{segment(a['name'])}/schema"),
     ),
     Tool(
         "view_device",
         "A device now: its tree with current values, inputs, commands and conditions.",
         _object({"name": NAME}, "name"),
         Tier.READ,
-        lambda rig, a: rig.get(f"/api/devices/{a['name']}"),
+        lambda rig, a: rig.get(f"/api/devices/{segment(a['name'])}"),
     ),
     Tool(
         "read",
         "The latest reading of a signal, the sample of a namespace, or every sample of a "
         "device. Answers from the last poll; `operate` also has a `fresh` flag for a live "
-        "device read.",
+        "device read. A reading with no value has `value: null` with its `quality` "
+        "(invalid, stale, not_applicable), `reason`, `last_usable` and `age_s`.",
         _object({"address": ADDRESS}, "address"),
         Tier.READ,
         lambda rig, a: rig.read(a["address"], False),
@@ -201,11 +208,15 @@ READ: tuple[Tool, ...] = (
         "The rig's latest events, newest first: alarms, interrupts, program steps, errors.",
         _object({
             "limit": _int("At most this many.", default=100, minimum=1, maximum=1000),
-            "level": _str("This level and above.", enum=["DEBUG", "INFO", "WARNING", "ERROR"]),
+            "severity": _str(
+                "This severity and above.", enum=["debug", "info", "warning", "error"]
+            ),
         }),
         Tier.READ,
         lambda rig, a: {
-            "events": rig.get("/api/events" + _query(limit=a.get("limit"), level=a.get("level")))
+            "events": rig.get(
+                "/api/events" + _query(limit=a.get("limit"), severity=a.get("severity"))
+            )
         },
         output_schema=_list_of("events", "The rig's latest events, newest first."),
     ),
@@ -225,11 +236,12 @@ READ: tuple[Tool, ...] = (
         output_schema=_list_of("controllers", "Every controller on the rig."),
     ),
     Tool(
-        "waits",
-        "What a running program is waiting on, by name; `fire` answers one.",
+        "activities",
+        "What a running program is waiting on -- a prompt, a timed wait, a settle, a ramp -- "
+        "by name; `fire_activity` answers one.",
         _object(),
         Tier.READ,
-        lambda rig, a: rig.waits(),
+        lambda rig, a: rig.activities(),
     ),
     Tool(
         "program_status",
@@ -251,7 +263,7 @@ READ: tuple[Tool, ...] = (
         "A stored program's newest version: its text and format.",
         _object({"name": NAME}, "name"),
         Tier.READ,
-        lambda rig, a: rig.get(f"/api/programs/library/{a['name']}"),
+        lambda rig, a: rig.get(f"/api/programs/library/{segment(a['name'])}"),
     ),
     Tool(
         "check_program",
@@ -277,7 +289,7 @@ READ: tuple[Tool, ...] = (
     ),
     Tool(
         "tunings",
-        "The control-law tunings loaded on the rig, by tag.",
+        "The control-law tunings loaded on the rig, by name.",
         _object(),
         Tier.READ,
         lambda rig, a: rig.get("/api/tunings"),
@@ -305,7 +317,7 @@ READ: tuple[Tool, ...] = (
         "One recorded session: when, what was recorded, its config.",
         _object({"session_id": SESSION}, "session_id"),
         Tier.READ,
-        lambda rig, a: rig.get(f"/api/history/sessions/{a['session_id']}"),
+        lambda rig, a: rig.get(f"/api/history/sessions/{segment(a['session_id'])}"),
     ),
     Tool(
         "session_series",
@@ -323,7 +335,7 @@ READ: tuple[Tool, ...] = (
         ),
         Tier.READ,
         lambda rig, a: rig.get(
-            f"/api/history/sessions/{a['session_id']}/series/{a['address']}"
+            f"/api/history/sessions/{segment(a['session_id'])}/series/{segment(a['address'])}"
             + _query(
                 start_ns=a.get("start_ns"),
                 end_ns=a.get("end_ns"),
@@ -334,7 +346,7 @@ READ: tuple[Tool, ...] = (
     Tool(
         "session_ticks",
         "A controller's recorded steps over a session: mode, correction and, when logged, "
-        "setpoint, demand and reading -- the data behind a ramp's setpoint curve. "
+        "setpoint, output and measured -- the data behind a ramp's setpoint curve. "
         "`session_series` for a plain signal instead.",
         _object(
             {
@@ -350,7 +362,7 @@ READ: tuple[Tool, ...] = (
         Tier.READ,
         lambda rig, a: {
             "ticks": rig.get(
-                f"/api/history/sessions/{a['session_id']}/ticks/{a['controller']}"
+                f"/api/history/sessions/{segment(a['session_id'])}/ticks/{segment(a['controller'])}"
                 + _query(start_ns=a.get("start_ns"), end_ns=a.get("end_ns"), every=a.get("every"))
             )
         },
@@ -369,7 +381,7 @@ READ: tuple[Tool, ...] = (
         "A dashboard's newest version, with `problems`: widgets bound to things the rig lacks.",
         _object({"name": NAME}, "name"),
         Tier.READ,
-        lambda rig, a: rig.get(f"/api/dashboards/{a['name']}"),
+        lambda rig, a: rig.get(f"/api/dashboards/{segment(a['name'])}"),
     ),
     Tool(
         "dashboard_schema",
@@ -431,7 +443,7 @@ def _save_program(rig: Rig, a: dict[str, Any]) -> Any:
     else:
         raise SchemaError("save_program: give `document` (JSON) or `text` (with `format`)")
     envelope = {"format": fmt, "body": body, "label": a.get("label"), "notes": a.get("notes")}
-    return rig.put(f"/api/programs/library/{a['name']}", envelope)
+    return rig.put(f"/api/programs/library/{segment(a['name'])}", envelope)
 
 
 def _apply(document: dict[str, Any], change: dict[str, Any]) -> None:
@@ -463,10 +475,10 @@ def _apply(document: dict[str, Any], change: dict[str, Any]) -> None:
 
 
 def _update_dashboard(rig: Rig, a: dict[str, Any]) -> Any:
-    document = rig.get(f"/api/dashboards/{a['name']}")["body"]
+    document = rig.get(f"/api/dashboards/{segment(a['name'])}")["body"]
     for change in a["changes"]:
         _apply(document, change)
-    return rig.put(f"/api/dashboards/{a['name']}", document)
+    return rig.put(f"/api/dashboards/{segment(a['name'])}", document)
 
 
 WIDGET = {
@@ -529,7 +541,7 @@ AUTHOR: tuple[Tool, ...] = (
         _object({"name": NAME, "new_name": _str("The new name.")}, "name", "new_name"),
         Tier.AUTHOR,
         lambda rig, a: rig.post(
-            f"/api/programs/library/{a['name']}/rename", {"name": a["new_name"]}
+            f"/api/programs/library/{segment(a['name'])}/rename", {"name": a["new_name"]}
         ),
     ),
     Tool(
@@ -537,7 +549,7 @@ AUTHOR: tuple[Tool, ...] = (
         "Delete a program and its whole history.",
         _object({"name": NAME}, "name"),
         Tier.AUTHOR,
-        lambda rig, a: rig.delete(f"/api/programs/library/{a['name']}"),
+        lambda rig, a: rig.delete(f"/api/programs/library/{segment(a['name'])}"),
         destructive=True,
     ),
     Tool(
@@ -547,7 +559,7 @@ AUTHOR: tuple[Tool, ...] = (
         "things the rig lacks.",
         _object({"name": NAME, "document": DOCUMENT}, "name", "document"),
         Tier.AUTHOR,
-        lambda rig, a: rig.put(f"/api/dashboards/{a['name']}", a["document"]),
+        lambda rig, a: rig.put(f"/api/dashboards/{segment(a['name'])}", a["document"]),
     ),
     Tool(
         "update_dashboard",
@@ -566,14 +578,16 @@ AUTHOR: tuple[Tool, ...] = (
         "Move a dashboard, every version, under a new name.",
         _object({"name": NAME, "new_name": _str("The new name.")}, "name", "new_name"),
         Tier.AUTHOR,
-        lambda rig, a: rig.post(f"/api/dashboards/{a['name']}/rename", {"name": a["new_name"]}),
+        lambda rig, a: rig.post(
+            f"/api/dashboards/{segment(a['name'])}/rename", {"name": a["new_name"]}
+        ),
     ),
     Tool(
         "delete_dashboard",
         "Delete a dashboard and its whole history.",
         _object({"name": NAME}, "name"),
         Tier.AUTHOR,
-        lambda rig, a: rig.delete(f"/api/dashboards/{a['name']}"),
+        lambda rig, a: rig.delete(f"/api/dashboards/{segment(a['name'])}"),
         destructive=True,
     ),
     Tool(
@@ -582,7 +596,7 @@ AUTHOR: tuple[Tool, ...] = (
         _object(
             {
                 "name": NAME,
-                "law": _str("The law's tag, e.g. `pid`."),
+                "law": _str("The law's type, e.g. `pid`."),
                 "config": {"type": "object", "description": "The law's config."},
                 "notes": _any("Free-form notes."),
             },
@@ -592,7 +606,7 @@ AUTHOR: tuple[Tool, ...] = (
         ),
         Tier.AUTHOR,
         lambda rig, a: rig.put(
-            f"/api/history/tunings/{a['name']}",
+            f"/api/history/tunings/{segment(a['name'])}",
             {
                 "law": a["law"],
                 "config": a["config"],
@@ -607,145 +621,160 @@ AUTHOR: tuple[Tool, ...] = (
 # region Drive
 
 AT = _any(
-    "Where to aim: a number; `process`, `setpoint` or `demand` for the current one; or a "
+    "Where to aim: a number; `measured`, `setpoint` or `output` for the current one; or a "
     "generator config (a ramp, say) as an object."
 )
-TARGET = _str("The controller: the address of the signal it drives.")
-WAIT = _str("The wait's name, from `waits`.")
+CONTROLLER = _str("The controller: the address of the demand it drives, its output.")
+ACTIVITY = _str("The activity's name, from `activities`.")
 
 DRIVE: tuple[Tool, ...] = (
     Tool(
-        "set_demand",
-        "Put a value on one writable signal. Refused while a controller drives it.",
+        "stop_rig",
+        "Stop the rig: the program interrupted, every controller to manual, each device "
+        "stopped. For when something is wrong; returns what happened to each device.",
+        _object({"reason": _str("Why, for the record.", maxLength=500)}),
+        Tier.DRIVE,
+        lambda rig, a: rig.post("/api/rig/stop", {"reason": a.get("reason", "")}),
+        route=("post", "/api/rig/stop"),
+        destructive=True,
+    ),
+    Tool(
+        "write",
+        "Write a value to one writable signal. Refused while a controller drives it.",
         _object(
             {"address": ADDRESS, "value": _num("The value, in the signal's unit.")},
             "address",
             "value",
         ),
         Tier.DRIVE,
-        lambda rig, a: rig.demand(a["address"], a["value"]),
+        lambda rig, a: rig.write(a["address"], a["value"]),
     ),
     Tool(
         "regulate",
         "Aim a controller and hand it control.",
         _object(
             {
-                "target": TARGET,
+                "controller": CONTROLLER,
                 "at": AT,
                 "start": _any("Where a generator starts from; default the current setpoint."),
                 "tuning": _any(
-                    "A tuning's tag, or a law config as an object; default the current."
+                    "A tuning's name, or a law config as an object; default the current."
                 ),
                 "transfer": _str(
-                    "How the law takes over.", enum=["none", "carry", "track", "reset"]
+                    "How the law takes over.", enum=["none", "carry", "track", "cold"]
                 ),
             },
-            "target",
+            "controller",
             "at",
         ),
         Tier.DRIVE,
         lambda rig, a: rig.post(
-            f"/api/controllers/{a['target']}/regulate",
-            {k: v for k, v in a.items() if k != "target"},
+            f"/api/controllers/{segment(a['controller'])}/regulate",
+            {k: v for k, v in a.items() if k != "controller"},
         ),
     ),
     Tool(
         "manual",
-        "Put a controller in manual: it stops driving; the demand stays where it is.",
-        _object({"target": TARGET}, "target"),
+        "Put a controller in manual: it stops driving; its output stays where it is.",
+        _object({"controller": CONTROLLER}, "controller"),
         Tier.DRIVE,
-        lambda rig, a: rig.post(f"/api/controllers/{a['target']}/manual"),
+        lambda rig, a: rig.post(f"/api/controllers/{segment(a['controller'])}/manual"),
     ),
     Tool(
-        "set_reference",
-        "Move a regulating controller's target without changing anything else.",
+        "set_setpoint",
+        "Move a controller's setpoint without changing anything else.",
         _object(
-            {"target": TARGET, "at": AT, "start": _any("Where a generator starts from.")},
-            "target",
+            {"controller": CONTROLLER, "at": AT, "start": _any("Where a generator starts from.")},
+            "controller",
             "at",
         ),
         Tier.DRIVE,
         lambda rig, a: rig.put(
-            f"/api/controllers/{a['target']}/reference",
-            {k: v for k, v in a.items() if k != "target"},
+            f"/api/controllers/{segment(a['controller'])}/setpoint",
+            {k: v for k, v in a.items() if k != "controller"},
         ),
     ),
     Tool(
         "make_controller",
-        "Make a controller: a writable signal to drive, a signal to regulate, and a law.",
+        "Make a controller: a demand to drive (its output), a signal to regulate (its measured "
+        "signal), and a law.",
         _object(
             {
-                "target": TARGET,
-                "source": _str("The signal to regulate."),
-                "law": _any("A tuning's tag or a law config; default the rig's default law."),
-                "feedforward": _any("A feedforward config or tuning tag, if any."),
+                "output": _str("The demand to drive; the controller is named by its address."),
+                "measured": _str("The signal to regulate."),
+                "law": _any("A tuning's name or a law config; default the rig's default law."),
+                "feedforward": _any("A feedforward config or its type, if any."),
             },
-            "target",
-            "source",
+            "output",
+            "measured",
         ),
         Tier.DRIVE,
         lambda rig, a: rig.post("/api/controllers", a),
     ),
     Tool(
         "remove_controller",
-        "Remove a controller; its demand stays where it is.",
-        _object({"target": TARGET}, "target"),
+        "Remove a controller; its output stays where it is.",
+        _object({"controller": CONTROLLER}, "controller"),
         Tier.DRIVE,
-        lambda rig, a: rig.delete(f"/api/controllers/{a['target']}"),
+        lambda rig, a: rig.delete(f"/api/controllers/{segment(a['controller'])}"),
         destructive=True,
     ),
     Tool(
         "apply_tuning",
-        "Put a control-law config on the rig under `tag`, for controllers to use by name.",
+        "Put a control-law config on the rig under `name`, for controllers to use by name.",
         _object(
             {
-                "tag": _str("The tuning's tag."),
-                "law": {"type": "object", "description": "The law config, with its `tag`."},
+                "name": _str("The tuning's name."),
+                "law": {"type": "object", "description": "The law config, with its `type`."},
             },
-            "tag",
+            "name",
             "law",
         ),
         Tier.DRIVE,
-        lambda rig, a: rig.put(f"/api/tunings/{a['tag']}", a["law"]),
+        lambda rig, a: rig.put(f"/api/tunings/{segment(a['name'])}", a["law"]),
     ),
     Tool(
         "run_program",
         "Start a program: a stored one by `name`, or a `document`. Refused while one runs "
-        "unless `interrupt`.",
+        "unless `cancel`.",
         _object({
             "name": _str("A stored program."),
             "document": DOCUMENT,
-            "interrupt": _bool("Stop whatever is running first."),
+            "cancel": _bool("Cancel whatever is running first."),
         }),
         Tier.DRIVE,
         lambda rig, a: rig.post(
-            (f"/api/programs/library/{a['name']}/run" if "name" in a else "/api/programs/run")
-            + _query(interrupt="true" if a.get("interrupt") else None),
+            (
+                f"/api/programs/library/{segment(a['name'])}/run"
+                if "name" in a
+                else "/api/programs/run"
+            )
+            + _query(cancel="true" if a.get("cancel") else None),
             None if "name" in a else a.get("document"),
         ),
         destructive=True,
     ),
     Tool(
-        "interrupt_program",
-        "Stop the running program.",
+        "cancel_program",
+        "Cancel the running program: it ends `cancelled`; outputs are kept.",
         _object(),
         Tier.DRIVE,
-        lambda rig, a: rig.post("/api/programs/interrupt"),
+        lambda rig, a: rig.post("/api/programs/cancel"),
         destructive=True,
     ),
     Tool(
-        "fire",
-        "Answer a wait: the program goes on.",
-        _object({"name": WAIT}, "name"),
+        "fire_activity",
+        "Answer a prompt, or skip what the program is waiting on: the program goes on.",
+        _object({"name": ACTIVITY}, "name"),
         Tier.DRIVE,
-        lambda rig, a: {"fired": rig.fire(a["name"])},
+        lambda rig, a: {"fired": rig.fire_activity(a["name"])},
     ),
     Tool(
-        "interrupt_wait",
-        "Cancel a wait: the program is interrupted.",
-        _object({"name": WAIT}, "name"),
+        "cancel_activity",
+        "Cancel what the program is waiting on: the program ends `cancelled`.",
+        _object({"name": ACTIVITY}, "name"),
         Tier.DRIVE,
-        lambda rig, a: {"interrupted": rig.interrupt(a["name"])},
+        lambda rig, a: {"cancelled": rig.cancel_activity(a["name"])},
         destructive=True,
     ),
     Tool(
@@ -767,12 +796,13 @@ DRIVE: tuple[Tool, ...] = (
         "Restart a device's polling after a fault.",
         _object({"name": NAME}, "name"),
         Tier.DRIVE,
-        lambda rig, a: rig.post(f"/api/devices/{a['name']}/restart"),
+        lambda rig, a: rig.post(f"/api/devices/{segment(a['name'])}/restart"),
     ),
     Tool(
         "read",
         "The latest reading of a signal, the sample of a namespace, or every sample of a "
-        "device; with `fresh`, a live device read instead of the last poll.",
+        "device; with `fresh`, a live device read instead of the last poll. A reading with no "
+        "value has `value: null` with its `quality`, `reason`, `last_usable` and `age_s`.",
         _object({"address": ADDRESS, "fresh": FRESH}, "address"),
         Tier.DRIVE,
         lambda rig, a: rig.read(a["address"], bool(a.get("fresh", False))),
@@ -804,18 +834,18 @@ SIM: tuple[Tool, ...] = (
         lambda rig, a: rig.put("/api/sim/clock", {"speed": a["speed"]}),
     ),
     Tool(
-        "sim_step",
+        "sim_advance",
         "Advance a stepped clock by `seconds`.",
         _object({"seconds": _num("", exclusiveMinimum=0)}, "seconds"),
         Tier.DRIVE,
-        lambda rig, a: rig.post("/api/sim/clock/step", {"seconds": a["seconds"]}),
+        lambda rig, a: rig.post("/api/sim/clock/advance", {"seconds": a["seconds"]}),
     ),
     Tool(
         "sim_set_plant",
         "Change some of a plant's parameters while it runs.",
         _object({"name": NAME, "parameters": {"type": "object"}}, "name", "parameters"),
         Tier.DRIVE,
-        lambda rig, a: rig.put(f"/api/sim/plants/{a['name']}", a["parameters"]),
+        lambda rig, a: rig.put(f"/api/sim/plants/{segment(a['name'])}", a["parameters"]),
     ),
     Tool(
         "sim_reset_plant",
@@ -823,39 +853,44 @@ SIM: tuple[Tool, ...] = (
         _object({"name": NAME, "output": _num(""), "input": _num("")}, "name"),
         Tier.DRIVE,
         lambda rig, a: rig.post(
-            f"/api/sim/plants/{a['name']}/reset",
+            f"/api/sim/plants/{segment(a['name'])}/reset",
             {k: a.get(k) for k in ("output", "input")},
         ),
     ),
 )
 
 
-def _command(name: str, tag: str) -> Run:
-    return lambda rig, a: rig.devices[name].run(tag, **a)
+def _command(name: str, command: str) -> Run:
+    return lambda rig, a: rig.devices[name].run(command, **a)
 
 
 def _device_tools(rig: Rig, simulated: bool) -> list[Tool]:
     """One tool per device command, `<device>-<command>`, from the rig's schema."""
     tools = []
     for name, device in rig.schema["devices"].items():
-        for tag, spec in device["commands"].items():
+        for command, spec in device["commands"].items():
             if spec.get("simulation") and not simulated:
                 continue
             notes = []
             if spec.get("mode") is not None:
                 notes.append(f"Puts the device in mode `{spec['mode']}`.")
             if spec.get("interrupts"):
-                notes.append("A controller driving this device goes to manual first.")
+                notes.append(
+                    "A controller driving this device goes to manual once the command"
+                    " succeeds; the result's `interrupted` names it."
+                )
+            elif spec.get("mode") is not None or spec.get("writes"):
+                notes.append("Refused while a controller drives this device.")
             if spec.get("simulation"):
                 notes.append("A simulation-only command.")
-            description = " ".join([spec.get("description") or f"{name}.{tag}", *notes])
+            description = " ".join([spec.get("description") or f"{name}.{command}", *notes])
             tools.append(
                 Tool(
-                    f"{name}-{tag}",
+                    f"{name}-{command}",
                     f"[{device.get('label') or name}] {description}",
                     spec["arguments"],
                     Tier.DRIVE,
-                    _command(name, tag),
+                    _command(name, command),
                     destructive=bool(spec.get("interrupts")),
                 )
             )
@@ -867,7 +902,8 @@ def _device_tools(rig: Rig, simulated: bool) -> list[Tool]:
 #
 # Most instruments need no code: the generic `scpi` and `modbus` drivers take
 # their signals from the rig-file entry. `probe_hardware` and `link_query`
-# find out what is there; `attach_device` puts an entry on the running rig.
+# find out what is there; `attach_device` adds an entry to the rig (saved, and the rig
+# restarted with it: D-051).
 # Equipment that needs code gets the guide, a scaffold, a checker that
 # imports the file where this server runs, and `reload_drivers` for a
 # directory the runner loads from. A tool whose route the runner does not
@@ -875,6 +911,19 @@ def _device_tools(rig: Rig, simulated: bool) -> list[Tool]:
 # `--compose` opt-in: without it the attach tools are refused with 409.
 
 GUIDES = Path(__file__).parent / "guides"
+
+_RESTARTS = (
+    "Saved as a new rig version, then the rig is stopped (outputs to their stop states, any "
+    "program cancelled) and the runner restarts from that version: controllers come back in "
+    "manual, and a recording goes on in a new session. The result names the version; the "
+    "runner answers again once it is back. Refused while a program runs unless `force`."
+)
+FORCE = _bool("Cancel a running program to make the change; without it, refused while one runs.")
+
+
+def _forced(a: dict[str, Any]) -> str:
+    return _query(force="true" if a.get("force") else None)
+
 
 _CHECK = """\
 import importlib.util, json, sys
@@ -888,22 +937,22 @@ try:
     module = importlib.util.module_from_spec(spec)
     sys.modules[path.stem] = module
     spec.loader.exec_module(module)
-    tags = sorted(
-        value.config_tag
+    types = sorted(
+        value.type_name
         for value in vars(module).values()
         if isinstance(value, type)
         and issubclass(value, Config)
         and value.__module__ == path.stem
-        and value.config_tag is not None
+        and value.type_name is not None
     )
-    for tag in tags:
+    for type_name in types:
         config = next(
             v for v in vars(module).values()
-            if isinstance(v, type) and issubclass(v, Config) and v.config_tag == tag
+            if isinstance(v, type) and issubclass(v, Config) and v.type_name == type_name
         )
         if not issubclass(config, DriverConfig):
             continue
-        entry = {"tag": tag, "config": config.__name__}
+        entry = {"type": type_name, "config": config.__name__}
         try:
             entry["schema"] = config.model_json_schema()
             generic = [
@@ -918,10 +967,10 @@ try:
                 entry["descriptors"] = sorted(getattr(device, "DESCRIPTORS", {}) or [])
                 entry["commands"] = sorted(getattr(device, "commands", {}) or [])
         except Exception as e:
-            out["errors"].append(f"{tag}: {type(e).__name__}: {e}")
+            out["errors"].append(f"{type_name}: {type(e).__name__}: {e}")
         out["drivers"].append(entry)
     if not out["drivers"]:
-        out["errors"].append("the module registers no DriverConfig subclass with a tag")
+        out["errors"].append("the module registers no DriverConfig subclass with a type")
     out["ok"] = not out["errors"]
 except Exception as e:
     out["errors"].append(f"{type(e).__name__}: {e}")
@@ -955,7 +1004,7 @@ def _search_drivers(rig: Rig, a: dict[str, Any]) -> Any:
         raise SchemaError(f"search_drivers: {script} is not a file here")
     flags = ["--json"]
     for key in (
-        "tag",
+        "type",
         "category",
         "interface",
         "tier",
@@ -993,7 +1042,7 @@ DRIVERS: tuple[Tool, ...] = (
     Tool(
         "driver_guide",
         "How to write a device driver for this rig: descriptors, read and commit, commands, "
-        "the config that registers a tag, links, and how a driver is checked and attached. "
+        "the config that registers a type, links, and how a driver is checked and attached. "
         "Read before writing one; most instruments need only a config entry, which it says.",
         _object(),
         Tier.READ,
@@ -1001,20 +1050,21 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "driver_scaffold",
-        "A complete starting module for a driver called `name`: it imports, registers the tag "
+        "A complete starting module for a driver called `name`: it imports, registers the type "
         "and works in a rig file before a line is changed. What `flyball new NAME` writes.",
-        _object({"name": _str("The driver's tag; a Python identifier is made from it.")}, "name"),
+        _object({"name": _str("The driver's type; a Python identifier is made from it.")}, "name"),
         Tier.READ,
         _scaffold,
     ),
     Tool(
         "check_driver",
         "Import a driver module from a file on the machine this server runs on, in a fresh "
-        "interpreter, and report: the tags it registers, each config's schema, the device's "
+        "interpreter, and report: the types it registers, each config's schema, the device's "
         "signals and commands, or what went wrong. Runs the file's top level.",
         _object({"path": _str("The module's path, where this server runs.")}, "path"),
         Tier.DRIVE,
         _check_driver,
+        host_code=True,
     ),
     Tool(
         "search_drivers",
@@ -1022,13 +1072,13 @@ DRIVERS: tuple[Tool, ...] = (
         "verification status, price, which rig leads it serves, and (introspected from the "
         "code, not hand-maintained) each signal's real unit and physical dimension. For "
         "choosing what to buy or wire up before a driver exists, not for a running rig's own "
-        "tags -- that's `list_drivers`. Runs `<linux_dir>/scripts/search_drivers.py` in that "
+        "types -- that's `list_drivers`. Runs `<linux_dir>/scripts/search_drivers.py` in that "
         "checkout's own environment on the machine this server runs on, so it is a drive-tier "
         "tool like `check_driver`: it executes what it finds there.",
         _object(
             {
                 "linux_dir": _str("The `linux/` checkout's path, where this server runs."),
-                "tag": _str("Substring match on the driver tag."),
+                "type": _str("Substring match on the driver type."),
                 "category": _str("Exact match, e.g. humidity, gas, liquid, weight, actuator."),
                 "interface": _str("Exact match, e.g. i2c_bespoke, uart, analog_adc, gpio."),
                 "tier": _str("config_only, generic_link, or bespoke_driver."),
@@ -1044,10 +1094,11 @@ DRIVERS: tuple[Tool, ...] = (
         Tier.DRIVE,
         _search_drivers,
         output_schema=_list_of("drivers", "Matching catalogue entries."),
+        host_code=True,
     ),
     Tool(
         "list_drivers",
-        "Every tag the runner can build -- drivers and links -- with its config schema, "
+        "Every type the runner can build -- drivers and links -- with its config schema, "
         "description and the module it came from.",
         _object(),
         Tier.READ,
@@ -1057,7 +1108,7 @@ DRIVERS: tuple[Tool, ...] = (
     Tool(
         "reload_drivers",
         "Import (again) every module in the runner's drivers directory, so a new or edited "
-        "driver's tag can be attached; devices already built keep their old class. Runs "
+        "driver's type can be attached; devices already built keep their old class. Runs "
         "those files' top level. Returns what each file registered and any import error.",
         _object(),
         Tier.DRIVE,
@@ -1072,8 +1123,8 @@ DRIVERS: tuple[Tool, ...] = (
         "transaction: some devices mind), which this tier cannot do.",
         _object(),
         Tier.READ,
-        lambda rig, a: rig.get("/api/probe" + _query(scan="false")),
-        route=("get", "/api/probe"),
+        lambda rig, a: rig.post("/api/probe" + _query(scan="false")),
+        route=("post", "/api/probe"),
     ),
     Tool(
         "probe_hardware",
@@ -1082,8 +1133,8 @@ DRIVERS: tuple[Tool, ...] = (
         "mind).",
         _object({"scan": _bool("Scan the I2C buses.")}),
         Tier.DRIVE,
-        lambda rig, a: rig.get("/api/probe" + _query(scan=str(bool(a.get("scan"))).lower())),
-        route=("get", "/api/probe"),
+        lambda rig, a: rig.post("/api/probe" + _query(scan=str(bool(a.get("scan"))).lower())),
+        route=("post", "/api/probe"),
     ),
     Tool(
         "link_query",
@@ -1095,73 +1146,77 @@ DRIVERS: tuple[Tool, ...] = (
             "text",
         ),
         Tier.DRIVE,
-        lambda rig, a: rig.post(f"/api/links/{a['link']}/query", {"text": a["text"]}),
+        lambda rig, a: rig.post(f"/api/links/{segment(a['link'])}/query", {"text": a["text"]}),
         route=("post", "/api/links/{name}/query"),
     ),
     Tool(
         "attach_device",
-        "Build a device from a rig-file entry and add it to the running rig, its links "
-        "resolved; `check_rig` the whole file first. `save_rig` keeps it. On a hardware rig "
-        "only when the runner runs with `--compose`.",
+        "Add a device, from a rig-file entry, to the rig. " + _RESTARTS + " `check_rig` the "
+        "whole file first. On a hardware rig only when the runner runs with `--compose`.",
         _object(
             {
                 "name": NAME,
                 "entry": {
                     "type": "object",
                     "description": "The device entry: `driver`, optional `label`, `poll_s`, "
-                    "`signals`, `bound`, and the driver's own settings flat or under `config`.",
+                    "`signals`, `inputs`, and the driver's own fields flat beside them.",
                 },
+                "force": FORCE,
             },
             "name",
             "entry",
         ),
         Tier.DRIVE,
-        lambda rig, a: rig.post("/api/devices", {"name": a["name"], **a["entry"]}),
+        lambda rig, a: rig.post("/api/devices" + _forced(a), {"name": a["name"], **a["entry"]}),
         route=("post", "/api/devices"),
         changes_tools=True,
     ),
     Tool(
         "detach_device",
-        "Stop and remove a device from the running rig; its controllers go with it.",
-        _object({"name": NAME}, "name"),
+        "Remove a device from the rig; its controllers go with it. " + _RESTARTS,
+        _object({"name": NAME, "force": FORCE}, "name"),
         Tier.DRIVE,
-        lambda rig, a: rig.delete(f"/api/devices/{a['name']}"),
+        lambda rig, a: rig.delete(f"/api/devices/{segment(a['name'])}" + _forced(a)),
         route=("delete", "/api/devices/{name}"),
         destructive=True,
         changes_tools=True,
     ),
     Tool(
         "attach_link",
-        "Build a transport on the running rig and hold it under `name`, for devices to be "
-        "built on: the rig file's `links:` entry (`tag`, its settings). On a hardware rig only "
+        "Add a transport to the rig under `name`, for devices to be built on: the rig file's "
+        "`links:` entry (`type`, its settings). " + _RESTARTS + " On a hardware rig only "
         "when the runner runs with `--compose`.",
         _object(
-            {"name": NAME, "config": {"type": "object", "description": "The link config."}},
+            {
+                "name": NAME,
+                "config": {"type": "object", "description": "The link config."},
+                "force": FORCE,
+            },
             "name",
             "config",
         ),
         Tier.DRIVE,
-        lambda rig, a: rig.post("/api/links", {"name": a["name"], **a["config"]}),
+        lambda rig, a: rig.post("/api/links" + _forced(a), {"name": a["name"], **a["config"]}),
         route=("post", "/api/links"),
     ),
     Tool(
         "detach_link",
-        "Drop a link no device is built on.",
-        _object({"name": NAME}, "name"),
+        "Remove a link no device is built on. " + _RESTARTS,
+        _object({"name": NAME, "force": FORCE}, "name"),
         Tier.DRIVE,
-        lambda rig, a: rig.delete(f"/api/links/{a['name']}"),
+        lambda rig, a: rig.delete(f"/api/links/{segment(a['name'])}" + _forced(a)),
         route=("delete", "/api/links/{name}"),
         destructive=True,
     ),
     Tool(
         "attach_document",
-        "Add a whole rig document -- `links`, `devices`, `controllers` -- to the running rig, "
-        "in that order; the way to build a rig from nothing. Validated whole before anything "
-        "is built; a failure part-way leaves what was built before it. `check_rig` first. On a "
-        "hardware rig only when the runner runs with `--compose`.",
-        _object({"document": DOCUMENT}, "document"),
+        "Add a whole rig document -- `links`, `devices`, `controllers` -- to the rig; the way "
+        "to build a rig from nothing. Validated whole, with the rig it joins, before anything "
+        "is saved. " + _RESTARTS + " `check_rig` first. On a hardware rig only when the runner "
+        "runs with `--compose`.",
+        _object({"document": DOCUMENT, "force": FORCE}, "document"),
         Tier.DRIVE,
-        lambda rig, a: rig.post("/api/rig", a["document"]),
+        lambda rig, a: rig.post("/api/rig" + _forced(a), a["document"]),
         route=("post", "/api/rig"),
         changes_tools=True,
     ),
@@ -1177,7 +1232,8 @@ DRIVERS: tuple[Tool, ...] = (
     Tool(
         "rig_changes",
         "What differs between the running rig and the files it was loaded from, as an overlay: "
-        "added or changed keys with their values, removed ones as null.",
+        "added or changed keys with their values, removed ones as null. An edit restarts the "
+        "rig, so only a controller added or removed since the start shows.",
         _object(),
         Tier.READ,
         lambda rig, a: rig.get("/api/rig/changes"),
@@ -1185,8 +1241,9 @@ DRIVERS: tuple[Tool, ...] = (
     ),
     Tool(
         "rig_versions",
-        "Every change made to the running rig through the API, newest first, with its reason; "
-        "`rig_version` for one's document, `restore_rig_version` to go back.",
+        "Every version of the rig, newest first, with its reason (a start, an edit, a "
+        "restore); the `head` is what the rig runs. `rig_version` for one's document, "
+        "`restore_rig_version` to go back.",
         _object({"limit": _int("At most this many.", minimum=1)}),
         Tier.READ,
         lambda rig, a: {"versions": rig.get("/api/rig/versions" + _query(limit=a.get("limit")))},
@@ -1198,25 +1255,28 @@ DRIVERS: tuple[Tool, ...] = (
         "One recorded rig version, with its whole document.",
         _object({"version_id": _int("From `rig_versions`.")}, "version_id"),
         Tier.READ,
-        lambda rig, a: rig.get(f"/api/rig/versions/{a['version_id']}"),
+        lambda rig, a: rig.get(f"/api/rig/versions/{segment(a['version_id'])}"),
         route=("get", "/api/rig/versions/{version_id}"),
     ),
     Tool(
         "restore_rig_version",
-        "Make the running rig match a recorded version: what is absent is removed, what is "
-        "missing is added, a changed device is rebuilt, controllers re-attached.",
-        _object({"version_id": _int("From `rig_versions`.")}, "version_id"),
+        "Make the rig a recorded version again, whole: saved as a new version (`restored "
+        "from N`). Not applied in place: " + _RESTARTS[0].lower() + _RESTARTS[1:],
+        _object({"version_id": _int("From `rig_versions`."), "force": FORCE}, "version_id"),
         Tier.DRIVE,
-        lambda rig, a: rig.post(f"/api/rig/versions/{a['version_id']}/restore"),
+        lambda rig, a: rig.post(
+            f"/api/rig/versions/{segment(a['version_id'])}/restore" + _forced(a)
+        ),
         route=("post", "/api/rig/versions/{version_id}/restore"),
         destructive=True,
         changes_tools=True,
     ),
     Tool(
         "save_rig",
-        "Write the running rig out. No `path`: what changed since the files were loaded, to "
-        "an overlay beside the rig file the runner loads next start. A `path`: the whole rig "
-        "to that file (`overwrite` to flatten onto one it was loaded from).",
+        "Write the running rig out; an edit already saved itself. No `path`: what changed "
+        "since the files were loaded (a controller added or removed), to the overlay beside "
+        "the rig file the runner loads next start. A `path`: the whole rig to that file "
+        "(`overwrite` to flatten onto one it was loaded from, which clears the overlay).",
         _object({
             "path": _str("Where to write; a .yaml, .toml or .json."),
             "overwrite": _bool("Allow `path` to be a file the rig was loaded from."),
@@ -1240,8 +1300,11 @@ def _served(rig: Rig) -> set[tuple[str, str]]:
 # endregion
 
 
-def tools_for(rig: Rig, mode: str) -> list[Tool]:
+def tools_for(rig: Rig, mode: str, *, host_code: bool = True) -> list[Tool]:
     """Every tool the mode allows, fixed ones first, then the rig's own commands.
+
+    `host_code=False` leaves out the tools that run code on this server's machine
+    (`Tool.host_code`): the runner's HTTP MCP, where that machine is the rig's host.
 
     A name defined at more than one tier -- `read`, `read_many` and `probe_hardware`
     each have a plain form at `read` and a full-power form, with `fresh`/`scan`, at
@@ -1252,6 +1315,8 @@ def tools_for(rig: Rig, mode: str) -> list[Tool]:
     served = _served(rig)
     by_name: dict[str, Tool] = {}
     for t in (*READ, *AUTHOR, *DRIVE, *DRIVERS):
+        if t.host_code and not host_code:
+            continue
         if t.tier <= tier and (t.route is None or t.route in served):
             by_name[t.name] = t
     tools = list(by_name.values())

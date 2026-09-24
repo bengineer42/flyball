@@ -23,9 +23,11 @@ def test_fake_i2c_registers_and_raw_replies():
         bus.read_register(0x50, 0, 1)
 
 
-def test_fake_spi_pads_and_scripts():
+def test_fake_spi_scripts_exact_lengths():
     spi = FakeSpi([[0, 1, 2]])
     assert spi.transfer([1, 0x80, 0]) == b"\x00\x01\x02"
+    with pytest.raises(OSError):
+        spi.transfer([1, 0x80, 0, 0])
     echo = FakeSpi(lambda sent: [b ^ 0xFF for b in sent])
     assert echo.transfer([0x0F]) == b"\xf0"
     assert FakeSpi().transfer([9, 9]) == b"\x00\x00"
@@ -57,7 +59,12 @@ def test_sysfs_pwm_exports_and_orders_writes(tmp_path):
     chip.mkdir()
     (chip / "export").write_text("")
     pwm = SysfsPwm(0, tmp_path)
-    (chip / "pwm1").mkdir()  # the kernel creates this on export; here it exists already
+    # the kernel creates the dir and its period/duty_cycle/enable files together on
+    # export (drivers/pwm/core.c); here they exist already, `enable` writable at once
+    (chip / "pwm1").mkdir()
+    (chip / "pwm1" / "period").write_text("0")
+    (chip / "pwm1" / "duty_cycle").write_text("0")
+    (chip / "pwm1" / "enable").write_text("0")
     pwm.configure(1, 1_000_000, 500_000)
     assert (chip / "export").read_text() == ""
     assert (chip / "pwm1" / "period").read_text() == "1000000"
@@ -79,11 +86,11 @@ def test_fake_onewire_serves_texts_in_turn():
         bus.read("28-9")
 
 
-@pytest.mark.parametrize("tag", ["fake_i2c", "fake_spi", "fake_gpio", "fake_pwm", "fake_onewire"])
-def test_every_fake_has_a_tag_that_builds(tag):
-    assert get_catalog().links[tag]().build() is not None
+@pytest.mark.parametrize("name", ["fake_i2c", "fake_spi", "fake_gpio", "fake_pwm", "fake_onewire"])
+def test_every_fake_has_a_type_that_builds(name):
+    assert get_catalog().links[name]().build() is not None
 
 
-@pytest.mark.parametrize("tag", ["i2c", "spi", "gpio", "pwm", "onewire"])
-def test_every_real_link_has_a_tag(tag):
-    assert get_catalog().links[tag].config_tag == tag
+@pytest.mark.parametrize("name", ["i2c", "spi", "gpio", "pwm", "onewire"])
+def test_every_real_link_has_a_type(name):
+    assert get_catalog().links[name].type_name == name

@@ -24,11 +24,13 @@ the motor coils) is switched on for the duration of a move and off afterwards, s
 does not sit energised -- and drawing current -- between moves. It is skipped when not
 configured; a driver IC wired enable-always-low needs no line here.
 
-`move(steps)` is synchronous, like `dosing_pump.dispense`: it clocks out `abs(steps)` pulses
-at `steps_per_s`, blocking the caller, and mirrors that module's `finally`-based safety
-guarantee -- whatever happens mid-move (an interrupted sleep, a hardware error from the
-underlying link), the enable line is always switched back off and the direction line is left
-at whatever it was last driven to, never half-toggled.
+`move(steps)` is a long command, like `dosing_pump.dispense`: it clocks out `abs(steps)`
+pulses at `steps_per_s`, blocking its caller, off the rig lock. The gaps between pulses are
+waited on `Device.wait`, in the rig's time, so `stop` (which calls `Device.cancel`) ends the
+move after the pulse in progress. It mirrors that module's `finally`-based safety guarantee
+-- whatever happens mid-move (a stop, a hardware error from the underlying link), the enable
+line is always switched back off and the direction line is left at whatever it was last
+driven to, never half-toggled. The pulse width itself is real time: it is the driver IC's.
 
 `steps_per_unit` is an optional calibration constant (steps per degree, steps per mm of
 linear travel) so `move()` can be called in the rig's own engineering unit instead of raw
@@ -38,8 +40,8 @@ steps; a plain `move(steps=200)` still works with no calibration configured.
 declared `[R]`, not `[RP]`: it is an internal detail of the move command (like a stepper's own
 phase state), not a quantity a rig author normally wants trended on a dashboard or written to
 the recorder by default. It stays readable on demand for debugging, but is not published on
-schedule. A rig's `signals:` override can only *narrow* a driver's declared access (see
-`flyball.foundation.device._override_signal`, which only clears flags via `Signal.restrict` and
+schedule. A rig's `signals:` metadata can only *narrow* a driver's declared access (see
+`flyball.foundation.device._set_signal_meta`, which only clears flags via `Signal.restrict` and
 never sets them) -- so turning `position` into a recorded `[RP]` signal is not something a
 rig file can do; it needs a driver code change.
 """
@@ -123,7 +125,7 @@ class Stepper(Readable, Committable):
                 name="position",
                 quantity=POSITION,
                 access=Access.R,
-                role=Role.OUTPUT,
+                role=Role.READOUT,
                 precision=0,
                 initial=0.0,
             ),
@@ -162,13 +164,15 @@ class Stepper(Readable, Committable):
             time.sleep(self.pulse_width_s)
         self.link.set(self.step_line, False)
 
-    @command
+    @command(long=True)
     def move(self, steps: float) -> None:
         """Move `steps` steps (negative reverses direction), or units if `steps_per_unit` is set.
 
-        Direction is set once, then `abs(count)` pulses are clocked at `steps_per_s`. The
-        enable line (if configured) is always switched back off afterwards, and direction is
-        always left at whatever it was last set to -- even if a pulse mid-move raises.
+        Direction is set once, then `abs(count)` pulses are clocked at `steps_per_s`. A
+        `stop` ends the move after the pulse in progress; `position` counts the pulses
+        sent. The enable line (if configured) is always switched back off afterwards, and
+        direction is always left at whatever it was last set to -- even if a pulse mid-move
+        raises.
         """
         count = round(steps if self.steps_per_unit is None else steps * self.steps_per_unit)
         if count == 0:
@@ -182,18 +186,23 @@ class Stepper(Readable, Committable):
             for i in range(n):
                 self._pulse()
                 self._position += 1 if forward else -1
-                if i < n - 1:
-                    time.sleep(max(0.0, interval_s - self.pulse_width_s))
+                if i < n - 1 and self.wait(max(0.0, interval_s - self.pulse_width_s)):
+                    break  # stopped
         finally:
             self._enable(False)
 
-    @command
+    @command(stops=True)
     def stop(self) -> None:
-        """Release the enable line immediately; direction and position are left as they are."""
+        """End a move in progress and release the enable line; direction and position stay.
+
+        The device's stop: a rig stop runs it. Without an `enable_line` it only ends the
+        move -- the coils stay as they were.
+        """
+        self.cancel()
         self._enable(False)
 
 
-class StepperConfig(DriverConfig[Stepper], tag="stepper"):
+class StepperConfig(DriverConfig[Stepper], type="stepper"):
     """`driver: stepper`: `{ link, step_line, direction_line, steps_per_s }`.
 
     `enable_line` (optional) is driven active for the duration of a move and released

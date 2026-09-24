@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from fastapi.testclient import TestClient
 
-from conftest import FakeRunner
+from conftest import FakeRunner, TestClient
 from flyball.control import PI
 from flyball.foundation.device import Access, Committable, Node, Readable, Role, Sample, SignalSpec
 from flyball.foundation.quantities import Quantity
@@ -193,7 +192,7 @@ def test_keep_range_is_a_closed_copy_rebased_to_its_start(rig, oven, clock, stor
     scratch_id = rig.recorder.writer.session.id
     feed(rig, oven, clock, 10)
     clock.advance(0.5)
-    rig.demand(oven.root, {"heater": 40.0})
+    rig.write(oven.root, {"heater": 40.0})
     rig.recorder.flush()
     rig.recorder.writer.write_event(Event(int(6.5 * S), "note", "x", "kept"))
     kept = store.keep_range(scratch_id, 3 * S, 8 * S, details={"name": "the middle"})
@@ -561,3 +560,77 @@ def test_include_ns_without_scratch_starts_now(rig, oven, clock, tmp_path):
 
 
 # endregion
+
+
+def test_flushes_from_two_threads_write_one_after_the_other():
+    """A manual flush while the writer thread flushes: the store is never entered twice at once.
+
+    The store's per-device `seq` is a read-modify-write, so overlapping writes could
+    give two rows the same one.
+    """
+    import threading
+    from types import SimpleNamespace
+
+    from flyball.foundation.device import Event as RigEvent
+    from flyball.foundation.device import Severity
+    from flyball.runtime.recorder import Recorder
+
+    first_inside = threading.Event()
+    second_inside = threading.Event()
+    release = threading.Event()
+
+    class Writer:
+        """Holds the first write open, and notes a second write arriving while it is."""
+
+        session = SimpleNamespace(start_ns=0)
+
+        def __init__(self) -> None:
+            self.inside = 0
+            self.overlapped = False
+            self.written: list[str] = []
+
+        def declare_device(self, device) -> None: ...
+
+        def declare_signal(self, signal) -> None: ...
+
+        def declare_controller(self, controller) -> None: ...
+
+        def end(self, end_ns: int) -> None: ...
+
+        def write_event(self, row) -> None:
+            self.inside += 1
+            try:
+                if self.inside > 1:
+                    self.overlapped = True
+                    second_inside.set()
+                if not first_inside.is_set():
+                    first_inside.set()
+                    assert release.wait(5), "the test never released the first write"
+                self.written.append(row.code)
+            finally:
+                self.inside -= 1
+
+    def note(kind: str) -> RigEvent:
+        return RigEvent(1, Severity.INFO, "rig", "rig", kind, kind)
+
+    writer = Writer()
+    recorder = Recorder(writer, (), flush_s=3600)  # type: ignore[arg-type]  # never flushes itself
+    try:
+        recorder.event(note("first"))
+        one = threading.Thread(target=recorder.flush, daemon=True)
+        one.start()
+        assert first_inside.wait(5)
+        recorder.event(note("second"))
+        two = threading.Thread(target=recorder.flush, daemon=True)
+        two.start()
+        # Proving a second write stays out takes a bounded wait; one that got in is seen at once.
+        second_inside.wait(0.5)
+        release.set()
+        one.join(5)
+        two.join(5)
+        assert not one.is_alive() and not two.is_alive()
+        assert not writer.overlapped, "the second flush entered the store during the first"
+        assert writer.written == ["first", "second"]
+    finally:
+        release.set()
+        recorder.close(2)

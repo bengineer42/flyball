@@ -29,6 +29,7 @@ def make_stepper(
         steps_per_unit=steps_per_unit,
         pulse_width_s=pulse_width_s,
     )
+    monkeypatch.setattr(motor, "wait", lambda s: slept.append(s))  # between pulses, not run
     return motor, chip, slept
 
 

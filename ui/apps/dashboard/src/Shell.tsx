@@ -1,225 +1,120 @@
-import { useState, type ReactNode } from "react";
-import {
-  AppBar,
-  Badge,
-  Box,
-  Collapse,
-  Drawer,
-  IconButton,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Toolbar,
-  Tooltip,
-  Typography,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
-import MenuIcon from "@mui/icons-material/Menu";
-import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
-import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
-import { PAGES, hashFor, type Page } from "./router.js";
-import { PAGE_ICONS } from "./icons.js";
-import { useColorMode } from "./theme.js";
+import { useEffect, useRef, type ReactNode } from "react";
+import { AppBar, Box, IconButton, Toolbar, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
+import HomeOutlinedIcon from "@mui/icons-material/HomeOutlined";
+import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
+import { hashFor, type Page } from "./router.js";
 
 export interface ShellProps {
   page: Page;
-  onNavigate(page: Page): void;
   title: string;
+  /** The status chips: conditions, recording, program, server, sim. On a phone they get a row of their own and wrap. */
   status: ReactNode;
-  /** Show the Simulation page in the navigation (`/api/sim` says the rig is simulated). */
-  simulated?: boolean;
+  /** The software stop. Its slot keeps its width whether or not the viewer may operate, so signing in never shifts the bar. */
+  stop?: ReactNode;
+  /** Who is signed in, and the way to sign in or out. */
+  account?: ReactNode;
   /**
-   * Left-of-centre in the app bar, after the page title: the dashboard
-   * switcher ("Overview ▾" + this rig's dashboards + "Manage…", spec §2).
-   * The dashboards-engine agent fills this in from `Dashboards.tsx`; empty here on purpose.
+   * The dashboards' tabs, on the dashboards page: in the bar after the title on a wide screen, on
+   * a second row of their own on a phone.
    */
   startSlot?: ReactNode;
-  /** The rig's devices, for the Devices entry to open into: each a direct link to its page. */
-  devices?: ReadonlyArray<{ name: string; label?: string | null }>;
-  /** The thing the current page shows (a device's name on its page), so its entry reads as current. */
-  current?: string | null;
-  /** Unread WARNING+ event count (`useUnreadEvents`), shown as a badge on the Events entry. */
-  eventsUnread?: number;
   children: ReactNode;
 }
 
-const DRAWER_W = 196;
-const MINI_W = 56;
-
-function Nav({ page, mini, simulated, devices = [], current = null, eventsUnread = 0, onNavigate }: { page: Page; mini: boolean; simulated: boolean; devices?: ReadonlyArray<{ name: string; label?: string | null }>; current?: string | null; eventsUnread?: number; onNavigate(p: Page): void }) {
-  // The Devices entry opens into one link per device; open while a device page is showing, or when asked.
-  const [devicesOpen, setDevicesOpen] = useState<boolean | null>(null);
-  const showDevices = !mini && devices.length > 0 && (devicesOpen ?? page === "devices");
-  return (
-    <List dense disablePadding sx={{ pt: 1 }}>
-      {PAGES.filter((p) => p.id !== "simulation" || simulated).map((p) => {
-        const Icon = PAGE_ICONS[p.id];
-        const expandable = p.id === "devices" && !mini && devices.length > 0;
-        const item = (
-          <ListItemButton
-            key={p.id}
-            component="a"
-            href={hashFor(p.id)}
-            selected={p.id === page}
-            aria-current={p.id === page ? "page" : undefined}
-            onClick={(e: React.MouseEvent) => {
-              e.preventDefault();
-              onNavigate(p.id);
-            }}
-            sx={{
-              px: mini ? 0 : 2,
-              justifyContent: mini ? "center" : "flex-start",
-              borderLeft: 3,
-              borderLeftColor: p.id === page ? "primary.main" : "transparent",
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: mini ? 0 : 36, color: p.id === page ? "primary.main" : "inherit" }}>
-              {p.id === "events" && eventsUnread > 0 ? (
-                <Badge badgeContent={eventsUnread} max={99} color="warning" data-testid="events-nav-badge">
-                  <Icon fontSize="small" />
-                </Badge>
-              ) : (
-                <Icon fontSize="small" />
-              )}
-            </ListItemIcon>
-            {!mini && <ListItemText primary={p.label} />}
-            {expandable && (
-              <IconButton
-                size="small"
-                edge="end"
-                aria-label={showDevices ? "hide the devices" : "show the devices"}
-                aria-expanded={showDevices}
-                onClick={(e: React.MouseEvent) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setDevicesOpen(!showDevices);
-                }}
-                sx={{ mr: -1 }}
-              >
-                {showDevices ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-              </IconButton>
-            )}
-          </ListItemButton>
-        );
-        const entry = mini ? (
-          <Tooltip key={p.id} title={p.label} placement="right">
-            {item}
-          </Tooltip>
-        ) : (
-          item
-        );
-        if (!expandable) return entry;
-        return (
-          <li key={p.id} style={{ listStyle: "none" }}>
-            {entry}
-            <Collapse in={showDevices} unmountOnExit>
-              <List dense disablePadding aria-label="devices">
-                {devices.map((d) => {
-                  const here = page === "devices" && current === d.name;
-                  return (
-                    <ListItemButton
-                      key={d.name}
-                      component="a"
-                      href={hashFor("devices", d.name)}
-                      selected={here}
-                      aria-current={here ? "page" : undefined}
-                      onClick={(e: React.MouseEvent) => {
-                        e.preventDefault();
-                        window.location.hash = hashFor("devices", d.name);
-                      }}
-                      sx={{ pl: 4.25, pr: 1.5, py: 0.25, borderLeft: 3, borderLeftColor: here ? "primary.main" : "transparent" }}
-                      title={d.name}
-                    >
-                      <ListItemText primary={d.label ?? d.name} primaryTypographyProps={{ noWrap: true, fontSize: "0.8rem" }} />
-                    </ListItemButton>
-                  );
-                })}
-              </List>
-            </Collapse>
-          </li>
-        );
-      })}
-    </List>
-  );
-}
+/** Wide enough for the "Software stop" button (122 px measured, small outlined with its icon, at 1440, 800 and 400 px): the empty slot is the same size. */
+export const STOP_SLOT_W = 132;
 
 /**
- * App bar with the page title, stream status and the theme toggle; a permanent
- * drawer that shrinks to icons on narrow screens and becomes a temporary
- * drawer on phones.
+ * The app frame: one app bar and the page (D-053, no sidebar). The bar holds, left to right, a
+ * home button (back to the dashboards -- the home one, if set -- from any page), the title (the
+ * dashboards' tabs on the dashboards page), the status chips, the stop slot, the account chip and
+ * the gear that opens Options. Every page is reached from here: a dashboard by its tab, Events /
+ * Sessions / Programs / Simulation by their chips, the rest from Options.
  */
-export function Shell({ page, onNavigate, title, status, simulated = false, startSlot, devices, current, eventsUnread = 0, children }: ShellProps) {
+export function Shell({ page, title, status, stop, account, startSlot, children }: ShellProps) {
   const theme = useTheme();
   const phone = useMediaQuery(theme.breakpoints.down("sm"));
-  const mini = useMediaQuery(theme.breakpoints.between("sm", "md"));
-  const [open, setOpen] = useState(false);
-  const { mode, toggle } = useColorMode();
-  const width = phone ? 0 : mini ? MINI_W : DRAWER_W;
-
-  const brand = (
-    <Toolbar variant="dense" sx={{ px: mini ? 0 : 2, justifyContent: mini ? "center" : "flex-start" }}>
-      <Typography variant="h1" component="div" sx={{ fontWeight: 700, letterSpacing: "0.02em" }}>
-        {mini ? "fb" : "flyball"}
-      </Typography>
-    </Toolbar>
-  );
-
+  const tabs = startSlot ?? null;
+  const onDashboards = page === "dashboards" && tabs !== null;
+  // The bar's height varies (a phone wraps the chips; the dashboards page adds its tabs), so it is published as
+  // `--fb-bar-h` for whatever sits under it: the sticky page bar, the Graph page's full-height body.
+  const bar = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const publish = () => document.documentElement.style.setProperty("--fb-bar-h", `${el.offsetHeight}px`);
+    publish();
+    if (typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(publish);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh" }}>
-      <AppBar
-        position="fixed"
-        color="inherit"
-        elevation={0}
-        sx={{ borderBottom: 1, borderColor: "divider", width: `calc(100% - ${width}px)`, ml: `${width}px` }}
-      >
+    <Box sx={{ minHeight: "100vh" }}>
+      <AppBar ref={bar} position="sticky" color="inherit" elevation={0} sx={{ borderBottom: 1, borderColor: "divider" }}>
         <Toolbar variant="dense" sx={{ gap: 1.5 }}>
-          {phone && (
-            <IconButton edge="start" aria-label="menu" onClick={() => setOpen(true)}>
-              <MenuIcon />
+          <Tooltip title="Dashboards">
+            <IconButton edge="start" aria-label="dashboards" href={hashFor("dashboards")} color={page === "dashboards" ? "primary" : "default"} data-testid="home-button">
+              <HomeOutlinedIcon fontSize="small" />
             </IconButton>
-          )}
-          <Typography variant="h1" component="h1" noWrap title={typeof title === "string" ? title : undefined} sx={{ flexShrink: 0, minWidth: 0, maxWidth: { xs: "40%", sm: "none" } }}>
+          </Tooltip>
+          <Typography
+            variant="h1"
+            component="h1"
+            noWrap
+            title={title}
+            // On the dashboards page the tabs say which dashboard this is; the heading stays for a screen reader.
+            sx={onDashboards ? visuallyHidden : { flexShrink: 0, minWidth: 0, maxWidth: { xs: "40%", sm: "none" } }}
+          >
             {title}
           </Typography>
-          {startSlot}
-          <Box sx={{ flexGrow: 1 }} />
-          {/* The chips scroll sideways rather than push the toggle off a phone screen. */}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, overflowX: "auto", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" }, "& > *": { flexShrink: 0 } }}>
-            {status}
+          {onDashboards && !phone ? tabs : <Box sx={{ flexGrow: 1 }} />}
+          {!phone && (
+            <Box data-testid="status-chips" sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, flexShrink: 1, py: "4px", overflowX: "auto", "& > *": { flexShrink: 0 } }}>
+              {status}
+            </Box>
+          )}
+          <Box data-testid="stop-slot" sx={{ width: STOP_SLOT_W, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
+            {stop}
           </Box>
-          <Tooltip title={mode === "light" ? "Dark mode" : "Light mode"}>
-            <IconButton edge="end" aria-label="toggle theme" onClick={toggle}>
-              {mode === "light" ? <DarkModeOutlinedIcon fontSize="small" /> : <LightModeOutlinedIcon fontSize="small" />}
+          {account}
+          <Tooltip title="Options: the rig file, appearance, every page">
+            <IconButton edge="end" aria-label="options" href={hashFor("options")} color={page === "options" ? "primary" : "default"} data-testid="options-gear">
+              <SettingsOutlinedIcon fontSize="small" />
             </IconButton>
           </Tooltip>
         </Toolbar>
+        {/* On a phone the chips get a row of their own and wrap, so none is ever out of sight behind a hidden scroll. */}
+        {phone && (
+          <Box data-testid="status-chips" sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1, px: 1, py: "6px", borderTop: 1, borderColor: "divider" }}>
+            {status}
+          </Box>
+        )}
+        {onDashboards && phone && (
+          <Toolbar variant="dense" disableGutters sx={{ px: 1, borderTop: 1, borderColor: "divider" }}>
+            {tabs}
+          </Toolbar>
+        )}
       </AppBar>
 
-      {phone ? (
-        <Drawer open={open} onClose={() => setOpen(false)} PaperProps={{ sx: { width: DRAWER_W } }}>
-          {brand}
-          <Nav page={page} mini={false} simulated={simulated} devices={devices} current={current} eventsUnread={eventsUnread} onNavigate={(p) => { setOpen(false); onNavigate(p); }} />
-        </Drawer>
-      ) : (
-        <Drawer
-          variant="permanent"
-          PaperProps={{ sx: { width, overflowX: "hidden", borderRight: 1, borderColor: "divider" } }}
-          sx={{ width, flexShrink: 0 }}
-        >
-          {brand}
-          <Nav page={page} mini={mini} simulated={simulated} devices={devices} current={current} eventsUnread={eventsUnread} onNavigate={onNavigate} />
-        </Drawer>
-      )}
-
       {/* The page uses the width it has: one gutter on a phone, two on a desktop, capped only where a card row would get absurd. */}
-      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, px: { xs: "16px", md: "24px" }, pb: "24px", maxWidth: 2200 }}>
-        <Toolbar variant="dense" sx={{ mb: "16px" }} />
+      {/* The bar is sticky, so it takes its own height in the flow however many rows it wraps to: no spacer to keep in step. */}
+      <Box component="main" sx={{ minWidth: 0, px: { xs: "16px", md: "24px" }, pt: "16px", pb: "24px", maxWidth: 2200, mx: "auto" }}>
         {children}
       </Box>
     </Box>
   );
 }
+
+/** Off screen, still read: MUI's `visuallyHidden`, inlined to avoid a dependency on `@mui/utils`. */
+const visuallyHidden = {
+  border: 0,
+  clip: "rect(0 0 0 0)",
+  height: "1px",
+  margin: "-1px",
+  overflow: "hidden",
+  padding: 0,
+  position: "absolute",
+  whiteSpace: "nowrap",
+  width: "1px",
+} as const;

@@ -1,8 +1,7 @@
 """`Tuning`: a saved, named `ControlLawConfig`/`ControlLawView`, independent of any one rig.
 
-Moved off `Rig` (`brain/tasks/registry-redesign.md`, 21 Sep -- "Rig should NOT
-own it"): once a rig is "just the runtime instance," a saved/named config
-doesn't belong on it either, any more than a saved program does
+Not owned by `Rig`: a rig is just the runtime instance, and a saved/named
+config doesn't belong on it any more than a saved program does
 (`server/routes/library.py`'s program library is the same shape: saved,
 named, versioned, read by name). Standalone for now -- wiring `Rig`/the
 server to read tunings from here rather than `rig.tunings` is a future pass,
@@ -20,9 +19,9 @@ from flyball.model.law import ControlLaw, ControlLawBuilder, ControlLawConfig, C
 
 @dataclass(slots=True, frozen=True)
 class Tuning:
-    tag: str
+    name: str
     # Serialised by its runtime type: declared as the base, a response would
-    # carry only `tag` and drop every gain the law actually has.
+    # carry only `type` and drop every gain the law actually has.
     config: SerializeAsAny[ControlLawBuilder]
 
     def build(self) -> ControlLaw:
@@ -30,7 +29,7 @@ class Tuning:
 
     @property
     def tuple(self) -> tuple[str, SerializeAsAny[ControlLawBuilder]]:
-        return (self.tag, self.config)
+        return (self.name, self.config)
 
 
 class Tunings:
@@ -38,21 +37,22 @@ class Tunings:
         self._tunings: dict[str, ControlLawBuilder] = {}
         if tunings is not None:
             for tuning in tunings:
-                if tuning.tag in self._tunings:
-                    raise ValueError(f"duplicate tuning tag {tuning.tag!r}")
-                self._tunings[tuning.tag] = tuning.config
+                if tuning.name in self._tunings:
+                    raise ValueError(f"duplicate tuning name {tuning.name!r}")
+                self._tunings[tuning.name] = tuning.config
 
     def add(self, tuning: Tuning) -> None:
-        self._tunings[tuning.tag] = tuning.config
+        self._tunings[tuning.name] = tuning.config
 
-    def get(self, tag: str) -> SerializeAsAny[ControlLawBuilder] | None:
-        return self._tunings.get(tag)
+    def get(self, name: str) -> SerializeAsAny[ControlLawBuilder] | None:
+        return self._tunings.get(name)
 
     def all(self) -> dict[str, ControlLawConfig | ControlLawView]:
         return dict(self._tunings)
 
     def list(self) -> list[Tuning]:
-        return [Tuning(tag=tag, config=config) for tag, config in self._tunings.items()]
+        # A C-level copy first: `add` runs on request threads while this iterates.
+        return [Tuning(name=name, config=config) for name, config in list(self._tunings.items())]
 
 
 def _open_loop_tuning() -> Tuning:

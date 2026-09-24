@@ -21,7 +21,7 @@ import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import { Form as MuiForm } from "@rjsf/mui";
 import { SchemaForm } from "@flyball/react";
 import type { JsonSchema } from "@flyball/client";
-import { argsOf, commandsOf, formShape, fromForm, inOrder, isRareUnit, modifiersOf, newStep, onDeviceChange, retarget, sameValue, splitStep, timeEntries, toForm, withTime, type CommandInfo, type DevicePicks, type ProgramTree, type Step, type TimeField } from "../programDoc.js";
+import { argsOf, commandsOf, enforceWaitTimeSpelling, formShape, fromForm, inOrder, isRareUnit, modifiersOf, newStep, onDeviceChange, retarget, sameValue, splitStep, timeEntries, toForm, withTime, type CommandInfo, type DevicePicks, type ProgramTree, type Step, type TimeField } from "../programDoc.js";
 
 const COMMAND_TYPE = "application/x-flyball-command";
 const STEP_TYPE = "application/x-flyball-step";
@@ -47,7 +47,7 @@ export interface ProgramBuilderProps {
   onChange(tree: ProgramTree): void;
   /** `GET /api/programs/schema`; without it there is no palette and the steps show as raw JSON. */
   programSchema: JsonSchema | undefined;
-  /** The rig's controller names (the address each drives), for the `loop` pick; undefined while unknown. */
+  /** The rig's controller names (the address each drives), for the `controllers` pick; undefined while unknown. */
   controllers: string[] | undefined;
   /** The rig's devices with their commands and writable signals, for a `command` or `set` step's picks; undefined while unknown. */
   devices?: DevicePicks;
@@ -59,9 +59,11 @@ export interface ProgramBuilderProps {
   revision: number;
   /** Create mode: the name field is shown, and is what the program will be stored as. A stored program is renamed from the header instead. */
   nameEditable?: boolean;
+  /** No description field: for a one-off run, which is never stored. */
+  hideDescription?: boolean;
 }
 
-export function ProgramBuilder({ tree, onChange, programSchema, controllers, devices, stepErrors, stepWarnings = {}, revision, nameEditable }: ProgramBuilderProps) {
+export function ProgramBuilder({ tree, onChange, programSchema, controllers, devices, stepErrors, stepWarnings = {}, revision, nameEditable, hideDescription }: ProgramBuilderProps) {
   const commands = useMemo(() => commandsOf(programSchema), [programSchema]);
   const modifierSchemas = useMemo(() => modifiersOf(programSchema), [programSchema]);
   const byTag = useMemo(() => Object.fromEntries(commands.map((c) => [c.tag, c])), [commands]);
@@ -143,7 +145,7 @@ export function ProgramBuilder({ tree, onChange, programSchema, controllers, dev
   return (
     <Stack spacing={1.5}>
       {nameEditable && <TextField label="name" value={name} required onChange={(e) => setField("name", e.target.value)} inputProps={{ "aria-label": "program name" }} helperText="The program is stored under this name." fullWidth />}
-      <TextField label="description" value={description} onChange={(e) => setField("description", e.target.value)} inputProps={{ "aria-label": "program description" }} multiline minRows={1} maxRows={6} fullWidth />
+      {!hideDescription && <TextField label="description" value={description} onChange={(e) => setField("description", e.target.value)} inputProps={{ "aria-label": "program description" }} multiline minRows={1} maxRows={6} fullWidth />}
       {commands.length > 0 && <Palette commands={commands} onPick={(c) => insert(steps.length, newStep(c))} />}
       <Box
         ref={listRef}
@@ -204,11 +206,13 @@ export function ProgramBuilder({ tree, onChange, programSchema, controllers, dev
                   // the composite time field is not the form's: carry it over as it is
                   const current = argsOf(value, command);
                   const time = Object.fromEntries(Object.entries(current).filter(([k]) => command?.time?.keys.includes(k)));
-                  replace(i, { ...step, [tag]: inOrder({ ...args, ...time }, current) });
+                  const merged = inOrder({ ...args, ...time }, current);
+                  replace(i, { ...step, [tag]: enforceWaitTimeSpelling(tag, merged, command?.time) });
                 }}
                 onTime={(key, v) => {
                   if (!tag || !command?.time) return;
-                  replace(i, { ...step, [tag]: withTime(argsOf(value, command), command.time, key, v) });
+                  const merged = withTime(argsOf(value, command), command.time, key, v);
+                  replace(i, { ...step, [tag]: enforceWaitTimeSpelling(tag, merged, command.time) });
                 }}
                 onCommand={(next) => {
                   if (!programSchema) return;

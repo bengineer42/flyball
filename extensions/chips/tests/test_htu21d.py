@@ -32,7 +32,6 @@ def test_a_bad_crc_is_a_hardware_error():
 def test_declares_humidity_and_temperature_on_the_root():
     air = htu21d.Htu21d("air", FakeI2c(), sleep=False)
     assert {p: str(s.access) for p, s in air.signals.items()} == {
-        "conditions": "rp",
         "humidity": "rp",
         "temperature": "rp",
     }

@@ -78,12 +78,12 @@ def test_session_becomes_start_descriptors_events_stop(rig, fresh, clock):
 
     stream = f"controller:{oven.name}.heater"
     controller_descriptor = next(d for n, d in docs if n == "descriptor" and d["name"] == stream)
-    assert controller_descriptor["configuration"][stream]["data"]["law"]["tag"] == "PI"
+    assert controller_descriptor["configuration"][stream]["data"]["law"]["type"] == "PI"
     assert controller_descriptor["data_keys"][f"{stream}.setpoint"]["units"] == "°C"
     tick = next(
         d for n, d in docs if n == "event" and d["descriptor"] == controller_descriptor["uid"]
     )
-    assert tick["data"][f"{stream}.setpoint"] == 10.0 and f"{stream}.reading" in tick["data"]
+    assert tick["data"][f"{stream}.setpoint"] == 10.0 and f"{stream}.measured" in tick["data"]
 
     stop = docs[-1][1]
     assert stop["exit_status"] == "success" and stop["run_start"] == start["uid"]

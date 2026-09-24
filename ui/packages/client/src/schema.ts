@@ -4,7 +4,7 @@
  * panel asks before it hands a schema over.
  */
 
-import type { Access, Address, ControllerOut, Dtype, FeedforwardConfig, JsonSchema, NamespaceOut, SignalOut, TreeNode } from "./wire.js";
+import type { Access, Address, Caveats, ControllerOut, Dtype, FeedforwardConfig, JsonSchema, NamespaceOut, Quality, SignalOut, StaleReason, TreeNode } from "./wire.js";
 import { isNamespace } from "./wire.js";
 
 /** Whether a dtype's values are numbers a gauge, chart or slider can draw: `float`/`int` only. */
@@ -165,11 +165,11 @@ function walk(segments: string[], node: unknown): unknown {
   return walk(rest, record[head]);
 }
 
-/** `feedforward(setpoint)`: the demand, in the target's unit, the feedforward asks for at `setpoint`. Null for a tag this client does not know. */
+/** `feedforward(setpoint)`: the demand, in the target's unit, the feedforward asks for at `setpoint`. Null for a type this client does not know. */
 export function feedforwardAt(feedforward: FeedforwardConfig | null | undefined, setpoint: number): number | null {
   if (!feedforward) return setpoint;
-  switch (feedforward.tag) {
-    case "setpoint":
+  switch (feedforward.type) {
+    case "identity":
       return setpoint;
     case "none":
       return 0;
@@ -201,8 +201,8 @@ export function feedforwardAt(feedforward: FeedforwardConfig | null | undefined,
  */
 export function invertFeedforward(feedforward: FeedforwardConfig | null | undefined, base: number): number | null {
   if (!feedforward) return base;
-  switch (feedforward.tag) {
-    case "setpoint":
+  switch (feedforward.type) {
+    case "identity":
       return base;
     case "none":
       return null;
@@ -229,22 +229,22 @@ export function invertFeedforward(feedforward: FeedforwardConfig | null | undefi
 }
 
 /**
- * A controller's current setpoint, in the source's unit: `setpoint` as the
+ * A controller's current setpoint, in the measured unit: `setpoint` as the
  * server resolved it at the last tick (a ramp's current value); else the
  * reference when it is a number; else recovered by inverting the
- * feedforward on `demand − correction`, which is exact for `setpoint` and
+ * feedforward on `output − correction`, which is exact for `setpoint` and
  * `affine` and for a monotone `table`, and null for `none`.
  */
-export function setpointOf(controller: Pick<ControllerOut, "reference" | "demand" | "correction"> & { setpoint?: number | null; feedforward?: FeedforwardConfig | null }): number | null {
+export function setpointOf(controller: Pick<ControllerOut, "reference" | "output" | "correction"> & { setpoint?: number | null; feedforward?: FeedforwardConfig | null }): number | null {
   if (typeof controller.setpoint === "number") return controller.setpoint;
   if (typeof controller.reference === "number") return controller.reference;
-  if (controller.demand != null && controller.correction != null) return invertFeedforward(controller.feedforward, controller.demand - controller.correction);
+  if (controller.output != null && controller.correction != null) return invertFeedforward(controller.feedforward, controller.output - controller.correction);
   return null;
 }
 
-/** `set_flows` → `Set flows`, `wetFraction` → `Wet fraction`. For headings; the tag stays the identifier. */
-export function humanise(tag: string): string {
-  const words = tag.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
+/** `set_flows` → `Set flows`, `wetFraction` → `Wet fraction`. For headings; the name stays the identifier. */
+export function humanise(name: string): string {
+  const words = name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
@@ -259,31 +259,111 @@ export function verbLabel(verb: string, label: string): string {
 }
 
 /**
- * Every event `kind` the backend emits, worded for a log reader. Enumerated
+ * Every event `code` the backend emits, worded for a log reader. Enumerated
  * from the `rig.event(...)` call sites (`runtime/{writer,polling,rig}.py`,
- * `programmer/programmer.py`, `server/routes/library.py`) -- not guessed.
+ * `sequencing/programmer.py`, `server/routes/library.py`) -- not guessed.
  */
-const EVENT_KINDS: Record<string, string> = {
+const EVENT_CODES: Record<string, string> = {
   started: "Started",
   step: "Step",
   step_timed_out: "Step timed out",
   step_failed: "Step failed",
   failed: "Failed",
-  finished: "Finished",
+  succeeded: "Succeeded",
+  cancelled: "Cancelled",
   interrupted: "Interrupted",
   run_from_library: "Run from library",
   restarted: "Restarted",
-  offline: "Went offline",
+  offline: "Offline",
   slow: "Running slow",
   delivery_failed: "Delivery failed",
-  write_recovered: "Writes recovered",
   write_failed: "Write failed",
+  resent: "Kept value sent",
+  write_dropped: "Kept value dropped",
+  demand_ignored: "Demand ignored",
+  stale_input: "Measured signal stale",
+  limit_unknown: "Output limit unknown",
   recording_failed: "Recording failed",
+  restored: "Rig version restored",
+  // Conditions on signals, devices and controllers.
+  band_warning: "Band warning",
+  band_alarm: "Band alarm",
+  band_unknown: "Band unknown",
+  stale: "Stale",
+  hung: "Device hung",
+  frozen: "Frozen",
+  // The software stop, latches and faults.
+  stopped: "Rig stopped",
+  latched: "Latched",
+  stop_applied: "Stop applied",
+  reset: "Reset",
+  written_while_stopped: "Written while stopped",
+  on_fault: "Fault action",
+  reseeded: "Reseeded",
+  not_permitted: "Not permitted",
+  // Rig edits and values devices.
+  edit_not_built: "Edit could not be built",
+  value_written: "Value written",
+  value_restored: "Value restored",
+  value_not_restored: "Value not restored",
+  blend_flow_kept: "Blend flow kept",
 };
 
-/** An event's `kind` (`step_timed_out`, `run_from_library`) as a phrase for a person. Unknown kinds fall through to `humanise`. */
-export function describeEventKind(kind: string): string {
-  return EVENT_KINDS[kind] ?? humanise(kind);
+/** A signal's quality as a short word for a badge: `n/a`, `invalid`, `stale`, `pending`; "" for `ok`. */
+const QUALITY_WORDS: Record<Quality, string> = { ok: "", pending: "pending", not_applicable: "n/a", invalid: "invalid", stale: "stale" };
+
+/** The rig's reasons a signal is stale, worded for a person. A driver's `invalid` reason is its own text and passes through. */
+const STALE_REASONS: Record<StaleReason, string> = {
+  device_offline: "device offline",
+  device_hung: "device hung",
+  silent: "device silent",
+  never_read: "never read",
+  last_read: "not read lately",
+  write_failed: "write failed",
+};
+
+/**
+ * A no-value reading as a person reads it: `stale: device offline`, `invalid: sensor open`,
+ * `n/a`, `pending`; "" for `ok` (or no quality, a reading from before the rig sent one).
+ */
+export function describeQuality(quality: Quality | undefined, reason?: string | null): string {
+  if (!quality || quality === "ok") return "";
+  const word = QUALITY_WORDS[quality];
+  if (!reason) return word;
+  const said = STALE_REASONS[reason as StaleReason] ?? reason;
+  return `${word}: ${said}`;
+}
+
+/** A usable value's caveats as a person reads them: `at the high limit`, `below range`; "" for none. */
+export function describeCaveats(caveats: Caveats | undefined | null): string {
+  if (!caveats) return "";
+  const parts: string[] = [];
+  if (caveats.at_limit) parts.push(`at the ${caveats.at_limit} limit`);
+  if (caveats.out_of_range) parts.push(caveats.out_of_range === "high" ? "above range" : "below range");
+  return parts.join(", ");
+}
+
+/** A condition's edge event worded for a log reader: "Offline" raised, "Offline cleared after 12 s". */
+export function describeEdge(edge: "raised" | "cleared" | null, details: unknown): string | null {
+  if (edge === null) return null;
+  if (edge === "raised") return "raised";
+  const d = details && typeof details === "object" ? (details as { duration_s?: unknown }).duration_s : undefined;
+  return typeof d === "number" ? `cleared after ${describeDuration(d)}` : "cleared";
+}
+
+/** Seconds as a person reads a span: `850 ms`, `12 s`, `3 min 5 s`, `2 h 4 min`. */
+export function describeDuration(seconds: number): string {
+  if (seconds < 1) return `${Math.round(seconds * 1000)} ms`;
+  if (seconds < 60) return `${Math.round(seconds)} s`;
+  const m = Math.floor(seconds / 60);
+  if (m < 60) return `${m} min${seconds % 60 >= 1 ? ` ${Math.floor(seconds % 60)} s` : ""}`;
+  const h = Math.floor(m / 60);
+  return `${h} h${m % 60 ? ` ${m % 60} min` : ""}`;
+}
+
+/** An event's `code` (`step_timed_out`, `run_from_library`) as a phrase for a person. Unknown codes fall through to `humanise`. */
+export function describeEventCode(code: string): string {
+  return EVENT_CODES[code] ?? humanise(code);
 }
 
 /**
@@ -314,13 +394,13 @@ export function describeStateKey(key: string): { label: string; hint?: string } 
 }
 
 /**
- * A device, link or plant tag as words: the Python class name the server
- * puts in `DeviceOut.type` / `DeviceSchema.type` (`SimDaq`), or a rig
- * file's `driver:` / link `kind:` tag (`sim_daq`, `sim_furnace`). From the
- * device classes under `flyball/{sim,devices,integrations}` and the tags
- * registered there; unknown tags fall through to `humanise`.
+ * A device, link or plant type as words: the Python class name the server
+ * puts in `DeviceOut.class_name` / `DeviceSchema.class_name` (`SimDaq`), or a rig
+ * file's `driver:` / link `type:` (`sim_daq`, `sim_furnace`). From the
+ * device classes under `flyball/{sim,devices,integrations}` and the types
+ * registered there; unknown types fall through to `humanise`.
  */
-const DEVICE_TAGS: Record<string, string> = {
+const DEVICE_TYPES: Record<string, string> = {
   SimDaq: "Simulated DAQ",
   SimDrive: "Simulated drive",
   Modbus: "Modbus device",
@@ -343,8 +423,8 @@ const DEVICE_TAGS: Record<string, string> = {
   fake_text: "Fake text link",
 };
 
-export function describeDevice(tag: string): string {
-  return DEVICE_TAGS[tag] ?? humanise(tag);
+export function describeDevice(type: string): string {
+  return DEVICE_TYPES[type] ?? humanise(type);
 }
 
 /** A signal's display name: its `label`, or its `name` humanised when the driver gave none. */
@@ -532,9 +612,10 @@ export function readable(signal: Pick<SignalOut, "access">): boolean {
 }
 
 /**
- * A device's own housekeeping output: the `conditions` list every device
- * declares at its root. Shown as the device's badge, never as a reading of
- * its own -- a picker, a tile grid or a "last sample" stamp skips it.
+ * A device's own housekeeping output: `last.<command>`, and the `conditions`
+ * list a session recorded before conditions left the signal tree still
+ * holds. Never shown as a reading of its own -- a picker, a tile grid or a
+ * "last sample" stamp skips it.
  */
 export function isHousekeeping(signal: Pick<SignalOut, "name" | "address">): boolean {
   const device = deviceOf(signal.address);
@@ -584,61 +665,73 @@ export function describeSimParam(key: string): { label: string; unit?: string; h
   return { label: humanise(key), hint: key };
 }
 
-export type AlarmLevel = "ok" | "warn" | "alarm" | "stale";
-
-/** How long a signal may go without a sample before it reads "stale" — DESIGN-SPEC.md §2: `max(3 × period_s, 5s)`. */
-export function staleAfterS(periodS: number | null | undefined): number {
-  return Math.max(3 * (periodS ?? 0), 5);
-}
-
 /**
- * Freshness for one signal, in RIG time (a simulated rig's clock runs
- * faster than the wall clock, so `nowS` must come from `/api/clock` or the
- * newest sample across the rig, never `Date.now()`).
+ * A tile's level: the rig's band (`ok`, `warn`, `alarm`), `unknown` while the rig holds
+ * `band_unknown` on it (a banded signal with no value because of a fault: never an alarm), or
+ * `stale` while its newest reading is the rig's `stale` (the rig judges staleness, not the page).
  */
-export interface Freshness {
-  /** The poll period of the signal's device (`DeviceOut.run.period_s`); unknown treated as 0 (only the 5s floor applies). */
-  periodS?: number | null;
-  /** The last sample's time, in rig seconds; null/undefined skips the stale check. */
-  lastSampleS?: number | null;
-  /** The rig's current time, in rig seconds; null/undefined skips the stale check. */
-  nowS?: number | null;
-}
+export type AlarmLevel = "ok" | "warn" | "alarm" | "unknown" | "stale";
+
+/** The rig's band conditions on a signal and the level each means on a tile. */
+export const BAND_LEVELS: Readonly<Record<string, "warn" | "alarm" | "unknown">> = { band_warning: "warn", band_alarm: "alarm", band_unknown: "unknown" };
 
 /**
- * The freshest of a set of traces' last points, in seconds — a live proxy
- * for the rig's current time when nothing is polling `/api/clock`
- * continuously (DESIGN-SPEC.md §2: "the newest sample time across the
- * rig"). At least one signal elsewhere on the rig must still be sampling
- * for this to track real time; a rig gone completely silent freezes it,
- * same as every signal on it going stale together.
- */
-export function latestSampleS(traces: Iterable<{ t: number[] }>): number | null {
-  let latest: number | null = null;
-  for (const trace of traces) {
-    const last = trace.t.length ? trace.t[trace.t.length - 1] : undefined;
-    if (last !== undefined && (latest === null || last > latest)) latest = last;
-  }
-  return latest;
-}
-
-/**
- * Where `value` sits against a signal's bands: outside `alarm` is "alarm",
- * outside `warn` is "warn", else "ok" — unless `fresh` says no sample has
- * arrived recently enough, in which case the level is "stale" regardless of
- * the last value (a stuck reading is not a healthy one). A signal with no
- * bands, or no value, is "ok" unless stale.
+ * Where a signal stands, for a tile: `stale` when its newest reading's `quality` is `stale` (the
+ * rig pushed it: nothing arrived within the signal's `stale_after_s`, or its device is offline,
+ * hung or failing its writes); else the rig's band condition on it (`band`, from its
+ * conditions); else -- only for a caller with no rig feed, a standalone panel -- the value
+ * judged against the bands here. A reading with no value is `ok` unless the rig says otherwise:
+ * its badge (`describeQuality`) says why there is none.
  */
 export function alarmLevel(
   value: number | null | undefined,
-  signal: { warn?: [number, number] | null; alarm?: [number, number] | null },
-  fresh?: Freshness | null,
+  signal: { warning?: [number, number] | null; alarm?: [number, number] | null },
+  band?: "ok" | "warn" | "alarm" | "unknown",
+  quality?: Quality,
 ): AlarmLevel {
-  if (fresh && fresh.lastSampleS != null && fresh.nowS != null && fresh.nowS - fresh.lastSampleS > staleAfterS(fresh.periodS)) return "stale";
+  if (quality === "stale") return "stale";
+  if (band !== undefined) return band;
   if (value === null || value === undefined || Number.isNaN(value)) return "ok";
-  const outside = (band: [number, number] | null | undefined) =>
-    !!band && (value < Math.min(band[0], band[1]) || value > Math.max(band[0], band[1]));
+  const outside = (b: [number, number] | null | undefined) => !!b && (value < Math.min(b[0], b[1]) || value > Math.max(b[0], b[1]));
   if (outside(signal.alarm)) return "alarm";
-  if (outside(signal.warn)) return "warn";
+  if (outside(signal.warning)) return "warn";
   return "ok";
+}
+
+/**
+ * A stored reading's `flag` (`Point.flag`) as the quality and caveats it stands for: 1 invalid,
+ * 2 not_applicable, 3 stale, 4 stale (device offline); 16/17 at the low/high limit. Null or
+ * absent: a plain value.
+ */
+export function qualityOfFlag(flag: number | null | undefined): { quality: Quality; reason?: string; caveats?: Caveats } {
+  switch (flag) {
+    case 1:
+      return { quality: "invalid" };
+    case 2:
+      return { quality: "not_applicable" };
+    case 3:
+      return { quality: "stale" };
+    case 4:
+      return { quality: "stale", reason: "device_offline" };
+    case 16:
+      return { quality: "ok", caveats: { at_limit: "low" } };
+    case 17:
+      return { quality: "ok", caveats: { at_limit: "high" } };
+    default:
+      return { quality: "ok" };
+  }
+}
+
+/** A reading's quality and caveats as a stored `flag` (`qualityOfFlag`'s inverse); 0 for a plain value. */
+export function flagOfQuality(quality: Quality | undefined, reason?: string | null, caveats?: Caveats | null): number {
+  switch (quality) {
+    case "invalid":
+      return 1;
+    case "not_applicable":
+      return 2;
+    case "stale":
+      return reason === "device_offline" ? 4 : 3;
+    default:
+      return caveats?.at_limit === "low" ? 16 : caveats?.at_limit === "high" ? 17 : 0;
+  }
 }

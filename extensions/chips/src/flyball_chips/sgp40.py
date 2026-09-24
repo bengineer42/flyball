@@ -24,7 +24,7 @@ import time
 from collections.abc import Iterator
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import Access, DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import Access, DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Unitless
 from flyball.hardware.i2c import I2cLink
@@ -103,7 +103,7 @@ class Sgp40Sensor:
 class Sgp40(Readable):
     """One chip on the device root: `voc_raw` [RP], one I2C transaction per read."""
 
-    voc_raw = Output(
+    voc_raw = Readout(
         "voc_raw", quantity=VOC_RAW, access=Access.RP, range=(0.0, 65535.0), precision=0
     )
 
@@ -145,7 +145,7 @@ class Sgp40(Readable):
         yield self.sample(time_ns, voc_raw=voc_raw)
 
 
-class Sgp40Config(DriverConfig[Sgp40], tag="sgp40"):
+class Sgp40Config(DriverConfig[Sgp40], type="sgp40"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

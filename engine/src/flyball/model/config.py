@@ -1,12 +1,12 @@
-"""Configs: descriptions that build things, and the tag that tells them apart in a file.
+"""Configs: descriptions that build things, and the `type` that tells them apart in a file.
 
 `Config[T]` is a pydantic model with `build() -> T`. Where a field admits
-several implementations, each config declares a `tag` and
+several implementations, each config declares a `type` and
 [Config.union][flyball.model.config.Config.union] gives the discriminated
 union to validate against.
 
-Declaring `tag=` only sets `config_tag` -- it no longer writes into a shared
-registry (there is no `Config.registry` any more). What's installed, by tag,
+Declaring `type=` only sets `type_name` -- it no longer writes into a shared
+registry (there is no `Config.registry` any more). What's installed, by type,
 is [Catalogs][flyball.model.catalog.Catalogs], explicitly registered; see
 that module.
 """
@@ -21,49 +21,49 @@ from pydantic import BaseModel, Field, create_model
 
 
 class Config[T](BaseModel, ABC):
-    """What to build and how. Subclass with `tag="..."` to make it selectable by name."""
+    """What to build and how. Subclass with `type="..."` to make it selectable by name."""
 
-    config_tag: ClassVar[str | None] = None
-    """The tag this config is selectable by. The generated tagged model carries it as a field."""
+    type_name: ClassVar[str | None] = None
+    """The type this config is selectable by. The generated tagged model carries it as a field."""
 
-    def __init_subclass__(cls, tag: str | None = None, **kwargs: Any) -> None:
+    def __init_subclass__(cls, type: str | None = None, **kwargs: Any) -> None:
         # Python hands class keywords here first; pydantic hands them again to
         # `__pydantic_init_subclass__` once the model is built. Accept here,
         # act there.
         super().__init_subclass__(**kwargs)
 
     @classmethod
-    def __pydantic_init_subclass__(cls, tag: str | None = None, **kwargs: Any) -> None:
+    def __pydantic_init_subclass__(cls, type: str | None = None, **kwargs: Any) -> None:
         super().__pydantic_init_subclass__(**kwargs)
-        if tag is None:
+        if type is None:
             return
-        cls.config_tag = tag
+        cls.type_name = type
 
     @abstractmethod
     def build(self) -> T: ...
 
     @classmethod
     def tagged(cls) -> type[Config[Any]]:
-        """This config with a `tag` field fixed to its tag, for a discriminated union."""
-        if cls.config_tag is None:
-            raise TypeError(f"{cls.__name__} has no tag; declare it with `tag=`")
+        """This config with a `type` field fixed to its type, for a discriminated union."""
+        if cls.type_name is None:
+            raise TypeError(f"{cls.__name__} has no type; declare it with `type=`")
         if "_tagged" not in cls.__dict__:
             model = create_model(  # pyright: ignore[reportCallIssue]
                 f"{cls.__name__}Tagged",
                 __base__=cls,
-                tag=(Literal[cls.config_tag], cls.config_tag),  # pyright: ignore[reportArgumentType]
+                type=(Literal[cls.type_name], cls.type_name),  # pyright: ignore[reportArgumentType]
             )
             cls._tagged = model  # type: ignore[attr-defined]
         return cls._tagged  # type: ignore[attr-defined, no-any-return]
 
     @classmethod
     def union(cls, *members: type[Config[Any]]) -> Any:
-        """`Annotated[A | B | ..., Field(discriminator="tag")]` over the given tagged configs."""
+        """`Annotated[A | B | ..., Field(discriminator="type")]` over the given tagged configs."""
         if not members:
             raise TypeError("say which configs the union admits")
         return Annotated[
             Union[tuple(m.tagged() for m in members)],  # ruff: ignore[non-pep604-annotation-union]  pydantic needs the Union form
-            Field(discriminator="tag"),
+            Field(discriminator="type"),
         ]
 
 

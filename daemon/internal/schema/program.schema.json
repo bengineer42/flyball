@@ -19,7 +19,7 @@
           {
             "type": "object",
             "properties": {
-              "wait": {
+              "prompt": {
                 "anyOf": [
                   {
                     "title": "Message",
@@ -97,50 +97,22 @@
                         ],
                         "default": null,
                         "title": "Timeout"
-                      },
-                      "nanoseconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "microseconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "milliseconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "seconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "minutes": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "hours": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "days": {
-                        "type": "number",
-                        "minimum": 0
                       }
                     },
                     "required": [
                       "message"
                     ],
-                    "title": "WaitRequest",
+                    "title": "PromptRequest",
                     "type": "object"
                   }
                 ]
               }
             },
             "required": [
-              "wait"
+              "prompt"
             ],
             "additionalProperties": false,
-            "description": "Pause the program until the named signal is fired.\n\n`name` is what it is fired by (`POST /api/signals/{name}/fire`), default\n`wait`. `timeout` gives up and ends the program."
+            "description": "Pause the program until a person (or an external trigger) fires the named prompt.\n\n`name` is what it is fired by (`POST /api/activities/{name}/fire`), default\n`prompt`. `timeout` gives up and ends the program."
           },
           {
             "type": "object",
@@ -172,7 +144,7 @@
               "set"
             ],
             "additionalProperties": false,
-            "description": "Put `values` on `device`'s writable signals, as one demand -- `rig.demand` in a step."
+            "description": "Put `values` on `device`'s writable signals, as one demand -- `rig.write` in a step."
           },
           {
             "type": "object",
@@ -232,7 +204,7 @@
                         "title": "Setpoint",
                         "type": "number"
                       },
-                      "loop": {
+                      "controllers": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -248,7 +220,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Loop"
+                        "title": "Controllers"
                       },
                       "tuning": {
                         "anyOf": [
@@ -381,7 +353,7 @@
                         ],
                         "title": "Pace"
                       },
-                      "loop": {
+                      "controllers": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -397,7 +369,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Loop"
+                        "title": "Controllers"
                       },
                       "wait": {
                         "default": true,
@@ -472,7 +444,7 @@
           {
             "type": "object",
             "properties": {
-              "hold": {
+              "wait": {
                 "anyOf": [
                   {
                     "anyOf": [
@@ -582,7 +554,49 @@
                       "timeout": {
                         "anyOf": [
                           {
-                            "type": "number"
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "minProperties": 1,
+                                "properties": {
+                                  "nanoseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "microseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "milliseconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "seconds": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "minutes": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "hours": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  },
+                                  "days": {
+                                    "minimum": 0,
+                                    "type": "number"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              {
+                                "minimum": 0,
+                                "type": "number"
+                              }
+                            ],
+                            "description": "A span of time: unit keys that add, or a bare number of seconds.",
+                            "title": "Duration"
                           },
                           {
                             "type": "null"
@@ -620,22 +634,22 @@
                         "minimum": 0
                       }
                     },
-                    "title": "HoldRequest",
+                    "title": "WaitRequest",
                     "type": "object"
                   }
                 ]
               }
             },
             "required": [
-              "hold"
+              "wait"
             ],
             "additionalProperties": false,
-            "description": "Keep everything as it is for `duration`; the controllers go on regulating.\n\n`timeout` (seconds; not a `Duration` -- `duration` is already the file's\none flat-foldable field, and a second `Duration` field would make that\nambiguous), like `wait`'s, ends the program instead if `duration` itself\nnever elapses (a stalled clock, say)."
+            "description": "Keep everything as it is for `duration`; the controllers go on regulating.\n\n`timeout`, like `prompt`'s, ends the program instead if `duration` itself\nnever elapses (a stalled clock, say)."
           },
           {
             "type": "object",
             "properties": {
-              "arrive": {
+              "settle": {
                 "anyOf": [
                   {
                     "anyOf": [
@@ -653,12 +667,12 @@
                       }
                     ],
                     "default": null,
-                    "title": "Loop"
+                    "title": "Controllers"
                   },
                   {
                     "additionalProperties": false,
                     "properties": {
-                      "loop": {
+                      "controllers": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -674,16 +688,16 @@
                           }
                         ],
                         "default": null,
-                        "title": "Loop"
+                        "title": "Controllers"
                       },
                       "within": {
                         "default": 1.0,
                         "title": "Within",
                         "type": "number"
                       },
-                      "readings": {
+                      "count": {
                         "default": 3,
-                        "title": "Readings",
+                        "title": "Count",
                         "type": "integer"
                       },
                       "timeout": {
@@ -751,47 +765,19 @@
                         ],
                         "default": null,
                         "title": "Message"
-                      },
-                      "nanoseconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "microseconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "milliseconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "seconds": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "minutes": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "hours": {
-                        "type": "number",
-                        "minimum": 0
-                      },
-                      "days": {
-                        "type": "number",
-                        "minimum": 0
                       }
                     },
-                    "title": "ArriveRequest",
+                    "title": "SettleRequest",
                     "type": "object"
                   }
                 ]
               }
             },
             "required": [
-              "arrive"
+              "settle"
             ],
             "additionalProperties": false,
-            "description": "Wait until the named controllers have settled within `within` of their setpoints.\n\nJudged on `readings` consecutive readings per controller; a ramp started\nwith `wait: false` is waited out here, against where the ramp is at each\nreading. The other controllers carry on regulating meanwhile."
+            "description": "Wait until the named controllers have settled within `within` of their setpoints.\n\nJudged on `count` consecutive readings per controller; a ramp started\nwith `wait: false` is waited out here, against where the ramp is at each\nreading. The other controllers carry on regulating meanwhile."
           },
           {
             "type": "object",
@@ -814,12 +800,12 @@
                       }
                     ],
                     "default": null,
-                    "title": "Loop"
+                    "title": "Controllers"
                   },
                   {
                     "additionalProperties": false,
                     "properties": {
-                      "loop": {
+                      "controllers": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -835,7 +821,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Loop"
+                        "title": "Controllers"
                       }
                     },
                     "title": "ManualRequest",
@@ -848,7 +834,7 @@
               "manual"
             ],
             "additionalProperties": false,
-            "description": "Stop a controller regulating; its target keeps its last demand and takes demands directly."
+            "description": "Stop a controller regulating; its output keeps its last value and takes demands directly."
           }
         ]
       }

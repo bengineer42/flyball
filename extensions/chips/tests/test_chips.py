@@ -27,7 +27,6 @@ class TestSht4x:
     def test_declares_humidity_and_temperature_on_the_root(self):
         air = sht4x.Sht4x("air", FakeI2c(), sleep=False)
         assert {p: str(s.access) for p, s in air.signals.items()} == {
-            "conditions": "rp",
             "humidity": "rp",
             "temperature": "rp",
         }
@@ -85,14 +84,14 @@ class TestSht4xSet:
     def test_a_namespace_is_read_on_its_own_poll_s(self):
         hum = sht4x.Sht4xSet("hum", self._bus(), {"chamber": 0x44, "dry": 0x45}, sleep=False)
         hum.poll_s = 1.0
-        hum.nodes["dry"].override(poll_s=5.0)
+        hum.nodes["dry"].set_meta(poll_s=5.0)
         assert [s.node.name for s in hum.read(0)] == ["chamber", "dry"]
         assert [s.node.name for s in hum.read(1 * NS)] == ["chamber"], "dry is not due at 1 s"
         assert [s.node.name for s in hum.read(5 * NS)] == ["chamber", "dry"]
 
     def test_a_node_asked_for_is_read_whether_due_or_not(self):
         hum = sht4x.Sht4xSet("hum", self._bus(), {"chamber": 0x44, "dry": 0x45}, sleep=False)
-        hum.nodes["dry"].override(poll_s=5.0)
+        hum.nodes["dry"].set_meta(poll_s=5.0)
         list(hum.read(0))
         (sample,) = hum.read(1 * NS, hum.nodes["dry"])
         assert sample.node is hum.nodes["dry"]
@@ -136,7 +135,7 @@ class TestAds1115:
             sleep=False,
         )
         adc.poll_s = 1.0
-        adc.signals["b"].override(poll_s=10.0)
+        adc.signals["b"].set_meta(poll_s=10.0)
         assert [s.by_name() for s in adc.read(0)] == [{"a": 2.048, "b": 2.048}]
         assert [s.by_name() for s in adc.read(1 * NS)] == [{"a": 2.048}], "b is not due at 1 s"
         assert list(adc.read(1 * NS)) == [], "nothing due: nothing yielded"

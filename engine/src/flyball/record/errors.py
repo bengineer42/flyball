@@ -1,4 +1,6 @@
-from flyball.foundation.errors import ConflictError, FlyballError, NotFoundError
+from pathlib import Path
+
+from flyball.foundation.errors import ConflictError, FlyballError, HardwareError, NotFoundError
 
 
 class StoreError(FlyballError):
@@ -40,3 +42,27 @@ class NotDeclaredError(StoreError, ConflictError):
 class SchemaError(StoreError):
     def __init__(self, message: str) -> None:
         super().__init__(message)
+
+
+class StoreUnavailableError(StoreError, HardwareError):
+    """The store could not be reached: locked by another writer, out of disk, unreadable.
+
+    Usually transient, and never the caller's fault; retry. The same sqlite error
+    also covers a transaction opened inside another, which is a bug, so sqlite's own
+    message is kept in the text and the original rides as `__cause__`.
+    """
+
+    def __init__(self, message: str, path: str | Path) -> None:
+        super().__init__(message)
+        self.path = path
+
+
+class ConstraintError(StoreError, ConflictError):
+    """The store refused a write: it names a row that does not exist, or repeats a unique one.
+
+    Retrying the same write fails the same way; change what is written.
+    """
+
+    def __init__(self, message: str, path: str | Path) -> None:
+        super().__init__(message)
+        self.path = path

@@ -1,12 +1,13 @@
 """`Feedforward`: the base a feedforward subclasses, and the schema it generates by doing so.
 
-`control/feedforward.py` holds the concrete feedforwards that ship (`Setpoint`,
+`control/feedforward.py` holds the concrete feedforwards that ship (`Identity`,
 `Affine`, `Table`, ...); this is just the machinery every one of them
 subclasses, the same shape [ControlLaw][flyball.model.law.ControlLaw] gives laws.
 """
 
 from __future__ import annotations
 
+import builtins
 from inspect import signature
 from typing import Any, ClassVar, Literal
 
@@ -17,14 +18,14 @@ from flyball.model.model import ModelOf, creation_model
 
 
 class FeedforwardConfig(BaseModel):
-    """How a feedforward was specified: its constructor arguments and its tag."""
+    """How a feedforward was specified: its constructor arguments and its type."""
 
     model_config = ConfigDict(extra="forbid")
 
-    feedforward: ClassVar[type]
+    feedforward: ClassVar[builtins.type]
     init_names: ClassVar[tuple[str, ...]] = ()
 
-    tag: str
+    type: str
 
     def build(self) -> Any:
         return self.feedforward(**{name: getattr(self, name) for name in self.init_names})
@@ -33,18 +34,18 @@ class FeedforwardConfig(BaseModel):
 class Feedforward:
     """Base for feedforwards. `Sub.config` is the model; `sub.config` its values."""
 
-    tag: ClassVar[str] = None  # pyright: ignore[reportAssignmentType]
+    type: ClassVar[str] = None  # pyright: ignore[reportAssignmentType]
     config: ClassVar[Any] = None
 
-    def __init_subclass__(cls, tag: str | None = None, **kwargs: Any) -> None:
+    def __init_subclass__(cls, type: str | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        cls.tag = tag or cls.__dict__.get("tag") or cls.__name__
+        cls.type = type or cls.__dict__.get("type") or cls.__name__
         if "config" not in cls.__dict__:
             model = creation_model(
                 cls,
                 suffix="Config",
                 base=FeedforwardConfig,
-                extra={"tag": (Literal[cls.tag], cls.tag)},
+                extra={"type": (Literal[cls.type], cls.type)},
             )
             model.feedforward = cls  # pyright: ignore[reportAttributeAccessIssue]
             model.init_names = tuple(signature(cls).parameters)  # pyright: ignore[reportAttributeAccessIssue]
@@ -67,11 +68,11 @@ class Feedforward:
                 (several setpoints share a demand, or it ignores the
                 setpoint entirely).
         """
-        raise FeedforwardNotInvertibleError(self.tag)
+        raise FeedforwardNotInvertibleError(self.type)
 
 
-class Setpoint(Feedforward, tag="setpoint"):
-    """Demand equals setpoint: the actuator takes the channel's unit.
+class Identity(Feedforward, type="identity"):
+    """The identity map: demand equals setpoint, the actuator taking the channel's unit.
 
     No `rate_gain`: the actuator already takes the channel's own unit, so a
     rate term here would be a lead compensator, not the plant-capacity model
@@ -90,11 +91,11 @@ class Setpoint(Feedforward, tag="setpoint"):
         return demand
 
 
-class NoFeedforward(Feedforward, tag="none"):
+class NoFeedforward(Feedforward, type="none"):
     """The law does all the work: a bare power actuator under PID.
 
     The default `Controller` picks when the source and target units differ
-    and none is given -- see `Setpoint`'s docstring for why it lives here.
+    and none is given -- see `Identity`'s docstring for why it lives here.
     """
 
     def __call__(self, setpoint: float, rate: float = 0.0) -> float:

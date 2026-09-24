@@ -1,5 +1,5 @@
 import { memo, useMemo } from "react";
-import { Readout, readoutLevel, Ref, useFreshness, useSignal, useTraceRef } from "@flyball/react";
+import { Readout, readoutLevel, Ref, useBandLevel, useReading, useTraceRef } from "@flyball/react";
 import { deviceOf, signalTitle } from "@flyball/client";
 import { useBindings, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
@@ -22,11 +22,11 @@ const ReadoutWidget = memo(function ReadoutWidget({ config, widget }: WidgetComp
   const signal = bindings.signalAt(address);
   const numeric = signal ? isNumeric(signal) : true;
   const source = useTraceRef(useMemo(() => (signal ? [address] : []), [signal, address]));
-  const last = useSignal(signal ? address : undefined)?.v;
-  // The B-3 stale threshold (max(3 × period_s, 5s)) with the period of the signal's device, from its run.
-  const fresh = useFreshness(signal ? address : undefined);
+  // The newest reading with its quality: the rig pushes `stale` itself, so the tile is stale when that is.
+  const reading = useReading(signal ? address : undefined);
   const showDevice = config.showDevice !== false;
-  const numReadout = signal ? readoutLevel(signal, last, fresh) : { level: undefined, label: undefined, footer: undefined };
+  const band = useBandLevel(signal ? address : undefined);
+  const numReadout = signal ? readoutLevel(signal, reading, band) : { level: undefined, label: undefined, footer: undefined };
   // A non-number never reaches this `Readout` (a gauge/series widget in miniature); it gets `useValueReadout`'s chip or block instead.
   const value = useValueReadout(signal);
   const level = numeric ? numReadout.level : value.level;
@@ -49,7 +49,7 @@ const ReadoutWidget = memo(function ReadoutWidget({ config, widget }: WidgetComp
     </div>
   );
   // The 44px sparkline needs the fifth row (body 36h − 66: 114 at h=5, 78 at h=4 -- value row and range bar only).
-  return <Readout bare signal={signal} source={source} sparkline={config.sparkline !== false && widget.h >= 5} showDevice={showDevice} windowS={charts.windowS} exportHref={exports.series(address)} fresh={fresh} />;
+  return <Readout bare signal={signal} source={source} sparkline={config.sparkline !== false && widget.h >= 5} showDevice={showDevice} windowS={charts.windowS} exportHref={exports.series(address)} />;
 });
 
 export const readout: WidgetKind = {

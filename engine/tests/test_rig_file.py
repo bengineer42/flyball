@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
+from pydantic import ValidationError
 
 from flyball.foundation.device import (
     Access,
@@ -17,6 +18,7 @@ from flyball.foundation.device import (
     Signal,
     SignalSpec,
 )
+from flyball.foundation.device.entry import SignalMeta
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import loads
 from flyball.foundation.quantities import Quantity
@@ -43,7 +45,7 @@ class Daq(Readable):
         ])
 
     def read(self, time_ns: int, node=None) -> Iterator[Sample]:
-        temps = {s: 20.0 for s in self.publishing.values() if s is not self.conditions}
+        temps = {s: 20.0 for s in self.published.values()}
         yield Sample(self.root, time_ns, temps)
 
 
@@ -125,10 +127,30 @@ class BlenderConfig(DriverConfig[Blender]):
 
 
 @pytest.fixture
+def closing_link_tag(fresh, _catalog):
+    """A link config whose built object records whether it was closed."""
+    from flyball.model.config import Config
+
+    tag = fresh("closing_link")
+    closed: list[bool] = []
+
+    class Built:
+        def close(self) -> None:
+            closed.append(True)
+
+    class ClosingLinkConfig(Config[Built], type=tag):
+        def build(self) -> Built:
+            return Built()
+
+    _catalog.register_link(ClosingLinkConfig)
+    return tag, closed
+
+
+@pytest.fixture
 def daq_tag(fresh, _catalog) -> str:
     tag = fresh("eurotherm_daq")
 
-    class Tagged(DaqConfig, tag=tag):
+    class Tagged(DaqConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -140,7 +162,7 @@ def sim_daq_tag(fresh, _catalog) -> str:
     """A second driver with the same shape as `daq_tag`'s: an overlay swapping the driver."""
     tag = fresh("sim_daq")
 
-    class Tagged(DaqConfig, tag=tag):
+    class Tagged(DaqConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -151,7 +173,7 @@ def sim_daq_tag(fresh, _catalog) -> str:
 def heaters_tag(fresh, _catalog) -> str:
     tag = fresh("ssr_bank")
 
-    class Tagged(HeatersConfig, tag=tag):
+    class Tagged(HeatersConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -162,7 +184,7 @@ def heaters_tag(fresh, _catalog) -> str:
 def sensors_tag(fresh, _catalog) -> str:
     tag = fresh("sht4x_set")
 
-    class Tagged(HumSensorsConfig, tag=tag):
+    class Tagged(HumSensorsConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -173,7 +195,7 @@ def sensors_tag(fresh, _catalog) -> str:
 def blender_tag(fresh, _catalog) -> str:
     tag = fresh("dual_pump_blender")
 
-    class Tagged(BlenderConfig, tag=tag):
+    class Tagged(BlenderConfig, type=tag):
         pass
 
     _catalog.register_device(Tagged)
@@ -184,12 +206,13 @@ def blender_tag(fresh, _catalog) -> str:
 
 
 class TestParsing:
-    def test_flat_and_layered_devices_parse_to_the_same_entry(self, daq_tag):
-        flat = RigConfig.model_validate({"devices": {"f": {"driver": daq_tag, "zones": 2}}})
-        layered = RigConfig.model_validate({
-            "devices": {"f": {"driver": daq_tag, "config": {"zones": 2}}}
-        })
-        assert flat.devices == layered.devices
+    def test_a_device_takes_its_driver_fields_flat(self, daq_tag):
+        config = RigConfig.model_validate({"devices": {"f": {"driver": daq_tag, "zones": 2}}})
+        assert config.devices["f"].driver_config == {"zones": 2}
+        with pytest.raises(ValidationError, match="the driver's fields sit flat"):
+            RigConfig.model_validate({
+                "devices": {"f": {"driver": daq_tag, "config": {"zones": 2}}}
+            })
 
     def test_the_plan_s_furnace_example_parses(self, daq_tag, heaters_tag):
         document = {
@@ -200,7 +223,7 @@ class TestParsing:
                     "label": "Tube furnace",
                     "poll_s": 1,
                     "zones": 3,
-                    "signals": {"zone1": {"label": "Zone 1 (entry)", "warn": [0, 1100]}},
+                    "signals": {"zone1": {"label": "Zone 1 (entry)", "warning": [0, 1100]}},
                 },
                 "heaters": {
                     "driver": heaters_tag,
@@ -211,12 +234,12 @@ class TestParsing:
             },
             "controllers": {
                 "heaters.heater1": {
-                    "signal": "furnace.zone1",
-                    "law": {"tag": "PI", "kp": 100, "ki": 0.15, "tt": 30},
+                    "measured": "furnace.zone1",
+                    "law": {"type": "PI", "kp": 100, "ki": 0.15, "tt": 30},
                 },
                 "heaters.heater2": {
-                    "signal": "furnace.zone2",
-                    "law": {"tag": "PI", "kp": 100, "ki": 0.15, "tt": 30},
+                    "measured": "furnace.zone2",
+                    "law": {"type": "PI", "kp": 100, "ki": 0.15, "tt": 30},
                     "default": True,
                 },
             },
@@ -234,32 +257,35 @@ class TestParsing:
                 "blender": {
                     "driver": blender_tag,
                     "label": "Pump blender",
-                    "bound": {"dry": "hum_sensors.dry.humidity", "wet": "hum_sensors.wet.humidity"},
+                    "inputs": {
+                        "dry": "hum_sensors.dry.humidity",
+                        "wet": "hum_sensors.wet.humidity",
+                    },
                 },
             },
             "controllers": {
                 "blender.humidity": {
-                    "signal": "hum_sensors.chamber.humidity",
-                    "law": {"tag": "PI", "kp": 0.8, "ki": 0.02, "tt": 60},
+                    "measured": "hum_sensors.chamber.humidity",
+                    "law": {"type": "PI", "kp": 0.8, "ki": 0.02, "tt": 60},
                     "default": True,
                 }
             },
         }
         config = RigConfig.model_validate(document)
-        assert config.devices["blender"].bound == {
+        assert config.devices["blender"].inputs == {
             "dry": "hum_sensors.dry.humidity",
             "wet": "hum_sensors.wet.humidity",
         }
 
 
 class TestChecks:
-    def test_the_legacy_sections_are_refused_naming_the_plan(self, daq_tag):
+    def test_the_legacy_sections_are_refused_naming_the_reference(self, daq_tag):
         for section in ("readers", "actuators", "loops"):
             document = {"devices": {"x": {"driver": daq_tag, "zones": 1}}, section: []}
             with pytest.raises(
                 ValueError,
                 match="readers/actuators/loops are no longer rig-file sections; devices and"
-                r" controllers replace them, see temp-docs/DEVICE-MODEL-PLAN.md §6",
+                r" controllers replace them, see book/src/7-reference/rig-file\.md",
             ):
                 RigConfig.model_validate(document)
 
@@ -279,8 +305,8 @@ class TestChecks:
         document = {
             "devices": {"f": {"driver": daq_tag}, "h": {"driver": heaters_tag}},
             "controllers": {
-                "h.heater1": {"signal": "f.zone1", "default": True},
-                "h.heater2": {"signal": "f.zone2", "default": True},
+                "h.heater1": {"measured": "f.zone1", "default": True},
+                "h.heater2": {"measured": "f.zone2", "default": True},
             },
         }
         with pytest.raises(ValueError, match="only one controller can be the default"):
@@ -288,13 +314,13 @@ class TestChecks:
 
     def test_a_clock_needs_a_simulated_rig(self, daq_tag):
         document = {
-            "links": {"bench": {"tag": "visa", "resource": "x"}},
+            "links": {"bench": {"type": "visa", "resource": "x"}},
             "devices": {"f": {"driver": daq_tag}},
             "clock": {"speed": 2},
         }
         with pytest.raises(ValueError, match="`clock` is only for a rig whose links"):
             RigConfig.model_validate(document)
-        document["links"] = {"p": {"tag": "sim_plant"}}
+        document["links"] = {"p": {"type": "sim_plant"}}
         assert RigConfig.model_validate(document).simulated is True
 
     def test_a_device_s_undeclared_link_is_refused(self, daq_tag):
@@ -305,12 +331,12 @@ class TestChecks:
     def test_a_controller_address_without_a_dot_is_refused(self, daq_tag):
         document = {
             "devices": {"f": {"driver": daq_tag, "zones": 1}},
-            "controllers": {"heater1": {"signal": "f.zone1"}},
+            "controllers": {"heater1": {"measured": "f.zone1"}},
         }
         with pytest.raises(ValueError, match="'heater1' must be a 'node.signal' address"):
             RigConfig.model_validate(document)
-        document["controllers"] = {"f.zone1": {"signal": "nodot"}}
-        with pytest.raises(ValueError, match="signal 'nodot' must be a 'node.signal' address"):
+        document["controllers"] = {"f.zone1": {"measured": "nodot"}}
+        with pytest.raises(ValueError, match="measured 'nodot' must be a 'node.signal' address"):
             RigConfig.model_validate(document)
 
     def test_two_controllers_on_one_target_is_refused_by_the_strict_loader(self):
@@ -319,7 +345,7 @@ class TestChecks:
         Caught before a `RigConfig` ever sees it, exactly like a duplicate
         device or reader name.
         """
-        text = "controllers:\n  f.heater1: {signal: g.zone1}\n  f.heater1: {signal: g.zone2}\n"
+        text = "controllers:\n  f.heater1: {measured: g.zone1}\n  f.heater1: {measured: g.zone2}\n"
         with pytest.raises(ValueError, match="duplicate key"):
             loads(text, ".yaml")
 
@@ -327,30 +353,29 @@ class TestChecks:
         document = {"name": "x", "devices": {"f": {"driver": daq_tag, "zones": 2}}}
         config = RigConfig.model_validate(document)
         dumped = canonical(config)
-        assert dumped["devices"]["f"]["config"] == {"zones": 2}
+        assert dumped["devices"]["f"]["zones"] == 2 and "config" not in dumped["devices"]["f"]
         assert RigConfig.model_validate(dumped) == config
 
-    def test_schema_describes_flat_and_layered_per_driver(self, daq_tag, heaters_tag):
+    def test_schema_describes_each_driver(self, daq_tag, heaters_tag):
         schema = rig_schema()
         by_driver = schema["properties"]["devices"]["additionalProperties"]
         assert "oneOf" in by_driver
         tags = {
             shape["properties"]["driver"]["const"]
-            for variant in by_driver["oneOf"]
-            for shape in variant.get("oneOf", [])  # the last variant is `null`: removed by a layer
+            for shape in by_driver["oneOf"]
+            if "driver" in shape.get("properties", {})  # the last is a layer's overlay: no driver
         }
         assert {daq_tag, heaters_tag} <= tags
 
-    def test_schema_flat_and_layered_are_exclusive(self, daq_tag):
-        """A flat entry matches only the flat shape, a layered one only the layered."""
+    def test_schema_takes_a_flat_entry_and_refuses_a_nested_config(self, daq_tag):
+        """A flat entry matches its driver's shape; one with `config:` matches none."""
         import jsonschema
 
         schema = rig_schema()
         shapes = {
             shape["title"]: {"$defs": schema["$defs"], **shape}
-            for variant in schema["properties"]["devices"]["additionalProperties"]["oneOf"]
-            for shape in variant.get("oneOf", [])
-            if shape["properties"]["driver"]["const"] == daq_tag
+            for shape in schema["properties"]["devices"]["additionalProperties"]["oneOf"]
+            if shape.get("properties", {}).get("driver", {}).get("const") == daq_tag
         }
         flat_entry = {"driver": daq_tag, "zones": 2}
         layered_entry = {"driver": daq_tag, "config": {"zones": 2}}
@@ -359,8 +384,8 @@ class TestChecks:
             valid = jsonschema.Draft202012Validator
             return {title for title, shape in shapes.items() if valid(shape).is_valid(entry)}
 
-        assert matches(flat_entry) == {f"{daq_tag} (flat)"}
-        assert matches(layered_entry) == {f"{daq_tag} (layered)"}
+        assert matches(flat_entry) == {daq_tag}
+        assert matches(layered_entry) == set()
 
     def test_schema_accepts_a_layer_file(self, daq_tag):
         """An overlay file names its bases and deletes with `null`: both validate in an editor."""
@@ -372,7 +397,7 @@ class TestChecks:
             "devices": {
                 "f": None,
                 "g": {"driver": daq_tag, "zones": 1},
-                "h": {"bound": {"dry": "g.zone1"}, "config": {"zones": 3}},
+                "h": {"inputs": {"dry": "g.zone1"}, "zones": 3},
             },
         }
         jsonschema.Draft202012Validator(rig_schema()).validate(layer)
@@ -383,12 +408,12 @@ class TestBuild:
         document = {
             "devices": {
                 "hum_sensors": {"driver": sensors_tag},
-                "blender": {"driver": blender_tag, "bound": {"dry": "hum_sensors.dry.humidity"}},
+                "blender": {"driver": blender_tag, "inputs": {"dry": "hum_sensors.dry.humidity"}},
             },
             "controllers": {
                 "blender.humidity": {
-                    "signal": "hum_sensors.chamber.humidity",
-                    "law": {"tag": "PI", "kp": 0.8, "ki": 0.02},
+                    "measured": "hum_sensors.chamber.humidity",
+                    "law": {"type": "PI", "kp": 0.8, "ki": 0.02},
                 }
             },
         }
@@ -397,18 +422,29 @@ class TestBuild:
         assert isinstance(target, Signal)
         assert "blender.humidity" in rig.controllers
         controller = rig.controllers["blender.humidity"]
-        assert controller.target is target
-        assert controller.source is rig.resolve("hum_sensors.chamber.humidity")
+        assert controller.output_signal is target
+        assert controller.measured_signal is rig.resolve("hum_sensors.chamber.humidity")
         dry = rig.resolve("hum_sensors.dry.humidity")
-        assert rig.devices["blender"].bound["dry"] is dry
+        assert rig.devices["blender"].bound["dry"].source is dry
 
     def test_build_refuses_a_controller_on_an_unknown_address(self, daq_tag):
         document = {
             "devices": {"f": {"driver": daq_tag, "zones": 1}},
-            "controllers": {"f.nope": {"signal": "f.zone1"}},
+            "controllers": {"f.nope": {"measured": "f.zone1"}},
         }
         with pytest.raises(NotFoundError, match="nope"):
             RigConfig.model_validate(document).build(start=False)
+
+    def test_a_built_link_is_closed_when_build_fails_later(self, daq_tag, closing_link_tag):
+        link_tag, closed = closing_link_tag
+        document = {
+            "links": {"l1": {"type": link_tag}},
+            "devices": {"f": {"driver": daq_tag, "zones": 1}},
+            "controllers": {"f.nope": {"measured": "f.zone1"}},
+        }
+        with pytest.raises(NotFoundError, match="nope"):
+            RigConfig.model_validate(document).build(start=False)
+        assert closed == [True]
 
     def test_furnace_zone1_resolves_to_a_signal(self, daq_tag, heaters_tag):
         document = {
@@ -417,12 +453,35 @@ class TestBuild:
                 "heaters": {"driver": heaters_tag, "zones": 2, "limits": [2500, 6000]},
             },
             "controllers": {
-                "heaters.heater1": {"signal": "furnace.zone1", "law": {"tag": "PI", "kp": 1.0}}
+                "heaters.heater1": {"measured": "furnace.zone1", "law": {"type": "PI", "kp": 1.0}}
             },
         }
         rig = RigConfig.model_validate(document).build(start=False)
         assert isinstance(rig.resolve("furnace.zone1"), Signal)
         assert "heaters.heater1" in rig.controllers
+
+
+class TestSignalMeta:
+    def test_an_inverted_range_override_is_refused(self):
+        with pytest.raises(ValueError, match="range"):
+            SignalMeta(range=(100.0, 0.0))
+
+    def test_a_non_finite_limits_override_is_refused(self):
+        with pytest.raises(ValueError, match="limits"):
+            SignalMeta(limits=(0.0, float("nan")))
+
+    def test_rig_build_refuses_an_inverted_override_band(self, daq_tag):
+        document = {
+            "devices": {
+                "furnace": {
+                    "driver": daq_tag,
+                    "zones": 1,
+                    "signals": {"zone1": {"range": [1200.0, 0.0]}},
+                }
+            }
+        }
+        with pytest.raises(ValueError, match="range"):
+            RigConfig.model_validate(document).build(start=False)
 
 
 class TestOverlay:

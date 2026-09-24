@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import threading
+import time
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -37,7 +39,7 @@ class FakePwm:
         self.enabled[channel] = on
 
 
-class FakePwmConfig(Config[PwmLink], tag="fake_pwm"):
+class FakePwmConfig(Config[PwmLink], type="fake_pwm"):
     def build(self) -> PwmLink:
         return FakePwm()
 
@@ -61,6 +63,15 @@ class SysfsPwm:
         path = self.root / f"pwm{channel}"
         if not path.is_dir():
             (self.root / "export").write_text(str(channel))
+            # export_store() creates period/duty_cycle/enable synchronously (kernel
+            # drivers/pwm/core.c pwm_export_child -> device_register), but their
+            # group/perm is granted by udev off the uevent it fires afterwards, so
+            # `enable` can be briefly unwritable right after export.
+            deadline = time.monotonic() + 1.0
+            while not os.access(path / "enable", os.W_OK) and time.monotonic() < deadline:
+                time.sleep(0.01)
+        if channel not in self._periods:
+            self._periods[channel] = int((path / "period").read_text())
         return path
 
     def configure(self, channel: int, period_ns: int, duty_ns: int) -> None:
@@ -81,7 +92,7 @@ class SysfsPwm:
             (self._channel(channel) / "enable").write_text("1" if on else "0")
 
 
-class PwmConfig(Config[PwmLink], tag="pwm"):
+class PwmConfig(Config[PwmLink], type="pwm"):
     """A kernel PWM chip: `chip = 0` is `/sys/class/pwm/pwmchip0`."""
 
     chip: int = Field(default=0, ge=0)

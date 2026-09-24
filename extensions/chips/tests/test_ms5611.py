@@ -47,7 +47,7 @@ class TestMs5611Sensor:
         bus = _prom_bus()
         sensor = ms5611.Ms5611Sensor(bus, ms5611.MS5611_ADDRESS, sleep=False)
         assert sensor.coefficients == COEFFICIENTS
-        assert (ms5611.MS5611_ADDRESS, None, [ms5611.RESET]) in bus.written
+        assert (ms5611.MS5611_ADDRESS, None, [0x1E]) in bus.written  # datasheet: Reset 0x1E
 
     def test_read_converts_d1_then_d2_and_compensates(self):
         bus = _prom_bus()
@@ -61,6 +61,7 @@ class TestMs5611Sensor:
 
     def test_a_short_adc_reply_is_a_hardware_error(self):
         bus = _prom_bus()
+        bus.short_reads = True  # a strict fake would fail the read itself
         bus.replies[ms5611.MS5611_ADDRESS] += [[0x00, 0x01]]  # only 2 bytes, not 3
         sensor = ms5611.Ms5611Sensor(bus, ms5611.MS5611_ADDRESS, sleep=False)
         with pytest.raises(HardwareError, match="not 3"):
@@ -72,7 +73,6 @@ class TestMs5611Device:
         bus = _prom_bus()
         baro = ms5611.Ms5611("baro", bus, sleep=False)
         assert {p: str(s.access) for p, s in baro.signals.items()} == {
-            "conditions": "rp",
             "pressure": "rp",
             "temperature": "rp",
         }

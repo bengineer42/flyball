@@ -12,8 +12,10 @@ targets, a plain write is ambiguous, so it needs its own driver. Only the
 address byte on every write. Byte 1 is `00 PD1 PD0 D11 D10 D9 D8`, byte 2 is
 `D7 D6 D5 D4 D3 D2 D1 D0` -- `PD1:PD0` selects the power-down output
 impedance (`00` normal, the chip's output op-amp driven; the others tie
-`VOUT` to ground through 1k/100k/500k). This driver always writes normal
-mode (`PD = 00`); powering the output down is out of scope. The three-byte
+`VOUT` to ground through 1k/100k/500k). A demand writes normal mode (`PD = 00`);
+`power_down` writes `PD = 01` (1 kΩ to ground) and is the device's stop -- 0 V is a
+setpoint for a positioner or a VFD, so the driver declares no `off`, but the chip's
+own power-down is its inactive state. The next demand powers it up again. The three-byte
 "Write DAC Register" command (which also programs the EEPROM default) is not
 implemented.
 
@@ -28,7 +30,7 @@ engineering units instead of a bare fraction.
 from __future__ import annotations
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import Band, Committable, DriverConfig, Signal
+from flyball.foundation.device import Bounds, Committable, DriverConfig, Signal, command
 from flyball.foundation.quantities import DIMENSIONLESS, Quantity
 from flyball.hardware.i2c import I2cLink
 from flyball.hardware.spanned_demand import (
@@ -82,6 +84,10 @@ class Mcp4725Output:
         self.link.write(self.address, encode(code))
         return code / FULL_SCALE
 
+    def power_down(self) -> None:
+        """Power the output down: `VOUT` to ground through 1 kΩ (`PD = 01`), code 0."""
+        self.link.write(self.address, encode(0, power_down=1))
+
 
 class Mcp4725(Committable):
     """Drives `drive` (0-1 of full scale, or `unit`/`span` mapped) out the DAC on every write."""
@@ -93,7 +99,7 @@ class Mcp4725(Committable):
         address: int = MCP4725_ADDRESS,
         unit: str | None = None,
         quantity: str | None = None,
-        span: Band | None = None,
+        span: Bounds | None = None,
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
@@ -126,8 +132,17 @@ class Mcp4725(Committable):
         if achieved != value:
             signal.push(achieved)
 
+    @command(stops=True, writes=("drive",))
+    def power_down(self) -> None:
+        """Power the output down (1 kΩ to ground); the next demand powers it up.
 
-class Mcp4725Config(DriverConfig[Mcp4725], tag="mcp4725"):
+        The device's stop: a rig stop runs it.
+        """
+        self.output.power_down()
+        self.signals["drive"].push(from_fraction(0.0, self.span))
+
+
+class Mcp4725Config(DriverConfig[Mcp4725], type="mcp4725"):
     """`driver: mcp4725`: `{ link, address }`, in a bare 0-1 fraction unless `unit` and `span`."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
@@ -138,7 +153,7 @@ class Mcp4725Config(DriverConfig[Mcp4725], tag="mcp4725"):
     quantity: str | None = Field(
         default=None, description="With `unit`: what `drive` then is ('drive')."
     )
-    span: Band | None = Field(
+    span: Bounds | None = Field(
         default=None, description="With `unit`: the value meaning 0 % and the one meaning 100 %."
     )
 

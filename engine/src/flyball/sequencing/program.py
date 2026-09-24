@@ -4,13 +4,13 @@ A program is data with no cursor or running flag;
 [Programmer][flyball.sequencing.Programmer] owns those, so one program can
 run twice, or on two rigs at once.
 
-The library's own steps, each a `Command` subclass whose wire form (and the
+The library's own steps, each a `Step` subclass whose wire form (and the
 program file's JSON schema) is derived from its constructor by
-[flyball.interfaces.server.dialect][]: `regulate`/`ramp`/`hold`/`arrive`/`manual` name a
-controller by its target address, or a list, or none for the rig's default
+[flyball.interfaces.server.dialect][]: `regulate`/`ramp`/`wait`/`settle`/`manual` name a
+controller by its output address, or a list, or none for the rig's default
 (`sequencing/loops.py`); `set` puts values on one device's writable signals
 as a demand, and `command` calls one of a device's own commands
-(`sequencing/devices.py`); `wait` pauses for an operator or an external
+(`sequencing/devices.py`); `prompt` pauses for an operator or an external
 trigger (`sequencing/activities.py`).
 """
 
@@ -23,10 +23,10 @@ from typing import TYPE_CHECKING, overload
 if TYPE_CHECKING:
     from flyball.rig import Rig
 
-    from .command import Command
+    from .step import Step
 
 
-class Program(Sequence["Command"]):
+class Program(Sequence["Step"]):
     """The steps of a run, in order. `commands` is copied.
 
     Raises:
@@ -35,13 +35,13 @@ class Program(Sequence["Command"]):
 
     __slots__ = ("_commands", "description", "name")
 
-    _commands: tuple[Command, ...]
+    _commands: tuple[Step, ...]
     name: str | None
     description: str | None
     """What the program is for, for a listing; optional."""
 
     def __init__(
-        self, commands: Sequence[Command], name: str | None = None, description: str | None = None
+        self, commands: Sequence[Step], name: str | None = None, description: str | None = None
     ) -> None:
         if not commands:
             raise ValueError("a program needs at least one command")
@@ -50,23 +50,23 @@ class Program(Sequence["Command"]):
         self.description = description
 
     def missing(self, rig: Rig) -> dict[int, str]:
-        """What each step names that `rig` lacks right now, by step index; see `Command.missing`."""
+        """What each step names that `rig` lacks right now, by step index; see `Step.missing`."""
         out: dict[int, str] = {}
         for index, command in enumerate(self._commands):
             if gaps := command.missing(rig):
                 out[index] = "; ".join(gaps)
         return out
 
-    def get(self, index: int, default: None = None, /) -> Command | None:
+    def get(self, index: int, default: None = None, /) -> Step | None:
         with suppress(IndexError):
             return self._commands[index]
         return default
 
     @overload
-    def __getitem__(self, index: int) -> Command: ...
+    def __getitem__(self, index: int) -> Step: ...
     @overload
     def __getitem__(self, index: slice) -> Program: ...
-    def __getitem__(self, index: int | slice) -> Command | Program:
+    def __getitem__(self, index: int | slice) -> Step | Program:
         if isinstance(index, slice):
             return Program(self._commands[index], self.name)
         return self._commands[index]
@@ -74,7 +74,7 @@ class Program(Sequence["Command"]):
     def __len__(self) -> int:
         return len(self._commands)
 
-    def __iter__(self) -> Iterator[Command]:
+    def __iter__(self) -> Iterator[Step]:
         return iter(self._commands)
 
     def __eq__(self, other: object) -> bool:

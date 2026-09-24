@@ -7,9 +7,13 @@
 
 ::: flyball.foundation.device.state
 
+::: flyball.foundation.device.conditions
+
 ::: flyball.foundation.device.commands
 
 ::: flyball.foundation.device.descriptors
+
+::: flyball.foundation.device.binding
 
 ::: flyball.foundation.device.building
 
@@ -19,9 +23,15 @@
 
 ::: flyball.foundation.device.signal
 
+::: flyball.foundation.device.novalue
+
+::: flyball.foundation.device.values
+
 ::: flyball.foundation.time.clock
 
 ::: flyball.foundation.time.loop
+
+::: flyball.foundation.time.timer
 
 ::: flyball.foundation.router.router
 

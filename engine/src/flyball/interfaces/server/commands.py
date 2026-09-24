@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter, create_model
 
 from flyball.interfaces.server.schemas import discriminated_union
 from flyball.interfaces.server.wire import WIRE_TYPES, wire_fields
-from flyball.sequencing.command import Command
+from flyball.sequencing.step import Step
 
 __all__ = ["WIRE_TYPES", "CommandBase", "command_request", "commands_schema", "request_for"]
 
@@ -25,10 +25,10 @@ class CommandBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     command: str
-    _command_cls: ClassVar[type[Command]]
+    _command_cls: ClassVar[type[Step]]
     """The command this request describes -- set once, on the subclass `request_model` builds."""
 
-    def parse(self) -> Command:
+    def parse(self) -> Step:
         """The domain command this request describes, nested requests parsed."""
         fields = {
             name: value.parse() if hasattr(value, "parse") else value
@@ -38,7 +38,7 @@ class CommandBase(BaseModel):
         return self._command_cls(**fields)
 
 
-def request_model(command: type[Command]) -> type[CommandBase]:
+def request_model(command: type[Step]) -> type[CommandBase]:
     """The pydantic request for `command`: one field per constructor parameter, plus its tag."""
     fields: dict[str, Any] = {"command": (Literal[command.tag], command.tag)}
     fields.update(wire_fields(command))
@@ -47,10 +47,10 @@ def request_model(command: type[Command]) -> type[CommandBase]:
     return model
 
 
-_REQUESTS: dict[type[Command], type[CommandBase]] = {}
+_REQUESTS: dict[type[Step], type[CommandBase]] = {}
 
 
-def request_for(command: type[Command]) -> type[CommandBase]:
+def request_for(command: type[Step]) -> type[CommandBase]:
     """The pydantic request for `command`, built once and cached.
 
     Deferred because `__init_subclass__` runs before `@dataclass` generates
@@ -61,13 +61,13 @@ def request_for(command: type[Command]) -> type[CommandBase]:
     return _REQUESTS[command]
 
 
-def command_request(commands: Mapping[str, type[Command]]) -> Any:
+def command_request(commands: Mapping[str, type[Step]]) -> Any:
     """`commands` (a dialect's, or a catalog's) as one request type, discriminated by tag."""
     if not commands:
         raise LookupError("no commands are registered")
     return discriminated_union(commands, "command", request_for)
 
 
-def commands_schema(commands: Mapping[str, type[Command]]) -> dict[str, Any]:
+def commands_schema(commands: Mapping[str, type[Step]]) -> dict[str, Any]:
     """The request union as JSON schema, for a client building a command form."""
     return TypeAdapter(command_request(commands)).json_schema()

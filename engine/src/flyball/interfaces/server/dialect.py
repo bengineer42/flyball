@@ -6,7 +6,7 @@ is the key, its arguments the value:
     - ramp: {to: 60, pace: {seconds: 600}}
     - flag: "sample loaded"                  # scalar shorthand: the command's `primary` field
     - setpoint: 50
-      settle: {within: 0.5, readings: 5}     # a modifier alongside the command
+      until: {within: 0.5}                   # a modifier alongside the command
 
 The HTTP API speaks the *internally tagged* form (`{"command": "ramp", ...}`).
 This module bridges them: a normaliser rewrites a file step into that form
@@ -21,17 +21,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from inspect import cleandoc
 from pathlib import Path
 from typing import Any, get_args, get_type_hints
 
 import yaml
 from pydantic import TypeAdapter
 
-from flyball.foundation.files import load_document
+from flyball.foundation.files import load_document, yaml_loader
 from flyball.foundation.time import DURATION_KEYS, RATE_KEYS, Duration, Rate
 from flyball.interfaces.server.commands import command_request, request_for
-from flyball.sequencing.command import Command
 from flyball.sequencing.program import Program
+from flyball.sequencing.step import Step
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +54,7 @@ class Dialect:
     """What a step may contain beyond its command."""
 
     modifiers: tuple[Modifier, ...] = ()
-    commands: Mapping[str, type[Command]] = field(default_factory=dict)
+    steps: Mapping[str, type[Step]] = field(default_factory=dict)
 
     @property
     def modifier_keys(self) -> dict[str, Modifier]:
@@ -76,30 +77,70 @@ def _time_keys(annotation: Any) -> dict[str, Any] | None:
     return keys or None
 
 
-_FOLDS: dict[type[Command], tuple[str, dict[str, Any]] | None] = {}
+TIMEOUT = "timeout"
+"""The field a step gives up after. Always written nested (`timeout: {minutes: 10}`), never
+folded flat: a flat `minutes:` beside it means the step's own time field, if it has one."""
+
+_TIME_FIELDS: dict[type[Step], list[tuple[str, dict[str, Any]]]] = {}
 
 
-def foldable(command: type[Command]) -> tuple[str, dict[str, Any]] | None:
+def _time_fields(command: type[Step]) -> list[tuple[str, dict[str, Any]]]:
+    """Every duration or rate field of `command` but `timeout`, with its flat keys."""
+    if command not in _TIME_FIELDS:
+        _TIME_FIELDS[command] = [
+            (name, keys)
+            for name, annotation in get_type_hints(command).items()
+            if name not in {"tag", TIMEOUT} and (keys := _time_keys(annotation)) is not None
+        ]
+    return _TIME_FIELDS[command]
+
+
+def _has_timeout(command: type[Step]) -> bool:
+    hints = get_type_hints(command)
+    return TIMEOUT in hints and _time_keys(hints[TIMEOUT]) is not None
+
+
+def foldable(command: type[Step]) -> tuple[str, dict[str, Any]] | None:
     """The one field of `command` that may be written flat, with its keys.
 
     `ramp: {to: 60, per_minute: 2}` stands for `ramp: {to: 60, pace: {per_minute: 2}}`.
-    Only when exactly one field is a duration or rate; otherwise flat keys
-    would be ambiguous.
+    Only when exactly one field is a duration or rate, not counting `timeout`
+    (never folded); otherwise flat keys would be ambiguous.
     """
-    if command not in _FOLDS:
-        candidates = [
-            (name, keys)
-            for name, annotation in get_type_hints(command).items()
-            if name != "tag" and (keys := _time_keys(annotation)) is not None
-        ]
-        _FOLDS[command] = candidates[0] if len(candidates) == 1 else None
-    return _FOLDS[command]
+    fields = _time_fields(command)
+    return fields[0] if len(fields) == 1 else None
 
 
-def _unfold(command: type[Command], arguments: dict[str, Any], where: str) -> dict[str, Any]:
-    """Gather flat time keys into the field they stand for."""
+def _unfold(command: type[Step], arguments: dict[str, Any], where: str) -> dict[str, Any]:
+    """Gather flat time keys into the field they stand for.
+
+    Raises:
+        StepError: A flat time key where `command` has more than one time
+            field, so it could belong to any of them; or where its only time
+            field is `timeout`, which is always written nested.
+    """
     fold = foldable(command)
     if fold is None:
+        fields = _time_fields(command)
+        if not fields and _has_timeout(command):
+            flat = sorted(key for key in arguments if key in DURATION_KEYS)
+            if flat:
+                raise StepError(
+                    f"{where}: `{command.tag}`: write the timeout inside it: "
+                    "`timeout: {minutes: 10}`"
+                )
+        if len(fields) > 1:
+            names = {name for name, _ in fields}
+            flat = sorted(
+                key
+                for key in arguments
+                if key not in names and any(key in keys for _, keys in fields)
+            )
+            if flat:
+                raise StepError(
+                    f"{where}: {flat} is ambiguous: it could belong to any of "
+                    f"{sorted(names)}; write it inside one of them"
+                )
         return arguments
     name, keys = fold
     flat = {key: arguments.pop(key) for key in list(arguments) if key in keys}
@@ -108,6 +149,66 @@ def _unfold(command: type[Command], arguments: dict[str, Any], where: str) -> di
     if name in arguments:
         raise StepError(f"{where}: give {name!r} or {sorted(flat)}, not both")
     return {**arguments, name: flat}
+
+
+_RENAMED_STEPS = {
+    "hold": "the timed step is now `wait:`, not `hold:`",
+    "arrive": "`arrive:` is now `settle:`",
+}
+"""Step keys that were renamed, and what to say instead of "unknown key"."""
+
+_PROMPT_NOW = "operator prompts are now `prompt:`; `wait:` is the timed step"
+_TIMED_WAIT_NEEDS_DURATION = (
+    "a prompt is now `prompt:`; for a timed wait with a message write `duration:` explicitly"
+)
+
+
+def _is_number(value: Any) -> bool:
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def check_renamed(tag: Any, body: Any, where: str, commands: Mapping[str, type[Step]]) -> None:
+    """Refuse a step written with a name from before the step renames, saying what it is now.
+
+    `hold` became `wait` and `arrive` became `settle` (whose `readings` became
+    `count`); the operator `wait` became `prompt`; a controller step's `loop`
+    became `controllers`. A `wait` that looks like
+    an operator prompt -- a bare message, a `name`, or a `message` with flat
+    time keys that would otherwise silently parse as a timer -- is refused
+    rather than run as one. Applies to a file step's key and body, or to an
+    internally tagged command's `command` and the rest of it.
+
+    Raises:
+        StepError: The step uses an old name.
+    """
+    if not isinstance(tag, str):
+        return
+    if tag in _RENAMED_STEPS and tag not in commands:
+        raise StepError(f"{where}: {_RENAMED_STEPS[tag]}")
+    if tag == "settle" and isinstance(body, Mapping) and "readings" in body:
+        raise StepError(f"{where}: `settle`'s `readings:` is now `count:`")
+    if (
+        isinstance(body, Mapping)
+        and "loop" in body
+        and "controllers" in getattr(commands.get(tag), "__dataclass_fields__", {})
+    ):
+        raise StepError(f"{where}: `{tag}`'s `loop:` is now `controllers:`")
+    if tag != "wait":
+        return
+    if isinstance(body, str) and not _is_number(body):
+        raise StepError(f"{where}: {_PROMPT_NOW}")
+    if not isinstance(body, Mapping) or not ({"message", "name"} & body.keys()):
+        return
+    flat = any(key in DURATION_KEYS for key in body)
+    if "duration" in body:
+        return
+    if flat and "name" not in body:
+        raise StepError(f"{where}: {_TIMED_WAIT_NEEDS_DURATION}")
+    raise StepError(f"{where}: {_PROMPT_NOW}")
 
 
 def normalise_step(raw: Any, dialect: Dialect, index: int | None = None) -> dict[str, Any]:
@@ -121,16 +222,17 @@ def normalise_step(raw: Any, dialect: Dialect, index: int | None = None) -> dict
     if not isinstance(raw, Mapping):
         raise StepError(f"{where}: expected a mapping, got {type(raw).__name__}")
     modifiers = dialect.modifier_keys
-    tags = [key for key in raw if key in dialect.commands]
-    unknown = [key for key in raw if key not in dialect.commands and key not in modifiers]
+    for key in raw:
+        if key not in modifiers:
+            check_renamed(key, raw[key], where, dialect.steps)
+    tags = [key for key in raw if key in dialect.steps]
+    unknown = [key for key in raw if key not in dialect.steps and key not in modifiers]
     if unknown:
-        raise StepError(
-            f"{where}: unknown key(s) {unknown}; commands are {sorted(dialect.commands)}"
-        )
+        raise StepError(f"{where}: unknown key(s) {unknown}; commands are {sorted(dialect.steps)}")
     if len(tags) != 1:
         raise StepError(f"{where}: a step names exactly one command, found {tags or 'none'}")
     tag = tags[0]
-    command = dialect.commands[tag]
+    command = dialect.steps[tag]
     body = raw[tag]
     if isinstance(body, Mapping):
         arguments = dict(body)
@@ -166,7 +268,7 @@ def program_from_file(path: str | Path, dialect: Dialect) -> Program:
 def program_from_document(document: Any, dialect: Dialect) -> Program:
     """A loaded program document -> a [Program][flyball.sequencing.program.Program] of commands."""
     normalised = normalise_program(document, dialect)
-    adapter = TypeAdapter(command_request(dialect.commands))
+    adapter = TypeAdapter(command_request(dialect.steps))
     commands = [adapter.validate_python(step["command"]).parse() for step in normalised["steps"]]
     return Program(commands, name=normalised.get("name"), description=normalised.get("description"))
 
@@ -177,7 +279,7 @@ def commands_from_yaml(text: str, dialect: Dialect) -> Program:
     Modifiers are validated but not attached: wrapping a command in a
     completion or duration is the programmer's job.
     """
-    return program_from_document(yaml.safe_load(text), dialect)
+    return program_from_document(yaml.load(text, Loader=yaml_loader()), dialect)
 
 
 def step_schema(dialect: Dialect) -> dict[str, Any]:
@@ -193,7 +295,7 @@ def step_schema(dialect: Dialect) -> dict[str, Any]:
     }
     defs: dict[str, Any] = {}
     branches: list[dict[str, Any]] = []
-    for tag, command in dialect.commands.items():
+    for tag, command in dialect.steps.items():
         request = TypeAdapter(request_for(command)).json_schema(ref_template="#/$defs/{model}")
         defs.update(request.pop("$defs", {}))
         request["properties"].pop("command", None)
@@ -217,7 +319,9 @@ def step_schema(dialect: Dialect) -> dict[str, Any]:
             "properties": {tag: value, **modifiers},
             "required": [tag],
             "additionalProperties": False,
-            **({"description": command.__doc__.strip()} if command.__doc__ else {}),
+            # cleandoc, not strip: 3.13 dedents docstrings at compile time and 3.12 does
+            # not, so the schema must not depend on which interpreter generated it.
+            **({"description": cleandoc(command.__doc__)} if command.__doc__ else {}),
         })
     return {"oneOf": branches, **({"$defs": defs} if defs else {})}
 

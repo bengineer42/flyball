@@ -1,13 +1,13 @@
 # yaml-language-server: $schema=rig.schema.json
-# A tank filled by a valve against a drain: an integrating plant. Unlike the
-# oven it has no natural resting point, so a proportional-only law leaves an
-# offset and integral action is what holds level.
+# A tank filled by a valve against a drain: a first-order lag (tau = 1/leak
+# = 20 s), resting at gain / leak = 40 L when the valve is fully open --
+# the same shape as the oven, just in litres.
 
 name: tank
 
 links:
   tank:
-    tag: sim_plant
+    type: sim_plant
     model: integrator
     gain: 2.0          # litres per second at full valve
     leak: 0.05         # 5 % of the contents drains per second
@@ -19,28 +19,27 @@ devices:
     driver: sim_daq
     label: Tank level
     poll_s: 0.5
-    config:
-      link: tank
-      ports:
-        volume: { port: output, quantity: volume, unit: L }
+    link: tank
+    ports:
+      volume: { port: output, quantity: volume, unit: L }
     signals:
       volume: { range: [0, 100], precision: 1 }
   valve:
     driver: sim_drive
     label: Inlet valve
-    # valve.drive [W] L, smart: a demand is the level to hold. An
-    # integrator's `feedforward` has no static inverse (there is no fixed
-    # drive-to-level curve to read off, only a rate), so `limits` is given:
-    # 0..40 L, the steady state at gain / leak.
-    config:
-      link: tank
-      ports:
-        drive: { port: input, demand: output, quantity: volume, unit: L, limits: [0, 40] }
+    # valve.drive [W] L, smart: a demand is the level to hold. With leak > 0
+    # this integrator is a lag, and its `feedforward` has an exact static
+    # inverse: demand * leak / gain (plant.py:106-109). `limits` still caps
+    # it at 0..40 L, the steady state at gain / leak -- the valve cannot
+    # open past fully open.
+    link: tank
+    ports:
+      drive: { port: input, demand: output, quantity: volume, unit: L, limits: [0, 40] }
 
 # The drive takes a demand straight in L, so the controller hands it the
 # setpoint untouched and the law's gains are the old L-per-L tuning.
 controllers:
   valve.drive:
-    signal: level.volume
-    law: { tag: PI, kp: 0.05, ki: 0.01 }
+    measured: level.volume
+    law: { type: PI, kp: 0.05, ki: 0.01 }
     default: true

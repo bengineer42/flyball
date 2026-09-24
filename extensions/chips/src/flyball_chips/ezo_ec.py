@@ -37,7 +37,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import DriverConfig, Node, Output, Readable, Sample
+from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample
 from flyball.foundation.errors import HardwareError
 from flyball.foundation.quantities import Quantity, Unit
 from flyball.foundation.quantities.dimensions import Fraction
@@ -101,17 +101,17 @@ class EzoEcProbe:
 class EzoEc(Readable):
     """One EZO-EC probe on the device root: the four `O`-default outputs, one UART round trip."""
 
-    conductivity = Output(
+    conductivity = Readout(
         "conductivity", quantity=CONDUCTIVITY, range=(0.07, 500_000.0), precision=3
     )
-    total_dissolved_solids = Output(
+    total_dissolved_solids = Readout(
         "total_dissolved_solids",
         quantity=TOTAL_DISSOLVED_SOLIDS,
         range=(0.0, 270_000.0),
         precision=3,
     )
-    salinity = Output("salinity", quantity=SALINITY, range=(0.0, 42.0), precision=3)
-    specific_gravity = Output(
+    salinity = Readout("salinity", quantity=SALINITY, range=(0.0, 42.0), precision=3)
+    specific_gravity = Readout(
         "specific_gravity", quantity=SPECIFIC_GRAVITY, range=(1.0, 1.3), precision=3
     )
 
@@ -141,7 +141,7 @@ class EzoEc(Readable):
         )
 
 
-class EzoEcConfig(DriverConfig[EzoEc], tag="ezo_ec"):
+class EzoEcConfig(DriverConfig[EzoEc], type="ezo_ec"):
     """One EZO-EC circuit, alone on its UART."""
 
     link: UartLinkConfig | str  # type: ignore[valid-type]

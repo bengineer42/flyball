@@ -1,11 +1,12 @@
 // Package client resolves which base URL a CLI invocation should hit,
-// per plan.md's "CLI addressing" section, and is shared between the
-// daemon (which doesn't need it) and the flyball CLI (cmd/flyball) --
-// living here so both binaries in this module can use the same
-// resolution and wire-request logic without duplicating it.
+// and is shared between the daemon (which doesn't need it) and the
+// flyball CLI (cmd/flyball) -- living here so both binaries in this
+// module can use the same resolution and wire-request logic without
+// duplicating it.
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,7 +35,7 @@ func (t Target) WithToken(token string) Target {
 	return t
 }
 
-// Resolve implements plan.md's precedence exactly:
+// Resolve implements this precedence exactly:
 //   - server == "": FLYBALL_URL alone, direct-to-runner, daemon not
 //     involved at all -- unchanged from today's CLI.
 //   - server != "": FLYBALLD_URL (the daemon), path prefixed with
@@ -58,13 +59,32 @@ func Resolve(server string) (Target, error) {
 // ResolveDefault implements the default-runner precedence when -s is
 // omitted but FLYBALLD_URL / --daemon points at a daemon: exactly one
 // runner registered, or one marked default (layer 1's default_server),
-// else error listing the names -- plan.md's "Default-runner precedence."
+// else error listing the names.
 func ResolveDefault(daemonURL string) (Target, error) {
-	resp, err := http.Get(strings.TrimRight(daemonURL, "/") + "/api/runners")
+	return ResolveDefaultContext(context.Background(), daemonURL)
+}
+
+// ResolveDefaultContext is ResolveDefault with the list call bound to ctx
+// (`flyball stop` gives it a deadline: a stop is never blockable).
+func ResolveDefaultContext(ctx context.Context, daemonURL string) (Target, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(daemonURL, "/")+"/api/runners", nil)
+	if err != nil {
+		return Target{}, err
+	}
+	// The daemon's own token, not a runner's: the list is not open.
+	if t := os.Getenv("FLYBALLD_TOKEN"); t != "" {
+		req.Header.Set("Authorization", "Bearer "+t)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return Target{}, fmt.Errorf("reaching daemon at %s: %w", daemonURL, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return Target{}, fmt.Errorf("listing runners at %s (set FLYBALLD_TOKEN, or pass -s NAME): %s: %s",
+			daemonURL, resp.Status, strings.TrimSpace(string(body)))
+	}
 
 	var runners []struct {
 		Name string `json:"name"`
@@ -84,7 +104,7 @@ func ResolveDefault(daemonURL string) (Target, error) {
 			names[i] = r.Name
 		}
 		// TODO: check layer 1's default_server before erroring, once the
-		// daemon's /api exposes it (not yet, see interface.md).
+		// daemon's /api exposes it (not yet).
 		return Target{}, fmt.Errorf(
 			"more than one runner registered (%s) -- pass -s/--server",
 			strings.Join(names, ", "),

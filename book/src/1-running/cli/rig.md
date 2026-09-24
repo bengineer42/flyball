@@ -1,11 +1,11 @@
 # The rig and the runner
 
 !!! tip "In the browser"
-    [The Config page](../ui/rig.md): the running document, changes, versions and restore, save, restart / shut down, connect a model; [Simulation](../ui/index.md#pages) for a simulated rig's knobs.
+    [The rig file](../ui/rig.md): the running document, changes, versions and restore, save, restart / shut down, connect a model; [Simulation](../ui/index.md#pages) for a simulated rig's knobs.
 
 | command | |
 | --- | --- |
-| `flyball rig check FILE… [--set KEY=VALUE] [--print]` | validate rig files (later overlays earlier) against the schema built into the binary -- `flyball`'s own drivers, not extras such as `flyball-linux`, whose tags it does not know (start the runner to check those); `--print` prints the merged document. No runner needed |
+| `flyball rig check FILE… [--set KEY=VALUE] [--print]` | validate rig files (later overlays earlier) against the schema built into the binary -- `flyball`'s own drivers, not extras such as `flyball-linux`, whose tags it does not know (start the runner to check those); `--print` prints the merged document. No runner needed. It cannot see a driver's `off`: what a stop would write to each output is `GET /api/rig/stop` on a running rig |
 | `flyball rig schema` | the rig file's JSON Schema, for an editor |
 | `flyball sim` | a simulated rig's clock and every plant's parameters (`GET /api/sim`) |
 | `flyball sim clock N` | run the rig's time at N× (`PUT /api/sim/clock`) |
@@ -22,6 +22,37 @@
 Saving the running rig, its versions and restoring one, and stopping or
 restarting the runner have no subcommand yet; the routes are
 [Composition](../../4-server/api.md#composition) and
-[The runner](../../4-server/api.md#the-runner), and the last two answer 409
-unless the runner was started with `--allow-shutdown`
-([Access](../runner/access.md#stopping-and-restarting-from-the-api)).
+[The runner](../../4-server/api.md#the-runner). Stopping and restarting
+answer 409 unless the runner was started with `--allow-shutdown`
+([Access](../runner/access.md#stopping-and-restarting-the-runner-from-the-api));
+a restore, like every change to the rig, saves a version and restarts the
+runner itself, without it
+([Building a rig while it runs](../runner/building.md)).
+
+## Stopping the rig
+
+```
+flyball stop --reason "door open"           # the software stop: latched, controllers to manual, each device's stop written
+flyball -s furnace stop                     # one rig behind flyballd
+flyball stop --all                          # every rig flyballd runs that this credential may operate
+flyball stop --front-dir /run/flyball/furnace   # on the rig's host: SIGUSR1 to the runner, no HTTP
+flyball stop furnace.yaml                   # the same, for a rig started with `flyball run furnace.yaml`
+```
+
+Over HTTP it needs `operate` and prints what happened to each device
+(`stopped`, `unchanged` or `failed`, with what it wrote or kept), whether a
+program was interrupted, the controllers now in manual, and a `latched`
+line: automatic writes are refused until a person resets the rig with
+`POST /api/rig/reset` ([the software stop](../runner/access.md#stopping-the-rig)).
+There is no `reset` subcommand yet. The
+`--front-dir` and rig-file forms signal the runner instead, which works
+with no front, no credential and no network; the report goes to the
+runner's log, or the run's `run.log`
+([`flyball stop`](../../7-reference/cli.md#stopping-a-rig)).
+
+## Starting one: `flyball run`
+
+The one command here that needs no runner already up -- it starts one.
+`flyball run RIG-FILE` runs `flyball-runner` behind a front that serves the
+built dashboard on `127.0.0.1:8000` and passes `/api`, `/ws` and `/mcp` to
+it: [Starting a rig](../runner/index.md#with-the-dashboard-flyball-run).

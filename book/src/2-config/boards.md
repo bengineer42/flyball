@@ -18,7 +18,7 @@ flyball-linux probe                      # what this machine has
 point, so `flyball rig check`, `flyball rig schema` and the runner know them
 once it is installed.
 
-| link tag | device | fake |
+| link type | device | fake |
 | --- | --- | --- |
 | `i2c` | `/dev/i2c-<bus>` via smbus2 | `fake_i2c` — registers per address, scripted raw replies |
 | `spi` | `/dev/spidev<bus>.<device>` via spidev | `fake_spi` — scripted or computed replies |
@@ -27,14 +27,14 @@ once it is installed.
 | `onewire` | `/sys/bus/w1/devices` | `fake_onewire` — `w1_slave` text per device |
 | `uart` | a kernel serial device via pyserial: `port` (required, e.g. `/dev/ttyUSB0`), `baudrate` (`9600`), `timeout` (`1.0` s per read) | `fake_uart` — scripted `replies` |
 
-| device tag | what | on |
+| device driver | what | on |
 | --- | --- | --- |
 | `i2c_table` | a table of registers: `address`, `length`, `signed`, `byteorder`, `shift`, `scale`, `offset`, `unit`, `write` | `i2c` |
 | `sht4x` | Sensirion SHT40/41/45: one chip, `humidity`, `temperature [RP]` | `i2c` |
 | `sht4x_set` | several SHT4x chips on one bus, each its own atomic namespace | `i2c` |
 | `ads1115` | TI 16-bit ADC, four single-ended channels, PGA gain | `i2c` |
 | `mcp3008` | Microchip 10-bit ADC, eight channels | `spi` |
-| `gpio_line` | `direction: output` (default): one `[W]` signal `on`, plus `on`/`off` commands; `direction: input`: one `[RP]` signal `level` | `gpio` |
+| `gpio_line` | `direction: output` (default): one `[W]` signal `on`, plus `on`/`off` commands (refused while a controller drives `on`); `direction: input`: one `[RP]` signal `level` | `gpio` |
 | `pwm_channel` | one `[W]` signal `drive`: the duty itself (0-1), or a unit and `span` mapping it linearly (a feedforward) | `pwm` |
 | `ds18b20` | the `w1_therm` family, in °C | `onewire` |
 
@@ -52,7 +52,7 @@ board_temp:
 ```
 
 A chip with a command sequence rather than registers (SHT4x: write a byte,
-wait, read six) gets its own tag under `flyball_chips` (extensions/chips). Each
+wait, read six) gets its own driver under `flyball_chips` (extensions/chips). Each
 is a short module against the link protocol, tested to the byte on the fake.
 
 ## Board profiles
@@ -65,15 +65,15 @@ file actually is:
 name = "Raspberry Pi 5"
 
 [links.i2c1]
-tag = "i2c"
+type = "i2c"
 bus = 1
 
 [links.header]
-tag = "gpio"
+type = "gpio"
 chip = "gpiochip4"
 
 [links.pwm]
-tag = "pwm"
+type = "pwm"
 chip = 0
 
 [pins]
@@ -104,8 +104,8 @@ devices:
 
 controllers:
   heater.drive:
-    signal: air.temperature
-    law: { tag: PI, kp: 0.5, ki: 0.01 }
+    measured: air.temperature
+    law: { type: PI, kp: 0.5, ki: 0.01 }
     default: true
 ```
 

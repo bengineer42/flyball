@@ -1,7 +1,7 @@
 # Writing a sensor
 
 A sensor is a `Readable` device: it implements `read`, and its signals are
-`R`/`P` (`Output`, the default role). There is no separate `Reader` class —
+`R`/`P` (`Readout`, the default role). There is no separate `Reader` class —
 a sensor, an actuator with a readback, and a multi-channel instrument are
 all `Device`, told apart by which of `Readable`/`Committable` they are and
 which access flags their signals carry.
@@ -9,7 +9,7 @@ which access flags their signals carry.
 ## Declare what is measured
 
 ```python
---8<-- "sensor.py:10:12"
+--8<-- "sensor.py:quantities"
 ```
 
 A [`Quantity`][flyball.foundation.quantities.quantity.Quantity] is a name and a unit, nothing
@@ -21,13 +21,13 @@ rig can differ in all three.
 ## Declare the tree
 
 ```python
---8<-- "sensor.py:15:22"
+--8<-- "sensor.py:polled-signals"
 ```
 
-Each signal is a **descriptor** on the class: [`Output`][flyball.foundation.device.descriptors.Output]
+Each signal is a **descriptor** on the class: [`Readout`][flyball.foundation.device.descriptors.Readout]
 for something produced (`RP`), the only role a pure sensor needs. Its
 arguments are the signal's name, a label, its quantity, then metadata:
-`range` and `precision` for a gauge or an axis, `warn` and `alarm` bands,
+`range` and `precision` for a gauge or an axis, `warning` and `alarm` bands,
 `poll_s` for a signal read at its own rate, `tags` to group it across
 devices. A [`Namespace`][flyball.foundation.device.descriptors.Namespace] groups several
 under one path (`hum_sensors.dry.humidity`), for a device that is really
@@ -36,7 +36,7 @@ becomes a bound [`Signal`][flyball.foundation.device.signal.Signal] with its add
 (`weather.temperature`) fixed for the device's life, reachable as
 `self.temperature` or `self.signals["temperature"]`. Everything declared
 here lands in the schema, so a UI or a CLI knows how to draw the signal
-without being told; a rig file may narrow it (`signals:` overrides) but
+without being told; a rig file may narrow it (`signals:` metadata) but
 never widen it.
 
 A driver whose tree depends on its config -- a table of SCPI queries, a
@@ -46,8 +46,10 @@ register map -- builds descriptors at run time instead;
 ## Choose a unit
 
 Units come from `flyball.foundation.quantities`: the SI base and derived units, °C,
-°F, litres, minutes, and prefixes (`Pascal.prefixed(Kilo)`, both from
-`flyball.foundation.quantities.si` and `.dimension`). Anything not there is one line:
+litres and minutes (`flyball.foundation.quantities.si`); °F, °R, bar, Torr, Å, rpm,
+sccm and slm (`.other`; `sccm` and `slm` are volume flows, with the standard conditions
+left to the instrument, and `rpm` is a frequency); and prefixes (`Pascal.prefixed(Kilo)`, `Kilo` from `.dimension`). A rig file names any of
+them by symbol. Anything not there is one line:
 
 ```python
 from flyball.foundation.quantities import DIMENSIONLESS
@@ -65,12 +67,12 @@ what comes back — `read` yields one `Sample` per instant actually read.
 `self.sample(time_ns, **values)` builds one from descriptor names:
 
 ```python
---8<-- "sensor.py:24:29"
+--8<-- "sensor.py:polled-read"
 ```
 
 `time_ns` is the rig's clock at the moment of the poll; stamp the sample
 with it unless the hardware gives a better timestamp. A device is polled on
-the smallest `poll_s` over its publishing signals — set it on the device
+the smallest `poll_s` over its published signals — set it on the device
 (`weather.poll_s = 1.0`) or per-signal for a mixed rate; `None` (the
 default) means never polled, the shape [Assembling a rig](../rig.md#devices)
 covers.
@@ -82,7 +84,7 @@ subscription. Then nothing polls; the device pushes as data arrives, from
 whatever thread that is:
 
 ```python
---8<-- "sensor.py:32:44"
+--8<-- "sensor.py:pushed"
 ```
 
 `self.push(time_ns, **values)` is one sample, one delivery; `signal.push(value)`
@@ -117,19 +119,43 @@ the exception that stopped it.
 
 ## Config and commands
 
-A sensor is a device like any other, so it may declare a `ConfigSignal` and
-mark commands the same way a writable device does — see
-[Writing an actuator](actuator.md#demand-output-and-setting). One with
+A sensor is a device like any other, so it may declare a `Setting` and
+mark commands the same way a writable device does; a number it is built
+from is a config field (or a limit's metadata), not a signal — see
+[Writing an actuator](actuator.md#demand-readout-and-setting). One with
 nothing to configure declares nothing. To be named in a rig file it needs a
-config class with a tag -- [Config and build](config.md) -- after which it
+config class with a type -- [Config and build](config.md) -- after which it
 appears in [Supported drivers](../../2-config/devices/drivers.md)' terms: its own
 fields, a `link`, the envelope around it.
+
+## A value it has not got
+
+A raise says the transport failed: nothing was read. A sensor that answers
+but has no valid measurement -- a "no measurement" status, a fault current,
+one bad channel of several -- yields a no-value for that signal instead,
+and the rest of the sample reads on:
+
+```python
+from flyball.foundation.device import invalid, not_applicable, railed
+
+yield self.sample(time_ns, oxygen=invalid("ne43_low", side="low"))   # read, not a valid value
+yield self.sample(time_ns, blend=not_applicable("no_flow"))           # undefined now
+yield self.sample(time_ns, pressure=railed(110000.0, "high"))         # usable, pinned at an end
+```
+
+A signal left out was not read this time. The whole contract, and what
+the rig does with each, is in [the device model](../model.md#no-value).
 
 ## What the runtime adds
 
 The rig keeps a run record beside each polled device: its period, when it
-last delivered, and an `offline` condition if a read raised. Polling
-continues after a failure, and the next successful delivery clears the
-condition; nothing else in the rig stops. `GET /api/devices/{name}` shows
-both the device's own state and the run (`run: {period_s, running,
-last_read_ns}`).
+last delivered, a read in flight, and failed reads in a row. A `read`
+that raises counts toward the device's budget (`reads.fail_after`,
+default 3); samples it yielded before raising are still delivered. At the
+budget the device is `offline`, and polling carries on: it is retried
+after each wait of `reads.backoff_s` (default `[1, 2, 5, 15, 60]` s, the
+last repeating) until a read succeeds, which clears the condition and
+puts it back on its period ([The runner section](../../2-config/runner.md#reads-when-a-failed-read-puts-a-device-offline)).
+Nothing else in the rig stops. `GET /api/devices/{name}` shows both the
+device's own state and the run (`run: {period_s, running, last_read_ns,
+read_s, missed, reading_since_ns, consecutive_failures, next_retry_ns}`).

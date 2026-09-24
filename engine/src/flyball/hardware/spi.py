@@ -2,7 +2,7 @@
 
 OS-independent -- no bus implementation lives here. `extensions/linux`
 supplies `SpidevSpi` (a real `/dev/spidevN.M` bus) and `FakeSpi` (a scripted
-one for tests and hardware-free rigs), both built from tagged configs.
+one for tests and hardware-free rigs), both built from typed configs.
 """
 
 from __future__ import annotations

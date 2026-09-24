@@ -63,14 +63,23 @@ class TestQCoDeS:
         device = QCoDeS(fresh("smu"), inst, {"bias": QCoDeSSignal(property="volt")})
         assert device.signals["bias"].role is Role.DEMAND
         assert device.signals["bias"].access is Access.RPW, "a demand, whatever `publish` says"
-        assert "bias" in device.publishing, "a demand publishes its readback"
+        assert "bias" in device.published, "a demand publishes its readback"
+
+    def test_a_settable_parameter_declared_a_setting_is_one(self, fresh):
+        """C13: `role: setting` keeps a range or a mode out of a controller's reach."""
+        inst = FakeInstrument("smu")
+        device = QCoDeS(fresh("smu"), inst, {"v": QCoDeSSignal(property="volt", role="setting")})
+        assert device.signals["v"].role is Role.SETTING
+        assert device.signals["v"].access is Access.RPW
+        with pytest.raises(ValueError, match="only a settable parameter"):
+            QCoDeS(fresh("smu"), inst, {"t": QCoDeSSignal(property="temp", role="setting")})
 
     def test_a_read_only_parameter_is_an_output(self, fresh):
         inst = FakeInstrument("smu")
         device = QCoDeS(fresh("smu"), inst, {"temp": QCoDeSSignal(property="temp")})
-        assert device.signals["temp"].role is Role.OUTPUT
+        assert device.signals["temp"].role is Role.READOUT
         assert device.signals["temp"].access is Access.R
-        assert "temp" not in device.publishing, "not streamed unless published"
+        assert "temp" not in device.published, "not streamed unless published"
 
     def test_a_read_only_parameter_published_is_rp(self, fresh):
         inst = FakeInstrument("smu")
@@ -101,6 +110,22 @@ class TestQCoDeS:
         samples = list(device.read(5))
         assert [s.by_name() for s in samples] == [{"volt": 1.25}], "curr is not published"
 
+    def test_a_slightly_early_poll_still_counts_as_due(self, fresh):
+        """`Scan`'s 0.9*period rule: a scaled clock's threads arrive a little early."""
+        inst = FakeInstrument("smu")
+        device = QCoDeS(fresh("smu"), inst, {"volt": QCoDeSSignal(property="volt", publish=True)})
+        device.signals["volt"].set_meta(poll_s=1.0)
+        list(device.read(0))
+        samples = list(device.read(int(0.95e9)))
+        assert [s.by_name() for s in samples] == [{"volt": 1.25}]
+
+    def test_a_none_from_the_instrument_is_left_for_the_rig_to_make_invalid(self, fresh):
+        inst = FakeInstrument("smu")
+        inst.parameters["temp"]._value = None
+        device = QCoDeS(fresh("smu"), inst, {"t": QCoDeSSignal(property="temp", publish=True)})
+        (sample,) = device.read(0)
+        assert sample.by_name() == {"t": None}
+
     def test_read_skips_a_demand_with_no_getter(self, fresh):
         inst = FakeInstrument("smu")
         inst.parameters["write_only"] = FakeParameter("write_only", gettable=False)
@@ -114,7 +139,7 @@ class TestQCoDeS:
         device.apply(bias, 1, 3.0)
         assert device.commit(1) is None
         assert inst.parameters["volt"].sets == [3.0]
-        assert device.pending[bias] == 3.0, "the rig clears pending, not the driver"
+        assert device.staged[bias] == 3.0, "the rig clears staged, not the driver"
 
     def test_a_dotted_property_reaches_a_submodule_parameter(self, fresh):
         inst = FakeInstrument("smu")
@@ -149,11 +174,9 @@ def test_a_rig_file_names_the_driver(fresh):
         "devices": {
             "smu": {
                 "driver": "qcodes",
-                "config": {
-                    "instrument": f"{__name__}.FakeInstrument",
-                    "instrument_name": qcodes_name,
-                    "channels": {"volt": {"property": "volt", "publish": True}},
-                },
+                "instrument": f"{__name__}.FakeInstrument",
+                "instrument_name": qcodes_name,
+                "channels": {"volt": {"property": "volt", "publish": True}},
             }
         }
     }

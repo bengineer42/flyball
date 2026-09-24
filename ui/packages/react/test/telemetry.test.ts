@@ -27,23 +27,23 @@ const samples = (...items: Array<[node: string, t: number, values: Record<string
   samples: items.map(([node, t, values]) => ({ node, time_ns: t * 1e9, values })),
 });
 
-const controller = (t: number, demand: number | null): ControllerOut => ({
+const controller = (t: number, output: number | null): ControllerOut => ({
   name: "heaters.heater1",
   label: null,
-  target: "heaters.heater1",
-  source: "furnace.zone1",
+  output_signal: "heaters.heater1",
+  measured_signal: "furnace.zone1",
   default: true,
   mode: "regulating",
-  law: { tag: "PI" },
-  feedforward: { tag: "none" },
-  demand_unit: "W",
+  law: { type: "PI" },
+  feedforward: { type: "none" },
+  output_unit: "W",
   reference: 100,
   setpoint: 100,
   correction: 0,
-  demand,
+  output,
   expected: null,
   delivered_correction: null,
-  reading: { signal: "furnace.zone1", time_ns: t * 1e9, value: 99 },
+  measured: { signal: "furnace.zone1", time_ns: t * 1e9, value: 99 },
 });
 
 describe("TelemetryStore", () => {
@@ -253,7 +253,7 @@ describe("TelemetryStore", () => {
     expect(Object.keys(held)).toEqual(["heaters.heater1", "heaters.heater2"]);
   });
 
-  it("keeps controller ticks by target address with nulls where it had none, replacing a resent tick", () => {
+  it("keeps controller ticks by output address with nulls where it had none, replacing a resent tick", () => {
     const { rig, send } = fakeRig();
     const store = new TelemetryStore(rig);
     store.subscribeController("heaters.heater1", () => undefined);
@@ -262,11 +262,11 @@ describe("TelemetryStore", () => {
     send("controllers", { controllers: [controller(2, null)] });
     const view = store.readController("heaters.heater1", emptyControllerView());
     expect(view.t).toEqual([1, 2]);
-    expect(view.demand).toEqual([6, null]);
-    expect(view.reading).toEqual([99, 99]);
+    expect(view.output).toEqual([6, null]);
+    expect(view.measured).toEqual([99, 99]);
     expect(view.expected).toEqual([null, null]);
-    expect(store.controller("heaters.heater1")?.demand).toBeNull();
-    expect(store.controller("heaters.heater1")?.source).toBe("furnace.zone1");
+    expect(store.controller("heaters.heater1")?.output).toBeNull();
+    expect(store.controller("heaters.heater1")?.measured_signal).toBe("furnace.zone1");
     expect(Object.keys(store.controllers())).toEqual(["heaters.heater1"]);
   });
 
@@ -282,7 +282,7 @@ describe("TelemetryStore", () => {
     const key = controllerSetpointKey("heaters.heater1");
     store.subscribeController("heaters.heater1", () => undefined);
     send("controllers", { controllers: [controller(1, 5)] }); // setpoint 100 (see `controller()`)
-    send("controllers", { controllers: [{ ...controller(2, 5), reference: null, setpoint: null, demand: null, correction: null }] }); // setpointOf finds nothing
+    send("controllers", { controllers: [{ ...controller(2, 5), reference: null, setpoint: null, output: null, correction: null }] }); // setpointOf finds nothing
     const view = store.read(key, emptyTrace());
     expect(view.t).toEqual([1, 2]);
     expect(view.v[0]).toBe(100);
@@ -306,9 +306,9 @@ describe("TelemetryStore", () => {
     expect(cb).toHaveBeenCalledTimes(2); // unsubscribed from both streams
   });
 
-  it("seeds controller ticks matched by (target, source) across sessions", async () => {
+  it("seeds controller ticks matched by (output, measured signal) across sessions", async () => {
     const ticks = vi.fn(async (_id: number, name: string) =>
-      name === "heaters.heater1" ? [{ controller: name, offset_ns: 1e9, mode: "regulating", correction: 1, reading: 50, setpoint: 100, demand: 40, expected: null, delivered_correction: null }] : [],
+      name === "heaters.heater1" ? [{ controller: name, offset_ns: 1e9, mode: "regulating", correction: 1, measured: 50, setpoint: 100, output: 40, expected: null, delivered_correction: null }] : [],
     );
     const { rig } = fakeRig({
       sessions: async () => [{ id: 3, start_ns: 100e9, end_ns: null }],
@@ -316,8 +316,8 @@ describe("TelemetryStore", () => {
       recording: async () => ({ id: 3, start_ns: 100e9, end_ns: null }),
       controllers: async () => [controller(110, 7)],
       sessionControllers: async () => [
-        { name: "heaters.heater1", source: "furnace.zone1", law: {}, feedforward: null },
-        { name: "heaters.heater2", source: "furnace.zone2", law: {}, feedforward: null },
+        { name: "heaters.heater1", measured: "furnace.zone1", law: {}, feedforward: null },
+        { name: "heaters.heater2", measured: "furnace.zone2", law: {}, feedforward: null },
       ],
       ticks,
     });
@@ -328,11 +328,11 @@ describe("TelemetryStore", () => {
     expect(ticks.mock.calls[0]![1]).toBe("heaters.heater1");
     const view = store.readController("heaters.heater1", emptyControllerView());
     expect(view.t).toEqual([101, 110]);
-    expect(view.demand).toEqual([40, 7]);
+    expect(view.output).toEqual([40, 7]);
     expect(view.reference).toEqual([100, 100]);
   });
 
-  it("keeps device runs by name and derives a signal's period from its device", () => {
+  it("keeps device runs by name", () => {
     const { rig, send } = fakeRig();
     const store = new TelemetryStore(rig);
     const one = vi.fn();
@@ -344,38 +344,32 @@ describe("TelemetryStore", () => {
     vi.advanceTimersByTime(20);
     expect(one).toHaveBeenCalledTimes(1);
     expect(store.deviceRun("furnace")?.period_s).toBe(0.5);
-    expect(store.periodOf("furnace.zone1")).toBe(0.5);
-    expect(store.periodOf("heaters.heater1")).toBe(2);
-    expect(store.periodOf("nothing.here")).toBeUndefined();
-    expect(store.devicePeriodsKey()).toBe("furnace=0.5,heaters=2");
-    const key = store.devicePeriodsKey();
     send("samples", { runs: [run("heaters", 2, 3)] });
     vi.advanceTimersByTime(20);
     expect(one).toHaveBeenCalledTimes(1); // another device's read does not wake furnace's subscriber
-    expect(store.devicePeriodsKey()).toBe(key);
     expect(store.deviceVersion("heaters")).toBe(2);
   });
 
-  it("keeps waits by name as they register and settle", () => {
+  it("keeps activities by name as they register and settle", () => {
     const { rig, send } = fakeRig();
     const store = new TelemetryStore(rig);
     const cb = vi.fn();
-    store.subscribeWaits(cb, 0);
-    const wait = (name: string, outcome: string) => ({ name, message: null, outcome, since_ns: 0, timeout_s: null, prompt: true });
-    send("waits", { waits: [wait("step-1", "pending")] });
-    send("waits", { waits: [wait("step-1", "fired"), wait("step-2", "pending")] });
+    store.subscribeActivities(cb, 0);
+    const activity = (name: string, outcome: string) => ({ name, message: null, outcome, since_ns: 0, timeout_s: null, prompt: true });
+    send("activities", { activities: [activity("step-1", "pending")] });
+    send("activities", { activities: [activity("step-1", "fired"), activity("step-2", "pending")] });
     vi.advanceTimersByTime(20);
     expect(cb).toHaveBeenCalledTimes(1);
-    expect(store.waits()["step-1"]?.outcome).toBe("fired");
-    expect(store.waits()["step-2"]?.outcome).toBe("pending");
-    expect(store.waitsVersionNow()).toBe(2);
+    expect(store.activities()["step-1"]?.outcome).toBe("fired");
+    expect(store.activities()["step-2"]?.outcome).toBe("pending");
+    expect(store.activitiesVersionNow()).toBe(2);
   });
 
   it("caps events and drops the resent ones", () => {
     const { rig, send } = fakeRig();
     const store = new TelemetryStore(rig);
     store.subscribeEvents(() => undefined);
-    const ev = (t: number) => ({ time_ns: t, level: "INFO", scope: "rig", subject: "s", kind: "k", message: "m", details: null });
+    const ev = (t: number) => ({ time_ns: t, severity: "info", scope: "rig", subject: "s", code: "k", message: "m", details: null });
     send("events", { events: [ev(1), ev(2)] });
     const held = store.events();
     send("events", { events: [ev(1), ev(2)] });
@@ -389,9 +383,9 @@ describe("TelemetryStore", () => {
     const store = new TelemetryStore(rig);
     store.subscribeLatest("a.x", () => undefined);
     store.subscribeWrites(null, () => undefined); // rides the same "samples" socket
-    store.subscribeWaits(() => undefined);
+    store.subscribeActivities(() => undefined);
     expect(() => send("samples", { error: "no rig attached" })).not.toThrow();
-    expect(() => send("waits", { error: "no rig attached" })).not.toThrow();
+    expect(() => send("activities", { error: "no rig attached" })).not.toThrow();
     expect(store.signalKeys()).toEqual([]);
   });
 
@@ -456,14 +450,14 @@ describe("TelemetryStore", () => {
       });
       const ticks = vi.fn(async (_id: number, _name: string, q: { start_ns: number; end_ns: number }) => {
         const out = [];
-        for (let t = Math.ceil(q.start_ns / 1e9); t * 1e9 < q.end_ns; t++) out.push({ controller: "heaters.heater1", offset_ns: t * 1e9, mode: "regulating", correction: 0, reading: t, setpoint: 100, demand: 2 * t, expected: null, delivered_correction: null });
+        for (let t = Math.ceil(q.start_ns / 1e9); t * 1e9 < q.end_ns; t++) out.push({ controller: "heaters.heater1", offset_ns: t * 1e9, mode: "regulating", correction: 0, measured: t, setpoint: 100, output: 2 * t, expected: null, delivered_correction: null });
         return out;
       });
       const fake = fakeRig({
         series,
         ticks,
         sessionSignals: async () => [{ address: "a.x" }, { address: "a.mode" }, { address: "furnace.zone1" }],
-        sessionControllers: async () => [{ name: "heaters.heater1", source: "furnace.zone1" }],
+        sessionControllers: async () => [{ name: "heaters.heater1", measured: "furnace.zone1" }],
       });
       return { ...fake, series, ticks };
     };
@@ -494,7 +488,6 @@ describe("TelemetryStore", () => {
       expect(series).not.toHaveBeenCalled();
       // The live clock and the live ring carry on underneath.
       expect(store.nowS()).toBe(100);
-      expect(store.clockS()).toBe(50);
     });
 
     it("live samples fill the ring silently while paused; resume wakes once and shows them with no gap", () => {
@@ -581,10 +574,9 @@ describe("TelemetryStore", () => {
       expect(series.mock.calls.filter(([, a]) => a === "a.mode").map(([, , q]) => [q.start_ns, q.end_ns])).toEqual([[30e9, 100e9 + 1], [0, 30e9]]);
       expect(store.latestValue("a.mode")).toEqual({ t: 20, value: "heating" });
       expect(store.latest("a.mode")).toBeUndefined(); // never on a ring
-      expect(store.lastSampleS("a.mode")).toBeUndefined(); // a recorded enum has no age: the session may keep it only when it changes
-      expect(store.lastSampleS("a.x")).toBe(100);
+      expect(store.reading("a.x")).toMatchObject({ t: 100, value: 100, quality: "ok" });
       store.playback(null);
-      expect(store.lastSampleS("a.mode")).toBe(500);
+      expect(store.reading("a.mode")).toMatchObject({ t: 500, value: "off", quality: "ok" });
       expect(store.latestValue("a.mode")).toEqual({ t: 500, value: "off" });
     });
 
@@ -598,7 +590,7 @@ describe("TelemetryStore", () => {
         send("controllers", { controllers: [controller(t, 2 * t)] });
       }
       vi.advanceTimersByTime(20);
-      expect(store.controller("heaters.heater1")?.reading?.value).toBe(99);
+      expect(store.controller("heaters.heater1")?.measured?.value).toBe(99);
       // Within what the live ring holds (it starts at 90; the window from 50 - 70 asks for a fetch).
       store.playback(95, session);
       expect(store.readController("heaters.heater1", emptyControllerView()).t).toEqual([]); // fetch pending
@@ -606,13 +598,13 @@ describe("TelemetryStore", () => {
       expect(ticks).toHaveBeenCalledTimes(1);
       const trend = store.readController("heaters.heater1", emptyControllerView());
       expect(trend.t[trend.t.length - 1]).toBe(95);
-      expect(trend.demand[trend.t.length - 1]).toBe(190);
+      expect(trend.output[trend.t.length - 1]).toBe(190);
       const c = store.controller("heaters.heater1")!;
-      expect(c.reading).toEqual({ signal: "furnace.zone1", time_ns: 95e9, value: 95 });
-      expect(c.demand).toBe(200); // commanded: live
+      expect(c.measured).toEqual({ signal: "furnace.zone1", time_ns: 95e9, value: 95, quality: "ok" });
+      expect(c.output).toBe(200); // commanded: live
       expect(store.controller("heaters.heater1")).toBe(c); // the same object until something changes
       store.playback(null);
-      expect(store.controller("heaters.heater1")?.reading?.value).toBe(99);
+      expect(store.controller("heaters.heater1")?.measured?.value).toBe(99);
       expect(store.readController("heaters.heater1", emptyControllerView()).t.length).toBe(11);
     });
   });

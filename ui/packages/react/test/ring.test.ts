@@ -119,6 +119,21 @@ describe("Ring", () => {
     expect(out.cols[0]).toEqual([70, 80, 90, 100, 110]);
   });
 
+  it("sizes the thinning bucket from the caller's spanS, not the ring's full windowS", () => {
+    // A store ring holds 3600s but a chart only shows the newest 60s. Without spanS, the
+    // bucket width comes from the full 3600s window (3600/400 = 9s) and most of the 60
+    // samples actually on screen fall into the same handful of buckets. With spanS set to
+    // the chart's own span, the bucket width matches what is visible and every sample in
+    // range keeps its own bucket.
+    const ring = new Ring({ initial: 16, cap: 8192, windowS: 3600 });
+    for (let t = 0; t < 200; t++) ring.push(t, [t]);
+    const withoutSpan = ring.read(emptyView(1), { fromS: 140, maxPoints: 400 });
+    expect(withoutSpan.t.length).toBeLessThan(60);
+    const withSpan = ring.read(emptyView(1), { fromS: 140, maxPoints: 400, spanS: 60 });
+    expect(withSpan.t.length).toBe(60);
+    expect(withSpan.t).toEqual(Array.from({ length: 60 }, (_, i) => 140 + i));
+  });
+
   it("carries several columns", () => {
     const ring = new Ring({ width: 2 });
     ring.push(1, [1, Number.NaN]);

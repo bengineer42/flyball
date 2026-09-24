@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
-from flyball.foundation.device import Event, Level
+from flyball.foundation.device import Event, Severity
 from flyball.interfaces.server.deps import RigDep, current_rig
-from flyball.interfaces.server.routes.telemetry import IDLE_POLL_S, _closed, _no_rig
+from flyball.interfaces.server.routes.telemetry import IDLE_POLL_S, _closed, _no_rig, send
 
 router = APIRouter(tags=["events"])
 
@@ -24,16 +24,24 @@ EVENT = TypeAdapter(Event)
 
 
 def event_out(event: Event) -> dict[str, Any]:
+    """The wire shape: every field, the severity a lowercase string."""
     out: dict[str, Any] = EVENT.dump_python(event, mode="json")
-    out["level"] = Level(event.level).name
     return out
 
 
 @router.get("/api/events")
-def read_events(rig: RigDep, limit: int = 100, level: str | None = None) -> list[dict[str, Any]]:
-    """The most recent events, oldest first; `level` keeps that level and above."""
-    floor = Level[level.upper()] if level else Level.DEBUG
-    recent = [e for e in rig.recent if e.level >= floor]
+def read_events(
+    rig: RigDep,
+    limit: Annotated[int, Query(ge=1, le=10_000)] = 100,
+    severity: Severity | None = None,
+) -> list[dict[str, Any]]:
+    """The most recent events, oldest first; `severity` keeps that severity and above.
+
+    422 for a `severity` that is not one of the four (lowercase), or a `limit` outside 1 to 10 000.
+    """
+    floor = (severity or Severity.DEBUG).rank
+    # A snapshot: another thread appends to the deque while this filters it.
+    recent = [e for e in list(rig.recent) if Severity(e.severity).rank >= floor]
     return [event_out(e) for e in recent[-limit:]]
 
 
@@ -49,7 +57,8 @@ async def events(websocket: WebSocket) -> None:
                 continue
             closed = asyncio.ensure_future(_closed(websocket))
             with rig.events.subscribe(maxsize=200) as queue:
-                await websocket.send_json({"events": [event_out(e) for e in rig.recent]})
+                primed = [event_out(e) for e in list(rig.recent)]  # a snapshot, as above
+                await send(websocket, {"events": primed})
                 getter: asyncio.Future[Any] = asyncio.ensure_future(queue.get())
                 try:
                     while current_rig() is rig:
@@ -61,7 +70,7 @@ async def events(websocket: WebSocket) -> None:
                         if closed in done:
                             raise WebSocketDisconnect
                         if getter in done:
-                            await websocket.send_json({"events": [event_out(getter.result())]})
+                            await send(websocket, {"events": [event_out(getter.result())]})
                             getter = asyncio.ensure_future(queue.get())
                 finally:
                     getter.cancel()

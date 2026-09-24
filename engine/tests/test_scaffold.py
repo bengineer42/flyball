@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 
 import pytest
@@ -25,7 +26,7 @@ def test_device_template_builds_reads_and_takes_a_command(tmp_path, fresh):
     (cls,) = (
         v
         for v in vars(module).values()
-        if isinstance(v, type) and issubclass(v, Config) and v.config_tag == name
+        if isinstance(v, type) and issubclass(v, Config) and v.type_name == name
     )
     config = cls()
     device = config.build(name)
@@ -40,10 +41,20 @@ def test_device_template_builds_reads_and_takes_a_command(tmp_path, fresh):
 
 
 def test_names_are_made_safe_and_files_are_not_overwritten(tmp_path):
-    assert 'tag="lab_probe"' in render("Lab-Probe 2".replace(" 2", ""))
+    assert 'type="lab_probe"' in render("Lab-Probe 2".replace(" 2", ""))
     for bad in ("", "2fast", "class"):
         with pytest.raises(ValueError):
             render(bad)
     (tmp_path / "taken.py").write_text("")
     with pytest.raises(FileExistsError):
         write("taken", tmp_path)
+
+
+def test_render_passes_ruff(tmp_path):
+    path = write("lint_probe", tmp_path)
+    result = subprocess.run(
+        ["ruff", "check", str(path)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

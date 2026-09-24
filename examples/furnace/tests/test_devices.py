@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 from flyball.control.laws import PI
-from flyball.foundation.device import Access, DeviceEntry, Sample, Signal
+from flyball.foundation.device import Access, DeviceEntry, Sample, Signal, invalid
 from flyball.foundation.errors import ConflictError, HardwareError, NotFoundError
 from flyball.rig import Rig
 from flyball.runtime.config import RigConfig
@@ -33,7 +33,7 @@ class TestSimDaq:
         daq = _built(
             SimDaqConfig(link="tube", ports={"z1": "zone1", "sample": "sample"}), "f", tube
         )
-        assert [str(s) for s in daq.signals] == ["conditions", "z1", "sample"]
+        assert [str(s) for s in daq.signals] == ["z1", "sample"]
         z1 = daq.signals["z1"]
         assert z1.address == "f.z1" and z1.access == Access.RP and z1.unit.symbol == "°C"
         assert z1.quantity.name == "temperature" and z1.spec.range is None
@@ -68,7 +68,7 @@ class TestSimDaq:
             SimDaqConfig(link="tube", ports={"z1": "zone1", "sample": "sample"}), "f", tube
         )
         daq.poll_s = 1.0
-        daq.signals["sample"].override(poll_s=2.0)
+        daq.signals["sample"].set_meta(poll_s=2.0)
         second = 1_000_000_000
         assert list(daq.read(0))[0].by_name() == {"z1": 20.0, "sample": 20.0}
         (sample,) = daq.read(second)
@@ -90,16 +90,23 @@ class TestSimDaq:
         list(daq.read(5_000_000_000))
         broken = daq.fail("z2")
         assert broken == ("z2",)
-        (condition,) = daq.conditions.value
-        assert condition.kind == "broken" and condition.since_ns == 5_000_000_000
+        (condition,) = daq.held_conditions()
+        assert (
+            condition.code == "broken" and condition.subject == "f.z2"
+        )  # on the signal, stamped by the device clock
         assert "z2" in condition.message
-        with pytest.raises(HardwareError, match="f.z2: thermocouple open circuit"):
-            list(daq.read(6_000_000_000))
-        assert daq.restore("z2") == () and daq.conditions.value == ()
-        assert list(daq.read(6_000_000_000))
+        (sample,) = daq.read(6_000_000_000)
+        assert sample.by_name() == {"z1": 20.0, "z2": invalid("sensor_failed")}, (
+            "the DAQ reports the open sensor; the other channel reads on"
+        )
+        assert daq.fail("z2", raises=True) == ("z2",)
+        with pytest.raises(HardwareError, match=r"f\.z2: sensor failed \(simulated\)"):
+            list(daq.read(7_000_000_000))
+        assert daq.restore("z2") == () and daq.held_conditions() == []
+        assert list(daq.read(8_000_000_000))
         with pytest.raises(NotFoundError, match="no signal 'z9'"):
             daq.fail("z9")
-        assert {tag: spec.simulation for tag, spec in daq.commands.items()} == {
+        assert {name: spec.simulation for name, spec in daq.commands.items()} == {
             "fail": True,
             "restore": True,
         }
@@ -120,7 +127,7 @@ class TestNamespaces:
             tube,
         )
         rig.add_device(daq)
-        assert list(daq.signals) == ["conditions", "entry.zone", "entry.sample", "exit.zone"]
+        assert list(daq.signals) == ["entry.zone", "entry.sample", "exit.zone"]
         assert list(daq.nodes) == ["entry", "exit"] and daq.nodes["entry"].atomic
         humidity = rig.resolve("dev.entry.zone")
         assert humidity is daq.signals["entry.zone"] and humidity.address == "dev.entry.zone"
@@ -142,7 +149,7 @@ class TestNamespaces:
             "entry.sample": 20.0,
             "exit.zone": 20.0,
         }
-        assert daq.fail("entry.sample") == ("entry.sample",)
+        assert daq.fail("entry.sample", raises=True) == ("entry.sample",)
         with pytest.raises(HardwareError, match="dev.entry.sample"):
             list(daq.read(2_000_000_000, daq.nodes["entry"]))
         assert [s.node.address for s in daq.read(2_000_000_000, daq.nodes["exit"])] == ["dev.exit"]
@@ -166,7 +173,7 @@ class TestNamespaces:
         rig.add_device(drive)
         h1 = rig.resolve("heaters.bank.h1")
         assert isinstance(h1, Signal) and h1.limits == (0.0, 2500.0)
-        states = rig.demand(drive.nodes["bank"], {"h1": 1250.0, "h2": 300.0})
+        states = rig.write(drive.nodes["bank"], {"h1": 1250.0, "h2": 300.0})
         assert states[h1].value == 1250.0 and tube.inputs["heater1"] == 0.5
         assert tube.inputs["heater2"] == 0.05 and drive.inputs == {
             "bank.h1": 0.5,
@@ -184,21 +191,22 @@ class TestNamespaces:
 
     def test_the_rig_file_overrides_reach_a_namespaced_signal(self):
         config = RigConfig.model_validate({
-            "links": {"plant": {"tag": "sim_furnace", "zones": 2}},
+            "links": {"plant": {"type": "sim_furnace", "zones": 2}},
             "devices": {
                 "hum_sensors": {
                     "driver": "sim_daq",
                     "poll_s": 1,
-                    "config": {"link": "plant", "ports": {"dry.t": "zone1", "wet.t": "zone2"}},
+                    "link": "plant",
+                    "ports": {"dry.t": "zone1", "wet.t": "zone2"},
                     "signals": {
-                        "dry": {"signals": {"t": {"warn": [0, 100]}}},
+                        "dry": {"signals": {"t": {"warning": [0, 100]}}},
                         "wet": {"poll_s": 5},
                     },
                 },
             },
         })
         rig = config.build(start=False)
-        assert rig.resolve("hum_sensors.dry.t").spec.warn == (0.0, 100.0)
+        assert rig.resolve("hum_sensors.dry.t").spec.warning == (0.0, 100.0)
         assert rig.resolve("hum_sensors.wet.t").poll_s == 5
 
 
@@ -213,7 +221,7 @@ class TestSimDrive:
         h1, h2 = drive.signals["h1"], drive.signals["h2"]
         assert h1.access == Access.RPW and h1.unit.symbol == "W" and h1.quantity.name == "power"
         assert h1.limits == (0.0, 2500.0) and h2.limits == (0.0, 6000.0)
-        states = rig.demand(drive.root, {"h1": 1250.0, "h2": 6000.0})
+        states = rig.write(drive.root, {"h1": 1250.0, "h2": 6000.0})
         assert tube.inputs == {"heater1": 0.5, "heater2": 1.0, "heater3": 0.0}
         assert states[h1].value == 1250.0 and states[h1].at_limit is None
         assert states[h2].at_limit == "high" and drive.written[h2] is states[h2]
@@ -226,10 +234,10 @@ class TestSimDrive:
         rig.clock = SteppedClock(0)
         drive = _built(SimDriveConfig(link="tube", ports={"h3": "heater3"}), "heaters", tube)
         rig.add_device(drive)
-        (state,) = rig.demand(drive.root, {"h3": 5000.0}).values()
+        (state,) = rig.write(drive.root, {"h3": 5000.0}).values()
         assert state.value == 2000.0 and state.requested == 5000.0 and state.at_limit == "high"
         assert tube.inputs["heater3"] == 1.0
-        (state,) = rig.demand(drive.root, {"h3": -1.0}).values()
+        (state,) = rig.write(drive.root, {"h3": -1.0}).values()
         assert state.value == 0.0 and state.at_limit == "low" and tube.inputs["heater3"] == 0.0
 
 
@@ -274,8 +282,8 @@ class TestSharedPlant:
         for device in (daq, drive):
             rig.add_device(device)
             rig.start_polling(device)
-        assert clock.scheduled == 1, "only the daq publishes, so only it is polled"
-        rig.demand(drive.root, {"heater1": 2500.0})
+        assert list(rig.polling.periodic) == [daq.name], "only the daq publishes, so is polled"
+        rig.write(drive.root, {"heater1": 2500.0})
         clock.advance(600)
         zones = {
             n: rig.latest[rig.resolve(f"furnace.{n}")].value for n in ("zone1", "zone2", "zone3")
@@ -303,20 +311,21 @@ class TestSharedPlant:
         assert rig.latest[daq.signals["zone2"]].value == pytest.approx(300, abs=20)
         assert 0.0 < tube.inputs["heater2"] < 1.0
         with pytest.raises(ConflictError, match="driven by controller 'heaters.heater2'"):
-            rig.demand(drive.root, {"heater2": 0.0})
+            rig.write(drive.root, {"heater2": 0.0})
 
 
 class TestRigFile:
     def test_the_plan_s_sim_overlay_shape_builds(self):
         config = RigConfig.model_validate({
             "clock": {"speed": 60},
-            "links": {"plant": {"tag": "sim_furnace", "zones": 2, "power_w": [2500, 6000]}},
+            "links": {"plant": {"type": "sim_furnace", "zones": 2, "power_w": [2500, 6000]}},
             "devices": {
                 "furnace": {
                     "driver": "sim_daq",
                     "poll_s": 1,
-                    "config": {"link": "plant", "ports": {"zone1": "zone1", "zone2": "zone2"}},
-                    "signals": {"zone1": {"range": [0, 1200], "warn": [0, 1100]}},
+                    "link": "plant",
+                    "ports": {"zone1": "zone1", "zone2": "zone2"},
+                    "signals": {"zone1": {"range": [0, 1200], "warning": [0, 1100]}},
                 },
                 "heaters": {
                     "driver": "sim_drive",
@@ -325,11 +334,11 @@ class TestRigFile:
                     "signals": {"heater2": {"limits": [0, 3000]}},
                 },
             },
-            "controllers": {"heaters.heater1": {"signal": "furnace.zone1"}},
+            "controllers": {"heaters.heater1": {"measured": "furnace.zone1"}},
         })
         assert config.simulated
         rig = config.build(start=False)
-        assert rig.resolve("furnace.zone1").spec.warn == (0.0, 1100.0)
+        assert rig.resolve("furnace.zone1").spec.warning == (0.0, 1100.0)
         assert rig.resolve("heaters.heater2").limits == (0.0, 3000.0), "the file narrowed it"
         assert rig.resolve("heaters.heater1").limits == (0.0, 2500.0)
         assert rig.devices["furnace"].plant is rig.devices["heaters"].plant is rig.links["plant"]

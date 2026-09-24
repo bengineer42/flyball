@@ -1,11 +1,11 @@
 # Charts and the Graph page
 
-**Inputs** (`#/inputs`) charts every publishing signal grouped by device or unit; **Graph** (`#/graph`) plots any signals together. Both use the same chart toolbar, described here with it.
+**Readings** (`#/readings`) charts every published signal grouped by device or unit; **Graph** (`#/graph`) plots any signals together. Both use the same chart toolbar, described here with it.
 
 ## Any chart opens almost-fullscreen
 
 Every chart in the app — a dashboard's `chart` and `loop` widgets, a
-`readout` widget's or a Readout panel's sparkline, Inputs' and Graph's
+`readout` widget's or a Readout panel's sparkline, Readings' and Graph's
 charts, a controller faceplate's Process/Drive trends, a session's charts —
 opens the same way: a full chart (axes, legend, toolbar already showing) by
 double-clicking the plot or its toolbar's expand button; a sparkline or a
@@ -32,8 +32,8 @@ forced on, titled for the controller and which trend (`… · process` /
 ## Graph
 
 **Graph** (`#/graph`) is a free-form chart: pick any signals across any
-devices and plot them together, unlike Inputs' charts which stay grouped by
-device or unit. A picker on the left lists every numeric publishing signal
+devices and plot them together, unlike Readings' charts which stay grouped by
+device or unit. A picker on the left lists every numeric published signal
 under its device, each by its title (a signal the driver left unlabelled, or
 whose label another signal of the device shares, is named by its namespace
 too: `Dry line humidity`, never three `Humidity`) with its unit; above the
@@ -53,7 +53,7 @@ ticking one plots that controller's setpoint alongside the signals, on the
 axis of the signal it regulates (same unit — a controller is named by the
 signal it drives), dashed, and labelled `‹signal title› (setpoint)` so it
 reads apart from the measured line at a glance. Only the setpoint is
-offered here, not the controller's reading/demand/expected/correction —
+offered here, not the controller's measured/output/expected/correction —
 that fuller trace is the Controllers page's `ControllerPanel`, not this
 picker.
 
@@ -138,10 +138,48 @@ store, **CSV from the store** — the same export the [HTTP API](../../4-server/
 serves, as a plain link. A `LoopPanel`'s trends and a dashboard's charts all
 use the same toolbar and the same menu.
 
-## Stale tiles
+## Readings with no value
 
-A reading, gauge or faceplate whose signal has had no sample for longer than
-its device's poll period allows (`staleAfterS`) shows the panel frame's
-`stale` state: a dashed border, a hollow status dot, no pulse, and a footer
-naming how long ago the last sample was — never colour alone (`PanelFrame`,
-`ui/packages/react/src/panels/PanelFrame.tsx`).
+A reading may have no value, and then says why: its quality (`invalid`, `n/a`,
+`stale`, `pending`) and a reason ([Signal value and health](../../6-internals/decisions.md)).
+The page never shows the number before it in its place:
+
+- **Charts** break the line at a reading with no value, live and in history
+  (a stored `null`), and only there: two traces that simply sample at
+  different times stay joined. A controller's re-apply between readings
+  (a moving setpoint's feedforward, which takes no reading) is joined across
+  too, not a gap.
+- **Tiles, gauges, device rows and a faceplate's Measured row** show `—` (or
+  `…` while `pending`) and the words: "stale: device silent", "invalid:
+  open circuit", "n/a". Hovering them gives the last usable value and when it
+  was read.
+- A usable value with a **caveat** carries a quiet mark before the number: `≥`
+  or `≤` when it sits at a limit (the true value may lie beyond it), `*` when
+  it is outside its range; the words on hover. A caveat is not an alarm and
+  changes no colour.
+
+### Stale tiles
+
+Staleness is the rig's call, not the page's. When nothing has arrived on a
+signal within its `stale_after_s` (by default `max(3 × poll_s, 5 s)` while its
+device is polled), or its device is offline, hung or failing its writes, the
+rig pushes a `stale` reading with no value; the next reading clears it. A tile
+whose newest reading is that one shows the panel frame's `stale` state: a
+dashed border, a hollow status dot, no pulse, and "— stale: …" with the
+reason — never colour alone (`PanelFrame`,
+`ui/packages/react/src/panels/PanelFrame.tsx`). A signal the rig does not
+judge (`stale_after_s` null: a pushed value, a setting, a demand that is only
+written) is never stale by age.
+
+A chart's own gap break is left only as a fallback, for data recorded before
+the rig pushed `stale` and for dead time with no reading at all (a restart):
+a gap wider than the signal's `stale_after_s` breaks the line.
+
+### Band unknown
+
+A banded signal with no value because of a fault can hold the rig's
+`band_unknown` condition (its `on_no_value: fire`,
+[Bands](../../2-config/devices/index.md#bands)). Its tile has its own state, not
+the alarm's: a dotted border in its own colour, a hollow dotted status dot. The
+conditions chip counts it but it never turns the chip red; alone, the chip takes
+that colour and a `?` icon, and so do its event rows and toasts.

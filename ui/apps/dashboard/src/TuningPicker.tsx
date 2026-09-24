@@ -4,10 +4,10 @@ import TuneIcon from "@mui/icons-material/Tune";
 import type { LawConfig, TuningChoice } from "@flyball/client";
 import { ValueView } from "@flyball/react";
 
-/** `kp 5 · ki 0.017 · tt 30`: a tuning's gains on one line, the tag left out. */
+/** `kp 5 · ki 0.017 · tt 30`: a tuning's gains on one line, the type left out. */
 export function gainsSummary(config: LawConfig): string {
   const parts = Object.entries(config)
-    .filter(([k, v]) => k !== "tag" && (typeof v === "number" || typeof v === "string" || typeof v === "boolean"))
+    .filter(([k, v]) => k !== "type" && (typeof v === "number" || typeof v === "string" || typeof v === "boolean"))
     .map(([k, v]) => `${k} ${typeof v === "number" ? (Number.isInteger(v) ? v : Number(v.toPrecision(4))) : String(v)}`);
   return parts.length ? parts.join(" · ") : "no gains";
 }
@@ -24,7 +24,7 @@ export interface TuningPickerProps {
 }
 
 /**
- * Stored tunings as a list -- name, law tag, gains -- filterable by law
+ * Stored tunings as a list -- name, law type, gains -- filterable by law
  * (chips) and by text; the chosen one shows its config read-only, with a
  * button to carry that config into a form. Used wherever a tuning is picked
  * by name: the add-loop dialog's law step.
@@ -83,7 +83,7 @@ export function TuningPicker({ tunings, value, onChange, onConfigure, laws }: Tu
               </Button>
             )}
           </Stack>
-          <ValueView value={Object.fromEntries(Object.entries(chosen.config).filter(([k]) => k !== "tag"))} />
+          <ValueView value={Object.fromEntries(Object.entries(chosen.config).filter(([k]) => k !== "type"))} />
         </Box>
       )}
     </Stack>

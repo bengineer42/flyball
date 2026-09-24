@@ -14,7 +14,7 @@ server stores the document and validates its outline; the UI owns what a
 
 A rig with no saved dashboards is not blank: `#/dashboards` shows
 **"Overview (generated)"**, built from the rig's schema on the fly — a health
-strip, a readout per publishing signal, a chart per unit, a faceplate per
+strip, a readout per published signal, a chart per unit, a faceplate per
 controller, a card per device. It follows the rig as it changes and is never
 saved unless you choose **Save as…**; editing it does not touch anything on
 disk until then.
@@ -23,11 +23,13 @@ disk until then.
 
 ```jsonc
 {
-  "schema_version": 2,
+  "schema_version": 5,
   "name": "furnace",
   "rig": "furnace",
   "description": "Three zones, a sample thermocouple, and the heaters holding them.",
   "grid": { "cols": 24, "row_height": 24 },
+  "readonly": false,
+  "order": null,
   "widgets": [
     { "id": "w1", "kind": "health", "x": 0, "y": 0, "w": 24, "h": 2, "config": { "tiles": ["rig", "recording", "devices", "controllers", "conditions"] } },
     { "id": "w2", "kind": "readout", "x": 0, "y": 2, "w": 6, "h": 5, "config": { "address": "furnace.zone1", "sparkline": true } },
@@ -60,6 +62,21 @@ widget shows the "unbound" state instead (a dashed border and the reason) so
 a renamed sensor does not cost you the rest of a twenty-widget dashboard. In
 edit mode, reconfigure or remove it from the widget's own `⋯` menu.
 
+`readonly` marks a dashboard for looking at, not operating: every write
+control on it, from a device widget's commands to the recording widget's
+Start and End and the program widget's Cancel, shows but is disabled.
+Toggle it from the page bar's `⋯` menu (**Make read-only** / **Make
+writable**); like any edit, it takes effect at once and **Save** keeps it.
+It is a convenience for a wall display, not access control: anyone who may
+save the dashboard may turn it off. A screen that must not operate the rig
+should be a browser without the `operate` verb (see
+[access](runner/access.md)). Layout editing is unaffected. `order` places
+the dashboard among the others, ascending; dashboards without one follow,
+newest saved first. A version-2 document has neither and reads as
+writable and unordered. An `events` widget in a version-4 document had
+`level` (`"WARNING"`) where it now has `severity` (`"warning"`); it is read
+as that.
+
 A document saved before the device model is `schema_version: 1` (bindings
 to channels, loops and actuators); it is migrated on read, never refused,
 and what is stored on disk stays exactly as saved — `channel`
@@ -86,14 +103,20 @@ idle view.
 
 ## Saving, naming, switching
 
-The switcher in the app bar lists this rig's dashboards, default first, then
-alphabetically, alongside the generated overview. `Save ▾` offers:
+The app bar shows this rig's dashboards as tabs, the generated overview
+first, then the saved ones in their `order`, the rest newest saved first
+(see [Getting around](ui/index.md#getting-around)); `[+]` makes a new, empty
+dashboard. To move one, drag its tab, or use the arrows in **Options ›
+Dashboards**, which also has each dashboard's read-only switch and home
+button. A move is saved on the documents it changes, so every browser shows
+the same order: the first move numbers every dashboard in its place, later
+moves write only the one moved. `Save ▾` offers:
 
 - **Save** — a new version under the current name.
 - **Save as…** — under a new name; the generated overview must go through
   this once before it can be saved at all.
 - **Rename…**, **Delete…** (with confirmation).
-- **Set as home** — `#/` opens this dashboard instead of the Overview page,
+- **Set as home** — `#/` opens this dashboard instead of the generated overview,
   remembered per browser (`localStorage`), not written to the document.
 - **Export JSON** / **Import JSON…** — the document above, pretty-printed.
   Import loads the file as a draft under its own name; **Save** commits it,

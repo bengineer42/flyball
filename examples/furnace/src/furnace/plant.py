@@ -20,7 +20,7 @@ import random
 from collections.abc import Sequence
 from threading import Lock
 
-from flyball.foundation.device import Band
+from flyball.foundation.device import Bounds
 from flyball.foundation.quantities import Quantity
 from flyball_sim.devices import POWER_W, TEMPERATURE_C
 
@@ -119,11 +119,11 @@ class Furnace:
         )
         return clean + (self._random.gauss(0.0, self.noise) if self.noise else 0.0)
 
-    def advance(self, time_ns: int) -> None:
+    def advance_to(self, time_ns: int) -> None:
         # Readers poll on their own threads outside the rig lock; only one may integrate.
         with self._lock:
             if self._last_ns is not None and time_ns > self._last_ns:
-                self.step((time_ns - self._last_ns) / 1e9)
+                self.advance((time_ns - self._last_ns) / 1e9)
             if self._last_ns is None or time_ns > self._last_ns:
                 self._last_ns = time_ns
 
@@ -159,7 +159,7 @@ class Furnace:
         """Every output is a thermocouple: °C, regardless of which zone or the sample."""
         return TEMPERATURE_C
 
-    def input_quantity(self, port: str) -> tuple[Quantity, Band]:
+    def input_quantity(self, port: str) -> tuple[Quantity, Bounds]:
         """Every input is a heater: watts, clamped to that zone's own `power_w`."""
         return POWER_W, (0.0, self.power[int(port.removeprefix("heater")) - 1])
 
@@ -181,7 +181,7 @@ class Furnace:
         )
         return self.loss * (temperature - self.ambient) + radiative
 
-    def step(self, dt_s: float) -> None:
+    def advance(self, dt_s: float) -> None:
         """Integrate forward by `dt_s`, in sub-steps of at most `max_step_s`."""
         remaining = dt_s
         while remaining > 0:

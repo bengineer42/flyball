@@ -15,10 +15,26 @@ export function invalidateDashboards() {
   listeners.forEach((fn) => fn());
 }
 
-/** `GET /api/dashboards`: the newest version of each of this rig's dashboards, newest saved first. */
+/**
+ * The order dashboards' tabs sit in: by the document's `order`, ascending, then
+ * the unordered ones newest saved first -- which is every dashboard's place
+ * until someone moves a tab. A copy; `rows` is left as it was.
+ */
+export function byTabOrder(rows: readonly DashboardRow[]): DashboardRow[] {
+  const order = (row: DashboardRow) => row.body?.order ?? null;
+  return rows.slice().sort((a, b) => {
+    const [oa, ob] = [order(a), order(b)];
+    if (oa !== null && ob !== null && oa !== ob) return oa - ob;
+    if (oa !== null && ob === null) return -1;
+    if (oa === null && ob !== null) return 1;
+    return b.created_ns - a.created_ns;
+  });
+}
+
+/** `GET /api/dashboards`: the newest version of each of this rig's dashboards, in tab order (`byTabOrder`). */
 export function useDashboards(every = false): QueryState<DashboardRow[]> {
   const rig = useRig();
-  const query = useQuery(async () => (await rig.dashboards(every)).slice().sort((a, b) => b.created_ns - a.created_ns), [rig, every]);
+  const query = useQuery(async () => byTabOrder(await rig.dashboards(every)), [rig, every]);
   useEffect(() => {
     listeners.add(query.refresh);
     return () => {

@@ -87,7 +87,19 @@ class TestPyMeasure:
         device.apply(bias, 1, 2.0)
         assert device.commit(1) is None
         assert inst.written == [2.0]
-        assert device.pending[bias] == 2.0, "the rig clears pending, not the driver"
+        assert device.staged[bias] == 2.0, "the rig clears staged, not the driver"
+
+    def test_a_settable_property_declared_a_setting_is_one(self, fresh):
+        """C13: `role: setting` keeps a range or a mode out of a controller's reach."""
+        inst = FakePyMeasureInstrument()
+        channels = {"v": PyMeasureSignal(property="source_voltage", role="setting")}
+        device = PyMeasure(fresh("smu"), inst, channels)
+        assert device.signals["v"].role is Role.SETTING
+        assert device.signals["v"].access is Access.RPW
+        with pytest.raises(ValueError, match="only a settable property"):
+            PyMeasure(
+                fresh("smu"), inst, {"v": PyMeasureSignal(property="voltage", role="setting")}
+            )
 
     def test_a_setter_only_property_is_a_demand_too(self, fresh):
         inst = FakePyMeasureInstrument()
@@ -96,6 +108,28 @@ class TestPyMeasure:
         )
         assert device.signals["enable"].role is Role.DEMAND
         assert device.signals["enable"].access is Access.RPW, "its readback is the committed value"
+
+    def test_a_none_from_the_instrument_is_left_for_the_rig_to_make_invalid(self, fresh):
+        inst = FakePyMeasureInstrument()
+        inst._v = None
+        device = PyMeasure(
+            fresh("dmm"), inst, {"v": PyMeasureSignal(property="voltage", publish=True)}
+        )
+        (sample,) = device.read(0)
+        assert sample.by_name() == {"v": None}
+
+    def test_a_demand_with_a_getter_is_sensed_one_without_an_echo(self, fresh):
+        inst = FakePyMeasureInstrument()
+        device = PyMeasure(
+            fresh("src"),
+            inst,
+            {
+                "v": PyMeasureSignal(property="source_voltage"),
+                "enable": PyMeasureSignal(property="output_enabled"),
+            },
+        )
+        assert device.signals["v"].spec.readback.value == "sensed"
+        assert device.signals["enable"].spec.readback.value == "echo"
 
     def test_read_skips_a_demand_with_no_getter(self, fresh):
         inst = FakePyMeasureInstrument()
@@ -131,6 +165,17 @@ class TestPyMeasure:
         samples = list(device.read(1))
         assert [s.by_name() for s in samples] == [{"voltage": 1.5}]
 
+    def test_a_slightly_early_poll_still_counts_as_due(self, fresh):
+        """`Scan`'s 0.9*period rule: a scaled clock's threads arrive a little early."""
+        inst = FakePyMeasureInstrument()
+        device = PyMeasure(
+            fresh("smu"), inst, {"voltage": PyMeasureSignal(property="voltage", publish=True)}
+        )
+        device.signals["voltage"].set_meta(poll_s=1.0)
+        list(device.read(0))
+        samples = list(device.read(int(0.95e9)))
+        assert [s.by_name() for s in samples] == [{"voltage": 1.5}]
+
     def test_blocking_is_true(self, fresh):
         device = PyMeasure(fresh("x"), FakePyMeasureInstrument(), {})
         assert device.blocking is True
@@ -154,11 +199,9 @@ def test_a_rig_file_names_the_driver(fresh):
         "devices": {
             "k2400": {
                 "driver": "pymeasure",
-                "config": {
-                    "instrument": f"{__name__}.FakePyMeasureInstrumentWithAdapter",
-                    "adapter": "GPIB::24",
-                    "channels": {"voltage": {"property": "voltage", "publish": True}},
-                },
+                "instrument": f"{__name__}.FakePyMeasureInstrumentWithAdapter",
+                "adapter": "GPIB::24",
+                "channels": {"voltage": {"property": "voltage", "publish": True}},
             }
         }
     }
