@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import uPlot from "uplot";
-import type { ControllerOut, FeedforwardConfig, GeneratorOut, SignalOut } from "@flyball/client";
+import type { Condition, ControllerOut, FeedforwardConfig, GeneratorOut, SignalOut } from "@flyball/client";
 import { alarmLevel, describeController, describeStateKey, deviceOf, humanise, setpointOf, describeSignal, fixed } from "@flyball/client";
 import type { ControllerTrace } from "../hooks/useControllers.js";
 import { useQuery } from "../hooks/useQuery.js";
@@ -241,7 +241,14 @@ export interface ControllerPanelProps {
   extra?: ReactNode;
   /** This browser may drive the rig (the server's `AuthState.canOperate`); default true. False dims `controls`/`headerControls` and blocks clicks into them, greyed out but still visible -- a proactive echo of the 401 the server would otherwise give. */
   canOperate?: boolean;
+  /** The controller's own conditions now (`/api/health`, scope `controller`): `latched` and `not_permitted` are shown on the panel. */
+  conditions?: Condition[];
+  /** Lets a latch on this controller go (`POST /api/rig/reset {cause}`); offered for its own `on_fault:<name>` latch. Omitted: no Reset here. */
+  onReset?(cause: string): void;
 }
+
+/** Condition codes the panel names under its header: why regulating is refused or held. */
+const HELD_CODES = new Set(["latched", "not_permitted"]);
 
 const EMPTY: ControllerTrace = { t: [], reference: [], measured: [], output: [], expected: [], correction: [] };
 /** Default trend height on the Controllers page, which has room; a dashboard tile passes its own (`trendHeight`), computed from what it actually has. */
@@ -402,6 +409,8 @@ export function ControllerPanel({
   bare = false,
   extra,
   canOperate = true,
+  conditions,
+  onReset,
 }: ControllerPanelProps) {
   const point = useSignal(controller.measured_signal);
   const nowS = useNowS();
@@ -554,6 +563,7 @@ export function ControllerPanel({
           )}
         </header>
       )}
+      <LatchLine controller={controller} conditions={conditions} onReset={canOperate ? onReset : undefined} />
       <dl className="fb-loop-rows">
         <div className="fb-loop-row">
           <dt title="measured value — PV">Measured</dt>
@@ -676,4 +686,38 @@ export function ControllerPanel({
   // `bare` drops the card look (`.fb-panel`) -- an element cannot query its own size, so this is
   // still needed one level above the grid that reacts to it.
   return <article className={`fb-loop${bare ? " fb-loop-bare" : " fb-panel"}`}>{frame}</article>;
+}
+
+
+/**
+ * Why this controller cannot regulate now, under its header: each latch cause holding it (the
+ * software stop, its own fault action) and a `not_permitted` hold, with Reset for its own fault
+ * latch (the software stop's Reset is on the page banner). Nothing when nothing holds it.
+ */
+function LatchLine({ controller, conditions, onReset }: { controller: ControllerOut; conditions?: Condition[]; onReset?(cause: string): void }) {
+  const own = `on_fault:${controller.name}`;
+  // A tick's snapshot carries no `latched` (only `/api/controllers` does), so the controller's own
+  // `latched` condition -- raised by its fault latch -- stands for that cause too.
+  const causes = [...new Set([...(controller.latched ?? []), ...((conditions ?? []).some((c) => c.code === "latched") ? [own] : [])])];
+  const held = (conditions ?? []).filter((c) => HELD_CODES.has(c.code) && c.code !== "latched");
+  if (causes.length === 0 && held.length === 0) return null;
+  return (
+    <div className="fb-loop-latch" role="status" data-testid="controller-latch">
+      {causes.map((cause) => (
+        <span key={cause}>
+          {cause === "stop" ? "Latched by the software stop" : cause === own ? "Latched by its fault action" : `Latched by ${cause}`}
+          {cause === own && onReset && (
+            <button type="button" className="btn fb-loop-reset" onClick={() => onReset(cause)} data-testid="controller-reset">
+              Reset
+            </button>
+          )}
+        </span>
+      ))}
+      {held.map((c) => (
+        <span key={c.code} title={c.message}>
+          {c.code === "not_permitted" ? `Held: ${c.message}` : c.message}
+        </span>
+      ))}
+    </div>
+  );
 }

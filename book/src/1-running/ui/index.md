@@ -140,15 +140,23 @@ Beside the chips, for anyone allowed to operate the rig, is **Software
 stop**: after a confirmation it latches the rig, cancels running device
 commands, interrupts any running program, puts every controller in manual
 and writes each device's stop, for everyone ([the software
-stop](../runner/access.md#stopping-the-rig)). Afterwards a message says
-how many devices stopped, were left unchanged or failed (naming each
-failure), and that the rig is latched; one with a failure stays until
-closed. The app has no Reset button and no banner
-for a latched rig yet: the rig's `stopped` condition is among its
-conditions (`GET /api/health`), and a person resets it with `POST /api/rig/reset`
-([Reset](../runner/access.md#reset)). A caller without `operate` does not
-see the button at all. A stop that fails says so; it never reports a stop
+stop](../runner/access.md#stopping-the-rig)). The confirmation lists what
+the stop will do to each output (`GET /api/rig/stop`): off and its value,
+the value the rig file gives, a stop command, or kept, with any warning
+beside it. Afterwards a message says how many devices stopped, were left
+unchanged or failed (naming each failure), and that the rig is latched;
+one with a failure stays until closed, and **Details** opens a table of
+what each device wrote and kept. A caller without `operate` does not see
+the button at all. A stop that fails says so; it never reports a stop
 that did not happen.
+
+While the rig is latched, a banner at the top of every page says who
+stopped it, when and why, and that regulation and automatic writes stay
+refused. A controller latched by its own fault action (`on_fault`) gets a
+banner line of its own. Each line has **Reset**, behind a confirmation
+([Reset](../runner/access.md#reset)): it needs `operate`, and it lets the
+latch go without writing anything or starting a controller. Controllers
+stay in manual until someone sets them regulating.
 
 ## Density and theme
 

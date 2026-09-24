@@ -320,7 +320,7 @@ func printStopReport(r stopReport) {
 		fmt.Println("  program interrupted")
 	}
 	if r.Latched {
-		fmt.Println("  latched: automatic writes are refused until a person resets it (POST /api/rig/reset)")
+		fmt.Println("  latched: automatic writes are refused until a person resets it (Reset in the UI, or POST /api/rig/reset)")
 	}
 	names := make([]string, 0, len(r.Devices))
 	for name := range r.Devices {

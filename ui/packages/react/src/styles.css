@@ -283,6 +283,9 @@
 /* PlantPAx-style banner for the faceplate's single top condition; shown only when one exists. */
 /* In the header, not its own grid row -- see ControllerPanel.tsx's comment: a row that
    appears/disappears as the condition flips would reflow everything below it each time. */
+/* Why a controller cannot regulate now (a latch, a permissive holding it): one quiet line under the header, amber, never alarm red. */
+.fb-loop-latch { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; align-items: center; margin: 0 0 0.5rem; color: var(--fb-warn); font-size: 0.9em; font-weight: 600; }
+.fb-loop-reset { margin-left: 0.5rem; padding: 0.1rem 0.6rem; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: var(--fb-radius); cursor: pointer; font: inherit; }
 .fb-loop-warn { background: var(--fb-warn-fill); color: var(--fb-warn); border-radius: var(--fb-radius); padding: 0.2rem 0.5rem; font-size: 0.85em; font-weight: 600; white-space: nowrap; }
 /* PV / SP / OP: three aligned rows, each a label, a value, an optional bar, and a caption line that never grows the row (reserved even when empty). */
 .fb-loop-rows { display: grid; grid-template-columns: minmax(3.6rem, max-content) minmax(5.5rem, max-content) minmax(6rem, 1fr); align-items: center; gap: 0.3rem 0.6rem; margin: 0; min-width: 0; }

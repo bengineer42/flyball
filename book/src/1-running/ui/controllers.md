@@ -20,6 +20,12 @@ matches, it is one list.
 
 ## The controller faceplate
 
+When something stops the controller from regulating, one amber line under
+its header says what: the software stop, its own fault action, or a
+permissive holding its output (`not_permitted`). A fault-action latch has a
+**Reset** there, behind a confirmation; the software stop is reset from the
+banner at the top of the page.
+
 `LoopPanel` (`ui/packages/react/src/panels/LoopPanel.tsx`) draws one
 controller as three aligned rows, each with a bar:
 
