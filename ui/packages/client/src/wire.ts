@@ -620,7 +620,21 @@ export interface ControllerOut {
   delivered_correction: number | null;
   /** The measured signal's reading at the last tick. */
   measured: ReadingOut | null;
+  /** What it does once its source has been faulty for its wait (the rig file's `on_fault`). */
+  on_fault?: OnFault;
+  /**
+   * The causes of every latch that refuses its `regulate` now: `stop` (the rig stop),
+   * `on_fault:<controller>`. Empty on a tick's snapshot (`/ws/controllers`); a person's
+   * Reset (`POST /api/rig/reset {cause}`) clears one.
+   */
+  latched?: string[];
 }
+
+/** An `on_fault` action: `freeze` (default: never acts), `manual`, `stop`, `stop_device`. */
+export type FaultAction = "freeze" | "manual" | "stop" | "stop_device";
+
+/** A controller's `on_fault`: an action, or frozen `freeze_s` of fault time and `then` one. */
+export type OnFault = FaultAction | { freeze_s: number; then: Exclude<FaultAction, "freeze"> };
 
 /** A signal a controller may bind to, with what a form shows beside it. */
 export interface SignalChoice {
@@ -678,6 +692,8 @@ export interface NewController {
   min_period_s?: number | null;
   /** While following a moving setpoint, re-apply its feedforward this often between readings; omitted: `max(0.1 s, poll_s / 4)`. */
   setpoint_period_s?: number | null;
+  /** Omitted: `freeze`. `stop` is refused (409) on an output whose stop is `keep`. */
+  on_fault?: OnFault;
 }
 
 export type ValueSource = "measured" | "setpoint" | "output";
@@ -749,7 +765,19 @@ export interface Health {
   /** The names of the registered activities. */
   activities: string[];
   recording: boolean;
+  /** The rig stop's latch, if it holds: who, when (wall ns) and why; null when not stopped. */
+  stopped: { by: string; at_ns: Nanoseconds; reason: string } | null;
+  /** Every latch cause held now, one row per subject it holds. */
+  latches: LatchRow[];
   exposure?: Exposure | null;
+}
+
+/** One subject a latch holds (`/api/health` `latches`). */
+export interface LatchRow {
+  scope: "rig" | "device" | "signal" | "controller";
+  subject: string;
+  /** `stop` (the rig stop), or `on_fault:<controller>`: what a Reset names. */
+  cause: string;
 }
 
 export interface ErrorDetail {
@@ -911,17 +939,24 @@ export interface StopActor {
   detail: string;
 }
 
-/** One device's outcome of a stop. */
+/**
+ * One device's outcome of a stop: `stopped` (its stop command ran, or its stop values
+ * were written), `unchanged` (every output kept as it was), `failed` (`detail` says why;
+ * "may still act" when the time ran out).
+ */
 export interface DeviceStopOut {
   state: "stopped" | "unchanged" | "failed";
   detail: string;
+  /** What it wrote, by address. */
+  written?: Record<Address, number>;
+  /** What it left as it was, by address, with the value it holds (null: not known): energised if it was. */
+  kept?: Record<Address, number | null>;
 }
 
 /**
- * `POST <root>/api/rig/stop`: what stopping did. Needs `OPERATE`; never rate-limited. `interim`
- * is true until package A8's real `Stopper` replaces the placeholder that only interrupts the
- * program and puts controllers in manual (the signals work lands the rest). The route answers
- * 501 `{"detail": ...}` until A8 lands -- callers must not treat that as success.
+ * `POST <root>/api/rig/stop`: what the Software stop did. Needs `OPERATE`; never
+ * rate-limited. The rig is latched (`latched`) until a person resets it
+ * (`POST /api/rig/reset`). `interim` is false: it wrote each device's resolved stop.
  */
 export interface StopReport {
   at_ns: Nanoseconds;
@@ -931,6 +966,46 @@ export interface StopReport {
   program_interrupted: boolean;
   controllers_manual: Address[];
   interim: boolean;
+  /** Whether the rig is latched stopped now; absent from a report before wave 3. */
+  latched?: boolean;
+}
+
+/** `POST <root>/api/rig/reset` body: which latch to let go (default `stop`). Operate, and a person. */
+export interface ResetRequest {
+  cause?: string;
+}
+
+/** A latch held: `GET /api/rig/latches`, and what `POST /api/rig/reset` answers. */
+export interface LatchOut {
+  cause: string;
+  subjects: { scope: LatchRow["scope"]; subject: string }[];
+  by: string;
+  at_ns: Nanoseconds;
+  reason: string;
+  /** A fault's action (`manual`, `stop`, `stop_device`); "" for the rig stop. */
+  action: string;
+}
+
+/** One writable output's resolved stop (`GET /api/rig/stop`). */
+export interface OutputStopOut {
+  address: Address;
+  device: string;
+  /** What a stop writes: a number, or `keep`; null where the device's stop command runs. */
+  stop: number | "keep" | null;
+  /** `off` (the driver's inactive level), `you said` (the rig file's `stop:`), `nobody said`, `command`. */
+  source: "off" | "you said" | "nobody said" | "command";
+  command: string | null;
+  /** The controller driving it, if any. */
+  controller: Address | null;
+  /** Always false: nothing here acts if flyball is not running. */
+  covered_if_flyball_dies: boolean;
+  warnings: string[];
+}
+
+/** `GET <root>/api/rig/stop`: the stop a Software stop would apply, output by output. */
+export interface StopPlan {
+  stopped: LatchOut | null;
+  outputs: OutputStopOut[];
 }
 
 // Passkey wire types: for Phase 3 (passkeys in the Go front). Nothing serves /api/auth/passkey/* in

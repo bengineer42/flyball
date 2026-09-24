@@ -286,7 +286,8 @@ func postStop(ctx context.Context, t client.Target, reason string) (refused bool
 
 // stopReport mirrors A8's StopReport JSON (§WP0-9, "A8 as built"):
 // {at_ns, actor{sub,sid,kind,via,detail}, reason, devices{name:
-// {state,detail}}, program_interrupted, controllers_manual, interim}.
+// {state,detail,written,kept}}, program_interrupted, controllers_manual, interim,
+// latched}.
 type stopReport struct {
 	AtNS  int64 `json:"at_ns"`
 	Actor struct {
@@ -301,6 +302,7 @@ type stopReport struct {
 	ProgramInterrupted bool                       `json:"program_interrupted"`
 	ControllersManual  []string                   `json:"controllers_manual"`
 	Interim            bool                       `json:"interim"`
+	Latched            bool                       `json:"latched"`
 }
 
 type stopDeviceState struct {
@@ -316,6 +318,9 @@ func printStopReport(r stopReport) {
 	}
 	if r.ProgramInterrupted {
 		fmt.Println("  program interrupted")
+	}
+	if r.Latched {
+		fmt.Println("  latched: automatic writes are refused until a person resets it (POST /api/rig/reset, or Reset in the UI)")
 	}
 	names := make([]string, 0, len(r.Devices))
 	for name := range r.Devices {

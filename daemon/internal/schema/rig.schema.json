@@ -274,6 +274,11 @@
           "default": null,
           "description": "While following a moving setpoint (a ramp, a profile), re-apply its feedforward this often between readings; the law steps only on readings. Omit for max(0.1 s, poll_s / 4) from the measured signal's poll_s.",
           "title": "Setpoint Period S"
+        },
+        "on_fault": {
+          "$ref": "#/$defs/OnFaultEntry",
+          "default": "freeze",
+          "description": "What it does once its source has been faulty (stale, invalid, offline) for its wait, or at once when its law raises: freeze (default: stays frozen, resumes by itself), manual, stop (its output's stop), stop_device (its output's device's stop), or {freeze_s: <s>, then: manual|stop|stop_device}. Each but freeze latches until a person resets it; a law error takes at least manual."
         }
       },
       "required": [
@@ -404,6 +409,57 @@
           "default": null,
           "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
           "title": "Retry Max Age S"
+        },
+        "stop": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "$ref": "#/$defs/Keep"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+          "title": "Stop"
+        },
+        "on_shutdown": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OnShutdown"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+        },
+        "permissive": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/Permissive"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+          "title": "Permissive"
         }
       },
       "required": [
@@ -607,6 +663,33 @@
         }
       },
       "title": "FakeUartConfigTagged",
+      "type": "object"
+    },
+    "FreezeThen": {
+      "additionalProperties": false,
+      "description": "`on_fault: {freeze_s: <s>, then: <action>}`: frozen `freeze_s` of fault time, then act.",
+      "properties": {
+        "freeze_s": {
+          "description": "Seconds of fault time (accrued across flicker) to stay frozen before `then`.",
+          "minimum": 0,
+          "title": "Freeze S",
+          "type": "number"
+        },
+        "then": {
+          "enum": [
+            "manual",
+            "stop",
+            "stop_device"
+          ],
+          "title": "Then",
+          "type": "string"
+        }
+      },
+      "required": [
+        "freeze_s",
+        "then"
+      ],
+      "title": "FreezeThen",
       "type": "object"
     },
     "FrontConfig": {
@@ -971,6 +1054,10 @@
       "title": "IdentityConfig",
       "type": "object"
     },
+    "Keep": {
+      "const": "keep",
+      "type": "string"
+    },
     "ModbusRtuConfigTagged": {
       "properties": {
         "port": {
@@ -1099,6 +1186,22 @@
       "title": "NoFeedforwardConfig",
       "type": "object"
     },
+    "OnFaultEntry": {
+      "anyOf": [
+        {
+          "enum": [
+            "freeze",
+            "manual",
+            "stop",
+            "stop_device"
+          ],
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/FreezeThen"
+        }
+      ]
+    },
     "OnNoValue": {
       "description": "What a banded signal does when it has no value because of a fault (`invalid`, `stale`).",
       "enum": [
@@ -1137,6 +1240,13 @@
       ],
       "title": "OnOffConfig",
       "type": "object"
+    },
+    "OnShutdown": {
+      "enum": [
+        "stop",
+        "keep"
+      ],
+      "type": "string"
     },
     "OneWireConfigTagged": {
       "properties": {
@@ -1269,6 +1379,48 @@
         }
       },
       "title": "PIDConfig",
+      "type": "object"
+    },
+    "Permissive": {
+      "additionalProperties": false,
+      "description": "A demand's permissive: writes to it are refused unless `signal`'s value is in the band.\n\n`above` and `below` bound the value (either or both); a value with no reading, or no\nvalue (`stale`, `invalid`, `pending`), refuses -- a permissive fails closed. A write\nof the demand's resolved stop value, and a stop itself, are never refused.",
+      "properties": {
+        "signal": {
+          "description": "The address whose value permits the write.",
+          "title": "Signal",
+          "type": "string"
+        },
+        "above": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Permit only above this value.",
+          "title": "Above"
+        },
+        "below": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Permit only below this value.",
+          "title": "Below"
+        }
+      },
+      "required": [
+        "signal"
+      ],
+      "title": "Permissive",
       "type": "object"
     },
     "PlantConfigTagged": {
@@ -1738,6 +1890,16 @@
           "description": "Let the API stop or restart the runner.",
           "title": "Allow Shutdown",
           "type": "boolean"
+        },
+        "on_shutdown": {
+          "default": "stop",
+          "description": "What the runner's shutdown does to outputs: stop (each device's resolved stop, best-effort, not latched) or keep (writes nothing: outputs stay energised with no process watching them). A device's own `on_shutdown: keep` wins over stop.",
+          "enum": [
+            "stop",
+            "keep"
+          ],
+          "title": "On Shutdown",
+          "type": "string"
         },
         "reads": {
           "$ref": "#/$defs/RunnerReads",
@@ -3822,6 +3984,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "ads1115"
               },
@@ -3959,6 +4172,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "bme280"
@@ -4104,6 +4368,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "ccs811"
               },
@@ -4227,6 +4542,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "current_loop"
@@ -4356,6 +4722,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "dosing_pump"
@@ -4507,6 +4924,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "ds18b20"
               },
@@ -4633,6 +5101,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "ezo_do"
               },
@@ -4749,6 +5268,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "ezo_ec"
@@ -4867,6 +5437,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "ezo_orp"
               },
@@ -4984,6 +5605,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "ezo_ph"
               },
@@ -5100,6 +5772,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "gpio_line"
@@ -5262,6 +5985,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "htu21d"
               },
@@ -5385,6 +6159,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "hx711"
@@ -5538,6 +6363,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "i2c_table"
               },
@@ -5675,6 +6551,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "mcp3008"
               },
@@ -5806,6 +6733,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "mcp4725"
@@ -5969,6 +6947,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "mhz19"
               },
@@ -6085,6 +7114,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "modbus"
@@ -6224,6 +7304,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "ms5611"
               },
@@ -6359,6 +7490,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "pulse_counter"
@@ -6511,6 +7693,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "pwm_channel"
@@ -6688,6 +7921,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "pymeasure"
               },
@@ -6820,6 +8104,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "qcodes"
@@ -6966,6 +8301,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "scd30"
               },
@@ -7100,6 +8486,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "scd40"
@@ -7249,6 +8686,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "scpi"
               },
@@ -7287,6 +8775,19 @@
                 },
                 "title": "Channels",
                 "type": "object"
+              },
+              "stop_command": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What a stop sends (`OUTP OFF`, `INP OFF`): the instrument's own stop. Omitted: a stop leaves its outputs as they are -- the right string differs by instrument, so none is assumed.",
+                "title": "Stop Command"
               }
             },
             "required": [
@@ -7381,6 +8882,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "sgp30"
@@ -7528,6 +9080,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "sgp40"
@@ -7679,6 +9282,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "sht31"
               },
@@ -7813,6 +9467,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "sht4x"
               },
@@ -7946,6 +9651,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "sht4x_set"
@@ -8082,6 +9838,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "sim_daq"
               },
@@ -8198,6 +10005,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "sim_drive"
               },
@@ -8313,6 +10171,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               },
               "driver": {
                 "const": "stepper"
@@ -8490,6 +10399,57 @@
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
               },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
+              },
               "driver": {
                 "const": "values"
               },
@@ -8604,6 +10564,57 @@
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
                 "title": "Retry Max Age S"
+              },
+              "stop": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "$ref": "#/$defs/Keep"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
+                "title": "Stop"
+              },
+              "on_shutdown": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OnShutdown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "What the runner's shutdown does to this device: `stop` (its resolved stop) or `keep` (writes nothing). Omit for the runner's `on_shutdown`."
+              },
+              "permissive": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "$ref": "#/$defs/Permissive"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
+                "title": "Permissive"
               }
             },
             "not": {
