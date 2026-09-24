@@ -25,7 +25,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useAuth } from "../auth.js";
 import { DevicePanel, DeviceSignals, SchemaForm, useCommands, useControllers, useDeviceRuns, useDeviceSchema, useRig, useRigDocument, useRigFileSchema, type QueryState } from "@flyball/react";
-import { describeController, describeDevice, deviceOf, humanise, RigError, type DeviceOut, type InputOut, type JsonSchema, type NewDevice, type RigDocument } from "@flyball/client";
+import { describeController, describeDevice, deviceOf, humanise, RigError, type DeviceOut, type InputOut, type JsonSchema, type NewDevice, type RigDocument, type RigEditOut } from "@flyball/client";
 import { DeviceSummaryCard, SectionHead, StateBlock } from "../cards.js";
 import { PAGE_ICONS } from "../icons.js";
 import { hashFor, hrefFor } from "../router.js";
@@ -68,7 +68,7 @@ function InputRows({ rows, onChange }: { rows: InputRow[]; onChange(rows: InputR
 }
 
 /** Name, a driver from the rig schema, that driver's config as a form (`link` offered as a select of the rig's links), label, poll period and inputs. */
-export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }: { open: boolean; schema: JsonSchema | undefined; linkNames: string[]; onClose(): void; onCreated(device: DeviceOut): void }) {
+export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }: { open: boolean; schema: JsonSchema | undefined; linkNames: string[]; onClose(): void; onCreated(edit: RigEditOut): void }) {
   const rig = useRig();
   const [name, setName] = useState("");
   const [driver, setDriver] = useState("");
@@ -105,9 +105,9 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
       if (pollS.trim() && Number.isFinite(Number(pollS))) body.poll_s = Number(pollS);
       const inputEntries = inputs.filter((r) => r.input.trim() && r.address.trim());
       if (inputEntries.length) body.inputs = Object.fromEntries(inputEntries.map((r) => [r.input.trim(), r.address.trim()]));
-      const device = await rig.addDevice(body);
+      const edit = await rig.addDevice(body);
       reset();
-      onCreated(device);
+      onCreated(edit);
     } catch (e) {
       setError(detail(e));
     } finally {
@@ -169,7 +169,7 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
 }
 
 /** Name, a link kind from the rig schema, and that kind's config as a form. */
-function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; schema: JsonSchema | undefined; onClose(): void; onCreated(link: { name: string; type: string }): void }) {
+function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; schema: JsonSchema | undefined; onClose(): void; onCreated(edit: RigEditOut): void }) {
   const rig = useRig();
   const [name, setName] = useState("");
   const [type, setType] = useState("");
@@ -192,9 +192,9 @@ function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; sc
     setBusy(true);
     setError(null);
     try {
-      const link = await rig.addLink({ ...config, name: name.trim(), type });
+      const edit = await rig.addLink({ ...config, name: name.trim(), type });
       reset();
-      onCreated({ name: link.name, type: String(link.type) });
+      onCreated(edit);
     } catch (e) {
       setError(detail(e));
     } finally {

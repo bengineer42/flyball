@@ -4,7 +4,7 @@
  * panel asks before it hands a schema over.
  */
 
-import type { Access, Address, ControllerOut, Dtype, FeedforwardConfig, JsonSchema, NamespaceOut, SignalOut, TreeNode } from "./wire.js";
+import type { Access, Address, Caveats, ControllerOut, Dtype, FeedforwardConfig, JsonSchema, NamespaceOut, Quality, SignalOut, StaleReason, TreeNode } from "./wire.js";
 import { isNamespace } from "./wire.js";
 
 /** Whether a dtype's values are numbers a gauge, chart or slider can draw: `float`/`int` only. */
@@ -278,13 +278,70 @@ const EVENT_CODES: Record<string, string> = {
   slow: "Running slow",
   delivery_failed: "Delivery failed",
   write_failed: "Write failed",
-  commit_failed: "Commit failed",
+  resent: "Kept value sent",
+  write_dropped: "Kept value dropped",
   demand_ignored: "Demand ignored",
   stale_input: "Measured signal stale",
   limit_unknown: "Output limit unknown",
   recording_failed: "Recording failed",
   restored: "Rig version restored",
+  // Conditions on signals, devices and controllers.
+  band_warning: "Band warning",
+  band_alarm: "Band alarm",
+  band_unknown: "Band unknown",
+  stale: "Stale",
+  hung: "Device hung",
+  frozen: "Frozen",
+  // The software stop, latches and faults.
+  stopped: "Rig stopped",
+  latched: "Latched",
+  stop_applied: "Stop applied",
+  reset: "Reset",
+  written_while_stopped: "Written while stopped",
+  on_fault: "Fault action",
+  reseeded: "Reseeded",
+  not_permitted: "Not permitted",
+  // Rig edits and values devices.
+  edit_not_built: "Edit could not be built",
+  value_written: "Value written",
+  value_restored: "Value restored",
+  value_not_restored: "Value not restored",
+  blend_flow_kept: "Blend flow kept",
 };
+
+/** A signal's quality as a short word for a badge: `n/a`, `invalid`, `stale`, `pending`; "" for `ok`. */
+const QUALITY_WORDS: Record<Quality, string> = { ok: "", pending: "pending", not_applicable: "n/a", invalid: "invalid", stale: "stale" };
+
+/** The rig's reasons a signal is stale, worded for a person. A driver's `invalid` reason is its own text and passes through. */
+const STALE_REASONS: Record<StaleReason, string> = {
+  device_offline: "device offline",
+  device_hung: "device hung",
+  silent: "device silent",
+  never_read: "never read",
+  last_read: "not read lately",
+  write_failed: "write failed",
+};
+
+/**
+ * A no-value reading as a person reads it: `stale: device offline`, `invalid: sensor open`,
+ * `n/a`, `pending`; "" for `ok` (or no quality, a reading from before the rig sent one).
+ */
+export function describeQuality(quality: Quality | undefined, reason?: string | null): string {
+  if (!quality || quality === "ok") return "";
+  const word = QUALITY_WORDS[quality];
+  if (!reason) return word;
+  const said = STALE_REASONS[reason as StaleReason] ?? reason;
+  return `${word}: ${said}`;
+}
+
+/** A usable value's caveats as a person reads them: `at the high limit`, `below range`; "" for none. */
+export function describeCaveats(caveats: Caveats | undefined | null): string {
+  if (!caveats) return "";
+  const parts: string[] = [];
+  if (caveats.at_limit) parts.push(`at the ${caveats.at_limit} limit`);
+  if (caveats.out_of_range) parts.push(caveats.out_of_range === "high" ? "above range" : "below range");
+  return parts.join(", ");
+}
 
 /** A condition's edge event worded for a log reader: "Offline" raised, "Offline cleared after 12 s". */
 export function describeEdge(edge: "raised" | "cleared" | null, details: unknown): string | null {
