@@ -12,7 +12,7 @@ default, so `pip install flyball[server]` alone can already run a simulated rig.
 | `SteppedClock` | only moves when told to: `clock.advance(1.0)` |
 | `ScaledClock(speed)` | real time × `speed`, changeable while running |
 | `Lag(tau_s, value, gain, ambient)` | a first-order plant; `advance(dt_s)` holds `input` for `dt_s` seconds |
-| `Fopdt(tau_s, dead_s, gain)` | a `Lag` whose input arrives `dead_s` late |
+| `Fopdt(tau_s, dead_time_s, gain)` | a `Lag` whose input arrives `dead_time_s` late |
 | `Integrator(gain, leak)` | `dy/dt = gain·u − leak·y`: a tank against a drain |
 | `Noisy(plant, sigma)` | any plant, read through Gaussian noise; the plant itself stays clean |
 | `MultiPlant` | the protocol several named ports implement, so a `sim_daq`/`sim_drive` can share one plant across devices |
@@ -114,7 +114,7 @@ links:
     type: sim_plant
     model: fopdt          # renamed from `kind`, so it doesn't read as the link's own discriminator
     tau_s: 60.0            # the oven takes about a minute to respond
-    dead_s: 5.0             # ... and five seconds before it starts to
+    dead_time_s: 5.0             # ... and five seconds before it starts to
     gain: 80.0              # full heater power (input 1.0) adds 80 °C over ambient
     ambient: 20.0            # the room; where it rests with the heater off
     initial: 20.0

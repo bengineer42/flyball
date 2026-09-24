@@ -201,10 +201,10 @@ a setting, or an `RP` demand, is refused when the rig is built.
 
 ```yaml
 controllers:
-  heaters.heater1: { measured: furnace.zone1, law: { type: PI, kp: 100, ki: 0.15, tt: 30 } }
+  heaters.heater1: { measured: furnace.zone1, law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 } }
   heaters.heater2:
     measured: furnace.zone2
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }
     feedforward: { type: table, rate_gain: 3000, points: [[20, 0], [200, 289.4], [400, 659.8]] }
     default: true
 ```

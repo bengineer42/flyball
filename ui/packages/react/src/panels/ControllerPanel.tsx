@@ -669,7 +669,7 @@ export function ControllerPanel({
           {law ? (
             <p className="fb-loop-law-line">
               <span className="fb-tag">{typeof lawType === "string" ? lawType : "?"}</span>
-              {fieldsLine(rest, { tt: "s", last_raw: dUnit, last_elapsed: "s" }).map((f) => (
+              {fieldsLine(rest, { tt_s: "s", last_raw: dUnit, last_elapsed: "s" }).map((f) => (
                 <span key={f.key} title={f.title}>
                   {" "}
                   · {f.text}

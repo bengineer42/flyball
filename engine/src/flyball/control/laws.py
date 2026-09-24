@@ -73,16 +73,16 @@ class IComponent:
         return self._ki
 
     @property
-    def tt(self) -> float:
+    def tt_s(self) -> float:
         return self._tt_mul_ki / self._ki if self._ki else 0.0
 
     @property
     def integral_value(self) -> float:
         return self.integral * self.ki
 
-    def set_ki_tt(self, ki: float, tt: float = 0.0) -> None:
+    def set_ki_tt(self, ki: float, tt_s: float = 0.0) -> None:
         self._ki = ki
-        self._tt_mul_ki = tt * ki
+        self._tt_mul_ki = tt_s * ki
 
     def reset_integral(self) -> None:
         """Clear the integrator. `last_raw` stays unset so the next step skips anti-windup."""
@@ -128,20 +128,20 @@ class IComponent:
             elapsed: Seconds since the law was reset or resumed.
             last_applied: What was delivered last step, for back-calculation
                 anti-windup: the integral's output moves toward it by
-                `(last_applied - last_raw) * (1 - exp(-dt/tt))`, so it never
-                crosses it however long the step. Ignored without `tt`.
+                `(last_applied - last_raw) * (1 - exp(-dt/tt_s))`, so it never
+                crosses it however long the step. Ignored without `tt_s`.
         """
         dt = elapsed - self.last_elapsed
         if dt < 0.0:
             return 0.0
         self.last_elapsed = elapsed
         self.integral += error * dt
-        if self.tt > 0.0 and last_applied is not None and self.last_raw is not None:
+        if self.tt_s > 0.0 and last_applied is not None and self.last_raw is not None:
             # Back-calculation relaxes the integral's output toward what was
-            # applied with time constant tt, integrated exactly over dt: the
-            # gap closes by the fraction 1 - exp(-dt/tt), never more. Forward
-            # Euler (dt/tt) overshoots once dt > tt and diverges past 2*tt.
-            k = 1.0 - exp(-dt / self.tt)
+            # applied with time constant tt_s, integrated exactly over dt: the
+            # gap closes by the fraction 1 - exp(-dt/tt_s), never more. Forward
+            # Euler (dt/tt_s) overshoots once dt > tt_s and diverges past 2*tt_s.
+            k = 1.0 - exp(-dt / self.tt_s)
             self.integral += (last_applied - self.last_raw) * k / self._ki
         return dt
 
@@ -152,18 +152,18 @@ class IComponent:
 class PI(Weighted, IComponent, ControlLaw):
     """Proportional-integral, with back-calculation anti-windup.
 
-    `tt` omitted or 0 disables anti-windup outright (`IComponent.tt` is 0
+    `tt_s` omitted or 0 disables anti-windup outright (`IComponent.tt_s` is 0
     whenever `ki` is, too, so a pure-`P`-with-integral-off law never needs
-    it either). Recommended `tt` is about `Ti` (`kp/ki`), or `√(Ti·Td)` when
+    it either). Recommended `tt_s` is about `Ti` (`kp/ki`), or `√(Ti·Td)` when
     a derivative term also acts (`PID`, `Scheduled`).
     """
 
     _kp: float = 0.0
 
-    def __init__(self, kp: float = 0, ki: float = 0, tt: float = 0, b: float = 1.0) -> None:
+    def __init__(self, kp: float = 0, ki: float = 0, tt_s: float = 0, b: float = 1.0) -> None:
         self._kp = kp
         self.b = b
-        self.set_ki_tt(ki, tt)
+        self.set_ki_tt(ki, tt_s)
 
     @property
     def kp(self) -> float:
@@ -188,7 +188,7 @@ class PI(Weighted, IComponent, ControlLaw):
 class PID(Weighted, IComponent, ControlLaw):
     """Derivative on the reading, not the error, so a setpoint step does not kick it.
 
-    `tt` omitted or 0 disables anti-windup, as on `PI`; recommended `tt` is
+    `tt_s` omitted or 0 disables anti-windup, as on `PI`; recommended `tt_s` is
     `√(Ti·Td)` (`Ti = kp/ki`, `Td = kd/kp`) once both act. `n`, when given,
     filters the derivative through a first-order lag with time constant
     `1/n` seconds before it is scaled by `kd` -- raises `n` for less
@@ -213,7 +213,7 @@ class PID(Weighted, IComponent, ControlLaw):
         kp: float = 0,
         ki: float = 0,
         kd: float = 0,
-        tt: float = 0.0,
+        tt_s: float = 0.0,
         b: float = 1.0,
         n: float | None = None,
     ) -> None:
@@ -223,7 +223,7 @@ class PID(Weighted, IComponent, ControlLaw):
         self._kd = kd
         self.b = b
         self.n = n
-        self.set_ki_tt(ki, tt)
+        self.set_ki_tt(ki, tt_s)
 
     @property
     def kp(self) -> float:
@@ -261,17 +261,17 @@ class IMC(PID):
     """A PID whose gains come from a first-order-plus-dead-time model, by the IMC rule.
 
     The same arithmetic as `flyball.autotune.rules.imc`, stated here so the
-    law can be written from the model directly (`{type: IMC, gain: 1, tau: 60,
-    dead_time: 5}`) and retuned by changing the model, not the gains. `lam`
+    law can be written from the model directly (`{type: IMC, gain: 1, tau_s: 60,
+    dead_time_s: 5}`) and retuned by changing the model, not the gains. `lam_s`
     is the closed-loop time constant asked for: smaller is faster and less
-    tolerant of model error; it defaults to `max(tau, 0.8·dead_time)`, about
+    tolerant of model error; it defaults to `max(tau_s, 0.8·dead_time_s)`, about
     as fast as the plant already is. `derivative=False` gives the PI form.
 
     Args:
         gain: Reading per unit of correction at steady state.
-        tau: The plant's time constant, seconds.
-        dead_time: Its dead time, seconds.
-        lam: Closed-loop time constant; None for the default.
+        tau_s: The plant's time constant, seconds.
+        dead_time_s: Its dead time, seconds.
+        lam_s: Closed-loop time constant; None for the default.
         derivative: Include derivative action.
         b: Setpoint weight on the proportional term.
         n: Derivative filter; see `PID`. None (the default) leaves the
@@ -279,40 +279,42 @@ class IMC(PID):
     """
 
     gain: float
-    tau: float
-    dead_time: float
-    lam: float | None
+    tau_s: float
+    dead_time_s: float
+    lam_s: float | None
     derivative: bool
 
     def __init__(
         self,
         gain: float,
-        tau: float,
-        dead_time: float = 0.0,
-        lam: float | None = None,
+        tau_s: float,
+        dead_time_s: float = 0.0,
+        lam_s: float | None = None,
         derivative: bool = True,
         b: float = 1.0,
         n: float | None = None,
     ) -> None:
-        if not gain or tau <= 0.0 or dead_time < 0.0:
+        if not gain or tau_s <= 0.0 or dead_time_s < 0.0:
             raise ValueError("IMC needs a non-zero gain, a positive tau and a dead time >= 0")
-        self.gain, self.tau, self.dead_time, self.lam, self.derivative = (
+        self.gain, self.tau_s, self.dead_time_s, self.lam_s, self.derivative = (
             gain,
-            tau,
-            dead_time,
-            lam,
+            tau_s,
+            dead_time_s,
+            lam_s,
             derivative,
         )
-        closed = max(tau, 0.8 * dead_time) if lam is None else lam
+        closed = max(tau_s, 0.8 * dead_time_s) if lam_s is None else lam_s
         if derivative:
-            ti = tau + dead_time / 2
-            kp = ti / (gain * (closed + dead_time / 2))
-            td = tau * dead_time / (2 * tau + dead_time) if dead_time else 0.0
+            ti = tau_s + dead_time_s / 2
+            kp = ti / (gain * (closed + dead_time_s / 2))
+            td = tau_s * dead_time_s / (2 * tau_s + dead_time_s) if dead_time_s else 0.0
         else:
-            ti = tau
-            kp = tau / (gain * (closed + dead_time))
+            ti = tau_s
+            kp = tau_s / (gain * (closed + dead_time_s))
             td = 0.0
-        super().__init__(kp=kp, ki=kp / ti, kd=kp * td, tt=(ti * td) ** 0.5 if td else ti, b=b, n=n)
+        super().__init__(
+            kp=kp, ki=kp / ti, kd=kp * td, tt_s=(ti * td) ** 0.5 if td else ti, b=b, n=n
+        )
 
 
 class OnOff(ControlLaw, type="on_off"):
@@ -362,7 +364,7 @@ class SmithPredictor(PI, type="smith"):
     has sent. The reading the PI sees is the real one plus the difference
     between the model's undelayed and delayed outputs -- what the plant will
     have done once the dead time has passed -- so the PI can be tuned for the
-    lag alone (`lam` near `tau` rather than `tau + dead_time`). Worth it when
+    lag alone (`lam_s` near `tau_s` rather than `tau_s + dead_time_s`). Worth it when
     the dead time is comparable to the time constant; below that a PI tuned
     for the whole plant does as well.
 
@@ -379,16 +381,16 @@ class SmithPredictor(PI, type="smith"):
     reached the plant than really did.
 
     Args:
-        kp, ki, tt: The PI, tuned for the delay-free plant. `tt` omitted or
+        kp, ki, tt_s: The PI, tuned for the delay-free plant. `tt_s` omitted or
             0 disables anti-windup; see `IComponent.step_integral`.
-        gain, tau, dead_time: The model.
+        gain, tau_s, dead_time_s: The model.
         feedforward: Demand per unit of setpoint the feedforward contributes.
         b: Setpoint weight on the proportional term.
     """
 
     gain: float
-    tau: float
-    dead_time: float
+    tau_s: float
+    dead_time_s: float
     feedforward: float
     predicted: float = 0.0
     """The model's undelayed output."""
@@ -401,16 +403,16 @@ class SmithPredictor(PI, type="smith"):
         kp: float,
         ki: float,
         gain: float,
-        tau: float,
-        dead_time: float,
-        tt: float = 0.0,
+        tau_s: float,
+        dead_time_s: float,
+        tt_s: float = 0.0,
         feedforward: float = 1.0,
         b: float = 1.0,
     ) -> None:
-        if tau <= 0.0 or dead_time < 0.0:
+        if tau_s <= 0.0 or dead_time_s < 0.0:
             raise ValueError("the model needs a positive tau and a dead time >= 0")
-        super().__init__(kp=kp, ki=ki, tt=tt, b=b)
-        self.gain, self.tau, self.dead_time = gain, tau, dead_time
+        super().__init__(kp=kp, ki=ki, tt_s=tt_s, b=b)
+        self.gain, self.tau_s, self.dead_time_s = gain, tau_s, dead_time_s
         self.feedforward = feedforward
         self.predicted = 0.0
         self.predicted_delayed = 0.0
@@ -446,9 +448,9 @@ class SmithPredictor(PI, type="smith"):
             # law itself returned) -- else the law's own last output.
             driven = self._last_output if last_applied is None else last_applied
             target = self.gain * (self.feedforward * setpoint + driven)
-            self.predicted = target + (self.predicted - target) * exp(-dt / self.tau)
+            self.predicted = target + (self.predicted - target) * exp(-dt / self.tau_s)
             self._pipe.append((elapsed, self.predicted))
-            due = elapsed - self.dead_time
+            due = elapsed - self.dead_time_s
             while len(self._pipe) > 1 and self._pipe[1][0] <= due:
                 self._pipe.popleft()
             if self._pipe[0][0] <= due:
@@ -470,7 +472,7 @@ class Scheduled(PID, type="scheduled"):
     losses grow with temperature, a valve that is nonlinear in its travel --
     where one tuning is either sluggish at one end or ringing at the other.
 
-    `tt` omitted or 0 disables anti-windup, as on `PI`/`PID`. `n`, as on
+    `tt_s` omitted or 0 disables anti-windup, as on `PI`/`PID`. `n`, as on
     `PID`, filters the derivative and does not change with the schedule.
     """
 
@@ -483,7 +485,7 @@ class Scheduled(PID, type="scheduled"):
     def __init__(
         self,
         points: list[list[float]],
-        tt: float = 0.0,
+        tt_s: float = 0.0,
         b: float = 1.0,
         n: float | None = None,
     ) -> None:
@@ -494,9 +496,9 @@ class Scheduled(PID, type="scheduled"):
             raise ValueError("two rows share a setpoint")
         self.points = rows
         self._setpoints = [row[0] for row in rows]
-        self._tt = tt
+        self._tt_s = tt_s
         _, kp, ki, kd = rows[0]
-        super().__init__(kp=kp, ki=ki, kd=kd, tt=tt, b=b, n=n)
+        super().__init__(kp=kp, ki=ki, kd=kd, tt_s=tt_s, b=b, n=n)
         self.kp_now, self.ki_now, self.kd_now = kp, ki, kd
 
     def gains_at(self, setpoint: float) -> tuple[float, float, float]:
@@ -515,7 +517,7 @@ class Scheduled(PID, type="scheduled"):
         if ki != self.ki and self.ki and ki:
             self.integral *= self.ki / ki  # the same contribution under the new ki
         self._kp, self._kd = kp, kd
-        self.set_ki_tt(ki, self._tt)
+        self.set_ki_tt(ki, self._tt_s)
         self.kp_now, self.ki_now, self.kd_now = kp, ki, kd
 
     def resume(self, reading: float, setpoint: float, correction: float) -> float:

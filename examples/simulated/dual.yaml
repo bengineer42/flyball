@@ -11,7 +11,7 @@ links:
     type: sim_plant
     model: fopdt
     tau_s: 60.0
-    dead_s: 5.0
+    dead_time_s: 5.0
     gain: 80.0
     ambient: 20.0
     initial: 20.0

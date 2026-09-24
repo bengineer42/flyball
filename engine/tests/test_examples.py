@@ -121,7 +121,7 @@ class TestPlants:
         assert drained.output == pytest.approx(40)
 
     def test_fopdt_delays_the_input(self):
-        plant = Fopdt(tau_s=1.0, dead_s=5.0, gain=1.0)
+        plant = Fopdt(tau_s=1.0, dead_time_s=5.0, gain=1.0)
         plant.input = 1.0
         for _ in range(4):
             plant.advance(1.0)

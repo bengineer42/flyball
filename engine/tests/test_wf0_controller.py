@@ -76,9 +76,9 @@ def at(clock: SteppedClock, seconds: float) -> int:
 
 def _laws() -> list[ControlLaw]:
     return [
-        PI(kp=1.0, ki=0.5, tt=2.0),
-        PID(kp=1.0, ki=0.5, kd=0.2, tt=2.0),
-        SmithPredictor(kp=1.0, ki=0.5, gain=0.1, tau=5.0, dead_time=2.0, tt=2.0),
+        PI(kp=1.0, ki=0.5, tt_s=2.0),
+        PID(kp=1.0, ki=0.5, kd=0.2, tt_s=2.0),
+        SmithPredictor(kp=1.0, ki=0.5, gain=0.1, tau_s=5.0, dead_time_s=2.0, tt_s=2.0),
     ]
 
 
@@ -135,7 +135,7 @@ class TestAHeldWriteFreezesTheLaw:
             rig.add_device(dev)
             humidity, supply = dev.signals["humidity"], dev.signals["supply"]
             chamber = dev.signals["chamber"]
-            law = PI(kp=1.0, ki=0.5, tt=2.0)
+            law = PI(kp=1.0, ki=0.5, tt_s=2.0)
             controller = rig.attach_controller(humidity, chamber, law=law)
             rig.on_samples([Sample(dev.root, at(clock, 0), {supply: 95.0, chamber: 40.0})])
             controller.regulate(50.0, transfer=Transfer.COLD)
@@ -169,15 +169,15 @@ class TestBackCalculation:
 
     @pytest.mark.parametrize("dt", [0.01, 0.5, 2.0, 10.0, 60.0, 600.0])
     def test_the_output_never_crosses_the_applied_value(self, dt):
-        law = PI(kp=2.0, ki=0.1, tt=5.0)
+        law = PI(kp=2.0, ki=0.1, tt_s=5.0)
         assert law.resume(50.0, 50.0, 96.0) == 96.0, "railed: raw 96, the target took 60"
         output = law.update(dt, 50.0, 50.0, last_applied=60.0)
         assert 60.0 <= output <= 96.0
 
     def test_a_short_step_matches_the_continuous_rate(self):
-        law = PI(kp=2.0, ki=0.1, tt=5.0)
+        law = PI(kp=2.0, ki=0.1, tt_s=5.0)
         law.resume(50.0, 50.0, 96.0)
-        # d(output)/dt = (applied - raw) / tt = -7.2/s, to first order in dt
+        # d(output)/dt = (applied - raw) / tt_s = -7.2/s, to first order in dt
         assert law.update(0.001, 50.0, 50.0, last_applied=60.0) == pytest.approx(
             96.0 - 7.2e-3, rel=1e-6
         )

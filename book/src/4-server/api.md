@@ -155,7 +155,7 @@ transaction begun inside another under the same error; `detail` says which.
 | `GET` | `/api/tunings/{name}` | `LawConfig` |
 | `PUT` | `/api/tunings/{name}` | body `LawConfig`; replaces the tuning on the live rig |
 
-A `LawConfig` is `{type, ...gains}`, e.g. `{"type": "PI", "kp": 0.5, "ki": 0.05, "tt": 0}`.
+A `LawConfig` is `{type, ...gains}`, e.g. `{"type": "PI", "kp": 0.5, "ki": 0.05, "tt_s": 0}`.
 
 ### Composition
 

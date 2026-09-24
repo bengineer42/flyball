@@ -71,12 +71,12 @@ errs towards detuning.
 
 | rule | takes | character |
 | --- | --- | --- |
-| `imc(model, lam=…)` | FOPDT | one dial, `lam`, the closed-loop time constant in seconds; the preferred rule |
+| `imc(model, lam_s=…)` | FOPDT | one dial, `lam_s`, the closed-loop time constant in seconds; the preferred rule |
 | `amigo(model)` | FOPDT | bounded sensitivity; PID only |
 | `tyreus_luyben(ultimate)` | Ultimate | Ziegler–Nichols detuned; the default if a relay test is all there is |
 | `ziegler_nichols(ultimate)` | Ultimate | the baseline everything is compared to; not a good default |
 
-`imc` defaults `lam` to about as fast as the plant already is. Halve it to
+`imc` defaults `lam_s` to about as fast as the plant already is. Halve it to
 push harder; below the dead time it gains nothing.
 
 ## Apply

@@ -56,13 +56,13 @@ function asSignal(row: SignalRow): SignalOut {
   };
 }
 
-/** A law config (`{type, kp, ki, tt, ...}`) as `PI` plus a short `kp 100 · ki 0.15 · tt 30 s` line: the gains as the field names a controls engineer already knows, a unit only where one is fixed. */
+/** A law config (`{type, kp, ki, tt_s, ...}`) as `PI` plus a short `kp 100 · ki 0.15 · tt_s 30 s` line: the gains as the field names a controls engineer already knows, a unit only where one is fixed. */
 function lawSummary(config: unknown): { type: string | null; gains: string } {
   if (!config || typeof config !== "object") return { type: null, gains: "" };
   const { type, ...gains } = config as Record<string, unknown>;
   const gains_ = Object.entries(gains)
     .filter(([, v]) => v !== null && v !== undefined && typeof v !== "object")
-    .map(([k, v]) => `${k} ${String(v)}${k === "tt" ? " s" : ""}`)
+    .map(([k, v]) => `${k} ${String(v)}${k === "tt_s" ? " s" : ""}`)
     .join(" · ");
   return { type: typeof type === "string" ? type : null, gains: gains_ };
 }

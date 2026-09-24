@@ -60,7 +60,7 @@ class Loop:
 
 
 def oven_plant(noise: float = 0.05) -> Noisy:
-    """`examples/simulated/oven.yaml`: tau 60 s, dead 5 s, gain 80 over ambient 20."""
+    """`examples/simulated/oven.yaml`: tau_s 60 s, dead 5 s, gain 80 over ambient 20."""
     return Noisy(Fopdt(60.0, 5.0, gain=80.0, value=20.0, ambient=20.0), noise, seed=1)
 
 
@@ -87,12 +87,12 @@ _LAW_KWARGS: dict[str, list[dict[str, Any]]] = {
     "PI": [{"kp": 1.0, "ki": 0.1, "b": 0.7}],
     "PID": [{"kp": 1.0, "ki": 0.1, "kd": 2.0, "b": 0.7}],
     "IMC": [
-        {"gain": 1.0, "tau": 60.0, "dead_time": 5.0},
-        {"gain": 2.0, "tau": 30.0, "lam": 10.0, "derivative": False},
+        {"gain": 1.0, "tau_s": 60.0, "dead_time_s": 5.0},
+        {"gain": 2.0, "tau_s": 30.0, "lam_s": 10.0, "derivative": False},
     ],
     "on_off": [{"high": 1.0, "low": 0.0, "hysteresis": 0.5}],
-    "smith": [{"kp": 1.0, "ki": 0.05, "gain": 1.0, "tau": 20.0, "dead_time": 20.0}],
-    "scheduled": [{"points": [[0, 1, 0.1, 0], [100, 2, 0.2, 1]], "tt": 5.0}],
+    "smith": [{"kp": 1.0, "ki": 0.05, "gain": 1.0, "tau_s": 20.0, "dead_time_s": 20.0}],
+    "scheduled": [{"points": [[0, 1, 0.1, 0], [100, 2, 0.2, 1]], "tt_s": 5.0}],
     "sliding": [{"k": 10.0, "lam": 0.05, "boundary": 2.0}],
 }
 
@@ -141,7 +141,7 @@ def test_setpoint_weighting_softens_the_kick_and_settles_the_same():
     gains = imc(FOPDT(1.0, 60.0, 5.0), derivative=False)
     kicks = {}
     for b in (1.0, 0.4):
-        loop = oven_loop(PI(kp=gains.kp, ki=gains.ki, tt=gains.tt, b=b))
+        loop = oven_loop(PI(kp=gains.kp, ki=gains.ki, tt_s=gains.tt_s, b=b))
         loop.run(900, 50.0)
         before = loop.demands[-1] - 50.0
         loop.run(900, 70.0)
@@ -157,23 +157,23 @@ def test_setpoint_weighting_softens_the_kick_and_settles_the_same():
 
 def test_imc_is_pid_with_the_rule_s_gains():
     model = FOPDT(1.0, 60.0, 5.0)
-    law = IMC(gain=1.0, tau=60.0, dead_time=5.0)
+    law = IMC(gain=1.0, tau_s=60.0, dead_time_s=5.0)
     gains = imc(model)
-    assert (law.kp, law.ki, law.kd, law.tt) == pytest.approx((
+    assert (law.kp, law.ki, law.kd, law.tt_s) == pytest.approx((
         gains.kp,
         gains.ki,
         gains.kd,
-        gains.tt,
+        gains.tt_s,
     ))
-    pi = IMC(gain=1.0, tau=60.0, dead_time=5.0, lam=30.0, derivative=False)
-    gains = imc(model, lam=30.0, derivative=False)
+    pi = IMC(gain=1.0, tau_s=60.0, dead_time_s=5.0, lam_s=30.0, derivative=False)
+    gains = imc(model, lam_s=30.0, derivative=False)
     assert (pi.kp, pi.ki, pi.kd) == pytest.approx((gains.kp, gains.ki, 0.0))
     with pytest.raises(ValueError):
-        IMC(gain=0.0, tau=60.0)
+        IMC(gain=0.0, tau_s=60.0)
 
 
 def test_imc_from_the_oven_s_own_numbers_holds_the_oven():
-    loop = oven_loop(IMC(gain=1.0, tau=60.0, dead_time=5.0, derivative=False))
+    loop = oven_loop(IMC(gain=1.0, tau_s=60.0, dead_time_s=5.0, derivative=False))
     loop.run(600, 50.0)
     trace = loop.run(600, 75.0)
     assert max(trace) < 80.0 and settled(trace, 75.0) and trace[180] > 70.0
@@ -229,11 +229,14 @@ def slow_pipe() -> Noisy:
 
 
 def test_the_predictor_lets_a_pi_tuned_for_the_lag_alone_hold_a_long_dead_time():
-    fast = imc(FOPDT(1.0, 20.0, 0.0), lam=10.0, derivative=False)  # tuned as if there were no delay
-    plain = Loop(PI(kp=fast.kp, ki=fast.ki, tt=fast.tt), slow_pipe(), 1.0, -100, 100)
+    # tuned as if there were no delay
+    fast = imc(FOPDT(1.0, 20.0, 0.0), lam_s=10.0, derivative=False)
+    plain = Loop(PI(kp=fast.kp, ki=fast.ki, tt_s=fast.tt_s), slow_pipe(), 1.0, -100, 100)
     plain.run(600, 10.0)
     with_model = Loop(
-        SmithPredictor(kp=fast.kp, ki=fast.ki, gain=1.0, tau=20.0, dead_time=20.0, tt=fast.tt),
+        SmithPredictor(
+            kp=fast.kp, ki=fast.ki, gain=1.0, tau_s=20.0, dead_time_s=20.0, tt_s=fast.tt_s
+        ),
         slow_pipe(),
         1.0,
         -100,
@@ -255,7 +258,7 @@ def test_the_predictor_lets_a_pi_tuned_for_the_lag_alone_hold_a_long_dead_time()
 
 
 def test_the_predictor_resumes_at_the_correction_in_force():
-    law = SmithPredictor(kp=1.0, ki=0.05, gain=1.0, tau=20.0, dead_time=20.0)
+    law = SmithPredictor(kp=1.0, ki=0.05, gain=1.0, tau_s=20.0, dead_time_s=20.0)
     assert law.resume(10.0, 10.0, 3.0) == pytest.approx(3.0)
     assert law.predicted == law.predicted_delayed == pytest.approx(13.0), "setpoint's share + 3"
     assert law.update(0.0, 10.0, 10.0) == pytest.approx(3.0), "the next step reproduces it"
@@ -269,7 +272,7 @@ def test_the_predictor_s_model_is_driven_by_what_was_actually_applied():
     delivered last tick) drives the model when it is given, overriding the
     law's own last output.
     """
-    law = SmithPredictor(kp=1.0, ki=0.0, gain=2.0, tau=10.0, dead_time=0.0, feedforward=0.0)
+    law = SmithPredictor(kp=1.0, ki=0.0, gain=2.0, tau_s=10.0, dead_time_s=0.0, feedforward=0.0)
     # dt is 0 on the very first step: the model does not move yet.
     output = law.update(0.0, 0.0, 10.0)
     assert output == pytest.approx(10.0)  # kp * error, no integral
@@ -280,7 +283,7 @@ def test_the_predictor_s_model_is_driven_by_what_was_actually_applied():
     # not the 10.0 the law itself returned last step.
     law.update(1.0, 0.0, 10.0, last_applied=1.0)
     target = law.gain * (law.feedforward * 10.0 + 1.0)  # 2.0
-    assert law.predicted == pytest.approx(target + (0.0 - target) * exp(-1.0 / law.tau))
+    assert law.predicted == pytest.approx(target + (0.0 - target) * exp(-1.0 / law.tau_s))
     # Under the old last-output-driven model this would instead have moved
     # towards gain * 10.0 = 20.0, a very different (and wrong) target.
     assert law.predicted < 1.0
@@ -316,7 +319,7 @@ def test_a_schedule_change_is_bumpless():
 
 
 def test_a_scheduled_oven_is_tighter_at_both_ends_than_one_tuning():
-    hot = imc(FOPDT(1.0, 60.0, 5.0), lam=20.0, derivative=False)
+    hot = imc(FOPDT(1.0, 60.0, 5.0), lam_s=20.0, derivative=False)
     loop = oven_loop(
         Scheduled(points=[[30, hot.kp, hot.ki, 0], [90, hot.kp * 0.6, hot.ki * 0.6, 0]])
     )
@@ -423,7 +426,7 @@ def test_n_must_be_positive():
 
 
 def test_imc_and_scheduled_pass_n_through_to_the_pid():
-    imc_law = IMC(gain=1.0, tau=60.0, dead_time=5.0, n=5.0)
+    imc_law = IMC(gain=1.0, tau_s=60.0, dead_time_s=5.0, n=5.0)
     assert imc_law.n == 5.0
     scheduled_law = Scheduled(points=[[0, 1, 0.1, 0], [100, 2, 0.2, 1]], n=5.0)
     assert scheduled_law.n == 5.0

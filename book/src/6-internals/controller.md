@@ -149,7 +149,7 @@ Seven things to note:
    anti-windup.** `update`'s `last_applied` argument is `self.delivered_correction`
    from the *previous* tick; `None` skips the back-calculation term (see
    below), so an unwired or permanently-deferred controller runs open,
-   correction-wise, exactly as a law with no `tt` would.
+   correction-wise, exactly as a law with no `tt_s` would.
 7. **A held write freezes the controller.** Before stepping, the controller
    asks `self.hold()` -- the rig's
    [`hold_reason`][flyball.rig.rig.Rig.hold_reason], injected like `write`
@@ -307,7 +307,7 @@ controller ships with it:
 # examples/furnace/rig.yaml
 heaters.heater2:
   measured: furnace.zone2
-  law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+  law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }
   feedforward:
     type: table
     rate_gain: 3000
@@ -414,16 +414,16 @@ Back-calculation. `PI`/`PID`'s `step_integral` is handed `last_applied` —
 `self.delivered_correction` from the *previous* tick, i.e. what the output
 actually reported committing minus what the feedforward alone asked for —
 and moves the integral's contribution toward it by
-`(last_applied − last_raw) * (1 − exp(−dt / tt))`, where `last_raw` is the
+`(last_applied − last_raw) * (1 − exp(−dt / tt_s))`, where `last_raw` is the
 raw (unclamped) correction the law itself computed last step. That is the
-continuous law `dI/dt = (last_applied − last_raw) / tt` integrated exactly
+continuous law `dI/dt = (last_applied − last_raw) / tt_s` integrated exactly
 over the step, so the gap closes by at most all of it: the output never
 crosses what was applied, however long `dt` is. (The forward-Euler form it
-replaced, `* dt / tt`, overshot once `dt > tt` and diverged past
-`2·tt`: a long step off a railed output swung it far past the rail.) An output whose `write` returns `None` — unwired, or a commit
+replaced, `* dt / tt_s`, overshot once `dt > tt_s` and diverged past
+`2·tt_s`: a long step off a railed output swung it far past the rail.) An output whose `write` returns `None` — unwired, or a commit
 still pending inside a delivery — reports no `delivered_correction`, so that
-tick gets no anti-windup term rather than a wrong one. `tt` omitted or 0
-(or `ki` 0) turns this off outright: a reasonable `tt` is about `Ti` (`kp/ki`), or
+tick gets no anti-windup term rather than a wrong one. `tt_s` omitted or 0
+(or `ki` 0) turns this off outright: a reasonable `tt_s` is about `Ti` (`kp/ki`), or
 `√(Ti·Td)` once a derivative term also acts.
 
 `smith`'s own internal model is driven by the same `last_applied` when it is

@@ -75,7 +75,7 @@ devices:
 controllers:
   heaters.heater1:
     measured: furnace.zone1
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }
     feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
     default: true
   heaters.heater2:
@@ -84,7 +84,7 @@ controllers:
     feedforward: { type: none }
   heaters.heater3:
     measured: furnace.zone3
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }
     feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000]] }
   heaters.heater4:
     measured: furnace.zone4
@@ -92,7 +92,7 @@ controllers:
     feedforward: { type: affine, gain: 2.0, bias: 50 }
   heaters.heater5:
     measured: furnace.zone5
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }
     feedforward: { type: none }
   heaters.heater6:
     measured: furnace.zone6

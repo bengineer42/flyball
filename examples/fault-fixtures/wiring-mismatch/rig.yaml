@@ -14,7 +14,7 @@
 name: wiring-mismatch
 
 links:
-  driven: { type: sim_plant, model: fopdt, tau_s: 30, dead_s: 2, gain: 60, ambient: 20, initial: 20, noise: 0.2, seed: 11 }
+  driven: { type: sim_plant, model: fopdt, tau_s: 30, dead_time_s: 2, gain: 60, ambient: 20, initial: 20, noise: 0.2, seed: 11 }
   unrelated: { type: sim_plant, model: lag, tau_s: 20, gain: 1.0, ambient: 21, initial: 21, noise: 0.3, seed: 12 }
 
 devices:

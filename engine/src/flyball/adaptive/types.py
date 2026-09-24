@@ -81,8 +81,8 @@ class Arx:
             raise ModelRejectedError(f"pole a={self.a:.4f} outside (0, 1)")
         return Plant(
             gain=self.b / (1.0 - self.a),
-            tau=-self.interval / log(self.a),
-            dead_time=self.delay_samples * self.interval,
+            tau_s=-self.interval / log(self.a),
+            dead_time_s=self.delay_samples * self.interval,
             ambient=self.offset / (1.0 - self.a),
         )
 
@@ -96,17 +96,17 @@ class Plant:
     """
 
     gain: float
-    tau: Positive
-    dead_time: NonNegative = 0.0
+    tau_s: Positive
+    dead_time_s: NonNegative = 0.0
     ambient: float = 0.0
 
     @property
     def controllability(self) -> float:
         """Dead time over time constant. Above ~1 the plant is hard to control."""
-        return self.dead_time / self.tau if self.tau else float("inf")
+        return self.dead_time_s / self.tau_s if self.tau_s else float("inf")
 
     def within(self, other: Plant, tolerance: float) -> bool:
         """Whether `other` is within fractional `tolerance` of this one."""
         return abs(other.gain - self.gain) <= tolerance * abs(self.gain) and (
-            abs(other.tau - self.tau) <= tolerance * self.tau
+            abs(other.tau_s - self.tau_s) <= tolerance * self.tau_s
         )

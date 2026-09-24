@@ -385,10 +385,10 @@ const STATE_KEYS: Record<string, { label: string; hint: string }> = {
   kp: { label: "proportional gain", hint: "output per unit of error" },
   ki: { label: "integral gain", hint: "output per unit of accumulated error, over a second" },
   kd: { label: "derivative gain", hint: "output per unit of the error's rate of change" },
-  tt: { label: "tracking time", hint: "how fast the integral unwinds once the actuator clamps" },
+  tt_s: { label: "tracking time", hint: "how fast the integral unwinds once the actuator clamps" },
 };
 
-/** A law/feedforward state or gain key (`last_raw`, `kp`, `tt`) as a label and a hover hint. Unknown keys fall through to `humanise`, with no hint. */
+/** A law/feedforward state or gain key (`last_raw`, `kp`, `tt_s`) as a label and a hover hint. Unknown keys fall through to `humanise`, with no hint. */
 export function describeStateKey(key: string): { label: string; hint?: string } {
   return STATE_KEYS[key] ?? { label: humanise(key) };
 }

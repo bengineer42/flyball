@@ -238,7 +238,7 @@ feedforward). It is named by the output's address, since a demand has at
 most one controller:
 
 ```
-heaters.heater1: { measured: furnace.zone1, law: { type: PI, kp: 100, ki: 0.15, tt: 30 } }
+heaters.heater1: { measured: furnace.zone1, law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 } }
 ```
 
 Reader/actuator and channel/loop have merged into device/signal and

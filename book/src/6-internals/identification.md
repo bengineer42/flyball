@@ -19,7 +19,7 @@ y[k] = a·y[k−1] + b·u[k−d] + offset + Σ c[i]·w[i][k]
 
 Chosen because it is **linear in its parameters**, which is what lets the
 estimate recurse. `Arx.plant()` converts it to the continuous
-`(gain, tau, dead_time, ambient)` the tuning rules take.
+`(gain, tau_s, dead_time_s, ambient)` the tuning rules take.
 
 The offset is what the plant rests at with no input, folded into one term
 (`(1 − a)·ambient`). Without it a plant that does not rest at zero — a

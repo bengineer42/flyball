@@ -8,12 +8,12 @@ the set is open.
 | --- | --- | --- |
 | `open_loop` | — | correction is always zero |
 | `P` | `kp` | proportional |
-| `PI` | `kp`, `ki`, `tt`, `b` | proportional-integral, back-calculation anti-windup with tracking time `tt` |
-| `PID` | `kp`, `ki`, `kd`, `tt`, `b`, `n` | derivative on the reading, not the error, so a setpoint step does not kick |
-| `IMC` | `gain`, `tau`, `dead_time`, `lam`, `derivative`, `b` | a PID whose gains come from a first-order-plus-dead-time model by the IMC rule; retune by changing the model |
+| `PI` | `kp`, `ki`, `tt_s`, `b` | proportional-integral, back-calculation anti-windup with tracking time `tt_s` |
+| `PID` | `kp`, `ki`, `kd`, `tt_s`, `b`, `n` | derivative on the reading, not the error, so a setpoint step does not kick |
+| `IMC` | `gain`, `tau_s`, `dead_time_s`, `lam_s`, `derivative`, `b` | a PID whose gains come from a first-order-plus-dead-time model by the IMC rule; retune by changing the model |
 | `on_off` | `high`, `low`, `hysteresis` | a relay: `high` below the setpoint, `low` above, held inside the deadband; for an actuator that only switches |
-| `smith` | `kp`, `ki`, `tt`, `gain`, `tau`, `dead_time`, `feedforward`, `b` | a PI on a reading with the dead time predicted out: the Smith predictor |
-| `scheduled` | `points`, `tt`, `b`, `n` | a PID whose gains follow the setpoint: rows of `[setpoint, kp, ki, kd]`, interpolated, bumpless |
+| `smith` | `kp`, `ki`, `tt_s`, `gain`, `tau_s`, `dead_time_s`, `feedforward`, `b` | a PI on a reading with the dead time predicted out: the Smith predictor |
+| `scheduled` | `points`, `tt_s`, `b`, `n` | a PID whose gains follow the setpoint: rows of `[setpoint, kp, ki, kd]`, interpolated, bumpless |
 | `sliding` | `k`, `lam`, `boundary` | sliding mode on the surface `e + lam·∫e`, `±k` outside a boundary layer, proportional inside |
 
 Gains are in parallel form: `kp·e + ki·∫e + kd·de/dt`. Tuning rules stated in
@@ -25,8 +25,8 @@ ideal form (`Kp`, `Ti`, `Td`) are converted once by `Gains.of_ideal`.
   `b` (setpoint weight, default 1) scales the setpoint in the proportional
   term only: under 1 it softens the kick a setpoint step gives the demand —
   the overshoot a step test shows — without changing how disturbances are
-  rejected. Two-degree-of-freedom PID. `tt` omitted or 0 disables
-  back-calculation anti-windup outright; a reasonable `tt` is about `Ti`
+  rejected. Two-degree-of-freedom PID. `tt_s` omitted or 0 disables
+  back-calculation anti-windup outright; a reasonable `tt_s` is about `Ti`
   (`kp/ki`) on `PI`, or `√(Ti·Td)` (`Td = kd/kp`) once a derivative term
   also acts, on `PID`/`Scheduled`. `PID`'s `n`, if given, filters the
   derivative through a first-order lag of time constant `1/n` before it is
@@ -34,7 +34,7 @@ ideal form (`Kp`, `Ti`, `Td`) are converted once by `Gains.of_ideal`.
   the raw rate on the reading.
 - **`IMC`** when you have the plant's model (from a step test or the
   identifier) and would rather keep the model in the rig file than gains
-  derived from it. `lam` is the closed-loop time constant asked for; the
+  derived from it. `lam_s` is the closed-loop time constant asked for; the
   default is about as fast as the plant already is.
 - **`on_off`** for a contactor, a solenoid, anything that cannot modulate,
   under `feedforward: none` so the correction is the whole demand. Wider

@@ -42,14 +42,14 @@ class Bounds:
     """
 
     gain: tuple[Positive, Positive] = (1e-3, 1e3)
-    tau: tuple[Positive, Positive] = (0.1, 3_600.0)
+    tau_s: tuple[Positive, Positive] = (0.1, 3_600.0)
 
     def holds(self, plant: Plant) -> bool:
         low, high = self.gain
         if not low <= abs(plant.gain) <= high:
             return False
-        low, high = self.tau
-        return low <= plant.tau <= high
+        low, high = self.tau_s
+        return low <= plant.tau_s <= high
 
 
 class SelfTuner[T]:
@@ -170,7 +170,7 @@ class SelfTuner[T]:
                 # A plant does not change the direction it responds in; a fit
                 # that says so is fitting noise, or a loop that has not moved.
                 return Retune(Verdict.IMPLAUSIBLE, plant, residual)
-            if self._since < self.settling_periods * self._applied.tau:
+            if self._since < self.settling_periods * self._applied.tau_s:
                 return Retune(Verdict.TOO_SOON, plant, residual)
             if self._applied.within(plant, self.drift):
                 return Retune(Verdict.UNCHANGED, plant, residual)
