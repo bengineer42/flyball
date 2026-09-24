@@ -43,7 +43,7 @@ links:
     type: sim_plant
     model: fopdt
     tau_s: 30.0
-    dead_s: 2.0
+    dead_time_s: 2.0
     gain: 60.0
     ambient: 20.0
     initial: 20.0
@@ -53,7 +53,7 @@ links:
     type: sim_plant
     model: fopdt
     tau_s: 90.0
-    dead_s: 8.0
+    dead_time_s: 8.0
     gain: 100.0
     ambient: 20.0
     initial: 20.0
@@ -63,7 +63,7 @@ links:
     type: sim_plant
     model: fopdt
     tau_s: 200.0
-    dead_s: 20.0
+    dead_time_s: 20.0
     gain: 150.0
     ambient: 20.0
     initial: 20.0
@@ -532,11 +532,11 @@ devices:
 controllers:
   heaters.heater1:
     measured: furnace.zone1
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }
     feedforward: { type: none }
   heaters.heater2:
     measured: furnace.zone2
-    law: { type: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
+    law: { type: PID, kp: 100, ki: 0.1, kd: 20, tt_s: 30 }
     feedforward: { type: affine, gain: 2.0, bias: 50 }
   heaters.heater3:
     measured: furnace.zone3
@@ -544,15 +544,15 @@ controllers:
     feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
   heaters.heater4:
     measured: furnace.zone4
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }
     feedforward: { type: none }
   heaters.heater5:
     measured: furnace.zone5
-    law: { type: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
+    law: { type: PID, kp: 100, ki: 0.1, kd: 20, tt_s: 30 }
     feedforward: { type: affine, gain: 2.0, bias: 80 }
   heaters.heater6:
     measured: furnace.zone6
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }
     feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
     default: true
   heaters.heater7:
@@ -561,11 +561,11 @@ controllers:
     feedforward: { type: none }
   heaters.heater8:
     measured: furnace.zone8
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }
     feedforward: { type: affine, gain: 1.8, bias: 60 }
   heaters.heater9:
     measured: furnace.zone9
-    law: { type: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
+    law: { type: PID, kp: 100, ki: 0.1, kd: 20, tt_s: 30 }
     feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
   heaters.heater10:
     measured: furnace.zone10
@@ -573,11 +573,11 @@ controllers:
     feedforward: { type: none }
   heaters.heater11:
     measured: furnace.zone11
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }
     feedforward: { type: affine, gain: 1.5, bias: 40 }
   heaters.heater12:
     measured: furnace.zone12
-    law: { type: PID, kp: 100, ki: 0.1, kd: 20, tt: 30 }
+    law: { type: PID, kp: 100, ki: 0.1, kd: 20, tt_s: 30 }
     feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
   burner1.drive:
     measured: temp1.temperature

@@ -235,11 +235,11 @@ class TestParsing:
             "controllers": {
                 "heaters.heater1": {
                     "measured": "furnace.zone1",
-                    "law": {"type": "PI", "kp": 100, "ki": 0.15, "tt": 30},
+                    "law": {"type": "PI", "kp": 100, "ki": 0.15, "tt_s": 30},
                 },
                 "heaters.heater2": {
                     "measured": "furnace.zone2",
-                    "law": {"type": "PI", "kp": 100, "ki": 0.15, "tt": 30},
+                    "law": {"type": "PI", "kp": 100, "ki": 0.15, "tt_s": 30},
                     "default": True,
                 },
             },
@@ -266,7 +266,7 @@ class TestParsing:
             "controllers": {
                 "blender.humidity": {
                     "measured": "hum_sensors.chamber.humidity",
-                    "law": {"type": "PI", "kp": 0.8, "ki": 0.02, "tt": 60},
+                    "law": {"type": "PI", "kp": 0.8, "ki": 0.02, "tt_s": 60},
                     "default": True,
                 }
             },

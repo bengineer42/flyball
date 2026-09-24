@@ -196,4 +196,4 @@ class Identifier:
         plant = self.plant()
         if not plant.gain:
             return setpoint
-        return (setpoint - plant.ambient + plant.tau * rate) / plant.gain
+        return (setpoint - plant.ambient + plant.tau_s * rate) / plant.gain

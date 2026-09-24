@@ -86,10 +86,10 @@ devices:
 controllers:
   heaters.heater1:
     measured: furnace.zone1
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }
   heaters.heater2:
     measured: furnace.zone2
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }
     feedforward:
       type: table
       rate_gain: 3000
@@ -109,4 +109,4 @@ controllers:
     default: true
   heaters.heater3:
     measured: furnace.zone3
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }

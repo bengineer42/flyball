@@ -232,7 +232,7 @@ class TestNothingSubstitutes:
 class TestAControllerFreezes:
     def _run(self, rig: Rig, oven: Oven, values: list[object]) -> tuple[PI, list[float | None]]:
         zone, heater = oven.signals["zone"], oven.signals["heater"]
-        law = PI(kp=1.0, ki=0.5, tt=2.0)
+        law = PI(kp=1.0, ki=0.5, tt_s=2.0)
         _push(rig, zone, 20.0)
         controller = rig.attach_controller(heater, zone, law=law)
         controller.regulate(30.0, transfer=Transfer.COLD)

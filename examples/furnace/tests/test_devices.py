@@ -303,7 +303,7 @@ class TestSharedPlant:
         controller = rig.attach_controller(
             drive.signals["heater2"],
             daq.signals["zone2"],
-            law=PI(kp=100, ki=0.15, tt=30),
+            law=PI(kp=100, ki=0.15, tt_s=30),
         )
         assert controller.name == "heaters.heater2"
         controller.regulate(300.0)

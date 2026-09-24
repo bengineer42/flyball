@@ -125,7 +125,7 @@ class TestSimulation:
             assert out.exists() and oven.describe()["changed"] == []
             again = load_rig_config(out)
             assert again.clock is not None and again.clock.speed == 30
-            assert again.links[name].gain == 40.0 and again.links[name].dead_s == 5.0
+            assert again.links[name].gain == 40.0 and again.links[name].dead_time_s == 5.0
             assert again.links[name].model == "fopdt"
             assert set(again.devices) == {"thermocouple", "heater"}, "untouched entries survive"
             assert again.devices["thermocouple"].signals["temperature"].warning == (30.0, 90.0)

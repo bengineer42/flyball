@@ -93,7 +93,7 @@ One input, one output.
 | --- | --- | --- |
 | `model` | `lag` | `lag` (first order), `integrator` (a tank against a drain), `fopdt` (a lag with dead time) |
 | `tau_s` | `10.0` | time constant (`lag`, `fopdt`) |
-| `dead_s` | `0.0` | dead time (`fopdt`) |
+| `dead_time_s` | `0.0` | dead time (`fopdt`) |
 | `gain` | `1.0` | output per unit input at rest |
 | `leak` | `0.0` | drain rate (`integrator`) |
 | `ambient` | `0.0` | where a lag rests with no input |

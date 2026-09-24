@@ -10,7 +10,7 @@ links:
     type: sim_plant
     model: fopdt
     tau_s: 60.0        # the oven takes about a minute to respond
-    dead_s: 5.0        # ... and five seconds before it starts to
+    dead_time_s: 5.0        # ... and five seconds before it starts to
     gain: 80.0         # full heater power (input 1.0) adds 80 °C over ambient
     ambient: 20.0      # the room; where it rests with the heater off
     initial: 20.0      # starts at room temperature

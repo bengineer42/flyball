@@ -990,16 +990,16 @@
           "title": "Gain",
           "type": "number"
         },
-        "tau": {
-          "title": "Tau",
+        "tau_s": {
+          "title": "Tau S",
           "type": "number"
         },
-        "dead_time": {
+        "dead_time_s": {
           "default": 0.0,
-          "title": "Dead Time",
+          "title": "Dead Time S",
           "type": "number"
         },
-        "lam": {
+        "lam_s": {
           "anyOf": [
             {
               "type": "number"
@@ -1009,7 +1009,7 @@
             }
           ],
           "default": null,
-          "title": "Lam"
+          "title": "Lam S"
         },
         "derivative": {
           "default": true,
@@ -1036,7 +1036,7 @@
       },
       "required": [
         "gain",
-        "tau"
+        "tau_s"
       ],
       "title": "IMCConfig",
       "type": "object"
@@ -1317,9 +1317,9 @@
           "title": "Ki",
           "type": "number"
         },
-        "tt": {
+        "tt_s": {
           "default": 0,
-          "title": "Tt",
+          "title": "Tt S",
           "type": "number"
         },
         "b": {
@@ -1355,9 +1355,9 @@
           "title": "Kd",
           "type": "number"
         },
-        "tt": {
+        "tt_s": {
           "default": 0.0,
-          "title": "Tt",
+          "title": "Tt S",
           "type": "number"
         },
         "b": {
@@ -1443,11 +1443,11 @@
           "title": "Tau S",
           "type": "number"
         },
-        "dead_s": {
+        "dead_time_s": {
           "default": 0.0,
           "description": "Dead time (fopdt).",
           "minimum": 0,
-          "title": "Dead S",
+          "title": "Dead Time S",
           "type": "number"
         },
         "gain": {
@@ -1987,9 +1987,9 @@
           "title": "Points",
           "type": "array"
         },
-        "tt": {
+        "tt_s": {
           "default": 0.0,
-          "title": "Tt",
+          "title": "Tt S",
           "type": "number"
         },
         "b": {
@@ -2365,17 +2365,17 @@
           "title": "Gain",
           "type": "number"
         },
-        "tau": {
-          "title": "Tau",
+        "tau_s": {
+          "title": "Tau S",
           "type": "number"
         },
-        "dead_time": {
-          "title": "Dead Time",
+        "dead_time_s": {
+          "title": "Dead Time S",
           "type": "number"
         },
-        "tt": {
+        "tt_s": {
           "default": 0.0,
-          "title": "Tt",
+          "title": "Tt S",
           "type": "number"
         },
         "feedforward": {
@@ -2393,8 +2393,8 @@
         "kp",
         "ki",
         "gain",
-        "tau",
-        "dead_time"
+        "tau_s",
+        "dead_time_s"
       ],
       "title": "SmithPredictorConfig",
       "type": "object"
@@ -3540,11 +3540,11 @@
           "title": "Tau S",
           "type": "number"
         },
-        "dead_s": {
+        "dead_time_s": {
           "default": 0.0,
           "description": "Dead time (fopdt).",
           "minimum": 0,
-          "title": "Dead S",
+          "title": "Dead Time S",
           "type": "number"
         },
         "gain": {

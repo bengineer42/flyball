@@ -21,15 +21,15 @@ class Sample(NamedTuple):
 class FOPDT:
     """First order plus dead time: `G(s) = gain·e^(-θs)/(τs + 1)`.
 
-    How far the plant moves (`gain`), how fast (`tau`), and how long it waits
-    first (`dead_time`). The model every rule in
+    How far the plant moves (`gain`), how fast (`tau_s`), and how long it waits
+    first (`dead_time_s`). The model every rule in
     [flyball.autotune.rules][] takes. Run through the feedforward path, `gain`
     comes out near 1 because the actuator arithmetic has already scaled it.
     """
 
     gain: float
-    tau: Positive
-    dead_time: NonNegative
+    tau_s: Positive
+    dead_time_s: NonNegative
     error: float = 0.0
     """RMS residual of the fit, in reading units. Compare it against sensor noise."""
 
@@ -40,14 +40,14 @@ class FOPDT:
         How hard the plant is to control. Below 0.2 most tunings work; above
         0.6 no PID does well.
         """
-        return self.dead_time / (self.dead_time + self.tau)
+        return self.dead_time_s / (self.dead_time_s + self.tau_s)
 
     def response(self, elapsed: float, size: float) -> float:
         """The change in reading `elapsed` after an input step of `size`, from rest."""
-        after_delay = elapsed - self.dead_time
+        after_delay = elapsed - self.dead_time_s
         if after_delay <= 0.0:
             return 0.0
-        return self.gain * size * (1.0 - exp(-after_delay / self.tau))
+        return self.gain * size * (1.0 - exp(-after_delay / self.tau_s))
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,20 +72,20 @@ class Gains:
     kp: float
     ki: float
     kd: float = 0.0
-    tt: float = 0.0
+    tt_s: float = 0.0
     """Back-calculation tracking constant, for [IComponent][flyball.control.laws.IComponent]."""
 
     @classmethod
     def of_ideal(cls, kp: float, ti: float, td: float = 0.0) -> Gains:
         """Parallel-form gains from ideal-form `kp`, `ti`, `td` (zero for absent terms).
 
-        `tt` is `√(Ti·Td)`, or `Ti` without a derivative term.
+        `tt_s` is `√(Ti·Td)`, or `Ti` without a derivative term.
         """
         return cls(
             kp=kp,
             ki=kp / ti if ti else 0.0,
             kd=kp * td,
-            tt=sqrt(ti * td) if td else ti,
+            tt_s=sqrt(ti * td) if td else ti,
         )
 
     @property
@@ -107,9 +107,9 @@ class Gains:
         """
         if self.kd:
             return cast(
-                "ControlLawConfig", PID.config(kp=self.kp, ki=self.ki, kd=self.kd, tt=self.tt)
+                "ControlLawConfig", PID.config(kp=self.kp, ki=self.ki, kd=self.kd, tt_s=self.tt_s)
             )
-        return cast("ControlLawConfig", PI.config(kp=self.kp, ki=self.ki, tt=self.tt))
+        return cast("ControlLawConfig", PI.config(kp=self.kp, ki=self.ki, tt_s=self.tt_s))
 
     def to_tuning(self, name: str) -> Tuning:
         """A tuning named `name` wrapping [config][flyball.autotune.types.Gains.config]."""

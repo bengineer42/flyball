@@ -361,7 +361,7 @@ class TestSmartDrive:
 def test_a_plant_s_model_field_is_model_not_kind():
     with pytest.raises(ValidationError, match="kind"):
         PlantConfig.model_validate({"kind": "lag"})
-    assert PlantConfig.model_validate({"model": "fopdt", "dead_s": 2}).model == "fopdt"
+    assert PlantConfig.model_validate({"model": "fopdt", "dead_time_s": 2}).model == "fopdt"
 
 
 def test_a_bare_plant_needs_its_quantity_spelled_out():
