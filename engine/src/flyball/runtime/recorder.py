@@ -33,18 +33,23 @@ if TYPE_CHECKING:
     from flyball.model.controller import Controller
 
 
-def _tick(controller: Controller, reading: Reading, start_ns: int) -> Tick:
-    """The controller's state after ticking on `reading`, as a row."""
+def _tick(controller: Controller, reading: Reading | None, start_ns: int, time_ns: int) -> Tick:
+    """The controller's state after ticking on `reading`, as a row.
+
+    With no reading, a re-apply's at `time_ns` (E25).
+    """
+    at = time_ns if reading is None else reading.time_ns
     return Tick(
         controller=controller.name,
-        offset_ns=reading.time_ns - start_ns,
+        offset_ns=at - start_ns,
         mode=controller.mode.value,
         correction=controller.correction,
-        measured=reading.value if reading.usable else None,
-        setpoint=None if controller.reference is None else controller.setpoint_at(reading.time_ns),
+        measured=reading.value if reading is not None and reading.usable else None,
+        setpoint=None if controller.reference is None else controller.setpoint_at(at),
         output=controller.output,
         expected=controller.expected,
         delivered_correction=controller.delivered_correction,
+        reapplied=reading is None,
     )
 
 
@@ -145,7 +150,7 @@ class Recorder:
     def record(
         self,
         samples: Sequence[Sample],
-        ticks: Sequence[tuple[Controller, Reading]],
+        ticks: Sequence[tuple[Controller, Reading | None]],
         states: Mapping[Signal, WriteState],
         *,
         time_ns: int | None = None,
@@ -164,14 +169,14 @@ class Recorder:
                 kept.append(sample)
             elif values := {s: v for s, v in sample.values.items() if s in self.published}:
                 kept.append(Sample(sample.node, sample.time_ns, values))
-        rows = [
-            _tick(controller, reading, self._start_ns)
-            for controller, reading in ticks
-            if controller in self.controllers
-        ]
         recorded = {s: st for s, st in states.items() if s in self.writes}
         if time_ns is None:
             time_ns = max((s.time_ns for s in samples), default=self._last_time_ns)
+        rows = [
+            _tick(controller, reading, self._start_ns, time_ns)
+            for controller, reading in ticks
+            if controller in self.controllers
+        ]
         self._last_time_ns = max(self._last_time_ns, time_ns)
         with self._buffer:
             self._samples.extend(kept)

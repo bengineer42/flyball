@@ -104,6 +104,14 @@ class Staged(dict[Signal, float]):
         self._read: set[Signal] = set()
         self._all = False
 
+    def forget_reads(self) -> None:
+        """Forget which demands the driver read, keeping the demands.
+
+        A commit that failed leaves them staged for the next, which reads them afresh.
+        """
+        self._read.clear()
+        self._all = False
+
     def unread(self) -> list[Signal]:
         """The demands the driver has not looked at since the last `clear`, in apply order."""
         if self._all:
@@ -583,7 +591,16 @@ class Committable(Device):
         """Put one committed value on the hardware. Default: nothing -- the device just holds it."""
 
 
-ENVELOPE_KEYS = frozenset({"driver", "label", "poll_s", "signals", "inputs", "reads", "config"})
+ENVELOPE_KEYS = frozenset({
+    "driver",
+    "label",
+    "poll_s",
+    "signals",
+    "inputs",
+    "reads",
+    "retry_max_age_s",
+    "config",
+})
 """The keys of a device entry that are flyball's, the same for every driver; `config` is
 refused outright, so a driver field of that name could never be set."""
 

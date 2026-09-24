@@ -368,9 +368,7 @@ class TestWriteFailed:
         oven.fail_commits = False
         rig.write(oven.root, {"fan": 6.0})
         assert _latest(rig, fan) == 6.0
-        assert _latest(rig, heater) == gone, "its own write was lost: stale until one commits"
-        rig.write(oven.root, {"heater": 20.0})
-        assert _latest(rig, heater) == 20.0
+        assert _latest(rig, heater) == 20.0, "its failed value stayed staged and went out too"
 
     def test_a_sibling_not_in_the_recovering_commit_gets_its_last_value_back(self, rig, oven):
         heater, fan = oven.signals["heater"], oven.signals["fan"]
@@ -411,7 +409,7 @@ class TestWriteFailed:
         oven.fail_commits = False
         rig.write(oven.root, {"fan": 7.0})
         until(lambda: rig.router.latest[fan].value == 7.0)
-        assert _latest(rig, heater) == gone
+        until(lambda: rig.router.latest[heater].value == 20.0)  # kept, and sent with it
 
     def test_a_rate_clamp_ramps_from_the_last_value(self, rig, fresh):
         from flyball.foundation.time import Rate, TimeUnit

@@ -120,7 +120,7 @@ def test_a_failure_downstream_of_a_read_is_the_rig_s(rig, clock, furnace, fresh)
     assert rig.conditions.of(furnace) == [], "the device read fine"
     assert run.last_read_ns == clock.now_ns()
     event = rig.recent[-1]
-    assert event.code == "commit_failed" and event.scope == "device"
+    assert event.code == "write_failed" and event.scope == "device"
     assert event.subject == broken.name, "the committing device's, not the polled one's"
     assert "a bug in a driver's commit" in event.message
     assert run.running is True

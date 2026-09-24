@@ -194,8 +194,13 @@ class DeviceEntry(BaseModel):
     """Input name -> address on another device; the rig binds it."""
     reads: Reads | None = None
     """When failed reads put the device offline, and how it retries; the runner's otherwise."""
+    retry_max_age_s: float | None = Field(
+        default=None,
+        description="How long a value a failed write kept may wait to be sent again; older is"
+        " dropped, not sent. Omit for 60 s.",
+    )
 
-    @field_validator("poll_s")
+    @field_validator("poll_s", "retry_max_age_s")
     @classmethod
     def _positive_seconds(cls, value: float | None, info: Any) -> float | None:
         return _period(value, info.field_name)

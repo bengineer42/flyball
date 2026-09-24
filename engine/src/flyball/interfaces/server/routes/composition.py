@@ -166,6 +166,7 @@ def add_document(rig: RigDep, document: dict[str, Any]) -> dict[str, Any]:
                 feedforward=controller.feedforward,
                 default=controller.default,
                 min_period_s=controller.min_period_s,
+                setpoint_period_s=controller.setpoint_period_s,
             )
     return rig.document()
 
@@ -326,6 +327,7 @@ def _apply(rig: Rig, target: dict[str, Any]) -> None:
             feedforward=controller.feedforward,
             default=controller.default,
             min_period_s=controller.min_period_s,
+            setpoint_period_s=controller.setpoint_period_s,
         )
 
 

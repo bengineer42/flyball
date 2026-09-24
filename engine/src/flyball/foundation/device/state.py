@@ -64,14 +64,24 @@ class Code(StrEnum):
     GAVE_UP = "gave_up"
     """An event: an offline device's retries ran past `reads.give_up_after_s`, and its polling
     stopped. `offline` stays until a restart's first good read."""
+    HUNG = "hung"
+    """A condition: a poll's read has been in flight past `max(3·period, 5 s)` (stuck in its
+    driver). Its read path is `stale(device_hung)` while it holds; cleared when the read
+    returns. `error`; `details`: `{reading_s, bound_s}`."""
     SLOW = "slow"
     """A condition: its reads take longer than its period (de-flapped: see polling)."""
     DELIVERY_FAILED = "delivery_failed"
     WRITE_FAILED = "write_failed"
-    """A condition: a blocking device's writer failed its last write; cleared by the next that
-    succeeds."""
-    COMMIT_FAILED = "commit_failed"
-    """A condition: a commit on the delivery path raised; cleared by the next that succeeds."""
+    """A condition: a write of the device failed -- its `commit`, on the delivery path or a
+    blocking device's writer thread; cleared by the next that succeeds. The values it carried
+    stay staged and are retried on the rig clock (A6). `commit_failed` before wave 2 stage 5."""
+    RESENT = "resent"
+    """An event: a commit set a value a failed write had kept: `re-sent <addr>=<v>, staged at
+    T`. `details`: `{signal, value, staged_ns}`."""
+    WRITE_DROPPED = "write_dropped"
+    """An event: a value a failed write kept waited past the device's `retry_max_age_s` and was
+    dropped, not sent; the demand stays `stale(write_failed)` until a new one commits.
+    `details`: `{signal, value, age_s}`."""
     DEMAND_IGNORED = "demand_ignored"
     # A controller.
     STEP_FAILED = "step_failed"

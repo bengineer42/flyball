@@ -12,7 +12,7 @@ controller's (its output's). The rig resolves them once at the boundary.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import (
@@ -158,7 +158,8 @@ class ReadingOut(BaseModel):
     """One value on one signal at one instant.
 
     With no value: `value` null, `quality` and `reason` say why, `last_usable` is the newest
-    reading that had one, and `age_s` how long ago that was, on the rig's clock.
+    reading that had one, and `age_s` how long ago that was, on the rig's clock: from when the
+    rig received it (`received_ns`), else when it was read.
     """
 
     signal: str
@@ -191,7 +192,7 @@ class ReadingOut(BaseModel):
             last_usable=None if usable is None else LatestOut.of(usable),
             age_s=None
             if usable is None or now_ns is None
-            else max(0.0, (now_ns - usable.time_ns) / 1e9),
+            else max(0.0, (now_ns - (usable.received_ns or usable.time_ns)) / 1e9),
         )
 
 
@@ -313,7 +314,10 @@ class SignalOut(BaseModel):
     committed state of a writable signal. `quality` is `pending` before the
     first reading, else the newest reading's; with no value, `last_usable`
     is the newest reading that had one. `readback` is a demand's (`echo`,
-    `sensed`); `on_no_value` a banded signal's, as in force.
+    `sensed`); `on_no_value` a banded signal's, as in force. `stale_after_s` is the threshold
+    the rig judges it by now -- its own, or `max(3·poll_s, 5 s)` while its device is polled --
+    or null: it is not judged (a push, a setting, an echo demand). Past it with nothing
+    arriving, the rig pushes `stale` on it.
     """
 
     name: str
@@ -332,6 +336,7 @@ class SignalOut(BaseModel):
     warning: tuple[float, float] | None = None
     alarm: tuple[float, float] | None = None
     poll_s: float | None = None
+    stale_after_s: float | None = None
     limits: tuple[float, float] | None = None
     """The effective limits now; a limit that follows another signal is that signal's value."""
     role: str
@@ -356,6 +361,7 @@ class SignalOut(BaseModel):
         latest: Reading | None,
         write: WriteState | None,
         last_usable: Reading | None = None,
+        stale_after_s: float | None = None,
     ) -> SignalOut:
         spec = signal.spec
         banded = spec.warning is not None or spec.alarm is not None
@@ -374,6 +380,7 @@ class SignalOut(BaseModel):
             warning=spec.warning,
             alarm=spec.alarm,
             poll_s=signal.poll_s,
+            stale_after_s=stale_after_s,
             limits=signal.limits,
             role=spec.role.value,
             tags=spec.tags,
@@ -405,11 +412,21 @@ def tree_out(
     latest: dict[Signal, Reading],
     written: dict[Signal, WriteState],
     last_usable: Mapping[Signal, Reading] | None = None,
+    stale_after: Callable[[Signal], float | None] | None = None,
 ) -> list[SignalOut | NamespaceOut]:
-    """The signals and namespaces directly under `node`, recursing into the namespaces."""
+    """The signals and namespaces directly under `node`, recursing into the namespaces.
+
+    `stale_after`: each signal's liveness threshold now (the rig's `liveness.threshold_s`).
+    """
     usable = last_usable or {}
     out: list[SignalOut | NamespaceOut] = [
-        SignalOut.of(signal, latest.get(signal), written.get(signal), usable.get(signal))
+        SignalOut.of(
+            signal,
+            latest.get(signal),
+            written.get(signal),
+            usable.get(signal),
+            None if stale_after is None else stale_after(signal),
+        )
         for signal in node.signals.values()
     ]
     out.extend(
@@ -419,7 +436,7 @@ def tree_out(
             atomic=child.atomic,
             label=child.label,
             poll_s=child.poll_s,
-            signals=tree_out(child, latest, written, last_usable),
+            signals=tree_out(child, latest, written, last_usable, stale_after),
         )
         for child in node.children.values()
     )
@@ -545,6 +562,7 @@ class DeviceOut(BaseModel):
         run: DeviceRun | None,
         conditions: list[Condition] | None = None,
         last_usable: Mapping[Signal, Reading] | None = None,
+        stale_after: Callable[[Signal], float | None] | None = None,
     ) -> DeviceOut:
         return cls(
             name=device.name,
@@ -554,7 +572,7 @@ class DeviceOut(BaseModel):
             class_name=type(device).__name__,
             link=link,
             poll_s=device.poll_s,
-            signals=tree_out(device.root, latest, device.written, last_usable),
+            signals=tree_out(device.root, latest, device.written, last_usable, stale_after),
             commands=[CommandOut.of(spec) for spec in device.commands.values()],
             inputs={
                 role: InputOut.of(device, role, spec) for role, spec in type(device).INPUTS.items()

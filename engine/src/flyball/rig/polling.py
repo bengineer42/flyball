@@ -16,6 +16,11 @@ again after each wait of `backoff_s` in turn, the last repeating, until a
 read succeeds, which clears `offline` and puts the loop back on its period.
 The budget is per device, not per namespace: the runtime calls one `read`
 per period, and a raise ends that call, whichever namespace it came from.
+
+A read still in flight `max(3·period, 5 s)` after it began is stuck in its
+driver: the device holds `hung` (a one-shot on the rig clock raises it), and
+what its reads delivered is `stale(device_hung)` at once. The read returning,
+however it returns, clears `hung`.
 """
 
 from __future__ import annotations
@@ -31,6 +36,8 @@ from flyball.foundation.device import Code, Device, Readable, Sample, Scope, Sev
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.router import Latest
 from flyball.foundation.time import PeriodicLoop
+
+from .liveness import hung_after_s
 
 log = logging.getLogger("flyball.polling")
 
@@ -184,6 +191,9 @@ class Polling:
             self._policies[device.name] = self.policy(device)
             self.periodic[device.name] = loop
             self._update(device, period_s=period_s, running=True, next_retry_ns=None)
+        with self.rig.lock:  # its signals are judged on its period from now (liveness)
+            if self.rig.devices.get(device.name) is device:
+                self.rig.liveness.watch(device, polled=True)
         loop.start()
 
     def restart(self, name: str) -> DeviceRun:
@@ -336,15 +346,29 @@ class Polling:
                 now_ns = self.rig.clock.now_ns()
                 with self._lock:
                     self._reading[device.name] = started
+                    run = self._runs.get(device.name)
+                period = None if run is None else run.period_s
                 self._update(device, reading_since_ns=now_ns)
+                watchdog = None
+                if period is not None:
+                    bound = hung_after_s(period)
+                    watchdog = self.rig.after(
+                        bound, lambda: self._hung(device, started, bound), f"hung {device.name}"
+                    )
                 try:
                     for sample in device.read(now_ns):
                         samples.append(sample)
                 finally:
+                    if watchdog is not None:
+                        watchdog.cancel()
                     with self._lock:
                         self._reading.pop(device.name, None)
                     self._update(device, reading_since_ns=None)
-                read_s = self.rig.clock.monotonic() - started
+                    read_s = self.rig.clock.monotonic() - started
+                    if self.rig.conditions.get(device, Code.HUNG) is not None:
+                        self.rig.conditions.clear(
+                            device, Code.HUNG, message=f"the read returned after {read_s:.1f} s"
+                        )
         except Exception as e:
             error = e
         if not self._polled(device):
@@ -357,6 +381,23 @@ class Polling:
         self.delivered(device, samples)
         self._recovered(device)
         self._paced(device, read_s)
+
+    def _hung(self, device: Device, started: float, bound_s: float) -> None:
+        """The watchdog of a read began at `started`: if that read is still in flight, `hung`."""
+        with self._lock:
+            if not self._polled(device) or self._reading.get(device.name) != started:
+                return  # it returned; or another read is in flight, with its own watchdog
+        reading_s = self.rig.clock.monotonic() - started
+        raised = self.rig.conditions.set(
+            device,
+            Code.HUNG,
+            Severity.ERROR,
+            f"a read has been in flight for {reading_s:.1f} s, past {bound_s:g} s: stuck in its"
+            " driver",
+            {"reading_s": reading_s, "bound_s": bound_s},
+        )
+        if raised:
+            self.rig.device_hung(device)
 
     def _failed(self, device: Device, error: Exception) -> None:
         """Count a read that raised; at the budget hold `offline` and back off, or give up."""

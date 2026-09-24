@@ -493,10 +493,11 @@ class SqliteSessionWriter:
     def write_ticks(self, ticks: Iterable[Tick]) -> None:
         self._open()
         rows = []
+        reapplied = []
         for tick in ticks:
             if tick.controller not in self._controllers:
                 raise NotDeclaredError("controller", tick.controller)
-            rows.append((
+            (reapplied if tick.reapplied else rows).append((
                 self._session.id,
                 tick.controller,
                 tick.offset_ns,
@@ -507,16 +508,19 @@ class SqliteSessionWriter:
                 tick.output,
                 tick.expected,
                 tick.delivered_correction,
+                int(tick.reapplied),
             ))
-        if not rows:
+        if not rows and not reapplied:
             return
+        insert = (
+            " INTO tick (session_id, controller, offset_ns, mode, measured, setpoint,"
+            " correction, output, expected, delivered_correction, reapplied)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
         with self._store._transaction() as connection:
-            connection.executemany(
-                "INSERT INTO tick (session_id, controller, offset_ns, mode, measured, setpoint,"
-                " correction, output, expected, delivered_correction)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                rows,
-            )
+            connection.executemany("INSERT" + insert, rows)
+            # A re-apply at the instant of a reading's tick gives way to it.
+            connection.executemany("INSERT OR IGNORE" + insert, reapplied)
 
     def write_event(self, event: Event) -> int:
         self._open()
@@ -1003,9 +1007,9 @@ class SqliteStore:
         )
         connection.execute(
             "INSERT OR REPLACE INTO tick (session_id, controller, offset_ns, mode, measured,"
-            " setpoint, correction, output, expected, delivered_correction)"
+            " setpoint, correction, output, expected, delivered_correction, reapplied)"
             " SELECT ?, t.controller, t.offset_ns + ?, t.mode, t.measured, t.setpoint,"
-            " t.correction, t.output, t.expected, t.delivered_correction"
+            " t.correction, t.output, t.expected, t.delivered_correction, t.reapplied"
             f" FROM tick t{controller_map}"
             " WHERE t.session_id = ? AND t.offset_ns >= ? AND t.offset_ns < ?",
             (target_id, delta, *([target_id] if mapped else []), source.id, lo, hi),
@@ -1240,6 +1244,7 @@ class SqliteStore:
                 output=r["output"],
                 expected=r["expected"],
                 delivered_correction=r["delivered_correction"],
+                reapplied=bool(r["reapplied"]),
             )
             for r in self._query(
                 "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY offset_ns) AS rn"

@@ -17,7 +17,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
-from threading import RLock
+from threading import Lock, RLock
 from typing import TYPE_CHECKING, Any, overload
 
 from flyball.foundation import Clock, Rate
@@ -53,6 +53,7 @@ from flyball.foundation.device import (
 )
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
 from flyball.foundation.router import RECENT_READINGS, Latest, Router, Topic
+from flyball.foundation.time import Timer, Timers
 from flyball.foundation.typing import OrderedSet
 from flyball.library.tunings import Tunings
 from flyball.model.catalog import get_catalog
@@ -63,6 +64,8 @@ from flyball.runtime.writer import Writer
 
 from .bands import Bands
 from .controllers import Controllers
+from .faults import Faults
+from .liveness import Liveness
 from .polling import Polling, poll_period
 from .triggers import Triggers
 
@@ -75,6 +78,16 @@ log = logging.getLogger("flyball.rig")
 RESUME_AFTER = 3
 """Readings with a value, in a row, before a controller frozen on a no-value steps again."""
 
+RETRY_FIRST_S = 5.0
+"""The first write retry comes after `min(poll_s, RETRY_FIRST_S)`; this for a device with no
+`poll_s` (write-only). Each retry after doubles it, up to `RETRY_MAX_S`."""
+RETRY_MAX_S = 60.0
+RETRY_MAX_AGE_S = 60.0
+"""A staged value older than this (the device's `retry_max_age_s`) is dropped, not sent."""
+
+SETPOINT_PERIOD_MIN_S = 0.1
+"""The shortest default period a moving setpoint's feedforward is re-applied on."""
+
 FRESH_READ_WAIT_S = 5.0
 """How long a fresh read waits for a read of the same device already in flight (a poll,
 another fresh read) before it is refused."""
@@ -85,8 +98,19 @@ def _held(lock: RLock) -> bool:
     return lock._is_owned()  # type: ignore[attr-defined]  # CPython's RLock has no public form
 
 
+class _Retry:
+    """A device whose writes fail: the retry armed on the rig clock, and its interval now."""
+
+    __slots__ = ("interval_s", "kept", "timer")
+
+    def __init__(self, interval_s: float) -> None:
+        self.interval_s = interval_s
+        self.timer: Timer | None = None
+        self.kept: dict[Signal, float] = {}
+        """What failed writes kept, by signal: a commit that sets one of these re-sent it."""
+
+
 class Rig:
-    clock: Clock
     devices: dict[str, Device]
     """Every device, by name: one namespace rig-wide.
 
@@ -111,6 +135,11 @@ class Rig:
     (`raised`, `cleared`); in-process subscribers hear them too."""
     bands: Bands
     """Each banded signal's `band_warning` / `band_alarm`, kept from its readings on delivery."""
+    liveness: Liveness
+    """Each judged signal's stale deadline, on the rig clock: `stale(silent | never_read |
+    last_read)` pushed when nothing arrives within its threshold."""
+    faults: Faults
+    """Each regulated source's outage: fault time accrued on the rig clock, and its release."""
     tunings: Tunings
     recorder: Recorder | None
     controllers: Controllers
@@ -154,6 +183,12 @@ class Rig:
     `stale(device_offline)` when it goes offline."""
     _fresh: dict[Controller, int]
     """Per controller, how many readings in a row with a value its measured signal has had."""
+    _retries: dict[Device, _Retry]
+    """Per device whose writes fail: its retry on the rig clock."""
+    _staged_ns: dict[Signal, int]
+    """When each demand staged for an inline commit was asked for: a failed one's age."""
+    _reapplying: dict[Controller, Timer]
+    """Per controller following a moving setpoint: its re-apply on the rig clock (E25)."""
     """The long command each device is running now, off the lock (`@command(long=True)`)."""
     _ignored: set[Signal]
     """Demands whose driver's `commit` did not read them: one event when a signal's demand
@@ -183,7 +218,10 @@ class Rig:
     def __init__(self, name: str | None = None) -> None:
         self.name = name
         self.links = {}
-        self.clock = Clock()
+        self._clock = Clock()
+        self._timers: Timers | None = None
+        self._timers_lock = Lock()
+        self._closed = False
         self.devices = {}
         self._claims = {}
         self._writers = {}
@@ -194,7 +232,9 @@ class Rig:
         self.conditions = Conditions(
             now_ns=lambda: self.clock.now_ns(), describe=self._describe, emit=self._publish
         )
-        self.bands = Bands(self.conditions, lambda: self.clock.now_ns())
+        self.bands = Bands(self.conditions, lambda: self.clock.now_ns(), self.after, self.lock)
+        self.liveness = Liveness(self)
+        self.faults = Faults(self)
         self.tunings = Tunings()
         self.recorder = None
         self.controllers = Controllers()
@@ -216,6 +256,9 @@ class Rig:
         self._write_lost = {}
         self._read_path = {}
         self._fresh = {}
+        self._retries = {}
+        self._staged_ns = {}
+        self._reapplying = {}
         self.entries = {}
         self.link_entries = {}
         self.files = []
@@ -224,7 +267,74 @@ class Rig:
         self.saved_overlay = {}
         self.on_change = None
         self.on_recording_stopped = None
-        self._closed = False
+
+    @property
+    def clock(self) -> Clock:
+        """The rig's timebase: wall time, or a sim's scaled or stepped clock.
+
+        Swap it before anything is armed on it (`RunnerConfig.build` does, right after
+        `Rig()`): the timers are rebuilt on the new clock, and what was armed on the old is
+        cancelled.
+        """
+        return self._clock
+
+    @clock.setter
+    def clock(self, clock: Clock) -> None:
+        with self._timers_lock:
+            self._clock = clock
+            old, self._timers = self._timers, None
+        if old is not None:
+            if old.pending:
+                log.warning("the rig's clock was swapped with %d timers armed", old.pending)
+            old.close()
+
+    # region Timers
+
+    def _timers_now(self) -> Timers | None:
+        """The rig's timers, made on first use on the clock now; None once the rig is closed."""
+        with self._timers_lock:
+            if self._closed:
+                return None
+            if self._timers is None:
+                self._timers = Timers(self._clock, f"timers:{self.name or 'rig'}")
+            return self._timers
+
+    @property
+    def timers(self) -> Timers:
+        """One-shot and periodic calls on the rig clock: liveness, retries, fault waits.
+
+        Raises:
+            RuntimeError: The rig is closed.
+        """
+        if (timers := self._timers_now()) is None:
+            raise RuntimeError("the rig is closed")
+        return timers
+
+    def after(self, seconds: float, fn: Callable[[], object], name: str = "") -> Timer | None:
+        """Run `fn` once, `seconds` of the rig's time from now; None once the rig is closed.
+
+        `fn` runs on the timers' thread (or whoever advances a stepped clock),
+        holding no lock: it takes the rig's itself if it needs it.
+        """
+        timers = self._timers_now()
+        if timers is None:
+            return None
+        try:
+            return timers.after(seconds, fn, name)
+        except RuntimeError:  # closed meanwhile
+            return None
+
+    def every(self, seconds: float, fn: Callable[[], object], name: str = "") -> Timer | None:
+        """Run `fn` every `seconds` of the rig's time, first after one; None once closed."""
+        timers = self._timers_now()
+        if timers is None:
+            return None
+        try:
+            return timers.every(seconds, fn, name)
+        except RuntimeError:
+            return None
+
+    # endregion
 
     @property
     def latest(self) -> dict[Signal, Reading]:
@@ -286,6 +396,7 @@ class Rig:
                 owner, condition.code, condition.severity, condition.message, condition.details
             )
         own, device.router = device.router, self.router
+        self.liveness.watch(device, polled=False)  # its own `stale_after_s`: judged from now
         if own.latest:  # what it pushed before it was added: initial values, configs
             now = self.clock.now_ns()
             by_node: dict[Node, dict[Signal, Any]] = {}
@@ -356,9 +467,13 @@ class Rig:
 
         Idempotent; a second call is a no-op.
         """
-        if self._closed:
-            return
-        self._closed = True
+        with self._timers_lock:
+            if self._closed:
+                return
+            self._closed = True
+            timers, self._timers = self._timers, None
+        if timers is not None:  # first: nothing armed fires while the rig comes down
+            timers.close()
         with self.lock:  # copies: a delivery or a request may add to them meanwhile
             running = list(self._running)
             writers = list(self._writers.values())
@@ -703,6 +818,7 @@ class Rig:
             for signal, value in clamped.items():
                 if writer is None:
                     device.apply(signal, time_ns, value)
+                    self._staged_ns[signal] = time_ns  # a newer demand replaces a staged one
                 else:
                     writer.apply(signal, time_ns, value)
             for signal in clamped:  # a newer demand supersedes an earlier clamped one
@@ -856,14 +972,15 @@ class Rig:
         A blocking device's commit is handed to its writer instead, and its
         states come back through `written` when the write completes.
 
-        A commit that raises is that device's alone: its demands are dropped
-        (not left in `staged` to go out with a later commit, over a newer
-        write), it becomes a `commit_failed` event once per outage and a
-        condition, and the other devices commit regardless. Into `failed`,
-        when given, go the states of what it dropped (`value` None: nothing
-        was set), for the controllers driving them; without it -- a manual
-        demand or a command, one device -- the error is raised to the caller
-        too.
+        A commit that raises is that device's alone: its demands stay staged
+        -- they go out with the next commit, a newer demand on a signal
+        replacing its own -- a `write_failed` condition holds on the device
+        until a commit succeeds, a retry is armed on the rig clock, and the
+        other devices commit regardless. Into `failed`, when given, go the
+        states of what it kept (`value` None: nothing was set), for the
+        controllers driving them; without it -- a manual demand or a command,
+        one device -- the error is raised to the caller too (the value stays
+        staged and is retried all the same).
         """
         states: dict[Signal, WriteState] = {}
         for device in devices:
@@ -873,55 +990,202 @@ class Rig:
                 writer.request(time_ns)
                 continue
             before = dict(self.router.seq)
+            sent = {s: v for s, v in dict.items(device.staged)}
             try:
                 device.commit(time_ns)
             except Exception as error:
-                dropped = self._commit_failed(device, error)
+                kept = self._commit_failed(device, error, time_ns)
                 if failed is None:
                     raise
-                failed.update(dropped)
+                failed.update(kept)
                 continue
-            recovered = self.conditions.clear(device, Code.COMMIT_FAILED, message="commits succeed")
+            recovered = self.conditions.clear(device, Code.WRITE_FAILED, message="writes succeed")
+            retry = self._retries.pop(device, None)
+            if retry is not None and retry.timer is not None:
+                retry.timer.cancel()
+            staged_ns = {s: self._staged_ns.get(s) for s in sent}
             states.update(self._states(device, time_ns, before))
             if recovered is not None:
                 self._writes_recovered(device)
+            if retry is not None:
+                self._resent(
+                    device,
+                    [(s, v, staged_ns[s]) for s, v in sent.items() if retry.kept.get(s) == v],
+                )
         return states
 
-    def _commit_failed(self, device: Committable, error: Exception) -> dict[Signal, WriteState]:
-        """A commit raised: drop its demands, report the outage once; what each demand became."""
+    def _commit_failed(
+        self, device: Committable, error: Exception, time_ns: int
+    ) -> dict[Signal, WriteState]:
+        """A commit raised: keep its demands staged, hold `write_failed`, arm a retry (A6).
+
+        Each demand keeps its `requested` record and `at_limit` until a commit of it
+        succeeds, a newer demand replaces it, or it is dropped for its age. Returns what
+        each demand is now: nothing set (`value` None).
+        """
         message = f"{type(error).__name__}: {error}"
+        staged = list(dict.keys(device.staged))
         raised = self.conditions.set(  # raised once per outage, not once per delivery
             device,
-            Code.COMMIT_FAILED,
+            Code.WRITE_FAILED,
             Severity.ERROR,
             message,
-            {"signals": [signal.address for signal in device.staged]},
+            {"signals": [signal.address for signal in staged]},
         )
         if raised:
             log.warning("%s: commit failed: %s", device.name, message, exc_info=error)
-        dropped: dict[Signal, WriteState] = {}
-        for signal in device.staged:
+        kept: dict[Signal, WriteState] = {}
+        for signal in staged:
             holder = self.controllers.driving(signal)
-            dropped[signal] = WriteState(
+            kept[signal] = WriteState(
                 value=None,
-                requested=self._requested.pop(signal, None),
+                requested=self._requested.get(signal),
                 controller=None if holder is None else holder.name,
             )
-            signal.at_limit = None
-        self._writes_failing(device, list(dict.keys(device.staged)))
-        device.staged.clear()
-        return dropped
+            self._staged_ns.setdefault(signal, time_ns)
+        device.staged.forget_reads()  # the retry's commit reads them afresh
+        self._writes_failing(device, staged)
+        self._retry_later(device).kept.update(dict.items(device.staged))
+        return kept
 
     def writes_failed(self, device: Device, signals: Iterable[Signal]) -> None:
-        """A blocking device's writer failed a write of `signals`: its echo demands go stale."""
+        """A blocking device's writer failed a write of `signals`.
+
+        Its echo demands go stale, and a retry is armed.
+        """
         with self.lock:
             if self.devices.get(device.name) is device:
                 self._writes_failing(device, signals)
+                self._retry_later(device)
+
+    def resent(self, device: Device, sent: Iterable[tuple[Signal, float, int | None]]) -> None:
+        """A blocking device's writer committed values a failed write had kept: say so."""
+        with self.lock:
+            if self.devices.get(device.name) is device:
+                retry = self._retries.pop(device, None)
+                if retry is not None and retry.timer is not None:
+                    retry.timer.cancel()
+                self._resent(device, sent)
+
+    def _resent(self, device: Device, sent: Iterable[tuple[Signal, float, int | None]]) -> None:
+        """One `resent` event per value a failed write kept and a commit has now set."""
+        for signal, value, staged_ns in sent:
+            at = (
+                ""
+                if staged_ns is None
+                else f", staged at {self.clock.from_start_s(staged_ns):.3f} s"
+            )
+            self.event(
+                Severity.INFO,
+                Scope.DEVICE,
+                device.name,
+                Code.RESENT,
+                f"re-sent {signal.address}={value:g}{at}",
+                {"signal": signal.address, "value": value, "staged_ns": staged_ns},
+            )
+
+    # region Write retries (A6)
+
+    def retry_max_age_s(self, device: Device) -> float:
+        """How long a value a failed write kept may wait to be sent: the device's key, or 60 s."""
+        entry = self.entries.get(device.name)
+        own = None if entry is None else entry.retry_max_age_s
+        return RETRY_MAX_AGE_S if own is None else own
+
+    def _retry_later(self, device: Device) -> _Retry:
+        """Arm `device`'s next write retry, unless one is armed.
+
+        The first after `min(poll_s, 5 s)`, then each after twice the last, up to 60 s.
+        """
+        retry = self._retries.get(device)
+        if retry is None:
+            first = min(poll_period(device) or RETRY_FIRST_S, RETRY_FIRST_S)
+            retry = self._retries[device] = _Retry(first)
+        elif retry.timer is not None and retry.timer.active:
+            return retry  # a retry is due already: this failure came from other traffic
+        else:
+            retry.interval_s = min(retry.interval_s * 2, RETRY_MAX_S)
+        retry.timer = self.after(
+            retry.interval_s, lambda: self._retry_due(device, retry), f"retry {device.name}"
+        )
+        return retry
+
+    def _retry_due(self, device: Device, retry: _Retry) -> None:
+        """The retry came up: drop what is too old, then commit what is kept, if anything."""
+        with self.lock:
+            if (
+                self._retries.get(device) is not retry
+                or self.devices.get(device.name) is not device
+            ):
+                return
+            if self.conditions.get(device, Code.WRITE_FAILED) is None:
+                del self._retries[device]
+                return
+            now = self.clock.now_ns()
+            cutoff = now - round(self.retry_max_age_s(device) * 1e9)
+            writer = self._writers.get(device)
+            if writer is not None:
+                self._dropped(device, writer.drop_older_than(cutoff))
+                if not writer.retry(now):
+                    del self._retries[device]  # nothing left to send: the next demand will
+                return
+            assert isinstance(device, Committable)
+            old = [
+                (signal, value, at)
+                for signal, value in dict.items(device.staged)
+                if (at := self._staged_ns.get(signal, now)) < cutoff
+            ]
+            for signal, _, _ in old:
+                dict.pop(device.staged, signal, None)
+            self._dropped(device, old)
+            if not dict.__len__(device.staged):
+                del self._retries[device]
+                return
+            self._touched = {}
+            failed: dict[Signal, WriteState] = {}
+            try:
+                states = self._commit((device,), now, failed)
+            finally:
+                self._touched = None
+            self._deliver(failed)
+            self._deliver(states)
+            if states and self.recorder is not None:
+                self.recorder.record((), (), states, time_ns=now)
+            self._flush_pushed()
+
+    def _dropped(self, device: Device, old: Iterable[tuple[Signal, float, int]]) -> None:
+        """Values kept too long (`retry_max_age_s`): not sent.
+
+        Each stays `stale(write_failed)` until a new demand of it commits.
+        """
+        retry = self._retries.get(device)
+        for signal, value, staged_ns in old:
+            if retry is not None:
+                retry.kept.pop(signal, None)
+            self._requested.pop(signal, None)
+            self._staged_ns.pop(signal, None)
+            signal.at_limit = None
+            self._write_lost.setdefault(device, set()).add(signal)
+            age_s = (self.clock.now_ns() - staged_ns) / 1e9
+            self.event(
+                Severity.WARNING,
+                Scope.DEVICE,
+                device.name,
+                Code.WRITE_DROPPED,
+                f"dropped {signal.address}={value:g}: not sent in {age_s:.0f} s, past"
+                f" retry_max_age_s {self.retry_max_age_s(device):g}",
+                {"signal": signal.address, "value": value, "age_s": age_s},
+            )
+
+    # endregion
 
     def writes_recovered(self, device: Device) -> None:
         """A blocking device's writer wrote again after failing: its echo demands are known."""
         with self.lock:
             if self.devices.get(device.name) is device:
+                retry = self._retries.pop(device, None)
+                if retry is not None and retry.timer is not None:
+                    retry.timer.cancel()
                 self._writes_recovered(device)
 
     def _writes_failing(self, device: Device, signals: Iterable[Signal]) -> None:
@@ -971,10 +1235,16 @@ class Rig:
             self.on_samples([Sample(node, now, values) for node, values in by_node.items()])
 
     def note_read(self, device: Device, samples: Iterable[Sample]) -> None:
-        """What a poll of `device` delivered: its read path, for `stale(device_offline)`."""
+        """What a poll of `device` delivered: its read path, for `stale(device_offline)`.
+
+        Also the base of its signals' `pending` deadline.
+        """
         path = self._read_path.setdefault(device, set())
+        delivered = False
         for sample in samples:
             path.update(sample.values)
+            delivered = True
+        self.liveness.device_read(device, self.clock.now_ns(), delivered)
 
     def device_offline(self, device: Device) -> None:
         """`device` went offline: what its reads delivered is `stale(device_offline)` at once.
@@ -982,12 +1252,19 @@ class Rig:
         Its readouts and sensed demands on its read path (what its polled
         reads have delivered) get a `stale(device_offline)` reading; its
         settings, configs and echo demands keep theirs. A signal never read
-        stays `pending`. Each returns to `ok` with its next read.
+        stays `pending` until its deadline. Each returns to `ok` with its next read.
         """
+        self._device_down(device, Reason.DEVICE_OFFLINE)
+
+    def device_hung(self, device: Device) -> None:
+        """`device`'s poll is stuck in a read: its read path is `stale(device_hung)` at once."""
+        self._device_down(device, Reason.DEVICE_HUNG)
+
+    def _device_down(self, device: Device, reason: Reason) -> None:
         with self.lock:
             if self.devices.get(device.name) is not device:
                 return
-            gone = stale(Reason.DEVICE_OFFLINE)
+            gone = stale(reason)
             by_node: dict[Node, dict[Signal, Any]] = {}
             for signal in self._read_path.get(device, ()):
                 if signal.role is Role.READOUT or (
@@ -1024,6 +1301,7 @@ class Rig:
         for signal, value in dict.items(staged):
             pushed = seq.get(signal, 0) != before.get(signal, 0)  # the driver's readback
             requested = self._requested.pop(signal, None)
+            self._staged_ns.pop(signal, None)
             ignored = signal in unread
             if ignored:
                 self._demand_ignored(device, signal, value)
@@ -1266,7 +1544,11 @@ class Rig:
                     del other.bound[role]
         self._write_lost.pop(device, None)
         self._read_path.pop(device, None)
+        self.liveness.unwatch(device)
+        if (retry := self._retries.pop(device, None)) is not None and retry.timer is not None:
+            retry.timer.cancel()
         for signal in device.signals.values():
+            self._staged_ns.pop(signal, None)
             self.router.latest.pop(signal, None)
             self.router.last_usable.pop(signal, None)
             self.router.recent.pop(signal, None)
@@ -1310,6 +1592,7 @@ class Rig:
                     else c.feedforward.config,
                     default=self.controllers.default == name,
                     min_period_s=c.min_period_s,
+                    setpoint_period_s=c.setpoint_period_s,
                 )
                 for name, c in self.controllers.items()
             }
@@ -1525,6 +1808,7 @@ class Rig:
         feedforward: FeedforwardLike | str | None = None,
         default: bool = False,
         min_period_s: float | None = None,
+        setpoint_period_s: float | None = None,
     ) -> Controller:
         """Regulate `measured` through `output`; the controller is named by `output`'s address.
 
@@ -1537,6 +1821,8 @@ class Rig:
                 itself when the units agree, else none.
             default: Make this the controller commands address when they name none.
             min_period_s: Step the law at most this often.
+            setpoint_period_s: Re-apply a moving setpoint's feedforward this often between
+                readings; default `max(0.1 s, poll_s / 4)` from `measured`'s `poll_s`.
 
         Raises:
             SignalClaimedError: `output` is already driven, or `measured`
@@ -1561,9 +1847,11 @@ class Rig:
                 law=law,
                 feedforward=feedforward,
                 min_period_s=min_period_s,
+                setpoint_period_s=setpoint_period_s,
                 write=write,
                 hold=lambda: self.hold_reason(controller),
             )
+            controller.on_reference = lambda: self._reference_changed(controller)
             self.controllers.add(controller, default=default)
             self._changed(f"attached controller {controller.name}")
             return controller
@@ -1579,7 +1867,11 @@ class Rig:
         with self.lock:
             controller = self.controllers.remove(name)
             self._fresh.pop(controller, None)
+            self.faults.forget(controller)
+            if (timer := self._reapplying.pop(controller, None)) is not None:
+                timer.cancel()
             self.conditions.clear_owner(controller, reason="detached")
+            controller.on_reference = Controller._nothing
             controller.manual()
             controller.write = Controller._unwired
             controller.hold = Controller._never_held
@@ -1587,6 +1879,81 @@ class Rig:
             self.controller_states.discard(name)
             self._changed(f"detached controller {name}")
             return controller
+
+    def setpoint_period_s(self, controller: Controller) -> float:
+        """How often `controller` re-applies a moving setpoint's feedforward between readings.
+
+        Its own `setpoint_period_s`, else `max(0.1 s, poll_s / 4)` from its measured
+        signal's `poll_s` (1 s for a push).
+        """
+        if controller.setpoint_period_s is not None:
+            return controller.setpoint_period_s
+        poll_s = controller.measured_signal.poll_s or 1.0
+        return max(SETPOINT_PERIOD_MIN_S, poll_s / 4)
+
+    def _reference_changed(self, controller: Controller) -> None:
+        """A controller's reference or mode changed: arm or cancel its re-apply (E25).
+
+        And look at its source's outage again: a release waits for REGULATING.
+
+        Off a moving setpoint -- MANUAL above all, which a stop puts every controller in --
+        nothing takes the rig's lock: the re-apply is cancelled, and would find nothing to do.
+        """
+        now = self.clock.now_ns()
+        if not controller.follows(now):
+            if (timer := self._reapplying.pop(controller, None)) is not None:
+                timer.cancel()
+            if controller.mode.active():
+                with self.lock:
+                    self.faults.regulating(controller)
+            return
+        with self.lock:
+            if self.controllers.find(controller.measured_signal) is not controller:
+                return  # detached
+            self.faults.regulating(controller)
+            if (timer := self._reapplying.get(controller)) is not None and timer.active:
+                return  # already following; the new generator is read at each re-apply
+            timer = self.every(
+                self.setpoint_period_s(controller),
+                lambda: self._reapply(controller),
+                f"reapply {controller.name}",
+            )
+            if timer is not None:
+                self._reapplying[controller] = timer
+
+    def _reapply(self, controller: Controller) -> None:
+        """The re-apply came up: feedforward of the setpoint now plus the last correction.
+
+        Serialised like a delivery: under the lock, in its own `_touched`, then one commit,
+        the controller's state and a tick recorded with no reading. Once the setpoint stops
+        moving (the generator finished, MANUAL, detached), it cancels itself.
+        """
+        with self.lock:
+            timer = self._reapplying.get(controller)
+            now = self.clock.now_ns()
+            if timer is None or not controller.follows(now):
+                if timer is not None:
+                    timer.cancel()
+                    del self._reapplying[controller]
+                return
+            if self._touched is not None:
+                return  # inside a delivery on this thread (a stepped clock): next time
+            touched: dict[Device, None] = {}
+            self._touched = touched
+            failed: dict[Signal, WriteState] = {}
+            try:
+                if not controller.reapply(now):
+                    return
+                states = self._commit(touched, now, failed)
+            finally:
+                self._touched = None
+            self._deliver(failed)
+            self._deliver(states)
+            if self.controller_states.watched:
+                self.controller_states.set(controller.name, controller.state)
+            if self.recorder is not None:
+                self.recorder.record((), [(controller, None)], states, time_ns=now)
+            self._flush_pushed()
 
     # endregion
 
@@ -1621,8 +1988,9 @@ class Rig:
                 # Pushed from inside a delivery (a commit's readbacks, a
                 # mode): known at once, so the driver reads what it just
                 # pushed; delivered next, once this delivery has committed.
+                received = self.clock.now_ns()
                 for sample in samples:
-                    self.router.note(sample)
+                    self.router.note(sample, received)
                 self._pushed.extend(samples)
                 return
             self._stepped = set()
@@ -1634,14 +2002,16 @@ class Rig:
 
     def _deliver_samples(self, samples: Sequence[Sample], *, noted: bool = False) -> None:
         """One delivery, under the lock: note, observers, controllers, commits, recorder."""
-        ticks: list[tuple[Controller, Reading]] = []
+        ticks: list[tuple[Controller, Reading | None]] = []
         published: list[Sample] = []
         touched: dict[Device, None] = {}
+        received = self.clock.now_ns()
+        watches = self.liveness.watches
         self._touched = touched
         try:
             for sample in samples:
                 if not noted:
-                    self.router.note(sample)
+                    self.router.note(sample, received)
                 if (streamed := sample.published()) is not None:
                     published.append(streamed)
                     if self.samples.watched:
@@ -1662,8 +2032,10 @@ class Rig:
                             )
                         self.samples.set(sample.node.address, streamed)
                 messages: dict[tuple[Device, Node], None] = {}
-                for reading in sample.readings():
+                for reading in sample.readings(received):
                     signal = reading.signal
+                    if signal in watches:
+                        self.liveness.arrived(reading, received)
                     self.bands.check(reading)  # noted: its band condition, raised or cleared
                     for device in self._observers.get(signal, ()):
                         touched[device] = None  # it reads the router in `commit`
@@ -1690,6 +2062,7 @@ class Rig:
             for controller, reading in ticks:
                 if self._stepped is not None:
                     self._stepped.add(controller)
+                assert reading is not None
                 self._step(controller, reading)
             time_ns = max(s.time_ns for s in samples)
             failed: dict[Signal, WriteState] = {}
@@ -1714,18 +2087,21 @@ class Rig:
         faulted controller should do is a separate decision.
         """
         self._fresh[controller] = self._fresh.get(controller, 0) + 1 if reading.usable else 0
+        self.faults.delivered(controller, reading)  # A5: fault time starts, pauses, or ends
         try:
             controller.on_reading(reading)
         except Exception as error:
+            message = f"{type(error).__name__}: {error}"
             raised = self.conditions.set(
                 controller,
                 Code.STEP_FAILED,
                 Severity.ERROR,
-                f"{type(error).__name__}: {error}",
+                message,
                 {"measured": reading.signal.address},
             )
             if raised:  # the traceback once per outage, not once per step
                 log.exception("controller %s failed its step", controller.name)
+            self.faults.law_failed(controller, message)
             return
         self.conditions.clear(controller, Code.STEP_FAILED, message="stepping again")
 

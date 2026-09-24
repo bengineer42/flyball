@@ -94,15 +94,16 @@ class Router:
 
     # region Put
 
-    def note(self, sample: Sample) -> list[Node]:
+    def note(self, sample: Sample, received_ns: int | None = None) -> list[Node]:
         """Record a delivered sample: `latest`, `recent`, `samples`, the atomic nodes it cuts to.
 
+        `received_ns` is stamped on each reading: when the rig took delivery.
         Returns the atomic nodes above its signals other than its own, whose
         cut is now this sample's; the caller decides what else the delivery does.
         """
         self.samples[sample.node] = sample
         cuts: dict[Node, None] = {}
-        for reading in sample.readings():
+        for reading in sample.readings(received_ns):
             signal = reading.signal
             self.latest[signal] = reading
             if reading.usable:
@@ -132,7 +133,7 @@ class Router:
             from ..device.signal import normalised
 
             for sample in batch:
-                self.note(normalised(sample))
+                self.note(normalised(sample), self.now_ns())
 
     def push_reading(self, signal: Signal, value: Value, time_ns: int | None = None) -> None:
         """One value on one signal, as a sample on its node, delivered."""

@@ -87,8 +87,8 @@ def test_the_migration_turns_the_recovery_codes_into_cleared_edges(tmp_path):
     assert [(e.code, e.edge) for e in store.events(1)] == [
         ("write_failed", "raised"),
         ("write_failed", "cleared"),
-        ("commit_failed", "raised"),
-        ("commit_failed", "cleared"),
+        ("write_failed", "raised"),  # 0022: commit_failed is write_failed now (A6)
+        ("write_failed", "cleared"),
         ("step_failed", "raised"),
         ("step_failed", "cleared"),
         ("step_failed", None),  # a program's step: a point event
@@ -270,7 +270,7 @@ class Flaky(Committable):
 
 
 class TestProducers:
-    def test_a_commit_failure_is_raised_then_cleared(self, rig, clock, fresh):
+    def test_a_commit_failure_is_write_failed_raised_then_cleared(self, rig, clock, fresh):
         flaky = Flaky(fresh("flaky"))
         rig.add_device(flaky)
         out = flaky.signals["out"]
@@ -279,13 +279,13 @@ class TestProducers:
             with pytest.raises(OSError):
                 rig.write(flaky.root, {out: 5.0})
         (held,) = rig.conditions.of(flaky)
-        assert held.code == Code.COMMIT_FAILED and held.severity is Severity.ERROR
+        assert held.code == Code.WRITE_FAILED and held.severity is Severity.ERROR
         flaky.fail = False
         clock.advance(1.0)
         rig.write(flaky.root, {out: 5.0})
         assert rig.conditions.of(flaky) == []
-        assert _edges(rig, Code.COMMIT_FAILED) == [("raised", flaky.name), ("cleared", flaky.name)]
-        assert not [e for e in rig.recent if e.code == "commit_recovered"]
+        assert _edges(rig, Code.WRITE_FAILED) == [("raised", flaky.name), ("cleared", flaky.name)]
+        assert not [e for e in rig.recent if e.code in ("commit_recovered", "commit_failed")]
 
     def test_an_offline_device_is_cleared_by_its_first_good_read(self, rig, clock, fresh):
         furnace = Furnace(fresh("furnace"))

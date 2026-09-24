@@ -848,6 +848,9 @@ class Reading:
     reported the value railed at an end of what it can read."""
     controller: str | None = None
     """The controller driving the signal, if any."""
+    received_ns: int | None = field(default=None, compare=False)
+    """When the rig took delivery of it, on the rig's clock (`time_ns` is when it was read):
+    what liveness and `age_s` count from. None on a reading no rig has delivered."""
 
     @property
     def seconds(self) -> float:
@@ -902,14 +905,20 @@ class Sample:
     def seconds(self) -> float:
         return self.time_ns / 1e9
 
-    def readings(self) -> Iterator[Reading]:
-        """One [Reading][flyball.foundation.device.signal.Reading] per value, its bound signal."""
+    def readings(self, received_ns: int | None = None) -> Iterator[Reading]:
+        """One [Reading][flyball.foundation.device.signal.Reading] per value, its bound signal.
+
+        `received_ns`: when the rig took delivery, stamped on each.
+        """
         time_ns = self.time_ns
         marks = self.marks
         if not marks:
-            return (Reading(signal, time_ns, value) for signal, value in self.values.items())
+            return (
+                Reading(signal, time_ns, value, received_ns=received_ns)
+                for signal, value in self.values.items()
+            )
         return (
-            Reading(signal, time_ns, value, at_limit=marks.get(signal))
+            Reading(signal, time_ns, value, at_limit=marks.get(signal), received_ns=received_ns)
             for signal, value in self.values.items()
         )
 

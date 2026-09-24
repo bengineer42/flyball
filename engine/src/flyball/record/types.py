@@ -307,6 +307,9 @@ class Tick:
     output: float | None = None
     expected: float | None = None
     delivered_correction: float | None = None
+    reapplied: bool = False
+    """A re-apply between readings (a moving setpoint's feedforward, E25): no reading, so
+    `measured` is None and the law did not step."""
 
 
 @dataclass(frozen=True, slots=True)

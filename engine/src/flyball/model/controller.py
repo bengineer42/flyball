@@ -16,6 +16,11 @@ value: `frozen`) and why. While it does,
 the controller is frozen: the law does not step and nothing is written, so
 the integral cannot wind up against a write that never lands; the first
 step after the hold counts as one ordinary interval.
+
+A third, `on_reference`, is called after the reference or the mode changes
+(`regulate`, `set_setpoint`, `manual`): the rig arms or cancels
+[reapply][flyball.model.controller.Controller.reapply] on its clock, which
+follows a moving setpoint's feedforward between readings (E25).
 """
 
 from __future__ import annotations
@@ -116,6 +121,9 @@ class ControllerSpec:
     offset_ns: int
     min_period_s: float | None = None
     """Update the law at most this often, however fast readings arrive. None: every reading."""
+    setpoint_period_s: float | None = None
+    """Re-apply a moving setpoint's feedforward this often between readings. None: the rig's
+    default, `max(0.1 s, poll_s / 4)` from the measured signal's `poll_s`."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -151,6 +159,7 @@ class ControllerView(ControllerSpec, ControllerState):
             output_unit=spec.output_unit,
             offset_ns=spec.offset_ns,
             min_period_s=spec.min_period_s,
+            setpoint_period_s=spec.setpoint_period_s,
             correction=state.correction,
             reference=state.reference,
             setpoint=state.setpoint,
@@ -196,6 +205,7 @@ class Controller:
         law: ControlLawLike | None = None,
         feedforward: Feedforward | FeedforwardConfig | None = None,
         min_period_s: float | None = None,
+        setpoint_period_s: float | None = None,
         write: Callable[[float], float | None] | None = None,
         hold: Callable[[], Code | None] | None = None,
     ) -> None:
@@ -230,6 +240,9 @@ class Controller:
         """How an output value reaches the output: the rig's `demand`, returning what committed."""
         self.hold: Callable[[], Code | None] = self._never_held if hold is None else hold
         """Why the rig would refuse a write now, or None: asked before the law steps."""
+        self.on_reference: Callable[[], None] = self._nothing
+        """Called after the reference or the mode changes: the rig arms `reapply`."""
+        self.setpoint_period_s: float | None = setpoint_period_s
         self.law = None
         if law is not None:
             self._set_law(law)
@@ -248,6 +261,10 @@ class Controller:
     def _never_held() -> Code | None:
         """Nothing to refuse a write: no rig in front of the output."""
         return None
+
+    @staticmethod
+    def _nothing() -> None:
+        """No rig to tell of a new reference."""
 
     @property
     def name(self) -> str:
@@ -284,6 +301,7 @@ class Controller:
             output_unit=self.output_unit,
             offset_ns=self.offset_ns,
             min_period_s=self.min_period_s,
+            setpoint_period_s=self.setpoint_period_s,
         )
 
     @property
@@ -419,12 +437,14 @@ class Controller:
             self.mode = ControllerMode.REGULATING
             applied = self._apply_output(setpoint, self.rate_at(time_ns))
             bump = 0.0 if held is None else applied.output - held
-            return RegulateResult(*applied, bump=bump)
+        self.on_reference()
+        return RegulateResult(*applied, bump=bump)
 
     def manual(self) -> None:
         """Stop regulating: the output keeps its last value and takes demands directly."""
         with self.lock:
             self.mode = ControllerMode.MANUAL
+        self.on_reference()
 
     def set_setpoint(
         self,
@@ -438,6 +458,7 @@ class Controller:
             if generator is not None:
                 generator.start(self.clock.from_start_s(self.get_time_ns(time_ns)), setpoint)
                 self.reference = generator
+        self.on_reference()
 
     def get_time_ns(self, time_ns: int | None = None) -> int:
         return self.clock.now_ns() if time_ns is None else time_ns
@@ -503,6 +524,45 @@ class Controller:
                     self.to_law_time(time_ns), reading.value, setpoint, self.delivered_correction
                 )
             self._apply_output(setpoint, self.rate_at(time_ns))
+
+    def follows(self, time_ns: int) -> bool:
+        """Whether a moving setpoint is being followed now (E25).
+
+        Regulating, on a generator that has not finished, through a feedforward: what
+        `reapply` needs to do anything.
+        """
+        reference = self.reference
+        return (
+            self.mode.active()
+            and isinstance(reference, SetpointGenerator)
+            and not isinstance(self.feedforward, NoFeedforward)
+            and not reference.finished(self.clock.from_start_s(time_ns))
+        )
+
+    def reapply(self, time_ns: int) -> bool:
+        """Between readings: the feedforward of the setpoint now, plus the last correction (E25).
+
+        The law is not stepped: there is no measurement to step it on. Nothing
+        happens -- False -- in MANUAL, off a moving setpoint, while held (it
+        tests `held`, never sets or clears it), while the rig would hold a
+        write (`hold`), when the last measured reading has no value, or when
+        the output would not change. `_last_step_ns`, the step interval and
+        the law's clock are left alone, so the next reading steps as it would
+        have. Returns whether it wrote.
+        """
+        with self.lock:
+            if not self.follows(time_ns) or self.held is not None:
+                return False
+            if self.measured is not None and not self.measured.usable:
+                return False
+            if self.hold() is not None:
+                return False
+            setpoint = self.setpoint_at(time_ns)
+            rate = self.rate_at(time_ns)
+            if self.feedforward(setpoint, rate) + self.correction == self.output:
+                return False
+            self._apply_output(setpoint, rate)
+            return True
 
     def _skip_outage(self, time_ns: int, *, resumed: bool = False) -> None:
         """Keep a gap in the readings out of the law's time.

@@ -21,12 +21,15 @@ it could be past) is unknown to that band: it leaves everything as it was.
 A reading with no value leaves the held band condition as it was too; the
 band is unknown. When the no-value is a fault (`invalid`; `stale` by age),
 the signal's `on_no_value` decides: `fire` (the default with an `alarm`
-band) raises `band_unknown` once the fault has lasted its grace,
-`max(2·poll_s, 1 s)` for `invalid` and none for `stale` (its
+band) raises `band_unknown` once the fault time accrued in the episode
+(A5's rule: readings with a value pause it, never reset it) reaches its
+grace, `max(2·poll_s, 1 s)` for `invalid` and none for `stale` (its
 `stale_after_s` was the grace); `ignore` (the default with only a
-`warning` band) raises nothing. A benign no-value (`not_applicable`) never
-fires, nor does `stale` because the device is offline or its writes fail:
-the device's own condition already counts. The episode ends, and
+`warning` band) raises nothing. The grace is judged on the rig clock, by a
+one-shot, so a signal that goes quiet after an `invalid` still raises it
+when the grace is up. A benign no-value (`not_applicable`) never fires, nor
+does `stale` because the device is offline or hung or its writes fail: the
+device's own condition already counts. The episode ends, and
 `band_unknown` clears, after 3 readings in a row with a value.
 """
 
@@ -34,7 +37,8 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from typing import Any
+from contextlib import AbstractContextManager, nullcontext
+from typing import TYPE_CHECKING, Any
 
 from flyball.foundation.device import (
     Code,
@@ -49,11 +53,13 @@ from flyball.foundation.device import (
 )
 from flyball.foundation.device.signal import Bounds
 
+from .faults import EPISODE_ENDS_AFTER, Accrual
+
+if TYPE_CHECKING:
+    from flyball.foundation.time import Timer
+
 HOLD_MIN_S = 1.0
 """The least a band condition waits, with readings back inside, before it clears."""
-
-EPISODE_ENDS_AFTER = 3
-"""Readings with a value, in a row, that end a no-value episode."""
 
 _DEVICE_COUNTED = frozenset({Reason.DEVICE_OFFLINE, Reason.DEVICE_HUNG, Reason.WRITE_FAILED})
 """Stale reasons a device condition already counts: never `band_unknown` as well."""
@@ -94,21 +100,47 @@ def _outside(value: float, bounds: Bounds | None) -> str | None:
     return None
 
 
+class _Episode:
+    """A banded signal's no-value episode: its accrued fault time, the fault, the one-shot."""
+
+    __slots__ = ("accrual", "fault", "timer")
+
+    def __init__(self) -> None:
+        self.accrual = Accrual()
+        self.fault: NoValue | None = None
+        self.timer: Timer | None = None
+
+    def cancel(self) -> None:
+        if self.timer is not None:
+            self.timer.cancel()
+            self.timer = None
+
+
 class Bands:
     """The band conditions of every signal, kept from its readings on the delivery thread.
 
     What each signal holds is the store's; this keeps only, per signal, when
-    its readings last went below the band it holds, for the hysteresis.
+    its readings last went below the band it holds, for the hysteresis, and
+    its no-value episode. An `invalid` episode's grace is judged on the rig
+    clock (`after`, a one-shot taking `lock`), so a signal whose driver goes
+    on yielding `invalid` -- or that goes quiet after one -- raises
+    `band_unknown` when its grace is up, not at the next delivery.
     """
 
-    def __init__(self, conditions: Conditions, now_ns: Callable[[], int]) -> None:
+    def __init__(
+        self,
+        conditions: Conditions,
+        now_ns: Callable[[], int],
+        after: Callable[[float, Callable[[], object], str], Timer | None] | None = None,
+        lock: AbstractContextManager[Any] | None = None,
+    ) -> None:
         self.conditions = conditions
         self.now_ns = now_ns
+        self._after = after
+        self._lock = lock if lock is not None else nullcontext()
         self._below_since: dict[Signal, int] = {}
-        self._fault_since: dict[Signal, int] = {}
-        """When each signal's no-value episode began: its first fault-class no-value."""
-        self._fresh: dict[Signal, int] = {}
-        """Readings with a value in a row since, for a signal in an episode."""
+        self._episodes: dict[Signal, _Episode] = {}
+        """Each banded signal in a no-value episode: from its first fault-class no-value."""
 
     def check(self, reading: Reading) -> None:
         """Raise, keep or clear `reading.signal`'s band conditions for this value."""
@@ -120,7 +152,7 @@ class Bands:
         if isinstance(value, NoValue):
             self._no_value(signal, value)
             return
-        if signal in self._fault_since:
+        if signal in self._episodes:
             self._value_again(signal)
         if isinstance(value, bool) or not isinstance(value, int | float):
             return
@@ -161,35 +193,65 @@ class Bands:
     def _no_value(self, signal: Signal, value: NoValue) -> None:
         """A reading with no value: the band is unknown; `band_unknown` if it is a fault's."""
         self._below_since.pop(signal, None)  # a break: back inside has to start again
-        self._fresh.pop(signal, None)
-        if not value.quality.fault or value.reason in _DEVICE_COUNTED:
-            return
-        if on_no_value(signal) is OnNoValue.IGNORE:
-            return
         now = self.now_ns()
-        since = self._fault_since.setdefault(signal, now)
-        if self.conditions.get(signal, Code.BAND_UNKNOWN) is not None:
+        episode = self._episodes.get(signal)
+        counted = value.quality.fault and value.reason not in _DEVICE_COUNTED
+        if not counted or on_no_value(signal) is OnNoValue.IGNORE:
+            if episode is not None:  # not a fault this band counts: no time accrues
+                episode.cancel()
+                episode.accrual.pause(now)
+                episode.accrual.fresh = 0
             return
-        grace_s = 0.0 if value.quality is Quality.STALE else hold_s(signal)
-        if now - since < grace_s * 1e9:
+        if episode is None:
+            episode = self._episodes[signal] = _Episode()
+        episode.accrual.fault(now)
+        episode.fault = value
+        self._judge(signal, episode, now)
+
+    def _grace(self, value: NoValue, signal: Signal) -> float:
+        """`stale` by age: none (`stale_after_s` was it); `invalid`: `max(2·poll_s, 1 s)`."""
+        return 0.0 if value.quality is Quality.STALE else hold_s(signal)
+
+    def _judge(self, signal: Signal, episode: _Episode, now: int) -> None:
+        """Raise `band_unknown` once the episode's fault time reaches its grace; else arm for it."""
+        episode.cancel()
+        if self.conditions.get(signal, Code.BAND_UNKNOWN) is not None or episode.fault is None:
+            return
+        value = episode.fault
+        left = episode.accrual.remaining_ns(now, round(self._grace(value, signal) * 1e9))
+        if left > 0:
+            if self._after is not None:
+                episode.timer = self._after(
+                    left / 1e9, lambda: self._grace_due(signal, episode), f"band {signal.address}"
+                )
             return
         why = f": {value.reason}" if value.reason else ""
         self.conditions.set(
             signal,
             Code.BAND_UNKNOWN,
             Severity.ERROR if signal.spec.alarm is not None else Severity.WARNING,
-            f"no value ({value.quality.value}{why}) for {(now - since) / 1e9:.1f} s:"
-            " its band is unknown",
+            f"no value ({value.quality.value}{why}) for"
+            f" {episode.accrual.total_ns(now) / 1e9:.1f} s: its band is unknown",
             {"quality": value.quality.value, "reason": value.reason, "side": value.side},
         )
 
+    def _grace_due(self, signal: Signal, episode: _Episode) -> None:
+        """The one-shot: still in the same episode and still faulty, judge it again."""
+        with self._lock:
+            if self._episodes.get(signal) is not episode:
+                return
+            episode.timer = None
+            if episode.accrual.faulty:
+                self._judge(signal, episode, self.now_ns())
+
     def _value_again(self, signal: Signal) -> None:
         """A reading with a value inside an episode: the third in a row ends it."""
-        fresh = self._fresh[signal] = self._fresh.get(signal, 0) + 1
-        if fresh < EPISODE_ENDS_AFTER:
+        episode = self._episodes[signal]
+        episode.cancel()
+        if not episode.accrual.usable(self.now_ns()):
             return
-        del self._fault_since[signal]
-        del self._fresh[signal]
+        fresh = episode.accrual.fresh
+        del self._episodes[signal]
         self.conditions.clear(
             signal, Code.BAND_UNKNOWN, message=f"{fresh} readings with a value: known again"
         )
@@ -197,8 +259,8 @@ class Bands:
     def forget(self, signal: Signal) -> None:
         """Drop what is kept for `signal`: its device is gone (the store clears its conditions)."""
         self._below_since.pop(signal, None)
-        self._fault_since.pop(signal, None)
-        self._fresh.pop(signal, None)
+        if (episode := self._episodes.pop(signal, None)) is not None:
+            episode.cancel()
 
     def _held(self, signal: Signal) -> Code | None:
         if self.conditions.get(signal, Code.BAND_ALARM) is not None:

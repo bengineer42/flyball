@@ -147,6 +147,13 @@ class ControllerEntry(BaseModel):
         gt=0,
         description="Update the law at most this often; omit to update on every reading.",
     )
+    setpoint_period_s: float | None = Field(
+        default=None,
+        gt=0,
+        description="While following a moving setpoint (a ramp, a profile), re-apply its"
+        " feedforward this often between readings; the law steps only on readings. Omit for"
+        " max(0.1 s, poll_s / 4) from the measured signal's poll_s.",
+    )
 
 
 class ClockEntry(BaseModel):
@@ -926,6 +933,7 @@ class RigConfig(BaseModel):
                     feedforward=controller.feedforward,
                     default=controller.default,
                     min_period_s=controller.min_period_s,
+                    setpoint_period_s=controller.setpoint_period_s,
                 )
         except Exception:
             for device in built_devices:

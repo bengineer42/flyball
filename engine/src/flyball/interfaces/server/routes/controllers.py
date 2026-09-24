@@ -56,6 +56,9 @@ class NewController(BaseModel):
     """A config or a type. Omitted: ``identity`` when the units agree, else ``none``."""
     default: bool = False
     min_period_s: Positive | None = None
+    setpoint_period_s: Positive | None = None
+    """Re-apply a moving setpoint's feedforward this often between readings; omitted:
+    `max(0.1 s, poll_s / 4)`."""
 
 
 class Regulate(BaseModel):
@@ -231,6 +234,7 @@ def make_controller(rig: RigDep, body: NewController) -> ControllerOut:
             feedforward=body.feedforward,
             default=body.default,
             min_period_s=body.min_period_s,
+            setpoint_period_s=body.setpoint_period_s,
         )
     return _out(rig, controller.name)
 

@@ -9,6 +9,12 @@ reports go back to the rig -- published, delivered to the controllers,
 recorded -- when the write completes. A bus that fails raises a
 `write_failed` condition on the device, cleared by the next write that
 succeeds; deliveries go on.
+
+A write that fails keeps its values (A6): they go back in the queue, unless a
+newer value on the same signal arrived meanwhile, and go out with the next
+write. The rig arms a retry on its clock, which calls
+[retry][flyball.runtime.writer.Writer.retry] after dropping what has waited
+past `retry_max_age_s` ([drop_older_than][flyball.runtime.writer.Writer.drop_older_than]).
 """
 
 from __future__ import annotations
@@ -33,6 +39,8 @@ class Writer:
         self.device = device
         self.writes = 0
         self._queued: dict[Signal, tuple[int, float]] = {}
+        self._restaged: set[Signal] = set()
+        """Signals whose queued value a failed write kept: sending one is a re-send."""
         self._commit_ns: int | None = None
         self._lock = Lock()
         self._wake = Event()
@@ -44,6 +52,7 @@ class Writer:
         """Queue one value for the device's `apply`, replacing any earlier one on `signal`."""
         with self._lock:
             self._queued[signal] = (time_ns, value)
+            self._restaged.discard(signal)  # a newer value: not a re-send
 
     def request(self, time_ns: int) -> None:
         """Ask for a commit at `time_ns`; a store and a wake, no I/O."""
@@ -65,13 +74,30 @@ class Writer:
             except Exception:  # the thread outlives anything, or the device is never written again
                 log.exception("%s: writer", self.device.name)
 
+    def retry(self, time_ns: int) -> bool:
+        """Commit what failed writes kept, now; False when nothing is kept."""
+        with self._lock:
+            if not self._queued:
+                return False
+        self.request(time_ns)
+        return True
+
+    def drop_older_than(self, cutoff_ns: int) -> list[tuple[Signal, float, int]]:
+        """Take out every queued value applied before `cutoff_ns`: `(signal, value, applied_ns)`."""
+        with self._lock:
+            old = [(s, v, t) for s, (t, v) in self._queued.items() if t < cutoff_ns]
+            for signal, _, _ in old:
+                del self._queued[signal]
+                self._restaged.discard(signal)
+        return old
+
     def _write(self, queued: dict[Signal, tuple[int, float]], time_ns: int) -> None:
         """One write: apply, commit, then report it to the rig.
 
-        A commit that raises drops what it was given (not sent again with a
-        later write) and is a failure. So is a report that raises -- the
-        write reached the device, but the rig does not know it -- so it is
-        logged and raises the same condition rather than ending the thread.
+        A commit that raises keeps what it was given, for the next write, and
+        is a failure. So is a report that raises -- the write reached the
+        device, but the rig does not know what it set -- so its values are kept
+        and sent again, and it is logged rather than ending the thread.
         """
         try:
             for signal, (applied_ns, value) in queued.items():
@@ -85,6 +111,9 @@ class Writer:
             self._failure(error, queued)
             return
         self.writes += 1
+        with self._lock:
+            resent = [(s, v, t) for s, (t, v) in queued.items() if s in self._restaged]
+            self._restaged.difference_update(queued)
         try:
             self.rig.written(self.device, time_ns, before)
         except Exception as error:
@@ -93,6 +122,8 @@ class Writer:
             return
         if self.rig.conditions.clear(self.device, Code.WRITE_FAILED, message="writes succeed"):
             self.rig.writes_recovered(self.device)  # its echo demands are known again
+        if resent:
+            self.rig.resent(self.device, resent)
 
     @property
     def failed(self) -> Condition | None:
@@ -100,7 +131,16 @@ class Writer:
         return self.rig.conditions.get(self.device, Code.WRITE_FAILED)
 
     def _failure(self, error: Exception, queued: dict[Signal, tuple[int, float]]) -> None:
-        """Hold `write_failed`; the device's echo demands read `stale(write_failed)` meanwhile."""
+        """Keep the values, and hold `write_failed`.
+
+        The device's echo demands read `stale(write_failed)` meanwhile, and the rig
+        arms a retry.
+        """
+        with self._lock:
+            for signal, entry in queued.items():
+                if signal not in self._queued:  # a newer value on it wins
+                    self._queued[signal] = entry
+                    self._restaged.add(signal)
         message = f"{type(error).__name__}: {error}"
         # Raised once per outage, not once per tick: a held condition is only updated.
         if self.rig.conditions.set(self.device, Code.WRITE_FAILED, Severity.ERROR, message):
