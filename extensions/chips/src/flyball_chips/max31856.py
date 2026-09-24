@@ -1,6 +1,6 @@
 """Maxim MAX31856: precision thermocouple to digital, SPI, register-addressed.
 
-Uses SPI mode 1 or 3 (CPHA=1) -- set on the `spi` link's own `mode:`, not a
+Uses SPI mode 1 or 3 (CPHA=1) -- set on the `spi` link's own `spi_mode:`, not a
 field here; this driver only speaks the byte protocol.
 
 Registers (datasheet "Register Map", confirmed against the Adafruit
@@ -14,9 +14,9 @@ MAX31856 library's register constants):
 | 0x0C-0x0E | LTCBH/M/L | linearised temperature: signed 19-bit field in bits 23:5, 2⁻⁷ °C/LSB |
 | 0x0F | SR | fault status |
 
-`driver: {thermocouple_type, averaging, filter_hz, mode}` sets CR0/CR1 once
-at build: `mode: continuous` runs the chip's own automatic-conversion loop
-(CR0 D7) and each read is whatever it last converted; `mode: one_shot`
+`driver: {thermocouple_type, averaging, filter_hz, conversion}` sets CR0/CR1
+once at build: `conversion: continuous` runs the chip's own automatic-conversion loop
+(CR0 D7) and each read is whatever it last converted; `conversion: one_shot`
 triggers a conversion (CR0 D6) and waits for it before reading. Open-circuit
 fault detection is enabled at its simplest setting (CR0 D5:D4 = 01, the
 datasheet's "Mode 1", suited to a bare thermocouple with no parallel RC
@@ -57,7 +57,7 @@ from flyball_chips._max318xx import (
 ThermocoupleType = Literal["B", "E", "J", "K", "N", "R", "S", "T"]
 Averaging = Literal[1, 2, 4, 8, 16]
 FilterHz = Literal[50, 60]
-Mode = Literal["continuous", "one_shot"]
+Conversion = Literal["continuous", "one_shot"]
 
 CR0 = 0x00
 CR1 = 0x01
@@ -101,12 +101,12 @@ def _reasons(status: int, bits: dict[int, str]) -> str:
     return "+".join(reason for bit, reason in bits.items() if status & bit)
 
 
-def cr0(filter_hz: FilterHz, mode: Mode) -> int:
+def cr0(filter_hz: FilterHz, conversion: Conversion) -> int:
     """CR0: OCFAULT mode 1, the filter bit, and (for `continuous`) CMODE."""
     value = OCFAULT_MODE_1
     if filter_hz == 50:
         value |= FILTER_50HZ_BIT
-    if mode == "continuous":
+    if conversion == "continuous":
         value |= CMODE_BIT
     return value
 
@@ -150,7 +150,7 @@ class Max31856(Readable):
         thermocouple_type: ThermocoupleType = "K",
         averaging: Averaging = 1,
         filter_hz: FilterHz = 60,
-        mode: Mode = "continuous",
+        conversion: Conversion = "continuous",
         sleep: bool = True,
         label: str | None = None,
     ) -> None:
@@ -159,10 +159,10 @@ class Max31856(Readable):
         self.thermocouple_type: ThermocoupleType = thermocouple_type
         self.averaging: Averaging = averaging
         self.filter_hz: FilterHz = filter_hz
-        self.mode: Mode = mode
+        self.conversion: Conversion = conversion
         self.sleep = sleep
         """Whether to wait the conversion time in one-shot mode; off in a test against a fake."""
-        self._cr0 = cr0(filter_hz, mode)
+        self._cr0 = cr0(filter_hz, conversion)
         write_register(link, CR0, self._cr0)
         write_register(link, CR1, cr1(thermocouple_type, averaging))
 
@@ -173,11 +173,11 @@ class Max31856(Readable):
             thermocouple_type=self.thermocouple_type,
             averaging=self.averaging,
             filter_hz=self.filter_hz,
-            mode=self.mode,
+            conversion=self.conversion,
         )
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
-        if self.mode == "one_shot":
+        if self.conversion == "one_shot":
             write_register(self.link, CR0, self._cr0 | ONE_SHOT_BIT)
             if self.sleep:
                 time.sleep(BASE_CONVERSION_S[self.filter_hz] * self.averaging)
@@ -192,7 +192,7 @@ class Max31856Config(DriverConfig[Max31856], type="max31856"):
     thermocouple_type: ThermocoupleType = "K"
     averaging: Averaging = 1
     filter_hz: FilterHz = Field(default=60, description="Mains frequency to reject.")
-    mode: Mode = "continuous"
+    conversion: Conversion = "continuous"
 
     def build(self, name: str, label: str | None = None) -> Max31856:
         if isinstance(self.link, str):
@@ -203,7 +203,7 @@ class Max31856Config(DriverConfig[Max31856], type="max31856"):
             self.thermocouple_type,
             self.averaging,
             self.filter_hz,
-            self.mode,
+            self.conversion,
             label=label,
         )
 
@@ -217,10 +217,10 @@ __all__ = [
     "TC_FAULT_BITS",
     "TC_TYPE_CODE",
     "Averaging",
+    "Conversion",
     "FilterHz",
     "Max31856",
     "Max31856Config",
-    "Mode",
     "ThermocoupleType",
     "cr0",
     "cr1",

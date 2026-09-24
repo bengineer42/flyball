@@ -80,11 +80,11 @@ def test_build_writes_cr0_and_cr1():
     assert bus.sent[1] == [max31856.CR1 | 0x80, 0x03]
 
 
-def test_continuous_mode_reads_registers_once():
+def test_continuous_conversion_reads_registers_once():
     # a full-duplex transfer clocks back as many bytes as it sends, so the
     # register-read reply needs a leading (ignored) echo byte ahead of the 16 registers
     bus = FakeSpi(replies=[[0, *_registers(100.0, 25.0)]])
-    chip = max31856.Max31856("tc", bus, mode="continuous")
+    chip = max31856.Max31856("tc", bus, conversion="continuous")
     (sample,) = chip.read(0)
     assert sample.by_name() == {
         "temperature": pytest.approx(100.0),
@@ -94,9 +94,9 @@ def test_continuous_mode_reads_registers_once():
     assert bus.sent[2] == [max31856.CR0, *([0] * 16)]
 
 
-def test_one_shot_mode_triggers_a_conversion_before_reading():
+def test_one_shot_conversion_triggers_a_conversion_before_reading():
     bus = FakeSpi(replies=[[0, *_registers(100.0, 25.0)]])
-    chip = max31856.Max31856("tc", bus, mode="one_shot", sleep=False)
+    chip = max31856.Max31856("tc", bus, conversion="one_shot", sleep=False)
     (sample,) = chip.read(0)
     assert sample.by_name()["temperature"] == pytest.approx(100.0)
     # build writes CR0/CR1, then a 1SHOT trigger write, then the register read

@@ -428,7 +428,7 @@ device; `stop:` values are refused on it.
 ### `max31856`
 
 Maxim precision thermocouple to digital, SPI (mode 1 or 3 -- set on the
-link's own `mode:`), register-addressed: `temperature [RP]` (linearised
+link's own `spi_mode:`), register-addressed: `temperature [RP]` (linearised
 and cold-junction-compensated, 2⁻⁷ °C steps) and `cold_junction [RP]`
 (2⁻⁶ °C steps), both in °C.
 
@@ -438,7 +438,7 @@ and cold-junction-compensated, 2⁻⁷ °C steps) and `cold_junction [RP]`
 | `thermocouple_type` | `K` | `B`, `E`, `J`, `K`, `N`, `R`, `S` or `T` |
 | `averaging` | `1` | samples averaged per conversion: `1`, `2`, `4`, `8` or `16` |
 | `filter_hz` | `60` | mains frequency to reject: `50` or `60` |
-| `mode` | `continuous` | `continuous` (the chip free-runs) or `one_shot` (a conversion is triggered and waited out on every read) |
+| `conversion` | `continuous` | `continuous` (the chip free-runs) or `one_shot` (a conversion is triggered and waited out on every read) |
 
 A fault reads its own signal `invalid(reason)` -- `temperature`:
 `open_circuit`, `over_under_voltage`, `low`, `high`, `range`;
