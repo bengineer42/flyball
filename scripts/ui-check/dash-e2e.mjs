@@ -3,7 +3,7 @@
 //   e.g. node dash-e2e.mjs http://127.0.0.1:5220 http://127.0.0.1:8020
 // Exercises the dashboards editor brief (UI_HANDOFF.md §2 / DESIGN-SPEC.md §4) end to end against
 // a live rig. Exits non-zero and prints a summary of failures; safe to re-run (cleans up its own
-// "e2e-test"/"e2e-import" dashboards first and last).
+// "e2e_test"/"e2e_import" dashboards first and last).
 import { chromium } from '../../ui/node_modules/playwright-core/index.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -45,7 +45,7 @@ function check(name, ok, detail) {
 }
 
 async function cleanup() {
-  for (const name of ['e2e-test', 'e2e-import']) {
+  for (const name of ['e2e_test', 'e2e_import']) {
     await fetch(`${apiUrl}/api/dashboards/${name}`, { method: 'DELETE' }).catch(() => {});
   }
 }
@@ -157,22 +157,22 @@ await page.waitForTimeout(300);
 const afterRemove = await page.locator('.dash-item').count();
 check('removes the copy', afterRemove === beforeDup, `${afterDup} -> ${afterRemove}`);
 
-// 7. Save as "e2e-test".
+// 7. Save as "e2e_test".
 await page.click('[data-testid=more]');
 await page.click('[data-testid=menu-save-as]');
-await page.getByRole('textbox', { name: 'dashboard name' }).fill('e2e-test');
+await page.getByRole('textbox', { name: 'dashboard name' }).fill('e2e_test');
 await page.getByRole('button', { name: 'Save', exact: true }).last().click();
 await page.waitForTimeout(800);
-check('saves as e2e-test', page.url().includes('/dashboards/e2e-test'), page.url());
+check('saves as e2e_test', page.url().includes('/dashboards/e2e_test'), page.url());
 
-// 8. Reload and assert the same widget layout comes back from GET /api/dashboards/e2e-test.
-const savedDoc = await (await fetch(`${apiUrl}/api/dashboards/e2e-test`)).json();
-await goto('/dashboards/e2e-test');
+// 8. Reload and assert the same widget layout comes back from GET /api/dashboards/e2e_test.
+const savedDoc = await (await fetch(`${apiUrl}/api/dashboards/e2e_test`)).json();
+await goto('/dashboards/e2e_test');
 await page.waitForTimeout(1500);
-const reloadedDoc = await (await fetch(`${apiUrl}/api/dashboards/e2e-test`)).json();
+const reloadedDoc = await (await fetch(`${apiUrl}/api/dashboards/e2e_test`)).json();
 const layoutOf = (doc) => (doc.body.widgets || []).map((w) => `${w.id}:${w.type}:${w.x},${w.y},${w.w},${w.h}`).sort();
 check(
-  'reload: GET /api/dashboards/e2e-test has the same widget layout',
+  'reload: GET /api/dashboards/e2e_test has the same widget layout',
   JSON.stringify(layoutOf(savedDoc)) === JSON.stringify(layoutOf(reloadedDoc)),
   `${layoutOf(savedDoc).length} widgets`,
 );
@@ -185,8 +185,8 @@ await page.click('[data-testid=menu-rename]');
 await page.getByRole('textbox', { name: 'dashboard name' }).fill('E2E test, renamed');
 await page.getByRole('button', { name: 'Rename', exact: true }).last().click();
 await page.waitForTimeout(800);
-const renamed = await (await fetch(`${apiUrl}/api/dashboards/e2e-test`)).json();
-check('renames the dashboard: a new label, the same name', page.url().includes('/dashboards/e2e-test') && renamed.body?.label === 'E2E test, renamed', `${page.url()} label=${renamed.body?.label}`);
+const renamed = await (await fetch(`${apiUrl}/api/dashboards/e2e_test`)).json();
+check('renames the dashboard: a new label, the same name', page.url().includes('/dashboards/e2e_test') && renamed.body?.label === 'E2E test, renamed', `${page.url()} label=${renamed.body?.label}`);
 
 // 10. Export JSON.
 const downloadPromise = page.waitForEvent('download');
@@ -198,21 +198,21 @@ await download.saveAs(exportPath);
 const exported = JSON.parse(fs.readFileSync(exportPath, 'utf8'));
 check('exports JSON', Array.isArray(exported.widgets) && exported.widgets.length > 0, `${exported.widgets?.length} widgets`);
 
-// 11. Import it as "e2e-import". The exported file names itself after the dashboard it came
-// from (e2e-test); give it the name a genuinely different file would carry.
-const importDoc = { ...exported, name: 'e2e-import' };
-fs.writeFileSync(path.join(os.tmpdir(), 'e2e-import.json'), JSON.stringify(importDoc));
+// 11. Import it as "e2e_import". The exported file names itself after the dashboard it came
+// from (e2e_test); give it the name a genuinely different file would carry.
+const importDoc = { ...exported, name: 'e2e_import' };
+fs.writeFileSync(path.join(os.tmpdir(), 'e2e_import.json'), JSON.stringify(importDoc));
 await page.click('[data-testid=more]');
 await page.click('[data-testid=menu-import]');
-await page.setInputFiles('[data-testid=import-file]', path.join(os.tmpdir(), 'e2e-import.json'));
+await page.setInputFiles('[data-testid=import-file]', path.join(os.tmpdir(), 'e2e_import.json'));
 await page.waitForTimeout(800);
-check('import opens e2e-import as an (unsaved) draft', page.url().includes('/dashboards/e2e-import'), page.url());
+check('import opens e2e_import as an (unsaved) draft', page.url().includes('/dashboards/e2e_import'), page.url());
 // Import loads the document but does not itself write it to the server (DESIGN-SPEC.md §4.9 says
 // it should; see the report) -- Save commits it, same as any other edit.
 await page.click('[data-testid=save]');
 await page.waitForTimeout(800);
-const importedRow = await (await fetch(`${apiUrl}/api/dashboards/e2e-import`)).json().catch(() => null);
-check('e2e-import is saved on the server', Boolean(importedRow && importedRow.name === 'e2e-import'));
+const importedRow = await (await fetch(`${apiUrl}/api/dashboards/e2e_import`)).json().catch(() => null);
+check('e2e_import is saved on the server', Boolean(importedRow && importedRow.name === 'e2e_import'));
 
 // 12. Set it as home and assert #/ opens it.
 await page.click('[data-testid=more]');
@@ -222,10 +222,10 @@ await page.waitForTimeout(300);
 // load, not a same-document hash change (`page.goto` to a hash-only URL does not remount).
 await page.goto(uiUrl, { waitUntil: 'networkidle', timeout: 60000 });
 await page.waitForTimeout(1500);
-check('#/ opens the home dashboard', page.url().includes('/dashboards/e2e-import') || page.url().endsWith('#/dashboards'), page.url());
+check('#/ opens the home dashboard', page.url().includes('/dashboards/e2e_import') || page.url().endsWith('#/dashboards'), page.url());
 
-// 13. Delete both e2e-test and e2e-import.
-for (const name of ['e2e-test', 'e2e-import']) {
+// 13. Delete both e2e_test and e2e_import.
+for (const name of ['e2e_test', 'e2e_import']) {
   await goto(`/dashboards/${name}`);
   await page.waitForTimeout(800);
   await page.click('[data-testid=more]');
