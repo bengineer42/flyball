@@ -118,19 +118,18 @@ def _not_writable(signal: Signal) -> str:
     """Why a write to `signal` is refused, naming the command that moves it if one does.
 
     A demand that is only a readback (`[RP]`: a blender's `flows.dry`) is moved
-    by the command whose argument is linked to it, or that declares it in
-    `writes=`; the message names that command, and says when it displaces a
-    regulating controller.
+    by the command whose argument is linked to it -- the one that sets it to a
+    value -- or, failing one, by a command that declares it in `writes=`; the
+    message names that command, and says when it displaces a regulating
+    controller.
     """
     refused = f"'{signal.address}' [{signal.access}] is not writable"
     if signal.role is not Role.DEMAND:
         return refused
     path = str(signal.path)
-    movers = [
-        spec
-        for spec in signal.node.device.commands.values()
-        if spec.demand_of is None
-        and (path in spec.writes or any(p.link == path for p in spec.params.values()))
+    commands = [s for s in signal.node.device.commands.values() if s.demand_of is None]
+    movers = [s for s in commands if any(p.link == path for p in s.params.values())] or [
+        s for s in commands if path in s.writes
     ]
     if not movers:
         return refused

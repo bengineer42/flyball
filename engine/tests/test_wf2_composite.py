@@ -18,6 +18,7 @@ from flyball.foundation.device import (
     Demand,
     Readable,
     Readout,
+    Severity,
     command,
 )
 from flyball.foundation.errors import ConflictError
@@ -184,3 +185,11 @@ class TestReadbackRefusal:
     def test_a_writes_declaration_counts_as_moving_it(self, rig: Rig, mixer: Mixer) -> None:
         with pytest.raises(ConflictError, match="moved by the command 'zero_trim'$"):
             rig.write(mixer.root, {"trim": 10.0})
+
+
+def test_a_device_event_is_a_point_event_on_the_rig(rig: Rig, mixer: Mixer) -> None:
+    mixer.event("kept", Severity.INFO, "held the total", {"total": 1.5})
+    event = rig.recent[-1]
+    assert (event.code, event.subject, event.edge) == ("kept", "mixer", None)
+    assert event.details == {"total": 1.5} and mixer.held_conditions() == []
+    Mixer("loose").event("kept", Severity.INFO, "off a rig: dropped")

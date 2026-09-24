@@ -301,6 +301,23 @@ class Device:
         owner = self if signal is None else signal
         return self.conditions.clear(owner, code, details, message=message)
 
+    def event(
+        self,
+        code: str,
+        severity: Severity,
+        message: str,
+        details: Any = None,
+        *,
+        signal: Signal | None = None,
+    ) -> None:
+        """Record that something happened once on this device, or on one of its signals.
+
+        A point event, not a condition: nothing is held, nothing clears. On a
+        rig it is logged, kept, streamed and recorded like the rig's own; off
+        one it is dropped. Safe from any thread.
+        """
+        self.conditions.note(self if signal is None else signal, code, severity, message, details)
+
     def held_conditions(self) -> list[Condition]:
         """What is held now on this device and on its signals, in the order raised."""
         return [c for owner in (self, *self.signals.values()) for c in self.conditions.of(owner)]
