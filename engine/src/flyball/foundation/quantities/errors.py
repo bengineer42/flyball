@@ -32,3 +32,11 @@ class DimensionMismatchError(UnitError, UnachievableError):
             f"cannot convert {source} to {target}: "
             f"{source.dimension.describe()} vs {target.dimension.describe()}"
         )
+
+
+class CurveNotInvertibleError(UnitError, UnachievableError):
+    """A curve asked for the input that gives an output, when it has no single one."""
+
+    def __init__(self, kind: str, why: str) -> None:
+        self.kind = kind
+        super().__init__(f"{kind} curve cannot be inverted: {why}")
