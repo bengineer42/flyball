@@ -118,7 +118,8 @@ independently.
 | `WriteMetaOut` | a demand's `Reading` | `{requested, at_limit, controller}` -- `WriteOut` without `value`, already in `SampleOut.values` |
 | `SampleOut` | a `Sample`, plus `rig.latest` for each demand's write record | `{node, time_ns, values, writes}`, both keyed relative to `node`; `writes` only for the demands the sample includes |
 | `ReadingOut` | a `Reading` | `{signal, time_ns, value}` |
-| `CommandOut` | a `CommandSpec` | `{name, description, simulation, commit, mode, interrupts, demand_of, links}` |
+| `CommandOut` | a `CommandSpec` | `{name, description, simulation, commit, mode, interrupts, writes, demand_of, links}` |
+| `CommandRunOut` | a `CommandRun` (`Rig.invoke`) | `{result, interrupted: [{controller, was}]}` |
 | `DeviceOut` | a `Device` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, readable, writable, conditions, run}` |
 | `ControllerOut` | a `Controller`/`ControllerView` | identity, mode, law config and state, reference, setpoint, correction, demand, expected, reading |
 | `ClockOut` | a `Clock` | `{start_time_ns, now_ns, elapsed_ns, tags, speed}` |

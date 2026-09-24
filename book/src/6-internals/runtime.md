@@ -62,14 +62,20 @@ before touching anything:
 1. Every key resolves under the node — a bound `Signal`, or a name relative
    to it, dotted for a namespace (`AddressNotFoundError` if not; `ValueError`
    if a signal is named twice).
-2. Every resolved signal is `W` (`ConflictError` otherwise), and not driven
+2. Every resolved signal is `W` (`ConflictError` otherwise; for a readback
+   demand, `[RP]`, the message names the command whose argument is linked to
+   it, else one that declares it in `writes=`), and not driven
    by an *active* controller other than the one making the demand — a
    controller may re-demand its own target, and a controller in manual
    leaves its target to direct demands; anything else attempting to move
    a regulating controller's target gets "is driven by controller ...:
    set its reference, put it in manual, or detach it". The same rule
-   refuses a command with a `mode` or a linked argument, unless it
-   `interrupts`.
+   refuses a command with a `mode`, a linked demand or `writes=`, unless it
+   `interrupts`. `Rig.invoke` checks that before the method runs and puts
+   each displaced controller in manual only after the method has returned,
+   before the commit and the flush, so a controller cannot write again in
+   between; it returns `CommandRun(result, interrupted)` (`run_command`
+   returns only `result`).
 3. Each value is clamped to the signal's `limits` — numbers, or a reference
    to another signal of the same device, resolved live — and the original
    value kept (as `_requested`) only where the clamp changed it — that is

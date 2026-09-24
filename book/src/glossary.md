@@ -38,8 +38,10 @@ button, `POST /api/programs/cancel`, a new program started with `cancel`,
 or cancelling what it waits on. Outputs are kept. Compare **interrupted**.
 
 **command** — a non-value action on a device: a method marked `@command`,
-run by `POST /api/devices/{name}/commands/{command}`. A program's steps are
-**steps**, not commands.
+run by `POST /api/devices/{name}/commands/{command}`. One that moves a
+demand no argument is linked to declares it with `writes=`, and is refused,
+like one with a `mode`, while a controller drives the device. A program's
+steps are **steps**, not commands.
 
 **condition** — something true *now* of a device, a signal, a controller
 or the rig: offline, slow, a failing write, a held controller. Held in the
@@ -113,7 +115,8 @@ callback.
 
 **interrupted** — how a program ends when the engine ends it (a software
 stop, a shutdown), with the reason; outputs are kept. A controller put in
-manual by a device command is interrupted too. Compare **cancelled**.
+manual by a device command is interrupted too -- only once the command has
+succeeded, and the command's response names it. Compare **cancelled**.
 
 **handover** — entering regulation, or changing a tuning: choosing what the
 correction should be at the instant of the switch (a `Transfer`).

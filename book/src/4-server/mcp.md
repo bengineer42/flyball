@@ -99,7 +99,11 @@ Every tool call is recorded like any other request that needs more than
 - A device command's tool carries the argument schema the rig publishes:
   titles, units, and this instance's limits, so an out-of-range argument is
   refused before it is sent. A command that interrupts a controller is
-  marked destructive, so a client can ask first.
+  marked destructive, so a client can ask first; its description says the
+  controller goes to manual once the command succeeds, and the call's result
+  is `{result, interrupted: [{controller, was}]}`, naming it. A command with
+  a `mode` or `writes` that does not interrupt says it is refused while a
+  controller drives the device.
 - `list_devices` is name, type, label and a one-line description -- not the
   full tree `GET /api/devices` answers (signals, commands, conditions),
   which is tens of kB even on a one-device rig; its `detail` argument asks

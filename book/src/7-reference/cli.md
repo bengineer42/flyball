@@ -46,7 +46,7 @@ no per-device subcommand tree built from the schema -- those were `cli.py`'s
 | `watch STREAM` | `/ws/STREAM` | one JSON line per frame; `samples`, `controllers`, `writes`, `signals` |
 | `view DEVICE` | `GET /api/devices/DEVICE` | one device's signal tree |
 | `device-schema DEVICE` | `GET /api/schema` (the `devices.DEVICE` branch) | one device's config/signal/command schemas |
-| `invoke DEVICE COMMAND [KEY=VALUE ...\|JSON]` | `POST /api/devices/DEVICE/commands/COMMAND` | run a device command |
+| `invoke DEVICE COMMAND [KEY=VALUE ...\|JSON]` | `POST /api/devices/DEVICE/commands/COMMAND` | run a device command; prints `{result, interrupted}` |
 | `sessions` | `GET /api/history/sessions` | recorded sessions, newest first |
 | `export SESSION [--format csv\|json\|zip] [--out PATH]` | `GET /api/history/sessions/SESSION/export` | a session as a table; written to `PATH` or stdout |
 | `program check\|run\|status\|cancel PATH` | `/api/programs/*` | validate, start, watch, cancel a program (`run` takes `[--cancel]`) |

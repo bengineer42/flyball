@@ -180,7 +180,14 @@ condition, not a mode.
 Mode says what the controller is *doing*. Who is *allowed* to change it —
 a program step, an operator, the API — is a separate question, answered
 separately: `rig.write` refuses a manual write against a signal a
-controller is driving, so mode also decides who may write.
+controller is driving, so mode also decides who may write. A device command
+that changes what drives the device -- one with a `mode`, an argument
+linked to a demand, or `writes=` (a relay's `on`/`off`, a PWM channel's
+`off`) -- is refused while a regulating controller drives one of the
+device's demands, unless the command interrupts (`stop`, a manual flow). An
+interrupting command puts the controller in manual only once it has
+succeeded, and its response names it (`interrupted: [{controller, was}]`);
+one that fails leaves the controller regulating.
 
 ### Time
 

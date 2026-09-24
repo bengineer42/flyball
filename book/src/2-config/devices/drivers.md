@@ -232,7 +232,7 @@ Drives chosen inputs of a plant from `[W]` signals.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | the same plant |
-| `ports` | required | `{signal-path: port}`, or `{signal-path: {port, demand, quantity?, unit?, limits?}}`. `demand: input` (default) maps the signal linearly onto the port's 0–1 drive; `demand: output` declares the signal in the plant's own output unit and lets `commit` invert the plant's static model -- a heater commanded in °C |
+| `ports` | required | `{signal-path: port}`, or `{signal-path: {port, demand, quantity?, unit?, limits?}}`. `demand: input` (default) maps the signal linearly onto the port's 0–1 drive; `demand: output` declares the signal in the plant's own output unit and lets `commit` invert the plant's static model -- a heater commanded in °C. One signal per port: two on the same port are refused when the device is built |
 
 ```yaml
 heaters:
@@ -330,8 +330,9 @@ Microchip 10-bit ADC, eight channels, over SPI.
 
 ### `gpio_line`
 
-One line. As an output: a `[W]` signal `on` plus `on` / `off` commands. As
-an input: a `[RP]` signal `level`.
+One line. As an output: a `[W]` signal `on` plus `on` / `off` commands,
+which are refused while a controller drives `on` (put it in manual first).
+As an input: a `[RP]` signal `level`.
 
 | field | default | |
 | --- | --- | --- |
@@ -344,7 +345,8 @@ an input: a `[RP]` signal `level`.
 
 ### `pwm_channel`
 
-One PWM output, a `[W]` signal `drive`.
+One PWM output, a `[W]` signal `drive`, and an `off` command (duty to zero,
+channel disabled) that is refused while a controller drives `drive`.
 
 | field | default | |
 | --- | --- | --- |
@@ -598,7 +600,9 @@ pump on the way out, including on an error mid-dispense. A dispense runs
 off the rig lock: polling and control carry on during the dose, and the
 `stop` command cuts the pump at once and ends the dispense, crediting
 `dispensed_ml` with what ran. The dose is timed on the rig's clock, so a
-scaled or stepped sim doses in its own time. Stepper-driven
+scaled or stepped sim doses in its own time. The pump underneath is the
+dosing pump's own, not a device of the rig, so nothing else can drive it
+while it doses. Stepper-driven
 pumps (step/direction) aren't supported directly here -- pair a `stepper`
 with your own dispense logic instead.
 

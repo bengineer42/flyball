@@ -194,7 +194,7 @@ lists them all with their signal trees.
 | `GET` | `/api/devices` | `[DeviceOut]` |
 | `GET` | `/api/devices/{name}` | `DeviceOut`; 404 if no device has that name |
 | `GET` | `/api/devices/{name}/schema` | the `DeviceSchema` |
-| `POST` | `/api/devices/{name}/commands/{command}` | body: the command's arguments; returns what the method returns; 503 when a linked argument's demand has a limit not known yet (not run); a command that succeeds on an offline or stopped device restarts its polling (its next read one period later, not at the end of its backoff) |
+| `POST` | `/api/devices/{name}/commands/{command}` | body: the command's arguments; returns `{result, interrupted}`: `result` what the method returned, `interrupted` `[{controller, was}]` for each controller an `interrupts` command put in manual once it had succeeded (empty otherwise); 409 while a controller drives the device and the command has a `mode`, a linked demand or `writes` but does not interrupt (the method is not run); 503 when a linked argument's demand has a limit not known yet (not run); a command that succeeds on an offline or stopped device restarts its polling (its next read one period later, not at the end of its backoff) |
 | `POST` | `/api/devices/{name}/restart` | poll a device again on its period, its next read one period later: one that is offline and backing off, or stopped (given up); clears nothing -- `offline` stays until a read succeeds; `DeviceOut`. 409 while a read of it is in flight (a device hung in its driver is not waited on), or when the old poll loop is still in a read 2 s after being stopped |
 | `PUT` | `/api/devices/{name}/write` | body `{name: value, ...}`, names relative to the device (dotted under a namespace: `position.x`), values in each signal's unit; one atomic write, committed at once; returns `{address: WriteOut}` for each signal set; 409 for a signal a controller drives, or a signal that is not writable; 503 `LimitNotKnownError` while a signal's limit follows another signal that has no value yet, or a non-finite one (NaN, inf) -- refused whole, never passed unclamped; 404 for a name not under the device |
 | `PUT` | `/api/signals/{address}` | body a number: the single-signal write; returns `{address: WriteOut}`; 409 if the address is a namespace; 503 while its limit is not known yet, as above |
@@ -248,10 +248,12 @@ set after limits, what was asked for when the clamp changed it, `low` /
 signal (it refuses manual demands; set its setpoint or detach it).
 
 A `CommandOut` is `{name, description, simulation, commit, mode,
-interrupts, demand_of, links}`: `commit` whether the rig commits the
+interrupts, writes, demand_of, links}`: `commit` whether the rig commits the
 device once the method returns, `mode` what the device's `mode` output
-becomes when it runs (if it has one), `interrupts` whether it may put a
-controller into manual and run anyway, `demand_of` the path of the demand
+becomes when it runs (if it has one), `interrupts` whether it may run while
+a controller drives the device (the controller goes to manual once the
+method succeeds), `writes` the demand paths (or a private child's name) it
+moves that no argument is linked to, `demand_of` the path of the demand
 it sets for a synthesised `set_<name>`, and `links` `{argument: demand
 path}` for every argument that is a value for a demand.
 
@@ -262,7 +264,7 @@ access, role, tags, label, quantity, unit, dimension, dtype, value, range,
 precision, limits}}` by path relative to the device (`value` a JSON Schema
 for the signal's own type), `inputs` `{role: {label, quantity, unit,
 bound}}`, and `commands` `{command: {description, arguments, simulation,
-commit, mode, interrupts, demand_of}}` — `arguments` a JSON Schema whose
+commit, mode, interrupts, writes, demand_of}}` — `arguments` a JSON Schema whose
 properties linked to a demand also carry `x-signal`, `unit` and
 `minimum`/`maximum` from that signal's limits now.
 
@@ -459,7 +461,7 @@ Only a rig whose links are all `sim_*`/`fake_*`; every route but the first answe
 | `POST` | `/api/sim/save` | `{path?}`; writes it, default where it was loaded from; 409 unless the runner runs with `--allow-save` |
 | `GET` | `/api/sim/device` | the application's simulation device: `{config, values}` (`values` its signals' current readings, by path); 404 without one |
 | `GET` | `/api/sim/device/schema` | its `DeviceSchema` |
-| `POST` | `/api/sim/device/{command}` | one of its commands |
+| `POST` | `/api/sim/device/{command}` | one of its commands; returns what the method returned (bare, not `{result, interrupted}`) |
 
 `GET /api/clock` carries `speed` too, so a client can label a time axis.
 

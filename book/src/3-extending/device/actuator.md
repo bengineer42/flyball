@@ -134,8 +134,41 @@ command needs a docstring. `schema` is reserved as a route segment.
 
 A command with a `mode` or a linked argument changes what drives the
 device, so it is refused while a controller drives one of its demands —
-unless `interrupts=True`, which puts the controller in manual first (an
-`interrupted` event) and runs anyway.
+unless `interrupts=True`. Then the rig checks everything first, runs the
+method, and only once it has succeeded puts the controller in manual (an
+`interrupted` event); a command that raises leaves the controller
+regulating. The response names each controller it put in manual
+(`interrupted: [{controller, was}]`). A long command cannot interrupt
+(refused when the class is defined): the controller would fight it while it
+waits.
+
+A command that moves a demand without a linked argument — a relay's `on`
+and `off`, a PWM channel's `off`, a blender's `set_blend` — says so with
+`writes=`, naming the demands by descriptor or path:
+
+```python
+@command(writes=(on,))
+def off(self) -> None:
+    """Switch the line off, whatever was last demanded."""
+```
+
+It is then refused while a controller drives the device, like a command
+with a `mode`. A command that drives a private child device the rig cannot
+see (a dosing pump's motor) names the child (`writes=("pump",)`); that
+refuses nothing yet, since no controller can drive the child.
+
+A demand that only a command moves is declared `access=Access.RP`: a
+readback. A direct write to it is refused, and the refusal names the
+command whose argument is linked to it (failing one, a command that
+declares it in `writes=`), and says when that command puts a regulating
+controller in manual — `'blender.flows.dry' [rp] is not writable: it is a
+readback, moved by the command 'set_flows' (it puts a regulating controller
+in manual)`.
+
+A driver reports something that happened once — a blend flow resolved, a
+request scaled — with `self.event(code, severity, message, details)`: a
+point event, logged and recorded like the rig's own, with nothing held
+(compare `set_condition` below).
 
 A command runs under the rig lock, so it must return promptly: nothing
 waits while holding it. One that takes time — a dose, a move — is
