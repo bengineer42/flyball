@@ -83,10 +83,10 @@ def settled(trace: list[float], target: float, tail: int = 60, within: float = 0
 # IMC appears twice on purpose, once with derivative action and once without.
 _LAW_KWARGS: dict[str, list[dict[str, Any]]] = {
     "open_loop": [{}],
-    "P": [{"kp": 1.0}],
-    "PI": [{"kp": 1.0, "ki": 0.1, "b": 0.7}],
-    "PID": [{"kp": 1.0, "ki": 0.1, "kd": 2.0, "b": 0.7}],
-    "IMC": [
+    "p": [{"kp": 1.0}],
+    "pi": [{"kp": 1.0, "ki": 0.1, "b": 0.7}],
+    "pid": [{"kp": 1.0, "ki": 0.1, "kd": 2.0, "b": 0.7}],
+    "imc": [
         {"gain": 1.0, "tau_s": 60.0, "dead_time_s": 5.0},
         {"gain": 2.0, "tau_s": 30.0, "lam_s": 10.0, "derivative": False},
     ],
