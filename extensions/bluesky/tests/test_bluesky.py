@@ -57,6 +57,21 @@ def test_node_readable_describes_signals_and_reads_the_latest_sample(rig, fresh,
     rig.on_samples([Sample(probe.root, clock.now_ns(), {probe.signals["temperature"]: 21.5})])
     value = readable.read()[key]
     assert value["value"] == 21.5 and value["timestamp"] == clock.now_ns() / 1e9
+    assert "alarm_severity" not in value
+
+
+def test_a_reading_with_no_value_reads_as_none_with_an_alarm(rig, fresh, clock):
+    probe = Probe(fresh("probe"))
+    rig.add_device(probe)
+    readable = NodeReadable(rig, probe.root)
+    key = probe.signals["temperature"].address
+    rig.on_samples([Sample(probe.root, clock.now_ns(), {probe.signals["temperature"]: None})])
+    assert readable.read()[key] == {
+        "value": None,
+        "timestamp": clock.now_ns() / 1e9,
+        "alarm_severity": 2,
+        "message": "invalid: no value",
+    }
 
 
 def test_describe_dtype_follows_the_signal_s_declared_type(rig, fresh):

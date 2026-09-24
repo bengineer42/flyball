@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from flyball.control.feedforward import Table
+from flyball.foundation.device import invalid
 from flyball.model.feedforward import NoFeedforward
 from flyball.sequencing import Manual, Program, Programmer, Ramp, Regulate, Wait
 from flyball.runtime.config import RigConfig, resolve_document
@@ -137,10 +138,10 @@ def test_a_firing_runs_deterministically_on_the_stepped_clock(furnace_rig):
         assert rig.controllers[f"heaters.{name.replace('zone', 'heater')}"].mode.value == "manual"
 
 
-def test_a_failed_thermocouple_takes_the_daq_offline_and_it_retries(furnace_rig):
+def test_a_dead_bus_takes_the_daq_offline_and_it_retries(furnace_rig):
     rig = furnace_rig
     furnace = rig.devices["furnace"]
-    furnace.fail("zone3")
+    furnace.fail("zone3", raises=True)
     rig.clock.advance(2)
     assert rig.conditions.of(furnace) == [], "two failed reads: under the budget of 3"
     rig.clock.advance(1)
@@ -159,6 +160,27 @@ def test_a_failed_thermocouple_takes_the_daq_offline_and_it_retries(furnace_rig)
     rig.clock.advance(1)  # the first retry, 1 s after going offline
     assert rig.conditions.of(furnace) == [], "the first good read clears it"
     assert rig.latest[zone1].time_ns > 0, "polled again"
+
+
+def test_an_open_thermocouple_reads_invalid_and_freezes_its_zone_s_loop(furnace_rig):
+    rig = furnace_rig
+    furnace = rig.devices["furnace"]
+    controller = rig.controllers["heaters.heater3"]
+    rig.clock.advance(1)
+    controller.regulate(200.0)
+    rig.clock.advance(5)
+    output = controller.output
+    furnace.fail("zone3")
+    rig.clock.advance(5)
+    zone3 = rig.resolve("furnace.zone3")
+    assert rig.latest[zone3].value == invalid("sensor_failed")
+    assert rig.conditions.of(furnace) == [], "a no-value is a good read: never offline"
+    assert controller.held == "frozen" and controller.output == output, "the law never saw it"
+    zone1 = rig.latest[rig.resolve("furnace.zone1")]
+    assert zone1.usable and zone1.time_ns == rig.latest[zone3].time_ns, "the others read on"
+    furnace.restore("zone3")
+    rig.clock.advance(3)
+    assert rig.latest[zone3].usable and controller.held is None
 
 
 # The single-zone losses curve for the furnace's shared loss model

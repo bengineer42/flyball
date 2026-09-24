@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 from flyball.control.laws import PI
-from flyball.foundation.device import Access, DeviceEntry, Sample, Signal
+from flyball.foundation.device import Access, DeviceEntry, Sample, Signal, invalid
 from flyball.foundation.errors import ConflictError, HardwareError, NotFoundError
 from flyball.rig import Rig
 from flyball.runtime.config import RigConfig
@@ -91,12 +91,19 @@ class TestSimDaq:
         broken = daq.fail("z2")
         assert broken == ("z2",)
         (condition,) = daq.held_conditions()
-        assert condition.code == "broken" and condition.subject == "f.z2"  # on the signal, stamped by the device clock
+        assert (
+            condition.code == "broken" and condition.subject == "f.z2"
+        )  # on the signal, stamped by the device clock
         assert "z2" in condition.message
+        (sample,) = daq.read(6_000_000_000)
+        assert sample.by_name() == {"z1": 20.0, "z2": invalid("sensor_failed")}, (
+            "the DAQ reports the open sensor; the other channel reads on"
+        )
+        assert daq.fail("z2", raises=True) == ("z2",)
         with pytest.raises(HardwareError, match=r"f\.z2: sensor failed \(simulated\)"):
-            list(daq.read(6_000_000_000))
+            list(daq.read(7_000_000_000))
         assert daq.restore("z2") == () and daq.held_conditions() == []
-        assert list(daq.read(6_000_000_000))
+        assert list(daq.read(8_000_000_000))
         with pytest.raises(NotFoundError, match="no signal 'z9'"):
             daq.fail("z9")
         assert {name: spec.simulation for name, spec in daq.commands.items()} == {
@@ -142,7 +149,7 @@ class TestNamespaces:
             "entry.sample": 20.0,
             "exit.zone": 20.0,
         }
-        assert daq.fail("entry.sample") == ("entry.sample",)
+        assert daq.fail("entry.sample", raises=True) == ("entry.sample",)
         with pytest.raises(HardwareError, match="dev.entry.sample"):
             list(daq.read(2_000_000_000, daq.nodes["entry"]))
         assert [s.node.address for s in daq.read(2_000_000_000, daq.nodes["exit"])] == ["dev.exit"]

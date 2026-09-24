@@ -35,6 +35,9 @@ from pydantic import Field
 from flyball_chips._links import I2cLinkConfig
 from flyball_chips._sensirion import command, crc8, crc_words, word_with_crc
 
+WARMUP_S = 15.0
+"""How long after `init_air_quality` the IAQ outputs are fixed placeholders (400 ppm, 0 ppb)."""
+
 CO2EQ = Quantity("CO2 equivalent", PartsPerMillion)
 TVOC = Quantity("total VOC", PartsPerBillion)
 SGP30_ADDRESS = 0x58
@@ -138,9 +141,12 @@ class Sgp30(Readable):
         sleep: bool = True,
         baseline: Baseline | None = None,
         label: str | None = None,
+        warmup_s: float = WARMUP_S,
     ) -> None:
         super().__init__(name, label)
         self.link = link
+        self.warmup_s = warmup_s
+        self._first_ns: int | None = None
         self.sensor = Sgp30Sensor(link, address, sleep)
         self.sensor.init_air_quality()
         if baseline is not None:
@@ -151,7 +157,17 @@ class Sgp30(Readable):
         return Sgp30Config(link="", address=self.sensor.address)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+        """One measurement; nothing for `warmup_s` from the first, while the outputs are fixed.
+
+        The IAQ algorithm needs `measure_iaq` called every second from the start, so the
+        chip is measured all the same; what it gives in its warm-up is a placeholder a
+        controller must not act on, so the signals stay `pending` until it is over.
+        """
         co2eq, tvoc = self.sensor.measure()
+        if self._first_ns is None:
+            self._first_ns = time_ns
+        if time_ns - self._first_ns < self.warmup_s * 1e9:
+            return
         yield self.sample(time_ns, co2eq=co2eq, tvoc=tvoc)
 
     @device_command
@@ -192,6 +208,7 @@ __all__ = [
     "SET_IAQ_BASELINE",
     "SGP30_ADDRESS",
     "TVOC",
+    "WARMUP_S",
     "Baseline",
     "Sgp30",
     "Sgp30Config",

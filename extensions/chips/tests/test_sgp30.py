@@ -110,11 +110,21 @@ class TestSgp30Device:
     def test_read_collects_one_sample(self):
         frame = sgp30.word_with_crc(400) + sgp30.word_with_crc(10)
         bus = FakeI2c(replies={sgp30.SGP30_ADDRESS: [frame]})
-        gas = sgp30.Sgp30("gas", bus, sleep=False)
+        gas = sgp30.Sgp30("gas", bus, sleep=False, warmup_s=0.0)
         (sample,) = gas.read(9)
         assert sample.node is gas.root and sample.time_ns == 9
         assert sample.by_name() == {"co2eq": 400, "tvoc": 10}
         assert gas.config.address == sgp30.SGP30_ADDRESS
+
+    def test_the_warm_up_s_placeholders_are_measured_but_not_read(self):
+        frame = sgp30.word_with_crc(400) + sgp30.word_with_crc(0)
+        bus = FakeI2c(replies={sgp30.SGP30_ADDRESS: [frame, frame, frame]})
+        gas = sgp30.Sgp30("gas", bus, sleep=False)
+        assert list(gas.read(0)) == [] and list(gas.read(14_000_000_000)) == []
+        (sample,) = gas.read(15_000_000_000)
+        assert sample.by_name() == {"co2eq": 400, "tvoc": 0}
+        measured = [w for w in bus.written if w[2] == [0x20, 0x08]]
+        assert len(measured) == 3, "measured through the warm-up: the algorithm needs it"
 
     def test_config_accepts_a_baseline_pair(self):
         config = sgp30.Sgp30Config(link="", baseline=(0x8973, 0x8AAE))

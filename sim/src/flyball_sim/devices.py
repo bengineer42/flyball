@@ -33,7 +33,9 @@ from flyball.foundation.device import (
     Severity,
     Signal,
     SignalSpec,
+    Value,
     command,
+    invalid,
 )
 from flyball.foundation.errors import HardwareError, NotFoundError
 from flyball.foundation.quantities import DIMENSIONLESS, Quantity
@@ -324,7 +326,10 @@ class SimDaq(Readable):
     Every signal is an `[RP]` output. Each is read when its own `poll_s` is
     due, so a slow sample thermocouple beside fast zone ones costs one
     device; what is due at an instant goes out as one sample. A sensor
-    failed by `fail` is a condition until `restore`.
+    failed by `fail` is a condition until `restore`, and reads as
+    `invalid("sensor_failed")` (an open thermocouple the DAQ reports) --
+    or, failed with `raises`, makes every read of it raise (a dead bus),
+    which counts toward the device's `reads.fail_after`.
     """
 
     def __init__(
@@ -373,6 +378,8 @@ class SimDaq(Readable):
         self._last_ns: int | None = None
         self._last_read: dict[Signal, int] = {}
         self._broken: dict[Signal, int] = {}
+        self._raising: set[Signal] = set()
+        """Of `_broken`, those failed with `raises`: a read of them raises."""
 
     @property
     def config(self) -> SimDaqConfig:
@@ -421,13 +428,17 @@ class SimDaq(Readable):
         asked = node is not None
         node = self.root if node is None else node
         signals = [self.signals[path] for path in self.ports if node.contains(self.signals[path])]
-        if broken := [s.path for s in signals if s in self._broken]:
+        if broken := [s.path for s in signals if s in self._raising]:
             raise HardwareError(f"{self.name}.{broken[0]}: sensor failed (simulated)")
         self._advance(time_ns)
-        by_node: dict[Node, dict[Signal, float]] = {}
+        by_node: dict[Node, dict[Signal, Value]] = {}
         for signal in signals:
             if asked or self._due(signal, time_ns):
-                value = _read_output(self.plant, self.ports[str(signal.path)])
+                value: Value = (
+                    invalid("sensor_failed")
+                    if signal in self._broken
+                    else _read_output(self.plant, self.ports[str(signal.path)])
+                )
                 by_node.setdefault(signal.node, {})[signal] = value
                 self._last_read[signal] = time_ns
         for read_node, values in by_node.items():
@@ -440,10 +451,16 @@ class SimDaq(Readable):
             raise NotFoundError(f"{self.name} has no signal {name!r}") from None
 
     @command(simulation=True)
-    def fail(self, signal: str) -> tuple[str, ...]:
-        """Break one sensor: reads raise until `restore`; what the controller does is the test."""
+    def fail(self, signal: str, raises: bool = False) -> tuple[str, ...]:
+        """Break one sensor until `restore`: it reads `invalid`, or with `raises` every read raises.
+
+        What the controller does is the test: frozen on the no-value, or, with `raises`, the
+        device offline after its failure budget.
+        """
         broken = self._signal(signal)
         self._broken.setdefault(broken, self._last_ns or 0)
+        if raises:
+            self._raising.add(broken)
         self.set_condition(
             "broken", Severity.ERROR, f"{broken.path}: sensor failed (simulated)", signal=broken
         )
@@ -454,6 +471,7 @@ class SimDaq(Readable):
         """Mend the sensor; a command on an offline device makes the rig poll it again."""
         mended = self._signal(signal)
         self._broken.pop(mended, None)
+        self._raising.discard(mended)
         self.clear_condition("broken", signal=mended, message=f"{mended.path}: mended")
         return self.broken
 

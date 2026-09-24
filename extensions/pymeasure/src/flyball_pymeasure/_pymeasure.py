@@ -31,6 +31,7 @@ from flyball.foundation.device import (
     DriverConfig,
     Node,
     Readable,
+    Readback,
     Role,
     Sample,
     Signal,
@@ -186,7 +187,14 @@ class PyMeasure(Readable, Committable):
                 role, access = Role.READOUT, (Access.RP if channel.publish else Access.R)
             unit = Unit.get(channel.unit) if channel.unit else unit_from_doc(prop.__doc__)
             tree.append(
-                SignalSpec(name=key, quantity=Quantity(key, unit), access=access, role=role)
+                SignalSpec(
+                    name=key,
+                    quantity=Quantity(key, unit),
+                    access=access,
+                    role=role,
+                    # A demand with a getter is read back from the instrument by polling.
+                    readback=Readback.SENSED if gettable and role is Role.DEMAND else Readback.ECHO,
+                )
             )
         self.bind(tree)
 
@@ -206,7 +214,9 @@ class PyMeasure(Readable, Committable):
         }
         for signal in self._scan.due(candidates, time_ns, whole=False):
             value = getattr(self.instrument, self.channels[candidates[signal]].property)
-            yield Sample(self.root, time_ns, {signal: float(value)})
+            # None (the instrument had nothing to give) and NaN are no-values: the rig makes
+            # them `invalid`; a failed get raises and counts toward the failure budget.
+            yield Sample(self.root, time_ns, {signal: None if value is None else float(value)})
 
     def write_signal(self, signal: Signal, value: float) -> None:
         setattr(self.instrument, self.channels[signal.name].property, value)
