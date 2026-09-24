@@ -15,12 +15,13 @@ from ._links import (
     ModbusTcpConfig,
     RegisterLinkConfig,
 )
-from ._modbus import Modbus, ModbusConfig, ModbusRegister
+from ._modbus import Format, Modbus, ModbusConfig, ModbusRegister, WordOrder
 
 __all__ = [
     "REGISTER_LINKS",
     "FakeRegisterLink",
     "FakeRegisterLinkConfig",
+    "Format",
     "Kind",
     "Modbus",
     "ModbusConfig",
@@ -29,4 +30,5 @@ __all__ = [
     "ModbusRtuConfig",
     "ModbusTcpConfig",
     "RegisterLinkConfig",
+    "WordOrder",
 ]

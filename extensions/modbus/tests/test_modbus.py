@@ -116,11 +116,63 @@ class TestModbusRegister:
         with pytest.raises(ValidationError, match="discrete register cannot be written"):
             ModbusRegister(address=1, kind="discrete", unit="1", write=True)
 
-    def test_a_coil_or_discrete_register_takes_no_scale(self):
-        with pytest.raises(ValidationError, match="no scale"):
-            ModbusRegister(address=1, kind="coil", unit="1", scale=2.0)
-        with pytest.raises(ValidationError, match="no scale"):
+    def test_a_coil_or_discrete_register_takes_no_format_scale_or_offset(self):
+        with pytest.raises(ValidationError, match="no format, scale or offset"):
+            ModbusRegister(address=1, kind="coil", unit="1", format="u32")
+        with pytest.raises(ValidationError, match="no format, scale or offset"):
             ModbusRegister(address=1, kind="discrete", unit="1", scale=2.0)
+        with pytest.raises(ValidationError, match="no format, scale or offset"):
+            ModbusRegister(address=1, kind="coil", unit="1", offset=1.0)
+
+
+class TestModbusRegisterCodec:
+    """Decode/encode round trips for each `format`, and `word_order` for the 32-bit ones."""
+
+    def test_u16_round_trip(self):
+        reg = ModbusRegister(address=1, unit="1", format="u16")
+        assert reg.word_count == 1
+        assert reg.decode([65535]) == 65535.0
+        assert reg.encode(65535.0) == [65535]
+
+    def test_i16_round_trip_negative(self):
+        reg = ModbusRegister(address=1, unit="1", format="i16")
+        assert reg.decode([0xFFFF]) == -1.0
+        assert reg.encode(-1.0) == [0xFFFF]
+        assert reg.decode([1234]) == 1234.0
+
+    def test_u32_round_trip_big_endian(self):
+        reg = ModbusRegister(address=1, unit="1", format="u32", word_order="big")
+        assert reg.word_count == 2
+        assert reg.decode([0x0001, 0x0000]) == 65536.0
+        assert reg.encode(65536.0) == [0x0001, 0x0000]
+
+    def test_u32_round_trip_little_endian(self):
+        reg = ModbusRegister(address=1, unit="1", format="u32", word_order="little")
+        assert reg.decode([0x0000, 0x0001]) == 65536.0
+        assert reg.encode(65536.0) == [0x0000, 0x0001]
+
+    def test_i32_round_trip_negative(self):
+        reg = ModbusRegister(address=1, unit="1", format="i32")
+        assert reg.decode([0xFFFF, 0xFFFF]) == -1.0
+        assert reg.encode(-1.0) == [0xFFFF, 0xFFFF]
+
+    def test_f32_round_trip_big_endian_alicat_style(self):
+        reg = ModbusRegister(address=1, unit="1", format="f32", word_order="big")
+        words = reg.encode(1.5)
+        assert words == [0x3FC0, 0x0000]
+        assert reg.decode(words) == pytest.approx(1.5)
+
+    def test_f32_round_trip_little_endian(self):
+        reg = ModbusRegister(address=1, unit="1", format="f32", word_order="little")
+        words = reg.encode(1.5)
+        assert words == [0x0000, 0x3FC0]
+        assert reg.decode(words) == pytest.approx(1.5)
+
+    def test_scale_and_offset_apply_after_decoding(self):
+        reg = ModbusRegister(address=1, unit="°C", format="i16", scale=0.1, offset=-40.0)
+        # raw 500 -> 500 * 0.1 - 40 = 10.0
+        assert reg.decode([500]) == pytest.approx(10.0)
+        assert reg.encode(10.0) == [500]
 
     def test_coil_decodes_and_encodes_as_a_plain_bit(self):
         reg = ModbusRegister(address=1, kind="coil", unit="1")
@@ -194,6 +246,20 @@ class TestModbus:
         dev.apply(coil, 1, 1.0)
         dev.commit(1)
         assert link.writes == [("coil", 300, [1])]
+
+    def test_f32_big_endian_round_trips_through_the_fake_link(self):
+        """Alicat-style MFCs: a big-endian float32 over two holding registers."""
+        link = FakeRegisterLink({})
+        mfc = Modbus(
+            "mfc",
+            link,
+            {"flow": ModbusRegister(address=10, unit="slm", format="f32", word_order="big")},
+        )
+        flow = mfc.signals["flow"]
+        mfc.apply(flow, 1, 2.5)
+        mfc.commit(1)
+        (sample,) = mfc.read(2)
+        assert sample.by_name() == pytest.approx({"flow": 2.5})
 
     def test_input_kind_is_read_only_on_the_signal_spec(self):
         dev = Modbus(

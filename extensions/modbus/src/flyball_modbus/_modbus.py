@@ -8,6 +8,7 @@ driver reads and writes one register at a time.
 
 from __future__ import annotations
 
+import struct
 from collections.abc import Iterator, Mapping
 from typing import Literal
 
@@ -29,16 +30,54 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ._links import BOOLEAN_KINDS, READ_ONLY_KINDS, Kind, RegisterLinkConfig
 
+Format = Literal["u16", "i16", "u32", "i32", "f32"]
+"""How a register's raw word(s) decode to a number. `u16` is today's default: one
+unsigned word. The 32-bit formats span two registers, ordered by `word_order`."""
+
+WordOrder = Literal["big", "little"]
+"""Which of a 32-bit value's two registers comes first: `big` (the high word at the
+lower address -- Alicat-style MFCs and most Modbus float32 instruments) or `little`.
+Ignored for the 16-bit formats."""
+
+_WIDE_FORMATS: tuple[Format, ...] = ("u32", "i32", "f32")
+
+
+def _decode_words(words: list[int], fmt: Format, word_order: WordOrder) -> float:
+    if fmt == "u16":
+        return float(words[0])
+    if fmt == "i16":
+        raw = words[0]
+        return float(raw - 0x1_0000) if raw >= 0x8000 else float(raw)
+    hi, lo = words if word_order == "big" else (words[1], words[0])
+    raw = (hi << 16) | lo
+    if fmt == "u32":
+        return float(raw)
+    if fmt == "i32":
+        return float(raw - 0x1_0000_0000) if raw >= 0x8000_0000 else float(raw)
+    return struct.unpack(">f", raw.to_bytes(4, "big"))[0]  # f32
+
+
+def _encode_words(value: float, fmt: Format, word_order: WordOrder) -> list[int]:
+    if fmt == "f32":
+        raw = int.from_bytes(struct.pack(">f", value), "big")
+    else:
+        bits = 16 if fmt in ("u16", "i16") else 32
+        raw = round(value) & ((1 << bits) - 1)
+    if fmt in ("u16", "i16"):
+        return [raw]
+    hi, lo = (raw >> 16) & 0xFFFF, raw & 0xFFFF
+    return [hi, lo] if word_order == "big" else [lo, hi]
+
 
 class ModbusRegister(BaseModel):
     """One line of a `modbus` device's tree: where a value lives, and how it converts.
 
-    `value = raw * scale`. `kind` picks the Modbus table, and so the function code:
-    `holding` (FC03 read, FC16 write -- the default), `input` (FC04, read-only), `coil`
-    (FC01 read, FC05 write) and `discrete` (FC02, read-only) -- `input` and `discrete`
-    registers are read-only on real hardware, so `write` on either is refused here too.
-    Coils and discrete inputs are booleans (0/1), unaffected by `scale`. Every register
-    is readable and published; `write` also makes it writable.
+    `value = decode(words) * scale + offset`. `kind` picks the Modbus table, and so the
+    function code: `holding` (FC03/FC16, the default), `input` (FC04, read-only), `coil`
+    (FC01/FC05) and `discrete` (FC02, read-only) -- `input` and `discrete` registers are
+    read-only on real hardware, so `write` on either is refused here too. Coils and
+    discrete inputs are booleans (0/1); `format` and `word_order` do not apply to them.
+    Every register is readable and published; `write` also makes it writable.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -46,7 +85,22 @@ class ModbusRegister(BaseModel):
     address: int
     kind: Kind = "holding"
     unit: str
+    format: Format = Field(
+        default="u16",
+        description=(
+            "How the word(s) decode: `u16` (default, one unsigned word), `i16`, or the"
+            " 32-bit `u32`/`i32`/`f32`, which span two registers ordered by `word_order`."
+            " Named `format`, not `type`, so it cannot clash with a device config's own"
+            " `type:` discriminator."
+        ),
+    )
+    word_order: WordOrder = Field(
+        default="big",
+        description="Which register holds the high word of a 32-bit value: `big` (default,"
+        " Alicat-style float32 MFCs) or `little`. Ignored for `u16`/`i16`.",
+    )
     scale: float = 1.0
+    offset: float = 0.0
     write: bool = False
     role: Literal["setting"] | None = Field(
         default=None,
@@ -63,8 +117,8 @@ class ModbusRegister(BaseModel):
             raise ValueError(f"a {self.kind} register cannot be written")
         if self.role is not None and not self.write:
             raise ValueError("only a writable register can be declared a setting")
-        if self.kind in BOOLEAN_KINDS and "scale" in self.model_fields_set:
-            raise ValueError(f"a {self.kind} register is a plain 0/1: no scale")
+        if self.kind in BOOLEAN_KINDS and self.model_fields_set & {"format", "scale", "offset"}:
+            raise ValueError(f"a {self.kind} register is a plain 0/1: no format, scale or offset")
         return self
 
     @property
@@ -77,15 +131,20 @@ class ModbusRegister(BaseModel):
     def access(self) -> Access:
         return Access.RPW if self.write else Access.RP
 
+    @property
+    def word_count(self) -> int:
+        return 2 if self.kind not in BOOLEAN_KINDS and self.format in _WIDE_FORMATS else 1
+
     def decode(self, words: list[int]) -> float:
         if self.kind in BOOLEAN_KINDS:
             return float(words[0])
-        return words[0] * self.scale
+        return _decode_words(words, self.format, self.word_order) * self.scale + self.offset
 
     def encode(self, value: float) -> list[int]:
         if self.kind in BOOLEAN_KINDS:
             return [1 if value else 0]
-        return [round(value / self.scale)]
+        raw = (value - self.offset) / self.scale
+        return _encode_words(raw, self.format, self.word_order)
 
 
 class Modbus(Readable, Committable):
@@ -134,11 +193,13 @@ class Modbus(Readable, Committable):
         }
         for signal in self._scan.due(candidates, time_ns, whole=False):
             register = self.registers[candidates[signal]]
-            words = self.link.read_registers(register.address, 1, self.unit_id, register.kind)
+            words = self.link.read_registers(
+                register.address, register.word_count, self.unit_id, register.kind
+            )
             yield Sample(self.root, time_ns, {signal: register.decode(words)})
 
     def commit(self, time_ns: int) -> None:
-        """Write every staged register once; push back what the quantised word actually set."""
+        """Write every staged register once; push back what the quantised word(s) actually set."""
         for signal, value in self.staged.items():
             register = self.registers[signal.name]
             words = register.encode(value)
@@ -161,4 +222,4 @@ class ModbusConfig(DriverConfig[Modbus], type="modbus"):
         return Modbus(name, resolve(self.link), self.registers, self.unit_id, label=label)
 
 
-__all__ = ["Modbus", "ModbusConfig", "ModbusRegister"]
+__all__ = ["Format", "Modbus", "ModbusConfig", "ModbusRegister", "WordOrder"]
