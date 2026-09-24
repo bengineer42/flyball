@@ -295,15 +295,24 @@ MCP9808, INA219, LM75.
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
 | `address` | required | the chip's bus address |
-| `registers` | required | `{signal: {address, length, signed?, byteorder?, shift?, scale?, offset?, unit, write?, role?}}` -- `write: true` makes a register a demand; `role: setting` makes a writable one a setting instead (a configuration register), which no controller can drive |
+| `init` | none | `[{address, value, length?, byteorder?, signed?}]` -- writes sent once, in order, when the device is built: a mode or reset register no signal reads back |
+| `registers` | required | `{signal: {address, length, signed?, byteorder?, shift?, mask?, sign_bit?, scale?, offset?, unit, write?, role?}}` -- `write: true` makes a register a demand; `role: setting` makes a writable one a setting instead (a configuration register), which no controller can drive |
+
+`mask` (ANDed in after `shift`) and `sign_bit` (that masked value's own sign bit,
+two's-complemented at that width) decode a bit-field inside a wider register --
+a status byte's fault flags, or a field narrower than its register. A register
+with either is read-only: there is no safe read-modify-write of the bits around it.
 
 ```yaml
 board_temp:
   driver: i2c_table
   link: i2c1
   address: 0x48
+  init:
+    - { address: 0x01, value: 0x60 }   # one-shot mode, per the datasheet
   registers:
     temperature: { address: 0, length: 2, signed: true, scale: 0.0078125, unit: "°C" }
+    fault:        { address: 2, length: 1, mask: 0x0F, sign_bit: 3 }
 ```
 
 ### `sht4x`
