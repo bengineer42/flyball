@@ -17,7 +17,7 @@ class Verdict(Labelled):
     UNIDENTIFIED = "unidentified", "Too few excited samples yet"
     IMPLAUSIBLE = "implausible", "The fit is outside the bounds a plant may take"
     UNCHANGED = "unchanged", "The model has not drifted enough to be worth it"
-    TOO_SOON = "too soon", "Retuned recently; the loop has not settled"
+    TOO_SOON = "too_soon", "Retuned recently; the loop has not settled"
     DIVERGING = "diverging", "The residual is growing, so the model is not trusted"
 
 

@@ -18,7 +18,7 @@ from flyball.model.generator import SetpointGenerator, SetpointGeneratorConfig
 from flyball.model.model import ModelOf, discriminated_union
 
 
-class LinearRampSetpoint(SetpointGenerator):
+class LinearRampSetpoint(SetpointGenerator, type="linear_ramp_setpoint"):
     """A setpoint walking from where it starts to `end` at `pace`.
 
     `pace` is a speed (`per_minute: 10`) or how long the whole walk should
@@ -69,7 +69,7 @@ class LinearRampSetpoint(SetpointGenerator):
         return time >= self.end_time
 
 
-class Dwell(SetpointGenerator):
+class Dwell(SetpointGenerator, type="dwell"):
     """A fixed setpoint, as a trajectory: a profile's soak, or a plain setpoint with an end.
 
     With no `duration` it never finishes -- a runner decides when it has
@@ -112,7 +112,7 @@ class ProfileConfig(SetpointGeneratorConfig):
     init_names: ClassVar[tuple[str, ...]] = ("segments",)
 
 
-class Profile(SetpointGenerator):
+class Profile(SetpointGenerator, type="profile"):
     """Segments run back to back: each starts where the previous one landed.
 
     A ramp lands at its `end`, a dwell at its `value`, a nested profile

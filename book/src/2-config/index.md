@@ -61,7 +61,7 @@ devices:                       # what is on the rig, keyed by name
     ports: { heater1: heater1 }
 
 controllers:                   # who drives what, keyed by the target signal
-  heaters.heater1: { measured: furnace.zone1, law: { type: PI, kp: 100, ki: 0.15 }, default: true }
+  heaters.heater1: { measured: furnace.zone1, law: { type: pi, kp: 100, ki: 0.15 }, default: true }
 ```
 
 Sections may be split across files -- `flyball-runner furnace.yaml sim.yaml`,

@@ -55,10 +55,10 @@ def test_discover_populates_the_kinds_engine_itself_ships() -> None:
     assert catalogs.laws.names(), "engine's own built-in laws (control/configs.py) did not load"
     assert set(catalogs.laws.names()) >= {
         "open_loop",
-        "P",
-        "PI",
-        "PID",
-        "IMC",
+        "p",
+        "pi",
+        "pid",
+        "imc",
         "on_off",
         "smith",
         "scheduled",

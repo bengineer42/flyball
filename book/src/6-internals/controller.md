@@ -307,7 +307,7 @@ controller ships with it:
 # examples/furnace/rig.yaml
 heaters.heater2:
   measured: furnace.zone2
-  law: { type: PI, kp: 100, ki: 0.15, tt_s: 30 }
+  law: { type: pi, kp: 100, ki: 0.15, tt_s: 30 }
   feedforward:
     type: table
     rate_gain: 3000

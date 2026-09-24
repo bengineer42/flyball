@@ -532,7 +532,7 @@ devices:
     ports: {signal: {port: output, quantity: x, unit: "1"}}
   drive: {driver: sim_drive, link: t1, ports: {u: input}}
 controllers:
-  drive.u: {measured: probe.signal, law: {type: P, kp: 0.5}}
+  drive.u: {measured: probe.signal, law: {type: p, kp: 0.5}}
 """
 
 

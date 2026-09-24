@@ -60,7 +60,7 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
     ]
     assert schema["outputs"][1]["limits"] == [0.0, 2500.0]
     tags = {d["properties"]["type"]["const"] for d in schema["laws"]["$defs"].values()}
-    assert "PI" in tags and schema["laws"]["discriminator"]["propertyName"] == "type"
+    assert "pi" in tags and schema["laws"]["discriminator"]["propertyName"] == "type"
     ff = {d["properties"]["type"]["const"] for d in schema["feedforwards"]["$defs"].values()}
     assert ff >= {"identity", "none", "affine", "table"}
     generators = {
@@ -93,7 +93,7 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
         json={
             "output": target,
             "measured": source,
-            "law": {"type": "P", "kp": 10.0},
+            "law": {"type": "p", "kp": 10.0},
             "default": True,
         },
     )
@@ -106,7 +106,7 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
     )
     assert body["label"] == "Heater 1" and body["default"] is True and body["mode"] == "manual"
     assert body["feedforward"] == {"type": "none"} and body["output_unit"] == "W"
-    assert body["law"]["type"] == "P" and body["measured"] is None
+    assert body["law"]["type"] == "p" and body["measured"] is None
     assert client.get(f"/api/controllers/{target}").json() == body
     assert client.get("/api/controllers/default").json() == body
     assert [c["name"] for c in client.get("/api/controllers").json()] == [target]
@@ -204,7 +204,7 @@ def test_a_setting_is_never_offered_nor_accepted_as_an_output(client, rig, daq, 
 
 def test_tunings_are_stored_on_the_rig(client, rig):
     assert client.get("/api/tunings").json() == {}
-    r = client.put("/api/tunings/gentle", json={"type": "PI", "kp": 0.5, "ki": 0.1})
+    r = client.put("/api/tunings/gentle", json={"type": "pi", "kp": 0.5, "ki": 0.1})
     assert r.status_code == 200 and r.json()["name"] == "gentle"
     assert client.get("/api/tunings/gentle").json()["kp"] == 0.5
     assert client.get("/api/tunings/nope").status_code == 404
@@ -217,7 +217,7 @@ def test_setpoint_can_start_a_generator(client, rig, daq, drive, clock):
     deliver(rig, daq)
     made = client.post(
         "/api/controllers",
-        json={"output": target, "measured": source, "law": {"type": "P", "kp": 10.0}},
+        json={"output": target, "measured": source, "law": {"type": "p", "kp": 10.0}},
     )
     assert made.status_code == 201
     reg = client.post(f"/api/controllers/{target}/regulate", json={"at": 20.0, "transfer": "cold"})
@@ -263,7 +263,7 @@ def test_setpoint_can_start_a_profile(client, rig, daq, drive, clock):
     deliver(rig, daq)
     client.post(
         "/api/controllers",
-        json={"output": target, "measured": source, "law": {"type": "P", "kp": 10.0}},
+        json={"output": target, "measured": source, "law": {"type": "p", "kp": 10.0}},
     )
     client.post(f"/api/controllers/{target}/regulate", json={"at": 20.0, "transfer": "cold"})
     profile = client.put(
@@ -333,7 +333,7 @@ def test_regulate_can_start_a_generator_from_the_current_reading(client, rig, da
     target, source = f"{drive.name}.heater1", f"{daq.name}.zone1"
     client.post(
         "/api/controllers",
-        json={"output": target, "measured": source, "law": {"type": "P", "kp": 10.0}},
+        json={"output": target, "measured": source, "law": {"type": "p", "kp": 10.0}},
     )
     deliver(rig, daq)  # zone1 reads 21.5, now that the controller is attached to see it
     started = client.post(
@@ -351,7 +351,7 @@ def test_regulate_a_generator_refuses_without_a_reading_or_reference(client, rig
     target, source = f"{drive.name}.heater1", f"{daq.name}.zone1"
     client.post(
         "/api/controllers",
-        json={"output": target, "measured": source, "law": {"type": "P", "kp": 10.0}},
+        json={"output": target, "measured": source, "law": {"type": "p", "kp": 10.0}},
     )
     refused = client.post(
         f"/api/controllers/{target}/regulate",
@@ -397,7 +397,7 @@ def test_a_generator_may_say_where_it_starts(client, rig, daq, drive, clock):
     deliver(rig, daq)  # the reading is 21.5
     client.post(
         "/api/controllers",
-        json={"output": target, "measured": source, "law": {"type": "P", "kp": 10.0}},
+        json={"output": target, "measured": source, "law": {"type": "p", "kp": 10.0}},
     )
     client.post(f"/api/controllers/{target}/regulate", json={"at": 20.0, "transfer": "cold"})
     ramp = {"type": "linear_ramp_setpoint", "pace": {"minutes": 1}, "end": 80.0}
@@ -475,7 +475,7 @@ def test_a_registered_generator_is_offered_and_accepted_over_http(
 
     client.post(
         "/api/controllers",
-        json={"output": target, "measured": source, "law": {"type": "P", "kp": 10.0}},
+        json={"output": target, "measured": source, "law": {"type": "p", "kp": 10.0}},
     )
     deliver(rig, daq)  # a generator starts from a reading, once the controller can see one
     reg = client.post(

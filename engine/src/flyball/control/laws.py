@@ -38,7 +38,7 @@ class Weighted:
 class OpenLoop(ControlLaw, type="open_loop"): ...
 
 
-class P(ControlLaw):
+class P(ControlLaw, type="p"):
     kp: float
 
     def __init__(self, kp: float) -> None:
@@ -149,7 +149,7 @@ class IComponent:
         self.last_raw = output
 
 
-class PI(Weighted, IComponent, ControlLaw):
+class PI(Weighted, IComponent, ControlLaw, type="pi"):
     """Proportional-integral, with back-calculation anti-windup.
 
     `tt_s` omitted or 0 disables anti-windup outright (`IComponent.tt_s` is 0
@@ -185,7 +185,7 @@ class PI(Weighted, IComponent, ControlLaw):
         return output
 
 
-class PID(Weighted, IComponent, ControlLaw):
+class PID(Weighted, IComponent, ControlLaw, type="pid"):
     """Derivative on the reading, not the error, so a setpoint step does not kick it.
 
     `tt_s` omitted or 0 disables anti-windup, as on `PI`; recommended `tt_s` is
@@ -257,11 +257,11 @@ class PID(Weighted, IComponent, ControlLaw):
         return output
 
 
-class IMC(PID):
+class IMC(PID, type="imc"):
     """A PID whose gains come from a first-order-plus-dead-time model, by the IMC rule.
 
     The same arithmetic as `flyball.autotune.rules.imc`, stated here so the
-    law can be written from the model directly (`{type: IMC, gain: 1, tau_s: 60,
+    law can be written from the model directly (`{type: imc, gain: 1, tau_s: 60,
     dead_time_s: 5}`) and retuned by changing the model, not the gains. `lam_s`
     is the closed-loop time constant asked for: smaller is faster and less
     tolerant of model error; it defaults to `max(tau_s, 0.8·dead_time_s)`, about

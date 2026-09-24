@@ -649,7 +649,7 @@ export interface SignalChoice {
 /** A stored tuning as the controller form offers it: its name, the law it is for, and the gains. */
 export interface TuningChoice {
   name: string;
-  /** The law's type (`PI`, `PID`, ...), so a form can offer the tunings for one law. */
+  /** The law's type (`pi`, `pid`, ...), so a form can offer the tunings for one law. */
   law: string;
   config: LawConfig;
 }

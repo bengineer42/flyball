@@ -66,7 +66,7 @@ DAQ = {
     "poll_s": 0.1,
 }
 DRIVE = {"name": "drive", "driver": "sim_drive", "link": "t1", "ports": {"u": "input"}}
-CONTROLLER = {"drive.u": {"measured": "probe.signal", "law": {"type": "P", "kp": 0.5}}}
+CONTROLLER = {"drive.u": {"measured": "probe.signal", "law": {"type": "p", "kp": 0.5}}}
 
 
 def entry(posted: dict) -> dict:
@@ -205,7 +205,7 @@ class TestEdits:
         assert set(rig.devices) == {"probe", "drive"} and "probe" in rig.polling.by_name
         r = client.post(
             "/api/controllers",
-            json={"output": "drive.u", "measured": "probe.signal", "law": {"type": "P", "kp": 0.5}},
+            json={"output": "drive.u", "measured": "probe.signal", "law": {"type": "p", "kp": 0.5}},
         )
         assert r.status_code == 201, "a controller is still attached in place"
         assert client.delete("/api/links/t1").status_code == 409, "used by probe, drive"

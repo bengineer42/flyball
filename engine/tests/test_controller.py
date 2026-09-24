@@ -223,7 +223,7 @@ def test_view_joins_settings_and_state(furnace):
     controller, _ = _regulating(furnace, SteppedClock(0), law=PI(kp=1.0, ki=0.1))
     view = controller.view
     assert view.name == "furnace.bath"
-    assert view.law is not None and view.law.type == "PI"
+    assert view.law is not None and view.law.type == "pi"
     assert controller.spec.law is not None and controller.spec.law.kp == 1.0
     assert view.feedforward.model_dump() == {"type": "identity"}
 
@@ -415,7 +415,7 @@ def test_arrived_follows_the_reference(furnace):
     controller.regulate(50.0, transfer=Transfer.COLD)
     assert controller.arrived is True and controller.view.arrived is True
 
-    class Endless(SetpointGenerator):
+    class Endless(SetpointGenerator, type="test_endless"):
         def __init__(self) -> None:
             pass
 

@@ -154,7 +154,7 @@ def test_a_large_session_deletes_completely_in_many_transactions(tmp_path, rig, 
     store = SqliteStore(tmp_path / "s.db")
     doomed = _recorded(store, rig, fresh, 3000)
     kept = _recorded(store, rig, fresh, 50)
-    store.save_tuning("warm", "PI", {"kp": 1.0}, 0, session_id=doomed)
+    store.save_tuning("warm", "pi", {"kp": 1.0}, 0, session_id=doomed)
     before = {t: _count(store, t, doomed) for t in DATA}
     assert all(before.values()), before  # the control: every table had rows to delete
     kept_before = {t: _count(store, t, kept) for t in DATA}

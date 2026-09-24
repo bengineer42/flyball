@@ -34,7 +34,7 @@ const controller = (t: number, output: number | null): ControllerOut => ({
   measured_signal: "furnace.zone1",
   default: true,
   mode: "regulating",
-  law: { type: "PI" },
+  law: { type: "pi" },
   feedforward: { type: "none" },
   output_unit: "W",
   reference: 100,

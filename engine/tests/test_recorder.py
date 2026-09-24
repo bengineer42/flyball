@@ -123,7 +123,7 @@ def test_declarations_carry_the_device_and_signal_metadata(rig, furnace, clock):
     assert setpoint_write.signal.access == "rw" and setpoint_write.limits is None
     (row,) = store.controllers(session.id)
     assert row.name == controller.name == heater.address
-    assert row.measured == zone1.address and row.law["type"] == "PI" and row.feedforward is not None
+    assert row.measured == zone1.address and row.law["type"] == "pi" and row.feedforward is not None
 
 
 def test_a_manual_demand_is_a_write_state_row(rig, furnace, clock):

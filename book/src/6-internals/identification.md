@@ -88,7 +88,7 @@ if retune.offered:
 ## Retuning is offered, never applied
 
 `consider()` returns a verdict — `unidentified`, `implausible`, `unchanged`,
-`too soon`, `diverging`, or `offered` — and the plant it was based on. The caller derives gains and hands them over, so a
+`too_soon`, `diverging`, or `offered` — and the plant it was based on. The caller derives gains and hands them over, so a
 retune takes the same bumpless path as any tuning change and reports its own
 bump.
 

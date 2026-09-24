@@ -122,7 +122,7 @@ def test_each_law_round_trips_through_its_config_and_view(law):
 
 
 def test_the_registry_has_the_new_tags():
-    assert {"IMC", "on_off", "smith", "scheduled", "sliding"} <= set(get_catalog().laws)
+    assert {"imc", "on_off", "smith", "scheduled", "sliding"} <= set(get_catalog().laws)
 
 
 # endregion
