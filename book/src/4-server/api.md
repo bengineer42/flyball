@@ -280,7 +280,7 @@ stopped, or that gave up (`reads.give_up_after_s`).
 A signal in the tree is `{name, address, access, role, tags, label,
 quantity, unit, dimension, dtype, shape, range, precision, warning, alarm,
 poll_s, stale_after_s, limits, initial, quality, readback, on_no_value,
-latest, last_usable, write}`: `stale_after_s` the liveness threshold the rig
+latest, last_usable, write, raw?, raw_for?}`: `stale_after_s` the liveness threshold the rig
 judges it by now (its own, else `max(3·poll_s, 5 s)` while its device is
 polled; null when it is not judged --
 [Liveness](../2-config/devices/index.md#liveness-a-signal-that-stops-arriving)), `access` is the set in force as letters (`rp`, `w`,
@@ -294,7 +294,10 @@ unbanded), `latest` `{time_ns, value, quality, reason?, caveats?}` once it
 has been read (null before; `value` null when the reading has none),
 `last_usable` the newest reading that had a value while `latest` has none
 (null otherwise), `write` a `WriteOut` for a writable signal once it has
-been set. A namespace is `{name, address, atomic, label,
+been set, and `raw` / `raw_for` pair a raw signal with the engineering
+signals computed from it
+([Raw and engineering signals](wire.md#raw-and-engineering-signals); absent
+on any other). A namespace is `{name, address, atomic, label,
 poll_s, signals: [...]}`, nesting the same shapes.
 
 A `WriteOut` is `{value, requested, at_limit, controller}`: what was last

@@ -26,7 +26,10 @@ blend's humidity with no flow, a device gone offline, a sensor that has
 stopped reporting -- and then it shows "—" and why (its **quality**:
 `invalid`, `n/a`, `stale`), never a number standing in; its chart breaks
 there. The rig decides when a reading is late, on its own clock, and says
-so itself.
+so itself. A **derived signal** is computed from another as it arrives: an
+ADC's raw volts through a calibration **curve** to NTU or pH, on a device
+of its own. The raw signal is shown beside it and left out of pickers by
+default.
 
 **A controller** -- a control loop, not a device -- holds one **measured**
 signal at a **setpoint** by writing an **output**, a demand on a device: the

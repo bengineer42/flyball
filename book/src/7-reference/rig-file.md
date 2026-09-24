@@ -187,10 +187,17 @@ Any device entry may say `pin: "LABEL"` instead
 of the link/line fields, when the file has a `board`: the board's fields
 for that label fill in, and anything the entry already gives wins.
 
-The engine's one built-in driver is `values`: `values: {name: {initial,
-unit?, quantity?, label?, limits?}}`, one `setting` `rpw` per entry,
-published from build, whose last write is kept in the store and restored
-while `initial` is unchanged -- [`values`](../2-config/devices/drivers.md#values).
+The engine has two built-in drivers:
+
+- `values`: `values: {name: {initial, unit?, quantity?, label?, limits?}}`,
+  one `setting` `rpw` per entry, published from build, whose last write is
+  kept in the store and restored while `initial` is unchanged --
+  [`values`](../2-config/devices/drivers.md#values).
+- `curve`: `inputs: {x: <address or number>}`, `curve: {type: linear, scale,
+  offset?}` or `{type: table, points: [[x, y], ...]}` (at most 1024, each
+  finite), `unit?`, `quantity?`; one readout `value` (`rp`) computed from
+  `x` as each reading of it arrives, with no value outside a table's
+  domain -- [`curve`](../2-config/devices/drivers.md#curve).
 
 ## Controllers
 

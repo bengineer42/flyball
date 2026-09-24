@@ -28,7 +28,7 @@ first; convert the small result second.
 | type | JSON |
 | --- | --- |
 | `Quantity` | not carried on its own; a signal's `unit` and `dimension` fields say what it is |
-| a signal in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warning, alarm, poll_s, stale_after_s, limits, initial, quality, readback, on_no_value, latest, last_usable, write}` — see [Devices](api.md#devices) |
+| a signal in a device's tree | `{name, address, access, role, tags, label, quantity, unit, dimension, dtype, shape, range, precision, warning, alarm, poll_s, stale_after_s, limits, initial, quality, readback, on_no_value, latest, last_usable, write, raw?, raw_for?}` — see [Devices](api.md#devices); `raw` and `raw_for` as under [Raw and engineering signals](#raw-and-engineering-signals) |
 | `access` | the set in force as lowercase letters: `"rp"`, `"w"`, `"rpw"` |
 | `role` | `"demand"`, `"readout"` or `"setting"` |
 | `Reading` | `{"signal": address, "time_ns": int, "value": float \| null, "quality": Quality, "reason"?: str, "caveats"?: Caveats, "last_usable"?: LatestOut, "age_s"?: float}` — the optional keys only when there is something to say; see [no value](#a-reading-with-no-value) |
@@ -118,8 +118,27 @@ Kelvin against a °C signal converts before it reports.
 | a device's `config` (`GET .../schema`'s `config`) | a JSON Schema; an instance is `{...fields}` |
 | `Condition` | `{"code": str, "severity": "debug" \| "info" \| "warning" \| "error", "message": str, "since_ns": int, "scope": "device" \| "signal" \| "controller" \| "rig", "subject": str, "details": any}` — `subject` is the owner's name (a signal's address) |
 | `Event` | `{"time_ns": int, "severity": …, "scope": str, "subject": str, "code": str, "message": str, "details": any, "edge": "raised" \| "cleared" \| null}` — see [Events](api.md#events) |
-| `DeviceSchema` (`GET .../schema`) | `{name, label, class_name, driver, description, readable, writable, config, signals, inputs, commands: {command: {description, arguments, simulation, commit, mode, interrupts, writes, demand_of}}}` |
+| `DeviceSchema` (`GET .../schema`) | `{name, label, class_name, driver, description, readable, writable, config, signals, inputs, commands: {command: {description, arguments, simulation, commit, mode, interrupts, writes, demand_of}}}`; each of `signals` is `{address, access, role, tags, label, quantity, unit, dimension, dtype, value, range, precision, limits, raw?, raw_for?}` |
 | a command request | one property per method parameter after `self`, from the method's signature; an argument linked to a demand also carries `x-signal`, `unit`, `minimum`/`maximum` |
+
+### Raw and engineering signals
+
+A calibrated value and the raw reading it comes from travel as two signals,
+linked once: a [`curve`](../2-config/devices/drivers.md#curve) device's
+resolved input. Both ends say so, in `GET /api/devices` and in the schema
+(`GET /api/schema`, `GET /api/devices/{name}/schema`), worked out when the
+response is built:
+
+| key | on | value |
+| --- | --- | --- |
+| `raw` | the engineering signal (a `curve`'s `value`) | the address of the raw signal it is computed from: `"adc.raw_v"` |
+| `raw_for` | the raw signal | the engineering signals computed from it, by address: `["turbidity.value"]` |
+
+Each is absent on a signal it does not apply to, and `raw` on a `curve`
+whose input is a number. A client shows the pair in one row and leaves a
+signal with `raw_for` out of pickers and generated dashboards by default.
+A raw signal the rig file marks `record: false` is still live and still
+carries `raw_for`; only the store leaves it out.
 
 ## Drivers and links
 

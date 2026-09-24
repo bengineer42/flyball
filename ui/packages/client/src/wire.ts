@@ -271,6 +271,10 @@ export interface SignalOut {
   last_usable?: LatestOut | null;
   /** The last committed state of a writable signal, once it has been set. */
   write: WriteOut | null;
+  /** An engineering signal's (a `curve` device's output): the address of the raw signal it is computed from. Absent otherwise. */
+  raw?: Address;
+  /** A raw signal's: the engineering signals computed from it, by address. Absent otherwise; show the pair in one row and leave the raw one out of pickers by default. */
+  raw_for?: Address[];
 }
 
 /** A namespace of a device's tree: a sub-device or grouping, with what is under it. */
@@ -462,6 +466,10 @@ export interface SignalSchema {
   range: Bounds | null;
   precision: number | null;
   limits: Bounds | null;
+  /** As `SignalOut.raw`: absent unless this is an engineering signal. */
+  raw?: Address;
+  /** As `SignalOut.raw_for`: absent unless engineering signals are computed from this one. */
+  raw_for?: Address[];
 }
 
 /** An input as a `DeviceSchema` lists it: every input the device has. */
