@@ -1,4 +1,4 @@
-# Sim for the SCD40/41 driver (config type `scd40`, `co2`/`temperature`/
+# Sim for the SCD40/41 driver (config type `scd4x`, `co2`/`temperature`/
 # `humidity` [RP], flat -- no base example to overlay yet). Same shape as
 # sim-configs/scd30.yaml: co2 tau 90 s, ambient 450 ppm; temperature tau
 # 30 s, ambient 21 degC; humidity tau 45 s, ambient 45 %RH.

@@ -175,7 +175,7 @@ class Scd4x(Readable):
         yield self.sample(time_ns, co2=co2, temperature=temperature, humidity=humidity)
 
 
-class Scd4xConfig(DriverConfig[Scd4x], type="scd40"):
+class Scd4xConfig(DriverConfig[Scd4x], type="scd4x"):
     """One chip by its I2C address; `variant: scd41` unlocks `single_shot`."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]

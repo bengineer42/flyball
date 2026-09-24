@@ -136,7 +136,7 @@ sensors:
       - label: caveat
         url: "ASC/forced-recalibration/temperature-offset/altitude-compensation commands are named but not implemented or independently re-verified"
 
-  - type: scd40
+  - type: scd4x
     part_number: SCD40 / SCD41
     manufacturer: Sensirion
     category: gas
