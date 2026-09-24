@@ -10,17 +10,22 @@ it defines, explicitly, into the given `Catalogs` (default: the process's
 unregistered first, so a type does not clash with its own earlier self.
 Devices already built on the old class keep it; add the device again to get
 the new one.
+
+[describe][flyball.runtime.drivers.describe] is what `GET /api/drivers` lists for each
+registered type: its schema, a one-line summary, a link's family, and what a driver
+needs before it can be added (the links it takes, its inputs).
 """
 
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import logging
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, TypeAliasType, get_args
 
 from flyball.foundation.config import Config
 from flyball.foundation.device import DriverConfig
@@ -109,4 +114,90 @@ def _forget_from(catalog: Catalog[Any], module: str) -> None:
             catalog.unregister(name)
 
 
-__all__ = ["PACKAGE", "DriversReport", "load_drivers"]
+def describe(config: type[Config[Any]], catalogs: Catalogs) -> dict[str, Any]:
+    """One registered type as `GET /api/drivers` lists it.
+
+    Every entry has its `role` (`driver` or `link`), `module`, `description` (its own
+    docstring, None without one), `summary` (the docstring's first line) and `schema` (or
+    `schema_error`, when pydantic cannot build one). A link adds its `family`. A driver adds
+    `requires` ([requires][flyball.runtime.drivers.requires]), plus `category` when it
+    declares one and `addresses`, the I²C address it defaults to, when its family is `i2c`.
+    """
+    # Its own docstring: `inspect.getdoc` would give a config that has none `Config`'s.
+    description = inspect.cleandoc(config.__doc__) if config.__doc__ else None
+    entry: dict[str, Any] = {
+        "role": "driver" if issubclass(config, DriverConfig) else "link",
+        "module": config.__module__,
+        "description": description,
+        "summary": description.splitlines()[0] if description else None,
+    }
+    if issubclass(config, DriverConfig):
+        entry["requires"] = requires(config, catalogs)
+        if config.category is not None:
+            entry["category"] = config.category
+        if (
+            entry["requires"]["family"] == "i2c"
+            and (address := _default_address(config)) is not None
+        ):
+            entry["addresses"] = [address]
+    else:
+        entry["family"] = config.family
+    try:
+        entry["schema"] = config.model_json_schema()
+    except Exception as e:  # a schema pydantic cannot build: say so, keep the rest
+        entry["schema_error"] = f"{type(e).__name__}: {e}"
+    return entry
+
+
+def requires(driver: type[DriverConfig[Any]], catalogs: Catalogs) -> dict[str, Any]:
+    """What `driver` needs before it can be added: `{link, family, inputs}`.
+
+    `family` is the driver's own [family][flyball.model.config.Config.family], else the one
+    the configs its `link` field names share (None when it names none, or they disagree).
+    `link` is every registered link type of that family, fakes and simulations included, and
+    any other its `link` field names; empty for a driver that takes no link. `inputs` are its
+    device's declared inputs, each `{role, label, kind, quantity, unit}`: `role` is the name
+    under `inputs:`, and `kind` is `signal` (an address to follow, or a number held as a
+    constant).
+    """
+    field = driver.model_fields.get("link")
+    named = [] if field is None else _configs_in(field.annotation)
+    families = {config.family for config in named if config.family is not None}
+    family = driver.family or (families.pop() if len(families) == 1 else None)
+    tags = {config.type_name for config in named}
+    link = sorted(
+        tag
+        for tag, config in catalogs.links.items()
+        if tag in tags or (family is not None and config.family == family)
+    )
+    device = driver.device_class()
+    inputs = [
+        {
+            "role": role,
+            "label": declared.label,
+            "kind": "signal",
+            "quantity": declared.quantity.name,
+            "unit": declared.quantity.unit.symbol,
+        }
+        for role, declared in ({} if device is None else device.INPUTS).items()
+    ]
+    return {"link": link, "family": family, "inputs": inputs}
+
+
+def _configs_in(annotation: Any) -> list[type[Config[Any]]]:
+    """The typed configs an annotation admits: `FakeI2cConfig` in `I2cLinkConfig | str`."""
+    if isinstance(annotation, TypeAliasType):
+        return _configs_in(annotation.__value__)
+    if isinstance(annotation, type):
+        return [annotation] if issubclass(annotation, Config) and annotation.type_name else []
+    return [config for arg in get_args(annotation) for config in _configs_in(arg)]
+
+
+def _default_address(driver: type[DriverConfig[Any]]) -> int | None:
+    """The default of the driver's `address` field, when it has one."""
+    field = driver.model_fields.get("address")
+    default = None if field is None else field.default
+    return default if isinstance(default, int) and not isinstance(default, bool) else None
+
+
+__all__ = ["PACKAGE", "DriversReport", "describe", "load_drivers", "requires"]

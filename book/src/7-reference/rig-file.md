@@ -32,6 +32,15 @@ Booleans are YAML 1.2's: only `true` and `false` (in any case). The YAML
 signal is a key and `on_stop: off` is the word `off`, not `false`. The same
 holds for a program file, a library upload and a `--set` value.
 
+Anchors and merge keys work in a YAML file. Anchor an entry and merge it
+into its siblings, then write out only what differs: `c: {<<: *plant,
+tau_s: 45}`, or `<<: [*a, *b]`, where the first anchor wins. A key written
+beside a merge key overrides the merged one, and a key written twice is
+still refused. Unknown keys are refused, so an anchor sits on a real entry,
+not on a spare top-level key. Anchors are for reading only: what flyball
+writes (an edit's overlay, `POST /api/rig/save`) is expanded, with no
+anchors. The rig file itself keeps its anchors unless a save overwrites it.
+
 ## Top level
 
 | key | type | |

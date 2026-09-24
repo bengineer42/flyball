@@ -9,6 +9,8 @@
 
 ::: flyball.foundation.quantities.format
 
+::: flyball.foundation.quantities.curves
+
 ::: flyball.foundation.quantities.dimension
 
 ::: flyball.foundation.quantities.dimensions

@@ -30,7 +30,7 @@ controllers:
 | --- | --- | --- |
 | `measured` | address | the measured signal: a published signal, what is regulated (ISA's PV). Under `open_loop` it only sets the units and clocks the step |
 | `law` | `{type, …}` | `open_loop`; `P {kp}`; `PI {kp, ki, tt, b}`; `PID {kp, ki, kd, tt, b, n}` (`tt`: anti-windup tracking time, omitted or 0 disables it; `b`: setpoint weight; `n`: derivative filter, omitted leaves the derivative unfiltered); `IMC {gain, tau, dead_time, lam, derivative, n}`; `on_off {high, low, hysteresis}`; `smith {kp, ki, tt, gain, tau, dead_time, feedforward}`; `scheduled {points: [[setpoint, kp, ki, kd], …], tt, n}`; `sliding {k, lam, boundary}` — each in [Control laws](../3-extending/laws.md). Omit for none |
-| `feedforward` | `{type, …}` | `identity` (the setpoint passed through, in the measured unit); `none`; `affine {gain, bias, rate_gain}`; `table {points, rate_gain}`. Omit: `identity` when the units agree, else `none` |
+| `feedforward` | `{type, …}` | `identity` (the setpoint passed through, in the measured unit); `none`; `affine {gain, bias, rate_gain}`; `table {points, rate_gain}` (finite numbers, at most 1024 points). Omit: `identity` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one |
 | `min_period_s` | number | update the law at most this often |
 | `on_fault` | `freeze` \| `manual` \| `stop` \| `stop_device` \| `{freeze_s, then}` | what the controller does once its measured signal has been faulty long enough; default `freeze`. [Below](#on_fault-what-a-controller-does-about-a-faulty-source) |

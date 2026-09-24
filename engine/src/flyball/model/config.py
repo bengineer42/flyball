@@ -25,6 +25,10 @@ class Config[T](BaseModel, ABC):
 
     type_name: ClassVar[str | None] = None
     """The type this config is selectable by. The generated tagged model carries it as a field."""
+    family: ClassVar[str | None] = None
+    """A link's kind of transport (`i2c`, `spi`, `gpio`, `pwm`, `onewire`, `uart`, `modbus`,
+    `text`, `plant`): the links of one family are interchangeable to a driver. A driver's is the
+    family of the link it takes, read off its `link` field's configs when it declares none."""
 
     def __init_subclass__(cls, type: str | None = None, **kwargs: Any) -> None:
         # Python hands class keywords here first; pydantic hands them again to
