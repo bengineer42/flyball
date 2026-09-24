@@ -92,7 +92,7 @@ the worker threads other routes share.
 | `export.py` | the file forms `history.py`'s export endpoints share |
 | `program.py` | check/run/cancel against the live rig |
 | `library.py` | the program library: documents kept as written (YAML/TOML/JSON), versioned by name, read back in another format on demand |
-| `dashboards.py` | dashboard documents, versioned per rig, migrated on read |
+| `dashboards.py` | dashboard documents (version 6 only), versioned per rig |
 | `sim.py` | `/api/sim*`, only on a rig whose links are all `sim_*`/`fake_*` |
 | `schema.py` | `/api/schema` |
 

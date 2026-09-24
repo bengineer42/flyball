@@ -23,6 +23,7 @@ from flyball.foundation.device import Code, Severity
 from flyball.foundation.keys import canonical
 from flyball.foundation.optional import require
 from flyball.model.catalog import Catalogs, set_catalog
+from flyball.record.errors import SchemaError
 from flyball.rig.stopping import Stopper
 from flyball.runtime.config import RigConfig, RunnerConfig, resolve_documents, saved_overlay_path
 from flyball.runtime.drivers import load_drivers
@@ -183,6 +184,8 @@ def _run(
         record = True if args.record or (edit or "").endswith(":1") else None
         at = int(edit.split(":")[0]) if edit else None
         rig, store = start_with_store(config, record=record, store_path=settings.store, edit=at)
+    except SchemaError as e:  # a store from before the baseline, or a newer flyball's
+        return _refuse(args, e)
     except BuildFailed as e:  # a driver refused its config, a device is not there
         if edit is not None:
             _roll_back(edit, e, origin, settings.store)

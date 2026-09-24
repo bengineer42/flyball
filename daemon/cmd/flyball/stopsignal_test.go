@@ -83,7 +83,7 @@ func TestStopFrontDirNeverStopsAnotherRig(t *testing.T) {
 // TestStopFrontDirNonexistentFails: a --front-dir with no runner.lock is
 // an error, whatever answers at FLYBALL_URL.
 func TestStopFrontDirNonexistentFails(t *testing.T) {
-	url, hits := countingServer(t, http.StatusOK, `{"at_ns": 1}`)
+	url, hits := countingServer(t, http.StatusOK, `{"at_utc_ns": 1}`)
 	t.Setenv("FLYBALL_URL", url)
 	t.Setenv("FLYBALLD_URL", "")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -176,7 +176,7 @@ func TestStopRigFileNeverStopsAnotherRig(t *testing.T) {
 	os.Chmod(rt, 0o700)
 	t.Setenv("RUNTIME_DIRECTORY", "")
 	t.Setenv("XDG_RUNTIME_DIR", rt)
-	url, hits := countingServer(t, http.StatusOK, `{"at_ns": 1, "reason": "stopped the wrong rig"}`)
+	url, hits := countingServer(t, http.StatusOK, `{"at_utc_ns": 1, "reason": "stopped the wrong rig"}`)
 	t.Setenv("FLYBALL_URL", url)
 	t.Setenv("FLYBALLD_URL", url)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

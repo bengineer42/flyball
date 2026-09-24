@@ -47,7 +47,7 @@ class ValueSource:
     """The rig file's `initial` in force."""
     actor: Actor | None = None
     """Who wrote the value in force, for `restored` and `written`; None when not known."""
-    written_ns: int | None = None
+    written_utc_ns: int | None = None
     """When it was written, wall time in ns since the epoch."""
 
 
@@ -129,7 +129,7 @@ class LiveValues:
                 "%s: kept value %r is not a finite number: not restored", signal.address, value
             )
             return
-        self._sources[signal] = ValueSource("restored", initial, row.actor, row.written_ns)
+        self._sources[signal] = ValueSource("restored", initial, row.actor, row.written_utc_ns)
         now = self._rig.clock.now_ns()
         self._rig.on_samples([Sample(signal.node, now, {signal: float(value)})])
         self._rig.event(
@@ -138,7 +138,7 @@ class LiveValues:
             signal.address,
             Code.VALUE_RESTORED,
             f"restored {value:g}, written by {_who(row.actor)}",
-            {"value": value, "actor": _dict(row.actor), "written_ns": row.written_ns},
+            {"value": value, "actor": _dict(row.actor), "written_utc_ns": row.written_utc_ns},
         )
 
     def written(self, signal: Signal, value: float | None, was: Any, actor: Actor | None) -> None:
@@ -179,7 +179,7 @@ class LiveValues:
                     unit=unit,
                     initial=initial,
                     actor=actor,
-                    written_ns=now,
+                    written_utc_ns=now,
                     head_version=None if head is None else head.id,
                 )
             )

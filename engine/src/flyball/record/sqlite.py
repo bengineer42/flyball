@@ -43,6 +43,7 @@ from .errors import (
     DashboardNotFoundError,
     NotDeclaredError,
     ProgramNotFoundError,
+    SchemaError,
     SessionEndedError,
     SessionNotFoundError,
     StoreUnavailableError,
@@ -260,7 +261,7 @@ def _live_value_row(row: sqlite3.Row) -> LiveValueRow:
         unit=row["unit"],
         initial=_loads(row["initial"]),
         actor=None if row["actor"] is None else Actor.from_dict(json.loads(row["actor"])),
-        written_ns=row["written_ns"],
+        written_utc_ns=row["written_utc_ns"],
         config_field=row["config_field"],
         head_version=row["head_version"],
     )
@@ -610,7 +611,11 @@ class SqliteStore:
         self._connection.execute("PRAGMA journal_mode = WAL")
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.execute("PRAGMA synchronous = NORMAL")
-        migrate(self._connection)
+        try:
+            migrate(self._connection)
+        except SchemaError as e:
+            self._connection.close()
+            raise SchemaError(f"{path}: {e}") from e
 
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
@@ -1369,12 +1374,12 @@ class SqliteStore:
         with self._transaction() as connection:
             connection.execute(
                 "INSERT INTO live_value (device, signal, kind, value, unit, initial,"
-                " config_field, actor, written_ns, head_version)"
+                " config_field, actor, written_utc_ns, head_version)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT (device, signal) DO UPDATE SET kind = excluded.kind,"
                 " value = excluded.value, unit = excluded.unit, initial = excluded.initial,"
                 " config_field = excluded.config_field, actor = excluded.actor,"
-                " written_ns = excluded.written_ns, head_version = excluded.head_version",
+                " written_utc_ns = excluded.written_utc_ns, head_version = excluded.head_version",
                 (
                     row.device,
                     row.signal,
@@ -1384,7 +1389,7 @@ class SqliteStore:
                     _dumps(to_jsonable_python(row.initial)),
                     row.config_field,
                     None if row.actor is None else _dumps(row.actor.as_dict()),
-                    row.written_ns,
+                    row.written_utc_ns,
                     row.head_version,
                 ),
             )
@@ -1396,13 +1401,13 @@ class SqliteStore:
             )
 
     def latches(self) -> list[LatchRow]:
-        rows = self._query("SELECT * FROM latch ORDER BY at_ns, cause")
+        rows = self._query("SELECT * FROM latch ORDER BY at_utc_ns, cause")
         return [
             LatchRow(
                 cause=r["cause"],
                 subjects=json.loads(r["subjects"]),
                 actor=Actor.from_dict(json.loads(r["actor"])),
-                at_ns=r["at_ns"],
+                at_utc_ns=r["at_utc_ns"],
                 reason=r["reason"],
                 action=r["action"],
             )
@@ -1412,16 +1417,16 @@ class SqliteStore:
     def put_latch(self, row: LatchRow) -> None:
         with self._transaction() as connection:
             connection.execute(
-                "INSERT INTO latch (cause, subjects, actor, at_ns, reason, action)"
+                "INSERT INTO latch (cause, subjects, actor, at_utc_ns, reason, action)"
                 " VALUES (?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT (cause) DO UPDATE SET subjects = excluded.subjects,"
-                " actor = excluded.actor, at_ns = excluded.at_ns, reason = excluded.reason,"
+                " actor = excluded.actor, at_utc_ns = excluded.at_utc_ns, reason = excluded.reason,"
                 " action = excluded.action",
                 (
                     row.cause,
                     json.dumps(row.subjects, separators=(",", ":")),
                     json.dumps(row.actor.as_dict(), separators=(",", ":")),
-                    row.at_ns,
+                    row.at_utc_ns,
                     row.reason,
                     row.action,
                 ),

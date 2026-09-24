@@ -10,9 +10,8 @@ server keeps every version under a name, like programs; the newest is what
 format the author prefers, per [flyball.foundation.files][]): they are imported
 on start, and an edited file becomes a new version.
 
-Documents carry a `schema_version`; an older one is migrated on read (see
-[migrate][flyball.interfaces.server.routes.dashboards.migrate]), never refused, and
-what is stored is left as saved.
+Documents carry `schema_version` 6, and only 6: a save of any other is refused, and a
+file of any other is skipped on import. Nothing converts an older document (D-064).
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -40,11 +38,8 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dashboards", tags=["dashboards"])
 
-SCHEMA_VERSION = 6
-"""The document shape this server writes: bindings are addresses and controller names (2); a
-document says whether it is read-only and where its tab sits (3); a program widget's button
-cancels, `cancel` (4); an events widget filters by `severity` (5); a widget says which it is
-by `type` and names itself by `label`, and the document has a `label` of its own (6)."""
+SCHEMA_VERSION: Literal[6] = 6
+"""The document shape this server reads and writes, and the only one it takes."""
 
 
 class Widget(BaseModel):
@@ -82,7 +77,7 @@ class Dashboard(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: int = SCHEMA_VERSION
+    schema_version: Literal[6] = SCHEMA_VERSION
     name: str = Field(min_length=1)
     label: str | None = Field(
         default=None,
@@ -144,7 +139,7 @@ class DashboardWithProblems(BaseModel):
 
     @classmethod
     def of(cls, row: DashboardRow, rig: Rig) -> DashboardWithProblems:
-        body = migrate(row.body) if isinstance(row.body, dict) else row.body
+        body = row.body
         return cls(
             id=row.id,
             name=row.name,
@@ -154,123 +149,6 @@ class DashboardWithProblems(BaseModel):
             sha256=row.sha256,
             problems=problems_for(body if isinstance(body, dict) else {}, rig),
         )
-
-
-def _address_of(value: Any) -> str | None:
-    """A version-1 channel binding as an address.
-
-    Either the `source.measurand` string the UI used, or the `{source,
-    measurand}` shape the layout schema described; a source was a device and
-    a measurand its signal, so the address is the same dotted path.
-    """
-    if isinstance(value, str) and value:
-        return value
-    if isinstance(value, dict) and value.get("source") and value.get("measurand"):
-        return f"{value['source']}.{value['measurand']}"
-    return None
-
-
-def migrate(document: dict[str, Any]) -> dict[str, Any]:
-    """A document at any schema version, brought to the current one; a copy.
-
-    Version 1 bound widgets to channels, loops and actuators: a `readout`'s
-    or `gauge`'s `channel` becomes `address`, a `chart`'s `channels`
-    become `addresses`, a `loop`'s `loop` becomes `controller`, and the
-    `actuator` widget becomes a `device` widget bound by `device`. A loop
-    was named by its actuator and a controller is named by its output's
-    address, so the name is carried as it was; `problems` says if it no
-    longer resolves. Version 2 had no `readonly` or `order`: it is writable
-    and unordered. Up to version 3 a `program` widget's `interrupt` was what
-    is now its `cancel` button. Up to version 4 an `events` widget's `level`
-    (`"WARNING"`) was what is now its `severity` (`"warning"`). Up to version 5
-    a widget's `type` was its `kind` and its `label` its `title`, and the
-    document had no `label`: it shows its name.
-    """
-    version = document.get("schema_version", 1)
-    if not isinstance(version, int) or version >= SCHEMA_VERSION:
-        return document
-    if version < 2:
-        document = _bindings_by_address(document)
-    if version < 4:
-        document = _program_cancel(document)
-    if version < 5:
-        document = _events_severity(document)
-    document = _type_and_label(document)
-    return {
-        "readonly": False,
-        "order": None,
-        "label": None,
-        **document,
-        "schema_version": SCHEMA_VERSION,
-    }
-
-
-def _bindings_by_address(document: dict[str, Any]) -> dict[str, Any]:
-    """Version 1 → 2: channel, loop and actuator bindings become addresses and names."""
-    widgets: list[Any] = []
-    for widget in document.get("widgets") or []:
-        if not isinstance(widget, dict) or not isinstance(widget.get("config"), dict):
-            widgets.append(widget)
-            continue
-        kind = widget.get("kind")
-        config = dict(widget["config"])
-        if kind in ("readout", "gauge") and "channel" in config:
-            if (address := _address_of(config.pop("channel"))) is not None:
-                config["address"] = address
-        elif kind == "chart" and "channels" in config:
-            channels = config.pop("channels")
-            config["addresses"] = (
-                [a for c in channels if (a := _address_of(c)) is not None]
-                if isinstance(channels, list)
-                else []
-            )
-        elif kind == "loop" and "loop" in config:
-            config["controller"] = config.pop("loop")
-        elif kind == "actuator":
-            kind = "device"
-            if "actuator" in config:
-                config["device"] = config.pop("actuator")
-        widgets.append({**widget, "kind": kind, "config": config})
-    return {**document, "widgets": widgets}
-
-
-def _program_cancel(document: dict[str, Any]) -> dict[str, Any]:
-    """Version 3 → 4: a `program` widget's `interrupt` button is its `cancel` button."""
-    widgets: list[Any] = []
-    for widget in document.get("widgets") or []:
-        config = widget.get("config") if isinstance(widget, dict) else None
-        if widget.get("kind") == "program" and isinstance(config, dict) and "interrupt" in config:
-            config = {("cancel" if k == "interrupt" else k): v for k, v in config.items()}
-            widget = {**widget, "config": config}
-        widgets.append(widget)
-    return {**document, "widgets": widgets}
-
-
-def _events_severity(document: dict[str, Any]) -> dict[str, Any]:
-    """Version 4 → 5: an `events` widget's `level` is its `severity`, a lowercase string."""
-    widgets: list[Any] = []
-    for widget in document.get("widgets") or []:
-        config = widget.get("config") if isinstance(widget, dict) else None
-        if widget.get("kind") == "events" and isinstance(config, dict) and "level" in config:
-            config = {
-                ("severity" if k == "level" else k): (
-                    v.lower() if k == "level" and isinstance(v, str) else v
-                )
-                for k, v in config.items()
-            }
-            widget = {**widget, "config": config}
-        widgets.append(widget)
-    return {**document, "widgets": widgets}
-
-
-def _type_and_label(document: dict[str, Any]) -> dict[str, Any]:
-    """Version 5 → 6: a widget's `kind` is its `type`, its `title` its `label`."""
-    names = {"kind": "type", "title": "label"}
-    widgets = [
-        {names.get(k, k): v for k, v in widget.items()} if isinstance(widget, dict) else widget
-        for widget in document.get("widgets") or []
-    ]
-    return {**document, "widgets": widgets}
 
 
 def problems_for(document: dict[str, Any], rig: Rig) -> list[Problem]:
@@ -317,10 +195,6 @@ def problems_for(document: dict[str, Any], rig: Rig) -> list[Problem]:
         if isinstance(name, str) and name and name not in known:
             flag(widget_id, name)
     return problems
-
-
-def _migrated(row: DashboardRow) -> DashboardRow:
-    return replace(row, body=migrate(row.body)) if isinstance(row.body, dict) else row
 
 
 def import_directory(store: Store, directory: Path, rig: str, now_ns: int) -> list[DashboardRow]:
@@ -381,7 +255,7 @@ def list_dashboards(
     every: bool = Query(False, description="Every rig's, not only this one's."),
 ) -> list[DashboardRow]:
     """The newest version of each dashboard, by name; this rig's unless ``every``."""
-    return [_migrated(row) for row in store.dashboards(None if every else rig.name)]
+    return store.dashboards(None if every else rig.name)
 
 
 @router.get("/{name}")
@@ -392,7 +266,7 @@ def read_dashboard(store: StoreDep, rig: RigDep, name: str) -> DashboardWithProb
 @router.get("/{name}/history")
 def read_dashboard_history(store: StoreDep, name: str) -> list[DashboardRow]:
     """Every version, newest first."""
-    return [_migrated(row) for row in store.dashboard_history(name)]
+    return store.dashboard_history(name)
 
 
 @router.put("/{name}", status_code=201)

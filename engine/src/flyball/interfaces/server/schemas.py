@@ -559,14 +559,14 @@ class ValueSourceOut(BaseModel):
     """Where a `driver: values` signal's value in force came from, for the device page.
 
     `rig_file`: its `initial`; `restored`: kept from an earlier run ("restored, written by
-    `actor` at `written_ns`"); `written`: written in this run.
+    `actor` at `written_utc_ns`"); `written`: written in this run.
     """
 
     origin: Literal["rig_file", "restored", "written"]
     initial: Any
     """The rig file's `initial` in force."""
     actor: ActorOut | None = None
-    written_ns: int | None = None
+    written_utc_ns: int | None = None
     """Wall time, ns since the epoch."""
 
 
@@ -671,7 +671,7 @@ class DeviceOut(BaseModel):
                     origin=source.origin,
                     initial=source.initial,
                     actor=None if source.actor is None else ActorOut(**source.actor.as_dict()),
-                    written_ns=source.written_ns,
+                    written_utc_ns=source.written_utc_ns,
                 )
                 for path, signal in device.signals.items()
                 if sources is not None and (source := sources(signal)) is not None

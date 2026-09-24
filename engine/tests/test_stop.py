@@ -117,7 +117,7 @@ def test_report(oven, monkeypatch):
     assert report["devices"]["heater"]["kept"] == {"heater.drive": 50.0}
     assert "safe" not in json.dumps(report).lower()
     assert report["actor"]["via"] == "http"
-    assert isinstance(report["at_ns"], int) and report["at_ns"] > 0
+    assert isinstance(report["at_utc_ns"], int) and report["at_utc_ns"] > 0
 
     assert programmer.state.running is False
     assert rig.controllers["heater.drive"].mode is ControllerMode.MANUAL
@@ -178,7 +178,7 @@ class Counting:
     def stop(self, actor: Actor, reason: str, *, latch: bool = True) -> StopReport:
         self.actors.append(actor)
         return StopReport(
-            at_ns=1,
+            at_utc_ns=1,
             actor=actor,
             reason=reason,
             devices={},
@@ -332,7 +332,7 @@ def test_no_stopper_until_a_rig_is_set(oven):
 def test_actor_and_report_are_frozen():
     actor = Actor(principal="local:signal", kind="human", via="signal")
     report = StopReport(
-        at_ns=1,
+        at_utc_ns=1,
         actor=actor,
         reason="SIGUSR1",
         devices={"pump": {"state": "unchanged", "message": ""}},

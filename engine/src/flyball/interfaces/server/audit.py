@@ -200,7 +200,7 @@ class Audit:
         details = {"reason": _reason(body)} if route == _STOP else None
         self.auditor.record(
             Action(
-                time_ns=started,
+                time_utc_ns=started,
                 actor=Actor(
                     principal=claims.sub,
                     kind=claims.kind,
@@ -378,7 +378,7 @@ def _reason(body: bytes) -> str:
 
 
 def record_stop(
-    actor: Actor, reason: str, at_ns: int, *, done: bool = True, auditor: Auditor = AUDITOR
+    actor: Actor, reason: str, at_utc_ns: int, *, done: bool = True, auditor: Auditor = AUDITOR
 ) -> None:
     """Record a stop that came by no request: the break-glass signal's. Never raises.
 
@@ -388,7 +388,7 @@ def record_stop(
     try:
         auditor.record(
             Action(
-                time_ns=at_ns,
+                time_utc_ns=at_utc_ns,
                 actor=actor,
                 cip="",
                 method="SIGNAL",

@@ -161,7 +161,7 @@ def test_audit_rows(http, store):
     # One boot, a sequence with no gaps, wall-clock time.
     assert {r.boot for r in rows} == {server_audit.AUDITOR.boot}
     assert [r.seq for r in rows] == list(range(rows[0].seq, rows[0].seq + 5))
-    assert all(abs(r.time_ns - time.time_ns()) < 60e9 for r in rows)
+    assert all(abs(r.time_utc_ns - time.time_ns()) < 60e9 for r in rows)
 
 
 def test_an_unverified_request_is_not_recorded(http, store):
@@ -253,7 +253,7 @@ def test_break_glass_stop_is_recorded(store, oven):
     )
     assert row.outcome == "done" and row.status is None
     assert row.details is not None and row.details["reason"] == "SIGUSR1"
-    assert abs(row.time_ns - time.time_ns()) < 60e9
+    assert abs(row.time_utc_ns - time.time_ns()) < 60e9
 
 
 # endregion
@@ -263,7 +263,7 @@ def test_break_glass_stop_is_recorded(store, oven):
 
 def _action(**changes: Any) -> audit.Action:
     fields: dict[str, Any] = {
-        "time_ns": time.time_ns(),
+        "time_utc_ns": time.time_ns(),
         "actor": Actor("local:admin", "human", "http", sid="s"),
         "cip": "",
         "method": "POST",

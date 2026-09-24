@@ -73,12 +73,12 @@ def _stop(stopper: Callable[[], Stopper | None]) -> None:
     # the server extra (fastapi) is there, and a rig attached means it is.
     from flyball.interfaces.server.audit import record_stop
 
-    at_ns = time.time_ns()
+    at_utc_ns = time.time_ns()
     try:
         report = target.stop(SIGNAL_ACTOR, "SIGUSR1")
     except Exception:
         log.exception("SIGUSR1: the stop failed")
-        record_stop(SIGNAL_ACTOR, "SIGUSR1", at_ns, done=False)
+        record_stop(SIGNAL_ACTOR, "SIGUSR1", at_utc_ns, done=False)
         return
-    record_stop(SIGNAL_ACTOR, "SIGUSR1", report.at_ns)
+    record_stop(SIGNAL_ACTOR, "SIGUSR1", report.at_utc_ns)
     log.warning("stop report: %s", json.dumps(report.as_dict()))

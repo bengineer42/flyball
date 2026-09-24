@@ -71,7 +71,7 @@ export function PasskeyManager({ open, onClose }: { open: boolean; onClose(): vo
         <List dense data-testid="passkey-list">
           {(passkeys ?? []).map((p) => (
             <ListItem key={p.id} data-testid={`passkey-${p.id}`}>
-              <ListItemText primary={p.label} secondary={new Date(p.created_ns / 1e6).toLocaleString()} />
+              <ListItemText primary={p.label} secondary={new Date(p.created_utc_ns / 1e6).toLocaleString()} />
               <ListItemSecondaryAction>
                 <IconButton edge="end" aria-label="revoke" disabled={busy} onClick={() => revoke(p.id)} data-testid={`passkey-revoke-${p.id}`}>
                   <DeleteOutlineIcon fontSize="small" />

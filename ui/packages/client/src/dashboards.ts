@@ -30,14 +30,8 @@ export interface DashboardWidget {
 
 /**
  * The document a dashboard is saved as; `extra` fields are refused at every
- * level. `schema_version` 2 binds by address and controller name; 3 adds
- * `readonly` and `order`; 4 names a program widget's button `cancel`; 5 an
- * events widget's filter `severity`; 6 names a widget's `type` and `label`
- * (were `kind` and `title`) and gives the document its own `label`. The
- * server migrates an older document on read: version 1's channels, loops and
- * actuators become addresses and names, a version-2 document is writable and
- * unordered, a program widget's `interrupt` becomes `cancel`, and a widget's
- * `kind` and `title` become `type` and `label`.
+ * level. `schema_version` is 6, and only 6: the server refuses any other, and
+ * nothing converts an older document.
  */
 export interface DashboardDocument {
   schema_version: number;

@@ -27,7 +27,7 @@ export interface DashboardTabsProps {
   onOpen(name: string | null, generated?: boolean): void;
 }
 
-/** The value MUI's `Tabs` holds for the generated overview (a saved dashboard cannot be named this: a name is `nameFor` a label, lower-case letters, digits and `-`). */
+/** The value MUI's `Tabs` holds for the generated overview (a saved dashboard cannot be named this: a name is `nameFor` a label: lower-case letters, digits and `_`). */
 const GENERATED = "\u0000generated";
 
 export function DashboardTabs({ name, generated, onOpen }: DashboardTabsProps) {

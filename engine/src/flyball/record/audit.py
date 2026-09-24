@@ -4,7 +4,7 @@ An [Action][flyball.record.audit.Action] is one thing someone asked the rig to d
 `actor` (the verified principal, `sid`, `kind`, `via`), the client's `cip`, the method and
 route, the status
 and its outcome, the request id and, for a demand, each signal's old, requested and applied
-value. The rows go in the `audit` table (migration 0012): wall time, not the rig's clock;
+value. The rows go in the `audit` table: wall time, not the rig's clock;
 no session, so retention and deleting a session never reach it; append-only, the store
 refusing an update or a delete.
 
@@ -60,7 +60,7 @@ def outcome(status: int) -> Outcome:
 class Action:
     """One audited action, as the caller knows it; the auditor numbers it."""
 
-    time_ns: int
+    time_utc_ns: int
     """Wall-clock time it was asked for, ns since the epoch (not the rig's clock)."""
     actor: Actor
     """Who: `via` is `http`, `mcp` (a tool's own call) or `signal` (the break-glass)."""
@@ -100,7 +100,7 @@ class AuditRow(Action):
 
 
 _COLUMNS: Final = (
-    "time_ns",
+    "time_utc_ns",
     "boot",
     "seq",
     "principal",
@@ -140,7 +140,7 @@ def append(store: Store, actions: Sequence[tuple[str, int, Action]]) -> None:
         raise TypeError(f"no audit table in a {type(store).__name__}")
     rows = [
         (
-            a.time_ns,
+            a.time_utc_ns,
             boot,
             seq,
             a.actor.principal,

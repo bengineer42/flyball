@@ -70,7 +70,7 @@ class Latch:
     subjects: tuple[Subject, ...]
     actor: Actor
     """Who: the person or agent for a stop; the controller for a fault action."""
-    at_ns: int
+    at_utc_ns: int
     """Wall-clock time it was set, ns since the epoch."""
     reason: str = ""
     action: str = ""
@@ -84,7 +84,7 @@ class Latch:
             "cause": self.cause,
             "subjects": [asdict(s) for s in self.subjects],
             "actor": self.actor.as_dict(),
-            "at_ns": self.at_ns,
+            "at_utc_ns": self.at_utc_ns,
             "reason": self.reason,
             "action": self.action,
         }
@@ -98,7 +98,7 @@ class Latch:
 
     def said(self) -> str:
         """`stopped by X at T: reason`, for a refusal."""
-        at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.at_ns / 1e9))
+        at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.at_utc_ns / 1e9))
         what = "stopped" if self.cause == RIG_STOP else f"latched by {self.cause} ({self.action})"
         why = f": {self.reason}" if self.reason else ""
         return f"{what} by {self.actor.principal} at {at}{why}"
@@ -235,7 +235,7 @@ class Latches:
                     Subject(cast("Kind", s["subject_kind"]), s["subject"]) for s in row.subjects
                 ),
                 actor=row.actor,
-                at_ns=row.at_ns,
+                at_utc_ns=row.at_utc_ns,
                 reason=row.reason,
                 action=row.action,
             )
@@ -253,7 +253,7 @@ class Latches:
                     cause=latch.cause,
                     subjects=[asdict(s) for s in latch.subjects],
                     actor=latch.actor,
-                    at_ns=latch.at_ns,
+                    at_utc_ns=latch.at_utc_ns,
                     reason=latch.reason,
                     action=latch.action,
                 )

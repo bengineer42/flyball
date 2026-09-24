@@ -354,8 +354,8 @@ export interface InputOut {
 /**
  * Where a `driver: values` signal's value in force came from, for the device
  * page: `rig_file` ("rig file"), `restored` ("restored, written by `actor`
- * at `written_ns`"), `written` (written in this run, by `actor` at
- * `written_ns`).
+ * at `written_utc_ns`"), `written` (written in this run, by `actor` at
+ * `written_utc_ns`).
  */
 export interface ValueSourceOut {
   origin: "rig_file" | "restored" | "written";
@@ -363,7 +363,7 @@ export interface ValueSourceOut {
   initial: number;
   actor: Actor | null;
   /** Wall time, ns since the epoch. */
-  written_ns: Nanoseconds | null;
+  written_utc_ns: Nanoseconds | null;
 }
 
 /** How the runtime is polling a device; null on a `DeviceOut` when nothing on it is polled. */
@@ -763,7 +763,7 @@ export interface Health {
   activities: string[];
   recording: boolean;
   /** The rig stop's latch, if it holds: who, when (wall ns) and why; null when not stopped. */
-  stopped: { actor: Actor; at_ns: Nanoseconds; reason: string } | null;
+  stopped: { actor: Actor; at_utc_ns: Nanoseconds; reason: string } | null;
   /** Every latch cause held now, one row per subject it holds. */
   latches: LatchRow[];
   exposure?: Exposure | null;
@@ -986,7 +986,7 @@ export interface DeviceStopOut {
  * (`POST /api/rig/reset`). `interim` is false: it wrote each device's resolved stop.
  */
 export interface StopReport {
-  at_ns: Nanoseconds;
+  at_utc_ns: Nanoseconds;
   actor: Actor;
   reason: string;
   devices: Record<Address, DeviceStopOut>;
@@ -1007,7 +1007,7 @@ export interface LatchOut {
   cause: string;
   subjects: { subject_kind: LatchRow["subject_kind"]; subject: string }[];
   actor: Actor;
-  at_ns: Nanoseconds;
+  at_utc_ns: Nanoseconds;
   reason: string;
   /** A fault's action (`manual`, `stop`, `stop_device`); "" for the rig stop. */
   action: string;
@@ -1042,7 +1042,7 @@ export interface StopPlan {
 export interface PasskeyOut {
   id: number;
   label: string;
-  created_ns: number;
+  created_utc_ns: number;
   transports: string[];
 }
 

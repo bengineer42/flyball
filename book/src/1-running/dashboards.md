@@ -80,22 +80,11 @@ save the dashboard may turn it off. A screen that must not operate the rig
 should be a browser without the `operate` verb (see
 [access](runner/access.md)). Layout editing is unaffected. `order` places
 the dashboard among the others, ascending; dashboards without one follow,
-newest saved first. A version-2 document has neither and reads as
-writable and unordered. An `events` widget in a version-4 document had
-`level` (`"WARNING"`) where it now has `severity` (`"warning"`); it is read
-as that. Up to version 5 a widget said which it was by `kind` and named
-itself by `title`, and the document had no `label`; it is read with `type`
-and `label` in their place, showing its name.
+newest saved first.
 
-A document saved before the device model is `schema_version: 1` (bindings
-to channels, loops and actuators); it is migrated on read, never refused,
-and what is stored on disk stays exactly as saved — `channel`
-(`"source.measurand"` or `{source, measurand}`) becomes `address`,
-`channels` becomes `addresses`, a `loop` widget's `loop` becomes
-`controller`, and an `actuator` widget becomes a `device` widget bound by
-`device`. A loop was named by its actuator and a controller by its target's
-address, so a migrated `loop` binding may show as a problem until it is
-rebound.
+A document is `schema_version: 6`, and only 6: a save of any other version
+is refused (`422`) and a file of any other is skipped on import, with a
+warning in the runner's log. Nothing converts an older document.
 
 ## Editing
 
@@ -147,8 +136,8 @@ A rig can ship dashboards beside its file: anything in a `dashboards/`
 directory next to the rig's file is imported on runner start (unchanged
 files are skipped; an edited one becomes a new version). The file's stem is
 the dashboard's name. A file is checked as a current document, so write it
-at the current `schema_version` (a `kind` where `type` belongs is skipped,
-with a warning in the runner's log). See
+at `schema_version: 6` (anything else, or a `kind` where `type` belongs, is
+skipped, with a warning in the runner's log). See
 `examples/furnace/dashboards/{overview,furnace}.json` for the furnace
 example's own presets — one generic overview, one curated for the
 furnace's three zones and heaters.

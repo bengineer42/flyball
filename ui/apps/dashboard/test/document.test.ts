@@ -3,17 +3,21 @@ import type { DashboardDocument } from "@flyball/client";
 import { SCHEMA_VERSION, emptyDocument, labelFor, labelOf, nameFor, normalise } from "../src/dashboard/document.js";
 
 describe("a dashboard's name and label", () => {
-  it("the name is the key a label is saved under: lower case, letters, digits and -", () => {
-    expect(nameFor("Furnace overview")).toBe("furnace-overview");
-    expect(nameFor("  Zone 1 / Zone 2  ")).toBe("zone-1-zone-2");
+  it("the name is the key a label is saved under: lower case, letters, digits and _, from a letter", () => {
+    expect(nameFor("Furnace overview")).toBe("furnace_overview");
+    expect(nameFor("  Zone 1 / Zone 2  ")).toBe("zone_1_zone_2");
     expect(nameFor("Été")).toBe("ete");
     expect(nameFor("ops")).toBe("ops");
+    expect(nameFor("wet-pump")).toBe("wet_pump");
+    expect(nameFor("2nd floor")).toBe("nd_floor");
     expect(nameFor("!!!")).toBe("");
+    expect(nameFor("42")).toBe("");
     expect(nameFor("x".repeat(80))).toHaveLength(64);
+    expect(nameFor("a" + " b".repeat(40))).toMatch(/^[a-z][a-z0-9_]{0,63}$/);
   });
 
   it("a label is kept only when it says more than the name", () => {
-    expect(labelFor("Furnace overview", "furnace-overview")).toBe("Furnace overview");
+    expect(labelFor("Furnace overview", "furnace_overview")).toBe("Furnace overview");
     expect(labelFor("ops", "ops")).toBeNull();
   });
 
