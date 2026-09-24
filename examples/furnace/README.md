@@ -39,7 +39,7 @@ Five programs in `programs/`, each a different lesson:
 
 ```bash
 uv run flyball-runner rig.yaml                # clock at 60x from the file
-flyball program run programs/firing.yaml      # cd daemon && go build ./cmd/flyball first
+flyball program run programs/firing.yaml      # cd daemon && CGO_ENABLED=0 go build ./cmd/flyball first
 flyball program status
 flyball sim show                              # the tube's parameters
 flyball sim set tube coupling_w_per_k=20      # couple the zones harder, live

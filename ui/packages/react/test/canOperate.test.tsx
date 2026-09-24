@@ -26,7 +26,7 @@ function fakeTransport(): Transport {
     async request({ path }: Request): Promise<Response> {
       if (path === "/api/devices") return { status: 200, json: [] };
       if (path === "/api/controllers") return { status: 200, json: [] };
-      if (path === "/api/clock") return { status: 200, json: { start_time_ns: 0, now_ns: 0, elapsed_ns: 0, tags: {}, speed: 1 } };
+      if (path === "/api/clock") return { status: 200, json: { start_time_ns: 0, now_ns: 0, elapsed_ns: 0, speed: 1 } };
       if (path === "/api/history/sessions") return { status: 200, json: [] };
       if (path === "/api/recording") return { status: 200, json: null };
       return { status: 404, json: undefined };
@@ -71,7 +71,7 @@ const CONTROLLER: ControllerOut = {
   label: null,
   output_signal: "heater.demand",
   measured_signal: "chamber.temp",
-  default: false,
+  is_default: false,
   mode: "regulating",
   law: null,
   feedforward: { type: "none" },
@@ -79,10 +79,10 @@ const CONTROLLER: ControllerOut = {
   reference: 50,
   setpoint: 50,
   correction: 0,
-  output: 10,
+  output_value: 10,
   expected: 10,
   delivered_correction: 0,
-  measured: null,
+  measured_value: null,
 };
 
 describe("WritePanel gates on canOperate", () => {
@@ -111,12 +111,12 @@ describe("ControllerPanel gates controls/headerControls on canOperate", () => {
           source: { ...SIGNAL, address: "chamber.temp", unit: "°C" },
           trends: false,
           controls: createElement("button", { type: "button" }, "Move"),
-          headerControls: createElement("button", { type: "button" }, "Stop"),
+          headerControls: createElement("button", { type: "button" }, "Manual"),
         }),
       ),
     );
     expect(screen.getByRole("button", { name: "Move" }).closest("[aria-disabled]")).toBeNull();
-    expect(screen.getByRole("button", { name: "Stop" }).closest("[aria-disabled]")).toBeNull();
+    expect(screen.getByRole("button", { name: "Manual" }).closest("[aria-disabled]")).toBeNull();
   });
 
   it("dims and blocks clicks into controls/headerControls when canOperate is false, without hiding them", () => {
@@ -128,12 +128,12 @@ describe("ControllerPanel gates controls/headerControls on canOperate", () => {
           trends: false,
           canOperate: false,
           controls: createElement("button", { type: "button" }, "Move"),
-          headerControls: createElement("button", { type: "button" }, "Stop"),
+          headerControls: createElement("button", { type: "button" }, "Manual"),
         }),
       ),
     );
     const move = screen.getByRole("button", { name: "Move" });
-    const stop = screen.getByRole("button", { name: "Stop" });
+    const stop = screen.getByRole("button", { name: "Manual" });
     const moveWrap = move.closest("[aria-disabled='true']") as HTMLElement | null;
     const stopWrap = stop.closest("[aria-disabled='true']") as HTMLElement | null;
     expect((move as HTMLElement).hidden).toBe(false);
@@ -147,7 +147,7 @@ describe("ControllerPanel gates controls/headerControls on canOperate", () => {
 
 
 describe("CommandForm canOperate", () => {
-  const NO_ARGS: CommandSchema = { description: null, arguments: { type: "object", properties: {} }, simulation: false, commit: false, mode: null, interrupts: false, demand_of: null };
+  const NO_ARGS: CommandSchema = { description: null, arguments: { type: "object", properties: {} }, simulation: false, commit: false, sets_mode: null, interrupts: false, writes: [], demand_of: null };
   const run = vi.fn(async () => undefined);
   it("a command's button is live by default", () => {
     render(withRig(createElement(CommandForm, { name: "zero", command: NO_ARGS, onRun: run })));

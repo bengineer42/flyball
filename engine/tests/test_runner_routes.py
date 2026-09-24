@@ -61,7 +61,7 @@ def test_the_door_and_health_say_where_the_runner_is_exposed(client):
     set_runner(runner)
     for path in ("/api/auth", "/api/health"):
         exposure = client.get(path).json()["exposure"]
-        assert exposure["host"] == "127.0.0.1" and exposure["requested"] == "0.0.0.0", path
+        assert exposure["host"] == "127.0.0.1" and exposure["requested_host"] == "0.0.0.0", path
         assert exposure["restricted"] and not exposure["open_network"], path
         assert "--insecure-open" in exposure["warning"], path
     runner.exposure = settle_exposure(RunnerConfig(host="0.0.0.0"), insecure_open=True)

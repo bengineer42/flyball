@@ -5,7 +5,7 @@
  */
 
 import type { UiSchema } from "@rjsf/utils";
-import { deref, type JsonSchema } from "@flyball/client";
+import { deref, humanise, type JsonSchema } from "@flyball/client";
 
 export const UNSET = "— leave unchanged —";
 
@@ -46,6 +46,17 @@ export function simplifyNullables(schema: JsonSchema): JsonSchema {
       }
     }
     const out: JsonSchema = { ...node };
+    // A union of a bare value and an object (`blend_flow: 1.0 | {keep, fallback}`): RJSF's picker
+    // would read "option 1"; name each untitled branch -- the value by the field, an object by its own title.
+    for (const key of ["anyOf", "oneOf"] as const) {
+      const branches = node[key];
+      if (!branches || branches.length < 2 || branches.every((b) => b.title || "const" in b)) continue;
+      out[key] = branches.map((b) => {
+        if (b.title || b.type === "null") return b;
+        const title = deref(b, schema).title;
+        return { ...b, title: b.$ref && title ? humanise(title) : (node.title ?? humanise(String(b.type ?? "value"))) };
+      });
+    }
     if (Array.isArray(node.prefixItems) && !node.items) {
       const { prefixItems, ...rest } = out;
       void prefixItems;
@@ -102,6 +113,8 @@ function isBounds(schema: JsonSchema): boolean {
  * `label: false` to stop the template drawing another.
  */
 function widgetFor(schema: JsonSchema): string | undefined {
+  // A `const` (`keep: true`) only marks which branch of a union this is: RJSF fills it, nobody edits it.
+  if (schema.const !== undefined && !schema.oneOf) return "constant";
   const type = schema.type;
   if (type === "number" || type === "integer") return isBounded(schema) ? "slider" : "unitNumber";
   if (type === "boolean") return "toggle";

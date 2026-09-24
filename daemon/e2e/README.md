@@ -35,7 +35,7 @@ about 15 s; each test runs in parallel with its own world.
 | `TestFrontDirWithoutKeyExits4` | `flyball-runner --front-dir` on a dir with no key, and with a short one |
 | `TestRunLocal` | `flyball run`, local shape |
 | `TestRunPassword` | `flyball run`, password shape with `anonymous: read`; named tokens over HTTP and by `flyball token create`; MCP |
-| `TestRunSessionExpiry` | `flyball run`, password shape with `session: 2s` |
+| `TestRunSessionExpiry` | `flyball run`, password shape with `login: 2s` |
 | `TestRunTLS` | `flyball run`, password shape with `tls:` from a generated certificate |
 | `TestRunProxy` | `flyball run`, proxy shape (`authelia`) on a unix socket behind a stand-in proxy; the same preset on TCP with an unvouched peer |
 | `TestRunFallbacks` | `flyball run` with each front misconfiguration, and with the runner's removed flags |
@@ -59,7 +59,7 @@ end-to-end test cannot reach it.
 | 4 | `aud` and scopes from the same routed entry; overlapping root paths refused | `TestDaemonTwoRigs`: `aud` is the manifest name, a `read:a` token reaches `/a` and not `/b`, `c` at `/a/c` is refused at registration | |
 | 5 | Front-dir 0700, owned, `lstat`-verified; another uid cannot connect; TCP only with `network: tcp` | `TestRunLocal/front-dir` (a 0700 directory, not a symlink; `key`/`aud`/`endpoint`/`runner.lock` 0600) | another uid needs a second account or root; `network: tcp` is not exercised (unit: `endpoint/frontdir`, `registry`, A2) |
 | 6 | The key is never in argv, the environment or a log | `TestRunLocal/key_in_no_argv,_environment_or_log`; `TestDaemonTwoRigs/keys_in_no_argv,_environment_or_log;_runner_logs_0600` | |
-| 7 | MCP inner calls re-minted, capped to caller ∩ mode; a read principal cannot reach a route above read | `TestRunPassword/MCP_through_the_front`: a read token at `/mcp/read` reads and is offered no actuating tool; at `/mcp/operate` it gets 403 and an audit row naming it; an operate token's `stop_rig` lands in the audit as `token:e2e-op` `via mcp` | "an operate-only principal cannot run an author tool" (unit: `test_mcp.py`, A6) |
+| 7 | MCP inner calls re-minted, capped to caller ∩ tier; a read principal cannot reach a route above read | `TestRunPassword/MCP_through_the_front`: a read token at `/mcp/read` reads and is offered no actuating tool; at `/mcp/operate` it gets 403 and an audit row naming it; an operate token's `stop_rig` lands in the audit as `token:e2e-op` `via mcp` | "an operate-only principal cannot run an author tool" (unit: `test_mcp.py`, A6) |
 | 8 | A Host outside the allow-list gets 403 | `TestRunLocal/host,_origin_and_path` (local shape) | the `url:` allow-list and the bare runner's Host rule (unit: `front` `TestHostRules`, `test_door.py`) |
 | 9 | Acting with a missing, `null` or foreign Origin refused for cookie, local and anonymous callers, websockets included | `TestRunLocal/host,_origin_and_path` (local, POST and a websocket upgrade); `TestRunPassword/no_credential_in_a_URL;_the_session's_Origin_is_checked` (session; bearer exempt) | |
 | 10 | Tri-state chain: a presented invalid credential is terminal; anonymous only when nothing was presented | `TestRunPassword/anonymous_read` (an unknown `fbt1_` token gets 401 although anonymous may read); `TestRunPassword/sign_out:…` (a stale cookie on a guarded route: 401) | JWKS/store errors as 503 (unit: `proxyauth`, `front`) |

@@ -71,7 +71,10 @@ jobs:
           python-version: "3.12"
       - name: Sync
         working-directory: extensions/${{ matrix.extension }}
-        run: uv sync
+        # modbus's client comes from its `modbus` extra (pymodbus); qcodes' and pymeasure's
+        # drivers from theirs, which their tests build a real instrument class from (they
+        # skip those tests without it).
+        run: uv sync ${{ contains(fromJSON('["modbus", "qcodes", "pymeasure"]'), matrix.extension) && format('--extra {0}', matrix.extension) || '' }}
       - name: Test
         working-directory: extensions/${{ matrix.extension }}
         run: uv run pytest -q

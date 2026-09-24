@@ -14,10 +14,10 @@ EXPECTED_PRESSURE_PA = 100009.0
 EXPECTED_TEMPERATURE_C = 20.07
 
 
-def _prom_bus(address: int = ms5611.MS5611_ADDRESS) -> FakeI2c:
+def _prom_bus(i2c_address: int = ms5611.MS5611_ADDRESS) -> FakeI2c:
     """A bus that answers each PROM word command with its coefficient, in order."""
     return FakeI2c(
-        replies={address: [list(c.to_bytes(2, "big")) for c in COEFFICIENTS]},
+        replies={i2c_address: [list(c.to_bytes(2, "big")) for c in COEFFICIENTS]},
     )
 
 
@@ -93,8 +93,8 @@ class TestMs5611Device:
 
     def test_config_round_trips_address_and_osr(self):
         bus = _prom_bus(0x76)
-        baro = ms5611.Ms5611("baro", bus, address=0x76, osr=1024, sleep=False)
-        assert baro.config.address == 0x76
+        baro = ms5611.Ms5611("baro", bus, i2c_address=0x76, osr=1024, sleep=False)
+        assert baro.config.i2c_address == 0x76
         assert baro.config.osr == 1024
 
     def test_a_missing_chip_raises_at_construction(self):

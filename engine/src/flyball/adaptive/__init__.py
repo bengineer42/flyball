@@ -17,7 +17,7 @@ what is regulated.
     tuner = SelfTuner(identifier, rule=imc)
 
     # every tick
-    identifier.push(Sample(reading.value, loop.output, (supply_reading.value,)))
+    identifier.push(Sample(reading.value, loop.output_value, (supply_reading.value,)))
     tuner.observe()
     tuner.elapsed(interval)
 

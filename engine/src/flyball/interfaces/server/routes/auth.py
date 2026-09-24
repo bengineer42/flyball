@@ -32,7 +32,7 @@ PROTOCOL = 1
 class ExposureOut(BaseModel):
     """Where the runner serves, against where it was asked to."""
 
-    requested: str = Field(description="The bind address asked for.")
+    requested_host: str = Field(description="The bind address asked for.")
     host: str = Field(description="The bind address served on.")
     port: int
     open: bool = Field(description="No token: whoever reaches it may operate.")
@@ -97,7 +97,7 @@ class FrontOut(BaseModel):
     protocol: int
     aud: str
     pid: int
-    flyball: str
+    flyball_version: str
 
 
 def _door(request: Request) -> Door:
@@ -188,7 +188,7 @@ async def login(request: Request, response: Response, body: Login) -> AuthInfo:
         raise HTTPException(status_code=401, detail="Wrong token")
     value = door.open_session()
     _set_cookie(request, response, value, SESSION_S)
-    return _out(request, _session_claims(request, value), "session")
+    return _out(request, _session_claims(request, value), "login")
 
 
 @router.post("/logout")
@@ -243,4 +243,6 @@ def front(request: Request) -> FrontOut:
     door: Door = request.app.state.door
     if door.fronted is None:
         raise HTTPException(status_code=404, detail="Not started by a front")
-    return FrontOut(protocol=PROTOCOL, aud=door.aud, pid=os.getpid(), flyball=flyball.__version__)
+    return FrontOut(
+        protocol=PROTOCOL, aud=door.aud, pid=os.getpid(), flyball_version=flyball.__version__
+    )

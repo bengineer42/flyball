@@ -87,19 +87,21 @@ def _reaches(fractions: list[Sample], target: float) -> float:
     raise ResponseTooSmallError(f"the response never reached {target:.0%} of its final change")
 
 
-def _shape(elapsed: float, tau: float, dead_time: float) -> float:
+def _shape(elapsed: float, tau_s: float, dead_time_s: float) -> float:
     """The normalised FOPDT step response, running 0 → 1."""
-    after_delay = elapsed - dead_time
-    return 0.0 if after_delay <= 0.0 else 1.0 - exp(-after_delay / tau)
+    after_delay = elapsed - dead_time_s
+    return 0.0 if after_delay <= 0.0 else 1.0 - exp(-after_delay / tau_s)
 
 
-def _sse(fractions: list[Sample], tau: float, dead_time: float) -> float:
+def _sse(fractions: list[Sample], tau_s: float, dead_time_s: float) -> float:
     """Squared error of a candidate (τ, θ) against the normalised response."""
-    return sum((sample.value - _shape(sample.time, tau, dead_time)) ** 2 for sample in fractions)
+    return sum(
+        (sample.value - _shape(sample.time, tau_s, dead_time_s)) ** 2 for sample in fractions
+    )
 
 
 def _refine(
-    fractions: list[Sample], tau: float, dead_time: float, passes: int = 8, points: int = 7
+    fractions: list[Sample], tau_s: float, dead_time_s: float, passes: int = 8, points: int = 7
 ) -> tuple[float, float]:
     """Least-squares polish of (τ, θ) on a grid that halves each pass.
 
@@ -108,26 +110,26 @@ def _refine(
 
     Args:
         fractions: The normalised response, timed from the step.
-        tau: Seed time constant.
-        dead_time: Seed dead time.
+        tau_s: Seed time constant.
+        dead_time_s: Seed dead time.
         passes: How many times to halve the search box.
         points: Grid resolution per axis, per pass.
     """
-    best = _sse(fractions, tau, dead_time)
-    tau_span = dead_span = tau * 0.5
-    floor = tau * 1e-3
+    best = _sse(fractions, tau_s, dead_time_s)
+    tau_span = dead_span = tau_s * 0.5
+    floor = tau_s * 1e-3
     for _ in range(passes):
-        centre_tau, centre_dead = tau, dead_time
+        centre_tau, centre_dead = tau_s, dead_time_s
         for i in range(points):
             candidate_tau = max(centre_tau + tau_span * (2 * i / (points - 1) - 1), floor)
             for j in range(points):
                 candidate_dead = max(centre_dead + dead_span * (2 * j / (points - 1) - 1), 0.0)
                 sse = _sse(fractions, candidate_tau, candidate_dead)
                 if sse < best:
-                    best, tau, dead_time = sse, candidate_tau, candidate_dead
+                    best, tau_s, dead_time_s = sse, candidate_tau, candidate_dead
         tau_span *= 0.5
         dead_span *= 0.5
-    return tau, dead_time
+    return tau_s, dead_time_s
 
 
 def fit_fopdt(
@@ -166,18 +168,18 @@ def fit_fopdt(
         if sample.time >= start
     ]
     high = _reaches(fractions, _HIGH)
-    tau = 1.5 * (high - _reaches(fractions, _LOW))
-    dead_time = max(high - tau, 0.0)
-    if tau <= 0.0:
+    tau_s = 1.5 * (high - _reaches(fractions, _LOW))
+    dead_time_s = max(high - tau_s, 0.0)
+    if tau_s <= 0.0:
         raise ResponseTooSmallError("the response rose too abruptly to time")
 
     if refine:
-        tau, dead_time = _refine(fractions, tau, dead_time)
+        tau_s, dead_time_s = _refine(fractions, tau_s, dead_time_s)
 
-    residual = (_sse(fractions, tau, dead_time) / len(fractions)) ** 0.5
+    residual = (_sse(fractions, tau_s, dead_time_s) / len(fractions)) ** 0.5
     return FOPDT(
         gain=change / size,
-        tau=tau,
-        dead_time=dead_time,
+        tau_s=tau_s,
+        dead_time_s=dead_time_s,
         error=residual * abs(change),
     )

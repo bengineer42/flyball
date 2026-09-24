@@ -18,11 +18,12 @@ from pydantic import BaseModel, TypeAdapter
 
 from flyball.control import Affine, GeneratorConfig, Table
 from flyball.control.errors import LastReadingNotAvailableError
+from flyball.control.setpoint import generator_union
 from flyball.foundation.config import discriminated_union
 from flyball.foundation.device import Access, Role, Signal
 from flyball.foundation.errors import NotFoundError
 from flyball.foundation.typing import Positive
-from flyball.interfaces.server.deps import RigDep
+from flyball.interfaces.server.deps import RigDep, current_catalog
 from flyball.interfaces.server.routes.stop import actor
 from flyball.interfaces.server.schemas import ControllerOut, LawConfig
 from flyball.model.controller import Controller, FaultAction, ValueSource
@@ -38,12 +39,13 @@ router = APIRouter(prefix="/api/controllers", tags=["controllers"])
 # `FeedforwardConfig` is every built-in feedforward's, direct -- no extension
 # defines one today (`control/configs.py` registers all of them); see that
 # module's comment for why this isn't `get_catalog()`/`Catalogs.discover()`.
-# `GeneratorConfig` is `flyball.control`'s own closed union over the built-in
-# generators (`control/setpoint.py`); `profile`'s segments are this same
-# union.
+# `GeneratorConfig` is `flyball.control`'s union over the built-in generators
+# (`control/setpoint.py`), which also admits any other the current `Catalogs`
+# registered; `profile`'s segments are this same union. `generator_union()`
+# is its JSON schema with those others listed too.
 _FEEDFORWARDS = (Identity, NoFeedforward, Affine, Table)
 FeedforwardConfig = discriminated_union(
-    {ff.type: ff for ff in _FEEDFORWARDS}, "type", lambda ff: ff.config
+    {ff.type: ff for ff in _FEEDFORWARDS}, "type", lambda ff: ff.config_type
 )
 
 
@@ -57,7 +59,7 @@ class NewController(BaseModel):
     law: LawConfig | str | None = None  # type: ignore[valid-type]
     feedforward: FeedforwardConfig | str | None = None  # type: ignore[valid-type]
     """A config or a type. Omitted: ``identity`` when the units agree, else ``none``."""
-    default: bool = False
+    is_default: bool = False
     min_period_s: Positive | None = None
     setpoint_period_s: Positive | None = None
     """Re-apply a moving setpoint's feedforward this often between readings; omitted:
@@ -150,7 +152,7 @@ def _out(rig: Rig, name: str | None = None) -> ControllerOut:
     controller = rig.controllers.resolve(name)
     return ControllerOut.of(
         controller,
-        controller.name == rig.controllers.default,
+        controller.name == rig.controllers.default_controller,
         latched=[latch.cause for latch in rig.stopping.latches.of_controller(controller)],
     )
 
@@ -194,7 +196,7 @@ def _generator_start(controller: Controller) -> float:
 
 @router.get("")
 async def read_controllers(rig: RigDep) -> list[ControllerOut]:
-    default = rig.controllers.default
+    default = rig.controllers.default_controller
     latches = rig.stopping.latches
     return [
         ControllerOut.of(c, name == default, latched=[x.cause for x in latches.of_controller(c)])
@@ -212,7 +214,7 @@ async def read_controller_schema(rig: RigDep) -> ControllerSchema:
         outputs=[SignalChoice.of(s) for s in signals if drivable(s)],
         laws=TypeAdapter(LawConfig).json_schema(),
         feedforwards=TypeAdapter(FeedforwardConfig).json_schema(),
-        generators=TypeAdapter(GeneratorConfig).json_schema(),
+        generators=TypeAdapter(generator_union(current_catalog())).json_schema(),
         tunings=[
             TuningChoice(name=name, law=config.type, config=config.model_dump(mode="json"))
             for name, config in rig.tunings.all().items()
@@ -245,7 +247,7 @@ def make_controller(rig: RigDep, body: NewController) -> ControllerOut:
             measured,
             law=law,
             feedforward=body.feedforward,
-            default=body.default,
+            is_default=body.is_default,
             min_period_s=body.min_period_s,
             setpoint_period_s=body.setpoint_period_s,
             on_fault=ControllerEntry(measured=body.measured, on_fault=body.on_fault).fault_policy(),

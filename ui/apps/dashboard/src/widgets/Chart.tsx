@@ -7,7 +7,7 @@ import { isNumeric } from "../valueReadout.js";
 import { Missing } from "./Missing.js";
 import { signalsSchema, pageOr, WINDOW_OPTIONS, Y_OPTIONS } from "./schema.js";
 import { useChartHeight } from "./size.js";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 /** The widest declared range among signals, for a shared axis. */
 function widest(signals: SignalOut[]): [number, number] | null {
@@ -57,7 +57,7 @@ const ChartWidget = memo(function ChartWidget({ config, widget }: WidgetComponen
   const windowS = Number(config.window_s) || charts.windowS;
   const y: YScale = config.y === "auto" || config.y === "range" ? config.y : charts.yScale;
   const unit = signals[0]?.unit;
-  // Title row: the unit is the title (`titleFor`); the signals' devices are the subtitle, as the spec's "°C  zone1 · zone2 · zone3" (§3.3).
+  // Title row: the unit is the title (`labelFor`); the signals' devices are the subtitle, as the spec's "°C  zone1 · zone2 · zone3" (§3.3).
   const subtitle = useMemo(() => (signals.length ? [...new Set(signals.map((s) => bindings.deviceLabel(deviceOf(s.address))))].join(" · ") : undefined), [bindings, source]); // eslint-disable-line react-hooks/exhaustive-deps
   useWidgetChrome(signals.length ? { subtitle } : null);
   if (!addresses.length) return <Missing what="signals" name="" hint="Configure the widget to pick signals." />;
@@ -77,13 +77,13 @@ const ChartWidget = memo(function ChartWidget({ config, widget }: WidgetComponen
           {nonNumeric.length > 0 && `${nonNumericTitles.join(", ")} not a number`}
         </div>
       )}
-      <MultiSeries series={series} source={source} id={widget.id} unit={unit} title={widget.title ?? unit} height={height} windowS={windowS} yScale={y} range={widest(signals)} exportHref={exports.signals(signals)} />
+      <MultiSeries series={series} source={source} id={widget.id} unit={unit} title={widget.label ?? unit} height={height} windowS={windowS} yScale={y} range={widest(signals)} exportHref={exports.signals(signals)} />
     </div>
   );
 });
 
-export const chart: WidgetKind = {
-  kind: "chart",
+export const chart: WidgetType = {
+  type: "chart",
   label: "Chart",
   description: "Signals over time on one axis; a signal in another unit gets its own axis on the right.",
   category: "readings",
@@ -106,7 +106,7 @@ export const chart: WidgetKind = {
     const same = first ? bindings.signals.filter((s) => isNumeric(s) && s.unit === first.unit) : [];
     return { addresses: same.map((s) => s.address), window_s: 0, y: "page" };
   },
-  titleFor: (config, bindings) => {
+  labelFor: (config, bindings) => {
     const addresses = Array.isArray(config.addresses) ? (config.addresses as unknown[]).map(String) : [];
     const units = new Set(addresses.map((a) => bindings.signalAt(a)?.unit).filter(Boolean));
     return units.size === 1 ? [...units][0] : addresses.length ? `${addresses.length} signals` : "chart";

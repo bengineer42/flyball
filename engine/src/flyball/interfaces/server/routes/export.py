@@ -145,8 +145,8 @@ def writes_table(store: Store, session_id: int, address: str) -> tuple[list[str]
 TICK_FIELDS = (
     "mode",
     "setpoint",
-    "measured",
-    "output",
+    "measured_value",
+    "output_value",
     "expected",
     "correction",
     "delivered_correction",
@@ -168,12 +168,12 @@ def events_table(store: Store, session_id: int) -> tuple[list[str], list[list]]:
         [
             *_stamp(session.start_ns, e.offset_ns),
             e.code,
-            e.source or "",
-            json.dumps(e.detail) if e.detail is not None else "",
+            e.subject or "",
+            json.dumps(e.details) if e.details is not None else "",
         ]
         for e in store.events(session_id)
     ]
-    return [*TIME_COLUMNS, "code", "source", "detail"], rows
+    return [*TIME_COLUMNS, "code", "subject", "details"], rows
 
 
 # endregion
@@ -221,7 +221,7 @@ def export_session(
                     "id": session.id,
                     "start": _stamp(session.start_ns, 0)[1],
                     "end": None if session.end_ns is None else _stamp(session.end_ns, 0)[1],
-                    "version": session.version,
+                    "flyball_version": session.flyball_version,
                     "config": session.config,
                     "hardware": session.hardware,
                     "details": session.details,

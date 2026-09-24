@@ -42,17 +42,19 @@ class Ds18b20(Readable):
 
     temperature = Readout("temperature", quantity=TEMPERATURE, range=(-55.0, 125.0), precision=3)
 
-    def __init__(self, name: str, link: OneWireLink, device: str, label: str | None = None) -> None:
+    def __init__(
+        self, name: str, link: OneWireLink, probe_id: str, label: str | None = None
+    ) -> None:
         super().__init__(name, label)
         self.link = link
-        self.device = device
+        self.probe_id = probe_id
 
     @property
     def config(self) -> Ds18b20Config:
-        return Ds18b20Config(link="", device=self.device)
+        return Ds18b20Config(link="", probe_id=self.probe_id)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
-        temperature = parse_w1_slave(self.link.read(self.device))
+        temperature = parse_w1_slave(self.link.read(self.probe_id))
         yield self.sample(time_ns, temperature=temperature)
 
 
@@ -60,12 +62,12 @@ class Ds18b20Config(DriverConfig[Ds18b20], type="ds18b20"):
     """`driver: ds18b20`: the probe's id under `/sys/bus/w1/devices`."""
 
     link: OneWireLinkConfig | str  # type: ignore[valid-type]
-    device: str
+    probe_id: str
 
     def build(self, name: str, label: str | None = None) -> Ds18b20:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return Ds18b20(name, resolve(self.link), self.device, label=label)
+        return Ds18b20(name, resolve(self.link), self.probe_id, label=label)
 
 
 Ds18b20.config_type = Ds18b20Config  # the config is declared after the device it builds

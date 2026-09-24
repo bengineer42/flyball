@@ -12,6 +12,9 @@ import type { DashboardDocument, DashboardRow, DashboardWithProblems } from "./d
 import { decodeCreationOptions, decodeRequestOptions, encodeCredential } from "./webauthn.js";
 import type {
   AuthInfo,
+  LatchOut,
+  RigEditOut,
+  StopPlan,
   CommandRunOut,
   PasskeyOut,
   PasskeyListOut,
@@ -113,6 +116,12 @@ function describeDetail(detail: unknown): string | undefined {
 
 const enc = encodeURIComponent;
 
+/** A rig edit's options: `base`, the head version the edit was made against (409 if it has moved); `force`, cancel a running program rather than refuse. */
+export interface EditOptions {
+  base?: number;
+  force?: boolean;
+}
+
 export class RigClient {
   constructor(private readonly transport: Transport) {}
 
@@ -204,9 +213,10 @@ export class RigClient {
    * Write values to writable signals under a device as one write, committed
    * at once; keys are names relative to the device (dotted under a
    * namespace: `position.x`), values in each signal's unit. Resolves to the
-   * write state of each signal set, by address. 409 for a signal a
-   * controller drives, a `together` group set in part, or a signal that is
-   * not writable; 404 for a name not under the device.
+   * write state of each signal set, by address; a signal left out keeps its
+   * value. 409 for a signal a controller drives, or one that is not writable
+   * (a readback's refusal names the command that moves it); 503 while a
+   * signal's limit is not known yet; 404 for a name not under the device.
    */
   writeNode(name: string, values: Record<string, number>): Promise<Record<Address, WriteOut>> {
     return this.call({ method: "PUT", path: `/api/devices/${enc(name)}/write`, body: values });
@@ -217,33 +227,48 @@ export class RigClient {
     return this.call({ method: "PUT", path: `/api/signals/${enc(address)}`, body: value });
   }
 
-  /** Build a device on the rig's links and put it on the rig: bound, polling, recorded. 409 for a name in use, 404 for an unknown link or an unresolved bound address, 422 for an unknown driver or a config it refuses. */
-  addDevice(body: NewDevice): Promise<DeviceOut> {
-    return this.call({ method: "POST", path: "/api/devices", body });
+  /**
+   * Add a device to the rig file: a rig edit (see `RigEditOut`). The runner saves a new head version,
+   * stops, and restarts with the device built. 409 for a name in use, a running program (unless
+   * `force`), a stale `base`, or a runner already restarting; 422 for an unknown driver or a config it refuses.
+   */
+  addDevice(body: NewDevice, options: EditOptions = {}): Promise<RigEditOut> {
+    return this.edit("POST", "/api/devices", body, options);
   }
 
-  /** Take a device off the rig with everything that hung off it; 404 if there is none. */
-  removeDevice(name: string): Promise<void> {
-    return this.call({ method: "DELETE", path: `/api/devices/${enc(name)}` });
+  /** Remove a device from the rig file: a rig edit, as `addDevice`. 404 if there is none. */
+  removeDevice(name: string, options: EditOptions = {}): Promise<RigEditOut> {
+    return this.edit("DELETE", `/api/devices/${enc(name)}`, undefined, options);
+  }
+
+  /** A rig edit: validated, saved as the new head version, then the runner stops and restarts on it (202). */
+  private edit(method: "POST" | "DELETE", path: string, body: unknown, { base, force }: EditOptions): Promise<RigEditOut> {
+    const request: Request = { method, path };
+    if (body !== undefined) request.body = body;
+    const query: Record<string, string | number | boolean> = {};
+    if (base !== undefined) query.base = base;
+    if (force) query.force = true;
+    if (Object.keys(query).length) request.query = query;
+    return this.call(request);
   }
 
   // endregion
 
   // region Composition -- links and whole documents; the rig's versions; saving it
 
-  /** Build a link and hold it under `body.name`; 409 if the name is taken, 422 for a bad config. */
-  addLink(body: LinkEntry): Promise<LinkEntry> {
-    return this.call({ method: "POST", path: "/api/links", body });
+  /** Add a link to the rig file: a rig edit, as `addDevice`. 409 if the name is taken, 422 for a bad config. */
+  addLink(body: LinkEntry, options: EditOptions = {}): Promise<RigEditOut> {
+    return this.edit("POST", "/api/links", body, options);
   }
 
-  /** Drop a link no device is built on; 409 while one is. */
-  removeLink(name: string): Promise<void> {
-    return this.call({ method: "DELETE", path: `/api/links/${enc(name)}` });
+  /** Remove a link no device is built on: a rig edit, as `addDevice`; 409 while a device is built on it. */
+  removeLink(name: string, options: EditOptions = {}): Promise<RigEditOut> {
+    return this.edit("DELETE", `/api/links/${enc(name)}`, undefined, options);
   }
 
-  /** Add a document's links, devices and controllers to the running rig, in that order; validated whole before anything is built, so a failure part-way leaves what was built before it. */
-  addDocument(document: Partial<RigDocument> & Record<string, unknown>): Promise<RigDocument> {
-    return this.call({ method: "POST", path: "/api/rig", body: document });
+  /** Add a document's links, devices and controllers to the rig file in one edit, validated whole: a rig edit, as `addDevice`. */
+  addDocument(document: Partial<RigDocument> & Record<string, unknown>, options: EditOptions = {}): Promise<RigEditOut> {
+    return this.edit("POST", "/api/rig", document, options);
   }
 
   /** The running rig as a rig file would build it: links, devices, controllers as they are now. */
@@ -335,6 +360,21 @@ export class RigClient {
     return this.call({ method: "POST", path: "/api/rig/stop", body: reason === undefined ? {} : { reason } });
   }
 
+  /** The stop a Software stop would apply, output by output, and the latch if one holds (`GET /api/rig/stop`). */
+  stopPlan(signal?: AbortSignal): Promise<StopPlan> {
+    return this.get("/api/rig/stop", undefined, signal);
+  }
+
+  /** The latches the rig holds (`GET /api/rig/latches`): the rig stop, and each controller's `on_fault` latch. */
+  latches(signal?: AbortSignal): Promise<LatchOut[]> {
+    return this.get("/api/rig/latches", undefined, signal);
+  }
+
+  /** Let a latch go (`POST /api/rig/reset`): `stop` (the default) or `on_fault:<controller>`. Operate and a person: a service token or a model gets 403. */
+  resetRig(cause?: string): Promise<LatchOut> {
+    return this.call({ method: "POST", path: "/api/rig/reset", body: cause === undefined ? {} : { cause } });
+  }
+
   // endregion
 
   /** How this runner serves: its resolved `runner:` config (`GET /api/runner`). */
@@ -343,12 +383,12 @@ export class RigClient {
   }
 
   /** Ask the runner to stop (409 unless it allows it). */
-  shutdownRunner(): Promise<{ detail: string }> {
+  shutdownRunner(): Promise<{ message: string }> {
     return this.call({ method: "POST", path: "/api/runner/shutdown" });
   }
 
   /** Ask the runner to restart in place: the same command, the rig rebuilt; sockets drop for a few seconds. */
-  restartRunner(): Promise<{ detail: string }> {
+  restartRunner(): Promise<{ message: string }> {
     return this.call({ method: "POST", path: "/api/runner/restart" });
   }
 
@@ -361,9 +401,9 @@ export class RigClient {
     return this.get(`/api/rig/versions/${id}`);
   }
 
-  /** Make the running rig that version again: links, devices and controllers rebuilt to match it; records a version of its own. */
-  restoreVersion(id: number): Promise<RigDocument> {
-    return this.call({ method: "POST", path: `/api/rig/versions/${id}/restore` });
+  /** Restore a version: saves a new version on top with that document (`restored from N`) and restarts the runner on it -- a rig edit, as `addDevice`. */
+  restoreVersion(id: number, options: EditOptions = {}): Promise<RigEditOut> {
+    return this.edit("POST", `/api/rig/versions/${id}/restore`, undefined, options);
   }
 
   /** Write the running rig out. No `path`: the changes since the files were loaded, to the overlay beside them (409 if the rig was not started from a file). A `path`: the whole rig, flattened (422 for a suffix the runner does not write, 409 for one of the loaded files unless `overwrite`). */
@@ -647,10 +687,9 @@ export class RigClient {
     return this.get(`/api/programs/library/${enc(name)}/check`);
   }
 
-  /** Save a version, verbatim in `format`. */
-  saveProgram(name: string, format: ProgramFormat, body: string, label?: string, notes?: unknown): Promise<ProgramRow> {
+  /** Save a version, verbatim in `format`, with what the author says about it (`notes`: text or any JSON). */
+  saveProgram(name: string, format: ProgramFormat, body: string, notes?: unknown): Promise<ProgramRow> {
     const payload: Record<string, unknown> = { format, body };
-    if (label !== undefined) payload.label = label;
     if (notes !== undefined) payload.notes = notes;
     return this.call({ method: "PUT", path: `/api/programs/library/${enc(name)}`, body: payload });
   }

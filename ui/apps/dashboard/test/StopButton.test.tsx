@@ -33,7 +33,7 @@ const OPERATOR: AuthInfo = {
 const READ_ONLY: AuthInfo = {
   v: 2,
   shape: "password",
-  scheme: "session",
+  scheme: "login",
   user: { id: "local:viewer", name: "viewer", kind: "human" },
   verbs: ["read"],
   anonymous: "read",
@@ -82,10 +82,10 @@ describe("StopButton shows iff this caller holds OPERATE", () => {
 describe("StopButton reports what the stop did, or why it failed", () => {
   it("confirms, then says what each device did and that the rig is latched", async () => {
     const report = {
-      at_ns: 1,
-      actor: { sub: "local:console", sid: "s1", kind: "human", via: "http", detail: "" },
+      at_utc_ns: 1,
+      actor: { principal: "local:console", kind: "human", via: "http", sid: "s1", message: "" },
       reason: "",
-      devices: { heater: { state: "stopped", detail: "", written: { "heater.power": 0 } }, fan: { state: "unchanged", detail: "keep", kept: { "fan.speed": 40 } }, valve: { state: "failed", detail: "bus timeout" } },
+      devices: { heater: { state: "stopped", message: "", written: { "heater.power": 0 } }, fan: { state: "unchanged", message: "keep", kept: { "fan.speed": 40 } }, valve: { state: "failed", message: "bus timeout" } },
       program_interrupted: false,
       controllers_manual: [],
       interim: false,

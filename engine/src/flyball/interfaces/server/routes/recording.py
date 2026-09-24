@@ -29,7 +29,7 @@ class StartRecording(BaseModel):
     """What to note about the session; ``details`` is free-form (a name, notes, tags)."""
 
     details: Any = None
-    version: str | None = None
+    flyball_version: str | None = None
     config: Any = None
     hardware: Any = None
     include_ns: int | None = Field(

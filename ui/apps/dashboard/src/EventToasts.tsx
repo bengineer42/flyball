@@ -1,9 +1,13 @@
 import { Alert, IconButton, Snackbar } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
+import { UnknownIcon } from "./icons.js";
 import { describeEventCode, describeSubject, type RigEvent } from "@flyball/client";
 
-/** `error` toasts stay red; `warning` (the lowest `useUnreadEvents` toasts) reads as a caution, not a failure. */
-const tone = (severity: RigEvent["severity"]) => (severity === "error" ? "error" : "warning");
+/**
+ * `error` toasts stay red; `warning` (the lowest `useUnreadEvents` toasts) reads as a caution, not a failure;
+ * `band_unknown` (a band that cannot be judged, whatever its severity) is never red: information, with its own icon.
+ */
+const tone = (e: RigEvent) => (e.code === "band_unknown" ? "info" : e.severity === "error" ? "error" : "warning");
 
 /**
  * One WARNING+ event at a time, wherever the viewer is in the app: mounted once at the
@@ -22,7 +26,8 @@ export function EventToasts({ toasts, onDismiss }: { toasts: RigEvent[]; onDismi
     >
       {current && (
         <Alert
-          severity={tone(current.severity)}
+          severity={tone(current)}
+          icon={current.code === "band_unknown" ? <UnknownIcon fontSize="inherit" /> : undefined}
           variant="filled"
           sx={{ maxWidth: 420 }}
           action={

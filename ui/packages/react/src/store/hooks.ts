@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { alarmLevel, deviceOf, staleAfterS, staleThresholdS, type Address, type ActivityOut, type AlarmLevel, type ControllerOut, type DeviceRunOut, type Event, type Freshness, type SampleOut, type SignalOut, type Value, type WriteOut } from "@flyball/client";
+import { alarmLevel, type Address, type ActivityOut, type AlarmLevel, type Condition, type ControllerOut, type DeviceRunOut, type Event, type SampleOut, type SignalOut, type Value, type WriteOut } from "@flyball/client";
 import { useTelemetry } from "../provider.js";
-import type { SocketStream, StoreStream, StreamStatus, TelemetryStore } from "./telemetry.js";
+import type { SignalReading, SocketStream, StoreStream, StreamStatus, TelemetryStore } from "./telemetry.js";
 
 /** How often a readout, tile or list is allowed to re-render on live data. */
 export const READOUT_MS = 250;
 
 /**
  * A signal's newest point (`t` seconds since the epoch on the rig's clock,
- * `v` in the signal's unit), re-rendering only the calling component and
+ * `v` in the signal's unit, null when that reading had none -- `useReading`
+ * says why), re-rendering only the calling component and
  * at most four times a second however fast the samples come. Only a
  * publishing signal ever has one; a setting is read through `useRig().read`.
  */
-export function useSignal(address: Address | undefined): { t: number; v: number } | undefined {
+export function useSignal(address: Address | undefined): { t: number; v: number | null } | undefined {
   const store = useTelemetry();
   const subscribe = useCallback((cb: () => void) => (address === undefined ? () => undefined : store.subscribeLatest(address, cb, READOUT_MS)), [store, address]);
   useSyncExternalStore(subscribe, () => (address === undefined ? 0 : store.version(address)));
@@ -30,6 +31,18 @@ export function useLatestValue(address: Address | undefined): { t: number; value
   const subscribe = useCallback((cb: () => void) => (address === undefined ? () => undefined : store.subscribeLatest(address, cb, READOUT_MS)), [store, address]);
   useSyncExternalStore(subscribe, () => (address === undefined ? 0 : store.version(address)));
   return address === undefined ? undefined : store.latestValue(address);
+}
+
+/**
+ * A signal's newest reading with its quality: `value` null with `quality`/`reason` saying why,
+ * the `caveats` on a usable value, the last usable value while there is none. Re-renders only
+ * the calling component, at most four times a second.
+ */
+export function useReading(address: Address | undefined): SignalReading | undefined {
+  const store = useTelemetry();
+  const subscribe = useCallback((cb: () => void) => (address === undefined ? () => undefined : store.subscribeLatest(address, cb, READOUT_MS)), [store, address]);
+  useSyncExternalStore(subscribe, () => (address === undefined ? 0 : store.version(address)));
+  return address === undefined ? undefined : store.reading(address);
 }
 
 /**
@@ -180,7 +193,7 @@ export function useStreamStatus(): { streams: StreamStatus[]; byStream: Readonly
   return useMemo(() => ({ streams: store.openStatuses(), byStream: store.status() }), [store, version]);
 }
 
-// A shared one-second tick for anything that ages: stale detection needs a clock, not a sample.
+// A shared one-second tick for the rig's clock (`useNowS`).
 const tickers = new Set<() => void>();
 let tickerId: ReturnType<typeof setInterval> | null = null;
 function subscribeTick(cb: () => void): () => void {
@@ -197,9 +210,11 @@ function subscribeTick(cb: () => void): () => void {
 
 /**
  * The rig's clock in seconds: the newest sample time across every signal,
- * or the wall clock before any sample has arrived. A simulated rig runs its
- * clock ahead of the wall (often far ahead), so this is the right anchor for
- * ageing a timestamp against — not `Date.now()`. Re-renders once a second.
+ * or the rig's own clock carried forward from `/api/clock`, or the wall
+ * clock before either is known. A simulated rig runs its clock ahead of the
+ * wall (often far ahead), so this is the right anchor for a timestamp's age
+ * or a ramp's end -- not `Date.now()`. Re-renders once a second. Staleness is
+ * not judged against it: the rig pushes a `stale` reading itself.
  */
 export function useNowS(): number {
   const store = useTelemetry();
@@ -208,105 +223,72 @@ export function useNowS(): number {
   return store.nowS() ?? Date.now() / 1000;
 }
 
-/**
- * Whether a signal is stale, and by how much, in rig time: its newest
- * point against the newest sample anywhere on the rig (a simulated clock
- * runs ahead of the wall, so `Date.now()` would be wrong). The threshold is
- * `max(3 × period, 5 s)` with the period of the signal's device from
- * `/ws/devices` (`DeviceOut.run.period_s`), unless `periodS` is given.
- * Re-renders once a second only while stale, and once when it turns stale
- * or fresh.
- */
-/**
- * The rig's band alarm on a signal (`"ok"`, `"warn"`, `"alarm"`), kept live from its conditions; `undefined`
- * until the rig's conditions have been read once. Pass it to `alarmLevel` so a tile shows what the rig
- * says rather than judging the value against the bands itself.
- */
-export function useBandLevel(address: Address | undefined): "ok" | "warn" | "alarm" | undefined {
+/** Keep the rig's conditions read (`/api/health` now and every 30 s, the events' edges between) while mounted with `on`. */
+function useSeededConditions(on: boolean): void {
   const store = useTelemetry();
   useEffect(() => {
-    if (address === undefined) return;
+    if (!on) return;
     store.seedBands();
     const id = window.setInterval(() => store.seedBands(), 30_000);
     return () => window.clearInterval(id);
-  }, [store, address]);
+  }, [store, on]);
+}
+
+/**
+ * The rig's band condition on a signal (`"ok"`, `"warn"`, `"alarm"`, `"unknown"` for `band_unknown`),
+ * kept live from its conditions; `undefined` until the rig's conditions have been read once. Pass it
+ * to `alarmLevel` so a tile shows what the rig says rather than judging the value against the bands itself.
+ */
+export function useBandLevel(address: Address | undefined): "ok" | "warn" | "alarm" | "unknown" | undefined {
+  const store = useTelemetry();
+  useSeededConditions(address !== undefined);
   const subscribe = useCallback((cb: () => void) => (address === undefined ? () => undefined : store.subscribeEvents(cb, 250)), [store, address]);
   return useSyncExternalStore(subscribe, () => (address === undefined ? undefined : store.bandOf(address)));
 }
 
-export function useFreshness(address: Address | undefined, periodS?: number | null): Freshness {
+const NO_CONDITIONS: Condition[] = [];
+
+/** Every condition the rig holds on `subject` (a controller's `frozen`, a signal's band), kept live; empty until read. */
+export function useConditions(subject: string | undefined): Condition[] {
   const store = useTelemetry();
-  const device = address === undefined ? undefined : deviceOf(address);
-  const subscribe = useCallback(
-    (cb: () => void) => {
-      const stopTick = subscribeTick(cb);
-      const stopKey = address === undefined ? () => undefined : store.subscribeLatest(address, cb, READOUT_MS);
-      const stopRun = periodS !== undefined || device === undefined ? () => undefined : store.subscribeDevices(device, cb, 1000);
-      return () => {
-        stopTick();
-        stopKey();
-        stopRun();
-      };
-    },
-    [store, address, device, periodS],
-  );
-  const period = () => (periodS !== undefined ? periodS : address === undefined ? undefined : store.periodOf(address));
-  // The snapshot is the stale age in whole seconds, or -1 while fresh: only that changing re-renders.
-  const age = useSyncExternalStore(subscribe, () => {
-    const last = address === undefined ? undefined : store.lastSampleS(address);
-    const now = store.clockS(); // `atS` in playback: a point just before it is fresh, whatever the live clock says
-    if (last === undefined || now === null) return -1;
-    const ageS = now - last;
-    const limit = staleThresholdS(period());
-    return limit !== null && ageS > limit ? Math.round(ageS) : -1;
-  });
-  const last = address === undefined ? null : (store.lastSampleS(address) ?? null);
-  const now = store.clockS();
-  // Kept as given: `null` (not read on a period, never stale by age) is not `undefined` (not known yet).
-  const resolved = period();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => ({ periodS: resolved, lastSampleS: last, nowS: age >= 0 && last !== null ? last + age : now }), [resolved, age, address]);
+  useSeededConditions(subject !== undefined);
+  const subscribe = useCallback((cb: () => void) => (subject === undefined ? () => undefined : store.subscribeEvents(cb, 250)), [store, subject]);
+  return useSyncExternalStore(subscribe, () => (subject === undefined ? NO_CONDITIONS : store.conditionsOf(subject)));
 }
 
 export type AlarmSummary = Record<AlarmLevel, number>;
 
 /**
- * How many of `signals` are ok, warning, in alarm or stale right now, for
- * a page-level count, the stale threshold from each signal's device
- * (`/ws/devices`); re-renders only when a count changes, checked at most
- * once a second.
+ * How many of `signals` are ok, warning, in alarm, of unknown band or stale right now, for a
+ * page-level count: the rig's band conditions and the qualities of their newest readings;
+ * re-renders only when a count changes, checked at most once a second.
  */
 export function useAlarmSummary(signals: ReadonlyArray<Pick<SignalOut, "address" | "warning" | "alarm">>): AlarmSummary {
   const store = useTelemetry();
   const ident = signals.map((s) => s.address).join("\n");
   const subscribe = useCallback(
     (cb: () => void) => {
-      const stopTick = subscribeTick(cb);
       const stopKeys = store.subscribeTrace(ident ? ident.split("\n") : [], cb, 1000);
-      const stopRuns = ident ? store.subscribeDevices(null, cb, 1000) : () => undefined;
       // The rig's band alarms: read once whole, then kept by the events' edges.
       const stopBands = ident ? store.subscribeEvents(cb, 1000) : () => undefined;
       if (ident) store.seedBands();
       return () => {
-        stopTick();
         stopKeys();
-        stopRuns();
         stopBands();
       };
     },
     [store, ident],
   );
   const snapshot = useSyncExternalStore(subscribe, () => {
-    const counts: AlarmSummary = { ok: 0, warn: 0, alarm: 0, stale: 0 };
-    const now = store.clockS();
+    const counts: AlarmSummary = { ok: 0, warn: 0, alarm: 0, unknown: 0, stale: 0 };
     for (const s of signals) {
-      const point = store.latest(s.address);
-      counts[alarmLevel(point?.v, s, { periodS: store.periodOf(s.address), lastSampleS: store.lastSampleS(s.address) ?? null, nowS: now }, store.bandOf(s.address))]++;
+      const r = store.reading(s.address);
+      counts[alarmLevel(typeof r?.value === "number" ? r.value : null, s, store.bandOf(s.address), r?.quality)]++;
     }
-    return `${counts.ok}:${counts.warn}:${counts.alarm}:${counts.stale}`;
+    return `${counts.ok}:${counts.warn}:${counts.alarm}:${counts.unknown}:${counts.stale}`;
   });
   return useMemo(() => {
-    const [ok, warn, alarm, stale] = snapshot.split(":").map(Number) as [number, number, number, number];
-    return { ok, warn, alarm, stale };
+    const [ok, warn, alarm, unknown, stale] = snapshot.split(":").map(Number) as [number, number, number, number, number];
+    return { ok, warn, alarm, unknown, stale };
   }, [snapshot]);
 }

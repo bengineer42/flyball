@@ -27,7 +27,7 @@ by_type:
   - signal: temperature
     unit: °C
     dimension: Temperature
-  scd40:
+  scd4x:
   - signal: co2
     unit: ppm
     dimension: Fraction

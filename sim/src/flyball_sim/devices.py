@@ -74,7 +74,7 @@ class PlantConfig(Config[Plant], type="sim_plant"):
 
     model: Literal["lag", "integrator", "fopdt"] = "lag"
     tau_s: float = Field(default=10.0, gt=0, description="Time constant (lag, fopdt).")
-    dead_s: float = Field(default=0.0, ge=0, description="Dead time (fopdt).")
+    dead_time_s: float = Field(default=0.0, ge=0, description="Dead time (fopdt).")
     gain: float = 1.0
     leak: float = Field(default=0.0, ge=0, description="Drain rate (integrator).")
     ambient: float = Field(
@@ -101,7 +101,7 @@ class PlantConfig(Config[Plant], type="sim_plant"):
                 plant = Integrator(self.gain, self.leak, self.initial)
             case "fopdt":
                 plant = Fopdt(
-                    self.tau_s, self.dead_s, self.gain, self.initial, ambient=self.ambient
+                    self.tau_s, self.dead_time_s, self.gain, self.initial, ambient=self.ambient
                 )
         return Noisy(plant, self.noise, self.seed)
 
@@ -124,7 +124,7 @@ class PlantConfig(Config[Plant], type="sim_plant"):
             case "integrator", Integrator():
                 inner.gain, inner.leak = self.gain, self.leak
             case "fopdt", Fopdt():
-                inner.dead_s = self.dead_s
+                inner.dead_time_s = self.dead_time_s
                 lag = inner._lag
                 lag.tau_s, lag.gain, lag.ambient = self.tau_s, self.gain, self.ambient
             case _:

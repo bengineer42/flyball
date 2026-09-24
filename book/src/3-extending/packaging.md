@@ -38,7 +38,12 @@ def register(catalog: Catalogs) -> None:
 Registering is explicit, not a side effect of the module being imported:
 `flyball-runner` builds one [`Catalogs`](../6-internals/decisions.md), calls
 `discover()` -- which walks every installed package's entry point and calls
-its `register(catalog)` -- once at startup. After `pip install`, its tags
+its `register(catalog)` -- once at startup. A package whose module does not
+import, has no `register`, or raises in it (registering a type another
+package already has, for instance) is left out whole: the runner logs an
+error naming the entry point and why, `Catalogs.discovery_errors` holds the
+same, and every other package loads. A rig that uses one of that package's
+types then fails as for any unknown type. After `pip install`, its tags
 are valid in any rig file, `flyball rig check` and `flyball rig schema`
 know them, and the UI's Add-device form offers them. `flyball-linux` is the
 first such package; `examples/humidity` the second (a whole application:
@@ -49,8 +54,9 @@ what the class produces. A link is `catalog.register_link(...)` instead of
 `register_device`; a law, a feedforward or a setpoint generator has its own
 `register_law`/`register_feedforward`/`register_generator`; a program step
 (a `Step` subclass) has `register_step`. A registered step is usable in a
-program straight away. A registered law, feedforward or generator is not
-yet selectable by type in a rig file or a request (see
+program straight away, and a registered generator in a controller's `at` or
+a profile's segments. A registered law or feedforward is not yet selectable
+by type in a rig file or a request (see
 [Laws](laws.md#what-subclassing-generates)).
 
 ## Inside the application

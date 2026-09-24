@@ -36,14 +36,29 @@ func TestTokensPathForDaemonConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// frontwire.DaemonDir resolves data_dir against the process's cwd, the
-	// same way flyballd itself does (cmd/flyballd/main.go), so this and a
-	// running flyballd --config flyballd.yaml agree whatever directory
-	// each is run from -- not the (relative, so cwd-fragile) path this
-	// used to return.
-	want := filepath.Join(mustAbs(t, "mydata"), "front", "tokens.json")
+	// A relative data_dir is under flyballd.yaml's directory, as flyballd
+	// itself resolves it (config.LoadDaemonConfig), so this and a running
+	// flyballd --config flyballd.yaml agree whatever directory each is run
+	// from.
+	want := filepath.Join(dir, "mydata", "front", "tokens.json")
 	if path != want {
 		t.Errorf("path = %q, want %q", path, want)
+	}
+}
+
+// With no data_dir, the tokens are in flyballd's state directory:
+// $STATE_DIRECTORY under systemd, else /var/lib/flyball.
+func TestTokensPathForDaemonConfigStateDirectory(t *testing.T) {
+	daemonYAML := filepath.Join(t.TempDir(), "flyballd.yaml")
+	os.WriteFile(daemonYAML, []byte("listen: 127.0.0.1:9000\n"), 0o644)
+	state := t.TempDir()
+	t.Setenv("STATE_DIRECTORY", state)
+	if path, err := tokensPathFor(daemonYAML, false); err != nil || path != filepath.Join(state, "front", "tokens.json") {
+		t.Errorf("path = %q, %v, want under %s", path, err, state)
+	}
+	t.Setenv("STATE_DIRECTORY", "")
+	if path, err := tokensPathFor(daemonYAML, false); err != nil || path != "/var/lib/flyball/front/tokens.json" {
+		t.Errorf("path = %q, %v, want /var/lib/flyball/front/tokens.json", path, err)
 	}
 }
 
@@ -60,19 +75,10 @@ func TestTokensPathForDaemonConfigWithoutManifestsDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(mustAbs(t, "mydata"), "front", "tokens.json")
+	want := filepath.Join(dir, "mydata", "front", "tokens.json")
 	if path != want {
 		t.Errorf("path = %q, want %q", path, want)
 	}
-}
-
-func mustAbs(t *testing.T, p string) string {
-	t.Helper()
-	abs, err := filepath.Abs(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return abs
 }
 
 func TestParseExpiresDays(t *testing.T) {
@@ -327,11 +333,13 @@ func TestTokensPathForFrontOnlyFlyballdYAML(t *testing.T) {
 	daemonYAML := filepath.Join(t.TempDir(), "flyballd.yaml")
 	os.WriteFile(daemonYAML, []byte("listen: 0.0.0.0:9443\nauth: password\npassword: $scrypt$x\n"), 0o644)
 
+	state := t.TempDir()
+	t.Setenv("STATE_DIRECTORY", state)
 	path, err := tokensPathFor(daemonYAML, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(mustAbs(t, "data"), "front", "tokens.json")
+	want := filepath.Join(state, "front", "tokens.json")
 	if path != want {
 		t.Errorf("path = %q, want %q (the daemon's default data_dir)", path, want)
 	}
@@ -346,6 +354,7 @@ func TestTokenDaemonFlag(t *testing.T) {
 	conf := filepath.Join(dir, "front.yaml")
 	os.WriteFile(conf, []byte("listen: 0.0.0.0:9443\nauth: password\n"), 0o644)
 	t.Chdir(dir)
+	t.Setenv("STATE_DIRECTORY", filepath.Join(dir, "data")) // no data_dir: the state directory
 
 	if path, _ := tokensPathFor(conf, false); strings.HasPrefix(path, dir) {
 		t.Fatalf("without --daemon a front-only file under another name is a rig file; got %q", path)

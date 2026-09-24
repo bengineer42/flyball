@@ -1,3 +1,4 @@
+from .actor import Actor
 from .device import (
     Access,
     AddressNotFoundError,
@@ -55,6 +56,7 @@ from .typing import (
 
 __all__ = [
     "Access",
+    "Actor",
     "AddressNotFoundError",
     "Arbiter",
     "Clock",

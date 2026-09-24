@@ -235,19 +235,19 @@ class TestParsing:
             "controllers": {
                 "heaters.heater1": {
                     "measured": "furnace.zone1",
-                    "law": {"type": "PI", "kp": 100, "ki": 0.15, "tt": 30},
+                    "law": {"type": "pi", "kp": 100, "ki": 0.15, "tt_s": 30},
                 },
                 "heaters.heater2": {
                     "measured": "furnace.zone2",
-                    "law": {"type": "PI", "kp": 100, "ki": 0.15, "tt": 30},
-                    "default": True,
+                    "law": {"type": "pi", "kp": 100, "ki": 0.15, "tt_s": 30},
+                    "is_default": True,
                 },
             },
         }
         config = RigConfig.model_validate(document)
         assert set(config.devices) == {"furnace", "heaters"}
         assert set(config.controllers) == {"heaters.heater1", "heaters.heater2"}
-        assert config.controllers["heaters.heater2"].default is True
+        assert config.controllers["heaters.heater2"].is_default is True
 
     def test_the_plan_s_humidity_example_parses(self, sensors_tag, blender_tag):
         document = {
@@ -266,8 +266,8 @@ class TestParsing:
             "controllers": {
                 "blender.humidity": {
                     "measured": "hum_sensors.chamber.humidity",
-                    "law": {"type": "PI", "kp": 0.8, "ki": 0.02, "tt": 60},
-                    "default": True,
+                    "law": {"type": "pi", "kp": 0.8, "ki": 0.02, "tt_s": 60},
+                    "is_default": True,
                 }
             },
         }
@@ -297,6 +297,11 @@ class TestChecks:
         with pytest.raises(ValueError, match="device 'x': driver 'sim_plant' is not registered"):
             RigConfig.model_validate({"devices": {"x": {"driver": "sim_plant"}}})
 
+    def test_a_driver_config_it_refuses_is_refused_before_build(self, daq_tag):
+        """The driver's own fields are validated with the file, not first at build."""
+        with pytest.raises(ValueError, match="device 'f': zones: Input should be a valid integer"):
+            RigConfig.model_validate({"devices": {"f": {"driver": daq_tag, "zones": "many"}}})
+
     def test_a_reserved_device_name_is_refused(self, daq_tag):
         with pytest.raises(ConflictError, match="Name 'schema' is reserved as a route segment"):
             RigConfig.model_validate({"devices": {"schema": {"driver": daq_tag}}})
@@ -305,8 +310,8 @@ class TestChecks:
         document = {
             "devices": {"f": {"driver": daq_tag}, "h": {"driver": heaters_tag}},
             "controllers": {
-                "h.heater1": {"measured": "f.zone1", "default": True},
-                "h.heater2": {"measured": "f.zone2", "default": True},
+                "h.heater1": {"measured": "f.zone1", "is_default": True},
+                "h.heater2": {"measured": "f.zone2", "is_default": True},
             },
         }
         with pytest.raises(ValueError, match="only one controller can be the default"):
@@ -413,7 +418,7 @@ class TestBuild:
             "controllers": {
                 "blender.humidity": {
                     "measured": "hum_sensors.chamber.humidity",
-                    "law": {"type": "PI", "kp": 0.8, "ki": 0.02},
+                    "law": {"type": "pi", "kp": 0.8, "ki": 0.02},
                 }
             },
         }
@@ -425,7 +430,7 @@ class TestBuild:
         assert controller.output_signal is target
         assert controller.measured_signal is rig.resolve("hum_sensors.chamber.humidity")
         dry = rig.resolve("hum_sensors.dry.humidity")
-        assert rig.devices["blender"].bound["dry"].source is dry
+        assert rig.devices["blender"].bound["dry"].follows is dry
 
     def test_build_refuses_a_controller_on_an_unknown_address(self, daq_tag):
         document = {
@@ -453,7 +458,7 @@ class TestBuild:
                 "heaters": {"driver": heaters_tag, "zones": 2, "limits": [2500, 6000]},
             },
             "controllers": {
-                "heaters.heater1": {"measured": "furnace.zone1", "law": {"type": "PI", "kp": 1.0}}
+                "heaters.heater1": {"measured": "furnace.zone1", "law": {"type": "pi", "kp": 1.0}}
             },
         }
         rig = RigConfig.model_validate(document).build(start=False)

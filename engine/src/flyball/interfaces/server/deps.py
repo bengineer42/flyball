@@ -358,9 +358,9 @@ def get_catalog() -> Catalogs:
 
     `set_catalog`/`current_catalog` are `flyball.model.catalog`'s, re-exported
     here (not a second global) so a route can depend on them the same way it
-    depends on `RigDep`/`current_drivers_dir` -- `runner.py` calls
-    `set_catalog(Catalogs().discover())` once at startup, same lifetime as
-    `set_rig`.
+    depends on `RigDep`/`current_drivers_dir` -- the runner discovers one
+    and calls `set_catalog` with it once at startup (`ensure_discovered()`
+    does both), same lifetime as `set_rig`.
     """
     catalog = current_catalog()
     if catalog is None:

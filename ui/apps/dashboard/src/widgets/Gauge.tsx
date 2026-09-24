@@ -1,5 +1,5 @@
 import { memo, useRef } from "react";
-import { Gauge, gaugeKindFor, useBandLevel, useFreshness, useSignal, type GaugeKind } from "@flyball/react";
+import { Gauge, gaugeKindFor, useBandLevel, useReading, type GaugeKind } from "@flyball/react";
 import { alarmLevel, deviceOf, signalTitle } from "@flyball/client";
 import { useBindings, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
@@ -7,7 +7,7 @@ import { isNumeric } from "../valueReadout.js";
 import { Missing } from "./Missing.js";
 import { signalSchema, SELECTS } from "./schema.js";
 import { bodyPx } from "./size.js";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 const KINDS: Array<{ const: string; title: string }> = [
   { const: "auto", title: "by unit" },
@@ -26,11 +26,11 @@ const GaugeWidget = memo(function GaugeWidget({ config, widget }: WidgetComponen
   const address = String(config.address ?? "");
   const signal = bindings.signalAt(address);
   // From the store: this tile alone re-renders on its signal, at most four times a second.
-  const value = useSignal(signal ? address : undefined)?.v;
-  const fresh = useFreshness(signal ? address : undefined);
+  const reading = useReading(signal ? address : undefined);
+  const value = typeof reading?.value === "number" ? reading.value : null;
   const band = useBandLevel(signal ? address : undefined);
-  const level = signal ? alarmLevel(value, signal, fresh, band) : undefined;
-  // The frame's dot and border carry the level; the gauge itself draws no stale border here (`fresh` stays for the footer age).
+  const level = signal ? alarmLevel(value, signal, band, reading?.quality) : undefined;
+  // The frame's dot and border carry the level; the gauge itself draws no stale border here (its footer says why there is no value).
   useWidgetChrome(signal ? { severity: level } : null);
   if (!signal) return <Missing what="signal" name={address} />;
   if (!isNumeric(signal)) return <Missing what="signal" name={address} hint="A gauge needs a numeric signal; this one is not." />;
@@ -39,13 +39,13 @@ const GaugeWidget = memo(function GaugeWidget({ config, widget }: WidgetComponen
   // The number under the drawing: 1.3em ≈ 17px line plus the gap.
   return (
     <div ref={host} className={`fb-fill fb-gauge-host fb-gauge-host-${kind} fb-alarm-${level}`}>
-      <Gauge signal={signal} value={value} kind={kind} height={kind === "bar" ? 14 : Math.max(48, height - 26)} fresh={fresh} band={band} />
+      <Gauge signal={signal} value={value} kind={kind} height={kind === "bar" ? 14 : Math.max(48, height - 26)} reading={reading} band={band} />
     </div>
   );
 });
 
-export const gauge: WidgetKind = {
-  kind: "gauge",
+export const gauge: WidgetType = {
+  type: "gauge",
   label: "Gauge",
   description: "One signal as a picture: a dial, bar, thermometer or tank with its warn and alarm zones.",
   category: "readings",
@@ -63,7 +63,7 @@ export const gauge: WidgetKind = {
   }),
   uiSchema: { ...SELECTS, kind: { "ui:widget": "select" } },
   defaultConfig: (bindings) => ({ address: bindings.signals.find(isNumeric)?.address ?? "", kind: "auto" }),
-  titleFor: (config, bindings) => {
+  labelFor: (config, bindings) => {
     const address = String(config.address ?? "");
     const s = bindings.signalAt(address);
     return s ? `${bindings.deviceLabel(deviceOf(address))} · ${signalTitle(s, bindings.devices)}` : address;

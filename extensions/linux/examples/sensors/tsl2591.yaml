@@ -29,7 +29,7 @@ devices:
     label: Light
     poll_s: 1
     link: i2c1
-    address: 0x29
+    i2c_address: 0x29
     registers:
       enable: { address: 0xA0, length: 1, unit: "1", write: true }   # PON|AEN = 0x13
       config: { address: 0xA1, length: 1, unit: "1", write: true }   # AGAIN=1x, ATIME=100ms = 0x00

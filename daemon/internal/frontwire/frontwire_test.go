@@ -32,7 +32,7 @@ func TestDecodeReadsEveryKey(t *testing.T) {
 	c, err := Decode(map[string]any{
 		"listen": "0.0.0.0:8443", "auth": "password", "url": "https://pi.lab:8443",
 		"tls":      map[string]any{"cert": "/c.pem", "key": "/k.pem"},
-		"password": "$scrypt$x", "anonymous": "read", "session": "2d",
+		"password": "$scrypt$x", "anonymous": "read", "login": "2d",
 		"trusted_proxies": []any{"10.0.0.1"},
 		"proxy":           map[string]any{"preset": "authelia", "from": "unix", "grants": map[string]any{"all": []any{"alice"}}},
 	})
@@ -40,7 +40,7 @@ func TestDecodeReadsEveryKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c.Listen != "0.0.0.0:8443" || c.Auth != "password" || c.TLS == nil || c.TLS.Cert != "/c.pem" ||
-		c.Anonymous != "read" || c.Session != "2d" || len(c.TrustedProxies) != 1 ||
+		c.Anonymous != "read" || c.Login != "2d" || len(c.TrustedProxies) != 1 ||
 		c.Proxy == nil || c.Proxy.Preset != "authelia" || len(c.Proxy.From) != 1 || c.Proxy.Grants["all"][0] != "alice" {
 		t.Fatalf("decoded %+v", c)
 	}

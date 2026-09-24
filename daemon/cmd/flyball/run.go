@@ -22,6 +22,7 @@ import (
 	"flyballd/internal/endpoint/frontdir"
 	"flyballd/internal/front"
 	"flyballd/internal/frontwire"
+	"flyballd/internal/names"
 )
 
 // runDirect is `flyball run RIG-FILE [RIG-FILE...] [--listen ADDR] [--uv]
@@ -161,6 +162,7 @@ func run(args []string, sigs <-chan os.Signal) error {
 	if name == "" {
 		name = strings.TrimSuffix(filepath.Base(rig), filepath.Ext(rig))
 	}
+	name = names.Canonical(name) // as the runner names it, and as a scope names it (D-079)
 	fo := frontwire.Options(plan, proxy, audit, state, logger)
 	fo.Route = front.SingleRig(front.Rig{Root: "", Name: name, Target: s.target})
 	f := front.New(fo)

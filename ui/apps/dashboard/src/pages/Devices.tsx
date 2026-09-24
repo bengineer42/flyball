@@ -24,13 +24,15 @@ import { Form as MuiForm } from "@rjsf/mui";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useAuth } from "../auth.js";
-import { DevicePanel, DeviceSignals, SchemaForm, useCommands, useControllers, useDeviceRuns, useDeviceSchema, useRig, useRigDocument, useRigFileSchema, type QueryState } from "@flyball/react";
-import { describeController, describeDevice, deviceOf, humanise, RigError, type DeviceOut, type InputOut, type JsonSchema, type NewDevice, type RigDocument } from "@flyball/client";
+import { DevicePanel, DeviceSignals, SchemaForm, useCommands, useControllers, useDeviceRuns, useDeviceSchema, useQuery, useRig, useRigDocument, useRigFileSchema, type QueryState } from "@flyball/react";
+import { describeController, describeDevice, describeQuality, deviceOf, humanise, RigError, withUnit, type DeviceOut, type InputOut, type JsonSchema, type NewDevice, type RigDocument, type RigEditOut, type ValueSourceOut } from "@flyball/client";
 import { DeviceSummaryCard, SectionHead, StateBlock } from "../cards.js";
 import { PAGE_ICONS } from "../icons.js";
 import { hashFor, hrefFor } from "../router.js";
 import { useRecordingExports } from "../model.js";
 import { Confirm } from "../Confirm.js";
+import { confirmLevel } from "../confirmLevels.js";
+import { RESTART_TEXT, useRigEdit } from "../rigEdit.js";
 import { Crumbs } from "./Readings.js";
 import { PageBar } from "../PageBar.js";
 import { deviceDrivers, linkKinds, withLinkSelect, TYPE_HIDDEN } from "../rigForms.js";
@@ -38,23 +40,30 @@ import type { ChartSettings } from "../YScaleSelect.js";
 
 const detail = (e: unknown) => (e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e));
 
-/** One `{input, address}` row, freely typed: what a device declares as its inputs is not known before it is built. */
+/** One `{input, address}` row, freely typed: what a device declares as its inputs is not known before it is built. `address` may be a number instead: a constant binding. */
 interface InputRow {
   input: string;
   address: string;
 }
+
+/** A row's value as the rig file takes it: a number binds the input to that constant, anything else is an address. */
+export const inputValue = (text: string): string | number => {
+  const t = text.trim();
+  const n = Number(t);
+  return t !== "" && Number.isFinite(n) ? n : t;
+};
 
 function InputRows({ rows, onChange }: { rows: InputRow[]; onChange(rows: InputRow[]): void }) {
   const set = (i: number, patch: Partial<InputRow>) => onChange(rows.map((r, j) => (i === j ? { ...r, ...patch } : r)));
   return (
     <Stack spacing={1}>
       <Typography variant="body2" color="text.secondary">
-        Inputs (optional): the input this device follows, by its name, and the signal address it reads.
+        Inputs (optional): the input this device follows, by its name, and the signal address it reads, or a number to hold it at.
       </Typography>
       {rows.map((row, i) => (
         <Stack key={i} direction="row" spacing={1} alignItems="center">
           <TextField size="small" label="input" value={row.input} onChange={(e) => set(i, { input: e.target.value })} sx={{ flex: 1 }} />
-          <TextField size="small" label="address" value={row.address} onChange={(e) => set(i, { address: e.target.value })} placeholder="device.signal" sx={{ flex: 2 }} />
+          <TextField size="small" label="address or number" value={row.address} onChange={(e) => set(i, { address: e.target.value })} placeholder="device.signal or 36.5" sx={{ flex: 2 }} />
           <IconButton aria-label={`remove input row ${i + 1}`} size="small" onClick={() => onChange(rows.filter((_, j) => j !== i))}>
             <DeleteOutlineIcon fontSize="small" />
           </IconButton>
@@ -67,17 +76,20 @@ function InputRows({ rows, onChange }: { rows: InputRow[]; onChange(rows: InputR
   );
 }
 
-/** Name, a driver from the rig schema, that driver's config as a form (`link` offered as a select of the rig's links), label, poll period and inputs. */
-export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }: { open: boolean; schema: JsonSchema | undefined; linkNames: string[]; onClose(): void; onCreated(device: DeviceOut): void }) {
+/** Name, a driver from the rig schema, that driver's config as a form (`link` offered as a select of the rig's links), label, poll period, write retry age and inputs. */
+export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }: { open: boolean; schema: JsonSchema | undefined; linkNames: string[]; onClose(): void; onCreated(edit: RigEditOut): void }) {
   const rig = useRig();
   const [name, setName] = useState("");
   const [driver, setDriver] = useState("");
   const [config, setConfig] = useState<Record<string, unknown>>({});
   const [label, setLabel] = useState("");
   const [pollS, setPollS] = useState("");
+  const [retryS, setRetryS] = useState("");
   const [inputs, setInputs] = useState<InputRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const edits = useRigEdit();
 
   const drivers = useMemo(() => (schema ? deviceDrivers(schema) : []), [schema]);
   const chosen = drivers.find((d) => d.type === driver);
@@ -92,6 +104,7 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
     setConfig({});
     setLabel("");
     setPollS("");
+    setRetryS("");
     setInputs([]);
     setError(null);
   };
@@ -104,16 +117,21 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
       if (label.trim()) body.label = label.trim();
       if (pollS.trim() && Number.isFinite(Number(pollS))) body.poll_s = Number(pollS);
       const inputEntries = inputs.filter((r) => r.input.trim() && r.address.trim());
-      if (inputEntries.length) body.inputs = Object.fromEntries(inputEntries.map((r) => [r.input.trim(), r.address.trim()]));
-      const device = await rig.addDevice(body);
-      reset();
-      onCreated(device);
+      if (inputEntries.length) body.inputs = Object.fromEntries(inputEntries.map((r) => [r.input.trim(), inputValue(r.address)]));
+      if (retryS.trim() && Number.isFinite(Number(retryS))) body.retry_max_age_s = Number(retryS);
+      const edit = await edits.apply((options) => rig.addDevice(body, options));
+      if (edit) {
+        reset();
+        onCreated(edit);
+      }
     } catch (e) {
       setError(detail(e));
     } finally {
       setBusy(false);
+      setConfirming(false);
     }
   };
+  const ask = () => (confirmLevel("rig.edit.add") === 0 ? void create() : setConfirming(true));
 
   const canCreate = name.trim() !== "" && driver !== "" && !busy;
 
@@ -148,6 +166,13 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
             <TextField label="label (optional)" value={label} onChange={(e) => setLabel(e.target.value)} fullWidth />
             <TextField label="poll period (s, optional)" value={pollS} onChange={(e) => setPollS(e.target.value)} inputProps={{ inputMode: "decimal" }} sx={{ minWidth: 180 }} />
           </Stack>
+          <TextField
+            label="resend a failed write for (s, optional)"
+            value={retryS}
+            onChange={(e) => setRetryS(e.target.value)}
+            helperText="how long a value kept from a failed write may wait to be sent again; blank: 60 s"
+            inputProps={{ inputMode: "decimal", "data-testid": "device-retry-max-age" }}
+          />
           <InputRows rows={inputs} onChange={setInputs} />
         </Stack>
         {error && (
@@ -160,22 +185,37 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
         <Button onClick={() => (busy ? undefined : (reset(), onClose()))} disabled={busy}>
           Cancel
         </Button>
-        <Button variant="contained" onClick={() => void create()} disabled={!canCreate} data-testid="create-device">
+        <Button variant="contained" onClick={ask} disabled={!canCreate} data-testid="create-device">
           Add
         </Button>
       </DialogActions>
+      <Confirm
+        open={confirming}
+        title={`Add device ${name.trim()}?`}
+        text={RESTART_TEXT}
+        action="Add and restart"
+        danger={false}
+        level={confirmLevel("rig.edit.add")}
+        phrase={name.trim()}
+        busy={busy}
+        onClose={() => setConfirming(false)}
+        onConfirm={() => void create()}
+      />
+      {edits.dialog}
     </Dialog>
   );
 }
 
 /** Name, a link kind from the rig schema, and that kind's config as a form. */
-function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; schema: JsonSchema | undefined; onClose(): void; onCreated(link: { name: string; type: string }): void }) {
+function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; schema: JsonSchema | undefined; onClose(): void; onCreated(edit: RigEditOut): void }) {
   const rig = useRig();
   const [name, setName] = useState("");
   const [type, setType] = useState("");
   const [config, setConfig] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const edits = useRigEdit();
 
   const kinds = useMemo(() => (schema ? linkKinds(schema) : []), [schema]);
   const chosen = kinds.find((k) => k.type === type);
@@ -192,15 +232,20 @@ function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; sc
     setBusy(true);
     setError(null);
     try {
-      const link = await rig.addLink({ ...config, name: name.trim(), type });
-      reset();
-      onCreated({ name: link.name, type: String(link.type) });
+      const body = { ...config, name: name.trim(), type };
+      const edit = await edits.apply((options) => rig.addLink(body, options));
+      if (edit) {
+        reset();
+        onCreated(edit);
+      }
     } catch (e) {
       setError(detail(e));
     } finally {
       setBusy(false);
+      setConfirming(false);
     }
   };
+  const ask = () => (confirmLevel("rig.edit.add") === 0 ? void create() : setConfirming(true));
 
   const canCreate = name.trim() !== "" && type !== "" && !busy;
 
@@ -242,10 +287,23 @@ function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; sc
         <Button onClick={() => (busy ? undefined : (reset(), onClose()))} disabled={busy}>
           Cancel
         </Button>
-        <Button variant="contained" onClick={() => void create()} disabled={!canCreate} data-testid="create-link">
+        <Button variant="contained" onClick={ask} disabled={!canCreate} data-testid="create-link">
           Add
         </Button>
       </DialogActions>
+      <Confirm
+        open={confirming}
+        title={`Add link ${name.trim()}?`}
+        text={RESTART_TEXT}
+        action="Add and restart"
+        danger={false}
+        level={confirmLevel("rig.edit.add")}
+        phrase={name.trim()}
+        busy={busy}
+        onClose={() => setConfirming(false)}
+        onConfirm={() => void create()}
+      />
+      {edits.dialog}
     </Dialog>
   );
 }
@@ -258,16 +316,17 @@ export function LinksSection({ document, schema, showAdd = true }: { document: Q
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const edits = useRigEdit();
   const links = Object.entries(document.data?.links ?? {});
 
   const remove = async () => {
     if (!removing) return;
     setBusy(true);
     try {
-      await rig.removeLink(removing);
+      const target = removing;
+      await edits.apply((options) => rig.removeLink(target, options));
       setError(null);
       setRemoving(null);
-      document.refresh();
     } catch (e) {
       setError(detail(e));
     } finally {
@@ -315,20 +374,20 @@ export function LinksSection({ document, schema, showAdd = true }: { document: Q
         open={adding}
         schema={schema.data}
         onClose={() => setAdding(false)}
-        onCreated={() => {
-          setAdding(false);
-          document.refresh();
-        }}
+        onCreated={() => setAdding(false)}
       />
       <Confirm
         open={removing !== null}
         title={`Remove link ${removing}?`}
-        text="Refused while a device is still built on it."
-        action="Remove"
+        text={`Refused while a device is still built on it. ${RESTART_TEXT}`}
+        action="Remove and restart"
+        level={confirmLevel("rig.edit.remove")}
+        phrase={removing ?? undefined}
         busy={busy}
         onClose={() => setRemoving(null)}
         onConfirm={() => void remove()}
       />
+      {edits.dialog}
     </Paper>
   );
 }
@@ -343,19 +402,18 @@ export function Devices({ devices }: { devices: DeviceOut[] }) {
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // `devices` is fetched once by the app, so a device this page just removed is
-  // reflected here immediately rather than waiting for the app to refetch it.
-  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  // A removal restarts the rig, and the app reads it afresh once it is back: no local bookkeeping.
+  const edits = useRigEdit();
 
-  const shown = devices.filter((d) => d.kind !== "simulation" && !removed.has(d.name));
+  const shown = devices.filter((d) => d.kind !== "simulation");
 
   const remove = async () => {
     if (!removing) return;
     setBusy(true);
     try {
-      await rig.removeDevice(removing);
+      const target = removing;
+      await edits.apply((options) => rig.removeDevice(target, options));
       setError(null);
-      setRemoved((r) => new Set(r).add(removing));
       setRemoving(null);
     } catch (e) {
       setError(detail(e));
@@ -399,36 +457,132 @@ export function Devices({ devices }: { devices: DeviceOut[] }) {
       <Confirm
         open={removing !== null}
         title={`Remove device ${removing}?`}
-        text="Takes it off the rig with everything that hung off it."
-        action="Remove"
+        text={`Takes it off the rig file with everything that hung off it. ${RESTART_TEXT}`}
+        action="Remove and restart"
+        level={confirmLevel("rig.edit.remove")}
+        phrase={removing ?? undefined}
         busy={busy}
         onClose={() => setRemoving(null)}
         onConfirm={() => void remove()}
       />
+      {edits.dialog}
     </>
   );
 }
 
-/** What the device follows, by role: "dry ← hum_sensors.dry.humidity", one per bound (or unbound) input. */
-function InputsLine({ inputs }: { inputs: Record<string, InputOut> }) {
+/** A reading's age as the inputs line says it: `4 s`, `2 min`. */
+const ageText = (s: number) => (s < 60 ? `${s < 10 ? s.toFixed(1) : Math.round(s)} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`);
+
+/**
+ * What the device follows, by role: "dry ← hum_sensors.dry.humidity", or
+ * "dry = 36.5" for a constant, one per bound (or unbound) input; the
+ * source's quality beside it when it is not ok (with its reason), and the
+ * age of its newest reading.
+ */
+export function InputsLine({ inputs }: { inputs: Record<string, InputOut> }) {
   const entries = Object.entries(inputs);
   if (entries.length === 0) return null;
   return (
-    <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-      {entries.map(([role, input], i) => (
-        <Fragment key={role}>
-          {i > 0 && "  ·  "}
-          {input.label || humanise(input.name)} ←{" "}
-          {input.bound ? (
-            <Link href={hrefFor({ kind: "signal", name: input.bound })} underline="hover" title={input.bound}>
-              {input.bound}
-            </Link>
-          ) : (
-            <span className="fb-muted">not bound</span>
-          )}
-        </Fragment>
-      ))}
+    <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }} data-testid="inputs-line">
+      {entries.map(([role, input], i) => {
+        const quality = describeQuality(input.quality, input.reason);
+        return (
+          <Fragment key={role}>
+            {i > 0 && "  ·  "}
+            <span data-testid={`input-${role}`}>
+              {input.label || humanise(input.name)}{" "}
+              {input.constant !== undefined && input.constant !== null ? (
+                <span title="a constant: the rig file binds this input to a number">= {withUnit(String(input.constant), input.unit)}</span>
+              ) : input.bound ? (
+                <>
+                  ←{" "}
+                  <Link href={hrefFor({ kind: "signal", name: input.bound })} underline="hover" title={input.bound}>
+                    {input.bound}
+                  </Link>
+                </>
+              ) : (
+                <>
+                  ← <span className="fb-muted">not bound</span>
+                </>
+              )}
+              {quality && (
+                <>
+                  {" "}
+                  <Typography component="span" variant="body2" color={input.quality === "pending" ? "text.secondary" : "warning.main"}>
+                    ({quality})
+                  </Typography>
+                </>
+              )}
+              {input.age_s !== undefined && input.age_s !== null && input.bound && (
+                <span title="since the rig received its source's newest reading with a value"> · {ageText(input.age_s)} ago</span>
+              )}
+            </span>
+          </Fragment>
+        );
+      })}
     </Typography>
+  );
+}
+
+/** Where a `values` device's value came from, as the page says it. */
+export function describeValueSource(source: ValueSourceOut): string {
+  if (source.origin === "rig_file") return "rig file";
+  const who = source.actor?.principal ?? "someone";
+  const when = source.written_utc_ns !== null ? ` at ${new Date(source.written_utc_ns / 1e6).toLocaleString()}` : "";
+  return source.origin === "restored" ? `restored, written by ${who}${when}` : `written by ${who}${when}`;
+}
+
+/** A `driver: values` device's values: each one's source (the rig file, or who wrote it and when). */
+function SourcesSection({ device }: { device: DeviceOut }) {
+  const entries = Object.entries(device.sources ?? {});
+  if (entries.length === 0) return null;
+  return (
+    <Paper className="c12" sx={{ p: 3 }} data-testid="value-sources">
+      <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.75 }}>
+        Where each value came from
+      </Typography>
+      {entries.map(([path, source]) => (
+        <Typography key={path} variant="body2">
+          <Link href={hrefFor({ kind: "signal", name: `${device.name}.${path}` })} underline="hover">
+            {path}
+          </Link>{" "}
+          <Typography component="span" variant="body2" color="text.secondary" title={source.origin === "rig_file" ? undefined : `the rig file's initial: ${source.initial}`}>
+            · {describeValueSource(source)}
+          </Typography>
+        </Typography>
+      ))}
+    </Paper>
+  );
+}
+
+/** Who follows this device's signals: each signal, and the inputs bound to it (or to a namespace above it). */
+function ConsumersSection({ device }: { device: DeviceOut }) {
+  const entries = Object.entries(device.consumers ?? {});
+  if (entries.length === 0) return null;
+  return (
+    <Paper className="c12" sx={{ p: 3 }} data-testid="consumers">
+      <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.75 }}>
+        Followed by
+      </Typography>
+      {entries.map(([path, users]) => (
+        <Typography key={path} variant="body2">
+          <Link href={hrefFor({ kind: "signal", name: `${device.name}.${path}` })} underline="hover">
+            {path}
+          </Link>{" "}
+          <Typography component="span" variant="body2" color="text.secondary">
+            →{" "}
+            {users.map((u, i) => (
+              <Fragment key={u}>
+                {i > 0 && ", "}
+                <Link href={hrefFor({ kind: "device", name: deviceOf(u) })} underline="hover" title={u}>
+                  {u}
+                </Link>
+              </Fragment>
+            ))}
+          </Typography>
+        </Typography>
+      ))}
+    </Paper>
   );
 }
 
@@ -440,7 +594,11 @@ function InputsLine({ inputs }: { inputs: Record<string, InputOut> }) {
  */
 export function DevicePage({ devices, name, windowS }: { devices: DeviceOut[]; name: string } & ChartSettings) {
   const rig = useRig();
-  const device = devices.find((d) => d.name === name);
+  // The app's list is fetched once; this device is fetched again every few seconds for what only
+  // `GET /api/devices/{name}` says: its inputs' quality and age, its values' sources, its consumers.
+  const fresh = useQuery((signal) => rig.device(name, signal), [rig, name], { refreshMs: 5000 });
+  const listed = devices.find((d) => d.name === name);
+  const device = listed && fresh.data?.name === name ? { ...listed, inputs: fresh.data.inputs, sources: fresh.data.sources, consumers: fresh.data.consumers } : listed;
   const schema = useDeviceSchema(name);
   const commands = useCommands(name);
   const stored = useRecordingExports();
@@ -479,6 +637,8 @@ export function DevicePage({ devices, name, windowS }: { devices: DeviceOut[]; n
         <div className="c12 xl6">
           <DeviceSignals device={device} windowS={windowS} exportHref={(s) => stored.series(s.address)} />
         </div>
+        <SourcesSection device={device} />
+        <ConsumersSection device={device} />
         <Paper className="c12" sx={{ p: 3 }}>
           <Typography variant="h2" component="h2" color="text.secondary" sx={{ mb: 0.75 }}>
             Controllers

@@ -1,9 +1,10 @@
 """`SetpointGenerator`: the base a trajectory subclasses, and the schema it generates by doing so.
 
 `control/setpoint.py` holds the concrete generators that ship (`Dwell`,
-`LinearRampSetpoint`, `Profile`, ...) and the closed discriminated union over
-them (`GeneratorConfig`); this is just the machinery every one subclasses,
-the same shape [ControlLaw][flyball.model.law.ControlLaw] gives laws.
+`LinearRampSetpoint`, `Profile`, ...) and the discriminated union over them
+(`GeneratorConfig`, which also admits whatever the current `Catalogs`
+registered); this is just the machinery every one subclasses, the same shape
+[ControlLaw][flyball.model.law.ControlLaw] gives laws.
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ from inspect import signature
 from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict
-from pydantic.alias_generators import to_snake
 from pydantic_core import core_schema
 
 from flyball.model.model import ModelOf, creation_model
@@ -42,15 +42,18 @@ class SetpointGeneratorConfig(BaseModel):
 
 
 class SetpointGenerator:
-    """A reference trajectory. Subclassing derives `config`; registering is explicit.
+    """A reference trajectory. Subclassing derives `config_type`; registering is explicit.
 
-    A type is assigned when subclassed (`class Dwell(SetpointGenerator, type="dwell")`),
-    but nothing is written into a shared registry any more -- see
-    [Catalogs][flyball.model.catalog.Catalogs].
+    A type is required when subclassed (`class Dwell(SetpointGenerator, type="dwell")`);
+    a subclass that omits it raises at class creation. Nothing is written into
+    a shared registry any more -- see [Catalogs][flyball.model.catalog.Catalogs].
     """
 
     type: ClassVar[str] = ""
+    config_type: ClassVar[Any] = None
+    """The config model: what builds this generator (`Dwell.config_type(value=...)`)."""
     config: ClassVar[Any] = None
+    """Through an instance, its own arguments as a `config_type`."""
     view_fields: ClassVar[tuple[str, ...]] = ()
     """Attributes beyond the constructor's that a running instance shows on the wire."""
     end_time: float | None = None
@@ -58,7 +61,13 @@ class SetpointGenerator:
 
     def __init_subclass__(cls, type: str | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        cls.type = type or cls.__dict__.get("type") or to_snake(cls.__name__)
+        resolved = type or cls.__dict__.get("type")
+        if not resolved:
+            raise TypeError(
+                f"{cls.__name__} must declare a type, e.g. "
+                f"class {cls.__name__}(SetpointGenerator, type=...)"
+            )
+        cls.type = resolved
 
         # Every generator gets its own config, derived from `__init__`: the
         # field list a form needs to build one, plus the type that names it.
@@ -72,6 +81,7 @@ class SetpointGenerator:
             config_model.generator = cls  # pyright: ignore[reportAttributeAccessIssue]
             config_model.init_names = tuple(signature(cls).parameters)  # pyright: ignore[reportAttributeAccessIssue]
             cls.config = ModelOf(config_model, tuple(config_model.model_fields))
+        cls.config_type = cls.config
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:

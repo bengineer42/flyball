@@ -22,7 +22,7 @@ function fakeTransport(info: AuthInfo): Transport {
 const OPERATOR_SESSION: AuthInfo = {
   v: 2,
   shape: "password",
-  scheme: "session",
+  scheme: "login",
   user: { id: "local:admin", name: "admin", kind: "human" },
   verbs: ["operate", "read"],
   anonymous: "none",

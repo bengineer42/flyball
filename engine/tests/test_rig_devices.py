@@ -11,6 +11,7 @@ from typing import Annotated
 import pytest
 
 from flyball.control.laws import P
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import (
     Access,
     AddressNotFoundError,
@@ -37,7 +38,6 @@ from flyball.foundation.time import Rate, TimeUnit
 from flyball.model.feedforward import NoFeedforward
 from flyball.model.law import Transfer
 from flyball.rig import Rig, SignalClaimedError
-from flyball.rig.stopping import Actor
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -157,7 +157,7 @@ class Blender(Readable, Committable):
         """Pull every bound input's newest value -- there is no callback any more."""
         self.commits += 1
         for role, binding in self.bound.items():
-            target = binding.source
+            target = binding.follows
             if isinstance(target, Signal):
                 if (reading := target.reading) is not None:
                     self.supply[role] = reading.value
@@ -614,7 +614,7 @@ class TestOneControllerFailing:
             bad.regulate(30.0)
 
         bad.set_law(P(kp=1.0))
-        rig.stopping.reset(f"on_fault:{bad.name}", Actor("ben", "", "human", "http"))
+        rig.stopping.reset(f"on_fault:{bad.name}", Actor("ben", "human", "http"))
         bad.regulate(30.0)
         clock.advance(1.0)
         rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 20.0, zone2: 20.0})])
@@ -753,7 +753,7 @@ class TestControllers:
         zone1, zone2 = furnace.signals["zone1"], furnace.signals["zone2"]
         controller = rig.attach_controller(heater1, zone1, law=P(kp=100.0), feedforward="none")
         assert rig.controllers[heater1.address] is controller
-        assert rig.controllers.default == controller.name
+        assert rig.controllers.default_controller == controller.name
         assert isinstance(controller.feedforward, NoFeedforward)
         with pytest.raises(SignalClaimedError, match=f"{heater1.address} is already driven by"):
             rig.attach_controller(heater1, zone2)
@@ -794,15 +794,15 @@ class TestControllers:
         controller.regulate(50.0, transfer=Transfer.COLD)
         with rig.controller_states.watch(), rig.write_states.watch():
             rig.on_samples([Sample(furnace.root, 1_000_000_000, {zone1: 40.0})])
-        assert controller.output == 10_000.0 and controller.expected == 2500.0, "clamped"
+        assert controller.output_value == 10_000.0 and controller.expected == 2500.0, "clamped"
         assert rig.write_states.changed_since(0)[1] == {
             heater1.address: WriteState(
                 value=2500.0, requested=10_000.0, at_limit="high", controller=controller.name
             )
         }
         state = rig.controller_states.changed_since(0)[1][controller.name]
-        assert state.expected == 2500.0 and state.measured is not None
-        assert state.measured.value == 40.0
+        assert state.expected == 2500.0 and state.measured_value is not None
+        assert state.measured_value.value == 40.0
 
 
 class TestBoundInputs:
@@ -811,7 +811,7 @@ class TestBoundInputs:
         dry_h, dry_t = sensors.signals["dry.humidity"], sensors.signals["dry.temperature"]
         chamber_h, chamber_t = chamber.signals["humidity"], chamber.signals["temperature"]
         rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry.humidity"})
-        assert blender.bound["dry"].source is dry_h and list(blender.bound) == ["dry"]
+        assert blender.bound["dry"].follows is dry_h and list(blender.bound) == ["dry"]
         rig.on_samples([Sample(dry, 5, {dry_h: 3.0, dry_t: 20.0})])
         assert blender.supply == {"dry": 3.0} and blender.commits == 1
         assert blender.pump_writes == [(3.0, 50.0)]
@@ -837,7 +837,7 @@ class TestBoundInputs:
         dry_h, dry_t = sensors.signals["dry.humidity"], sensors.signals["dry.temperature"]
         wet_h = sensors.signals["wet.humidity"]
         rig.bind_inputs(blender, {"dry": f"{sensors.name}.dry", "wet": wet_h.address})
-        assert {n: b.source for n, b in blender.bound.items()} == {"dry": dry, "wet": wet_h}
+        assert {n: b.follows for n, b in blender.bound.items()} == {"dry": dry, "wet": wet_h}
         rig.on_samples([Sample(dry, 5, {dry_h: 3.0, dry_t: 20.0})])
         assert blender.commits == 1, "the sample itself when it is the node's"
         assert blender.supply["dry"] == {"humidity": 3.0, "temperature": 20.0}

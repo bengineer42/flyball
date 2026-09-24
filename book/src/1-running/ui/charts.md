@@ -138,18 +138,48 @@ store, **CSV from the store** — the same export the [HTTP API](../../4-server/
 serves, as a plain link. A `LoopPanel`'s trends and a dashboard's charts all
 use the same toolbar and the same menu.
 
-## Stale tiles
+## Readings with no value
 
-A reading, gauge or faceplate whose signal has had no sample for longer than
-its device's poll period allows (`staleAfterS`) shows the panel frame's
-`stale` state: a dashed border, a hollow status dot, no pulse, and a footer
-naming how long ago the last sample was — never colour alone (`PanelFrame`,
-`ui/packages/react/src/panels/PanelFrame.tsx`).
+A reading may have no value, and then says why: its quality (`invalid`, `n/a`,
+`stale`, `pending`) and a reason ([Signal value and health](../../6-internals/decisions.md)).
+The page never shows the number before it in its place:
 
-"Longer than allowed" is three poll periods, at least 5 s, using the
-signal's own `poll_s` when it has one. Age is measured against the rig's
-clock, which the page keeps running from `/api/clock` at the rig's speed —
-so when every polled device stops (and with it every new sample), the
-tiles still go stale rather than freezing on their last values. A signal
-that is not read on a period at all (a demand that is only written, a
-pushed value) is never stale by age: it holds its value until the next write.
+- **Charts** break the line at a reading with no value, live and in history
+  (a stored `null`), and only there: two traces that simply sample at
+  different times stay joined. A controller's re-apply between readings
+  (a moving setpoint's feedforward, which takes no reading) is joined across
+  too, not a gap.
+- **Tiles, gauges, device rows and a faceplate's Measured row** show `—` (or
+  `…` while `pending`) and the words: "stale: device silent", "invalid:
+  open circuit", "n/a". Hovering them gives the last usable value and when it
+  was read.
+- A usable value with a **caveat** carries a quiet mark before the number: `≥`
+  or `≤` when it sits at a limit (the true value may lie beyond it), `*` when
+  it is outside its range; the words on hover. A caveat is not an alarm and
+  changes no colour.
+
+### Stale tiles
+
+Staleness is the rig's call, not the page's. When nothing has arrived on a
+signal within its `stale_after_s` (by default `max(3 × poll_s, 5 s)` while its
+device is polled), or its device is offline, hung or failing its writes, the
+rig pushes a `stale` reading with no value; the next reading clears it. A tile
+whose newest reading is that one shows the panel frame's `stale` state: a
+dashed border, a hollow status dot, no pulse, and "— stale: …" with the
+reason — never colour alone (`PanelFrame`,
+`ui/packages/react/src/panels/PanelFrame.tsx`). A signal the rig does not
+judge (`stale_after_s` null: a pushed value, a setting, a demand that is only
+written) is never stale by age.
+
+A chart's own gap break is left only as a fallback, for data recorded before
+the rig pushed `stale` and for dead time with no reading at all (a restart):
+a gap wider than the signal's `stale_after_s` breaks the line.
+
+### Band unknown
+
+A banded signal with no value because of a fault can hold the rig's
+`band_unknown` condition (its `on_no_value: fire`,
+[Bands](../../2-config/devices/index.md#bands)). Its tile has its own state, not
+the alarm's: a dotted border in its own colour, a hollow dotted status dot. The
+conditions chip counts it but it never turns the chip red; alone, the chip takes
+that colour and a `?` icon, and so do its event rows and toasts.

@@ -20,6 +20,14 @@ no separate reader or actuator class: a device is `Readable` (implements
 (implements `apply`/`commit`) if it has demands, both, or neither — what
 falls out of that is which access flags its signals carry.
 
+A device's name, and each namespace's and signal's a driver declares, is a
+[key](../7-reference/rig-file.md#names): `flyball.foundation.keys.check_key`
+refuses anything else when the device or the `SignalSpec`/`NodeSpec` is made,
+and keeps `-` as `_` (`SignalSpec(name="dry-bulb")` is the signal
+`dry_bulb`). A tag's axis and value are keys too. Two demands whose
+`set_<path>` would be one command (`flows.dry` beside `flows_dry`) are refused
+when the tree is bound.
+
 ```python
 from flyball.foundation import Quantity
 from flyball.foundation.quantities.si import Celsius
@@ -76,8 +84,8 @@ reading; nothing is copied onto the device:
 | `value` | the constant, or the source's value; raises `NotReadyError` while `pending` (unbound, or nothing read yet) and `NoValueError` while the source's reading has none -- its `no_value` is the source's, quality and reason |
 | `quality`, `reason`, `at_limit` | the source's now (`pending` before its first reading; a constant is `ok`) |
 | `age_s(now_ns=None)` | seconds since the rig received the source's newest reading with a value, on the rig's clock |
-| `state()` | all of it in one call: an `InputState` of value, quality, reason, `at_limit`, age, source address or constant, unit |
-| `source`, `signal`, `constant`, `address`, `unit` | what it follows |
+| `state()` | all of it in one call: an `InputState` of value, quality, reason, `at_limit`, age, `follows` (the address) or `constant`, unit |
+| `follows`, `signal`, `constant`, `address`, `unit` | what it follows |
 | `watch(callback)` | a callback on each new reading of the source (a change of quality always arrives as one), on the delivery thread under the rig's lock; returns the detach |
 
 An input has **no default**: a rig file gives every declared input an
@@ -255,7 +263,7 @@ feedforward). It is named by the output's address, since a demand has at
 most one controller:
 
 ```
-heaters.heater1: { measured: furnace.zone1, law: { type: PI, kp: 100, ki: 0.15, tt: 30 } }
+heaters.heater1: { measured: furnace.zone1, law: { type: pi, kp: 100, ki: 0.15, tt_s: 30 } }
 ```
 
 Reader/actuator and channel/loop have merged into device/signal and
@@ -291,7 +299,7 @@ slow, a sensor failed, a controller held. It is not a signal. It lives in
 the rig's condition store, `rig.conditions`, keyed by the object it is
 true of -- a `Device`, a `Signal`, a `Controller`, or the rig itself --
 and its `code`, and it carries a `severity` (`debug`, `info`, `warning`,
-`error`), a message, `since_ns`, and its owner's `scope` and `subject`.
+`error`), a message, `since_ns`, and its owner's `subject_kind` and `subject`.
 Keyed by the object, not a name: a device removed and another added under
 the same name start clean, and removing a device (or detaching a
 controller) clears what it held.

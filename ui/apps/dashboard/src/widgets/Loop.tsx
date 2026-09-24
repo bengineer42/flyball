@@ -1,12 +1,12 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ControllerPanel, Ref, useFreshness, useVisible, type ControllerTrace } from "@flyball/react";
-import { alarmLevel, describeController, signalsOf, signalTitle } from "@flyball/client";
+import { ControllerPanel, Ref, useReading, useVisible, type ControllerTrace } from "@flyball/react";
+import { describeController, signalsOf, signalTitle } from "@flyball/client";
 import { useBindings, useControllersData, useRigData } from "../dashboard/context.js";
 import { useWidgetChrome } from "../dashboard/chrome.js";
 import { Missing } from "./Missing.js";
 import { controllerSchema, SELECTS } from "./schema.js";
 import { useFrozen } from "./size.js";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 const EMPTY: ControllerTrace = { t: [], reference: [], measured: [], output: [], expected: [], correction: [] };
 
@@ -56,7 +56,7 @@ function useBox(ref: React.RefObject<HTMLElement | null>): { w: number; h: numbe
  * scrolls. Law and feedforward never show here; that stays behind the L3
  * Controllers page's `detail` toggle. No controls: a dashboard widget is a
  * read view. Body only (`bare`): the frame is `WidgetFrame`'s, fed the
- * name/source/mode through `useWidgetChrome`. The document's kind stays
+ * name/source/mode through `useWidgetChrome`. The document's type stays
  * `loop` (the wire's name for the widget); its binding is `controller`.
  */
 const ControllerWidget = memo(function ControllerWidget({ config }: WidgetComponentProps) {
@@ -74,9 +74,8 @@ const ControllerWidget = memo(function ControllerWidget({ config }: WidgetCompon
   // The measured signal (units, bands) from the bindings; the output (limits) from its device's tree, which may not publish.
   const source = controller ? bindings.signalAt(controller.measured_signal) : undefined;
   const target = controller ? bindings.devices.flatMap((d) => signalsOf(d.signals)).find((s) => s.address === controller.output_signal) : undefined;
-  // Measured-offline (B-3): the measured signal's own staleness, its device's period against its last sample.
-  const fresh = useFreshness(controller?.measured_signal);
-  const offline = alarmLevel(null, {}, fresh) === "stale";
+  // Measured-offline (B-3): the rig's own `stale` reading on the measured signal.
+  const offline = useReading(controller?.measured_signal)?.quality === "stale";
   // A controller is named by its output's label; an output with none is titled like any signal, never by its address.
   const title = useMemo(
     () => (controller ? <Ref kind="controller" name={controller.name}>{controller.label ? describeController(controller) : target ? signalTitle(target, bindings.devices) : controller.name}</Ref> : undefined),
@@ -97,8 +96,8 @@ const ControllerWidget = memo(function ControllerWidget({ config }: WidgetCompon
   );
 });
 
-export const loop: WidgetKind = {
-  kind: "loop",
+export const loop: WidgetType = {
+  type: "loop",
   label: "Controller",
   description: "A controller's faceplate: measured, setpoint and output rows, with the Process/Drive trends beside them.",
   category: "control",
@@ -124,7 +123,7 @@ export const loop: WidgetKind = {
   uiSchema: { ...SELECTS, view: { "ui:widget": "select" } },
   defaultConfig: (bindings) => ({ controller: bindings.controllers[0]?.name ?? "", view: "full" }),
   // Fallback title before `useWidgetChrome`'s richer one (a `Ref` link) lands, and while editing.
-  titleFor: (config, bindings) => {
+  labelFor: (config, bindings) => {
     const name = String(config.controller ?? "");
     if (!name) return undefined;
     const c = bindings.controllers.find((l) => l.name === name);

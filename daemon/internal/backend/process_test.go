@@ -812,7 +812,7 @@ func fakeRunnerMain(args []string) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		fmt.Fprintf(w, `{"protocol":1,"aud":%q,"pid":%d,"flyball":"test"}`, strings.TrimSpace(string(aud)), os.Getpid())
+		fmt.Fprintf(w, `{"protocol":1,"aud":%q,"pid":%d,"flyball_version":"test"}`, strings.TrimSpace(string(aud)), os.Getpid())
 	}))
 }
 

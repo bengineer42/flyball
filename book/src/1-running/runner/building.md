@@ -22,9 +22,9 @@ curl -X POST localhost:8000/api/rig -d @lab.yaml.json     # or all of it at once
 running rig in place. A change -- a link or a device added or removed, a
 document added, a version restored -- goes the same four steps:
 
-1. **Checked.** The rig as it would be is validated whole: the types, the
-   links devices name, and that each input and controller address is on a
-   device of the rig. Refused, nothing changes and nothing stops (the answer
+1. **Checked.** The rig as it would be is validated whole: the types, each
+   device's own driver fields, the links devices name, and that each input
+   and controller address is on a device of the rig. Refused, nothing changes and nothing stops (the answer
    says why: 422, 404 or 409).
 2. **Saved,** as a new rig version (below) and, for a rig from files, in
    the overlay `<rig>.d/added.yaml` beside the first file, which every start

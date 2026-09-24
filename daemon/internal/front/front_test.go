@@ -496,7 +496,7 @@ func TestRevocationClosesSockets(t *testing.T) {
 		h.expectClosed(ws, stream, at)
 	})
 	t.Run("session expiry", func(t *testing.T) {
-		h := newHarness(t, Config{Auth: "password", Password: testScrypt, Session: "1500ms"})
+		h := newHarness(t, Config{Auth: "password", Password: testScrypt, Login: "1500ms"})
 		cookie := h.login()
 		ws := h.openWS(withCookie(cookie, h.origin()))
 		stream := h.openStream(withCookie(cookie, nil))
@@ -967,7 +967,7 @@ func TestFallbackRefusesRequestedListen(t *testing.T) {
 			}
 			info := readJSON[AuthInfo](t, sendTo(t, console, "GET", "/api/auth", nil))
 			e := info.Exposure
-			if info.Shape != "local" || e == nil || !e.Restricted || e.Requested != requested || e.Warning == nil ||
+			if info.Shape != "local" || e == nil || !e.Restricted || e.RequestedHost != requested || e.Warning == nil ||
 				!strings.Contains(*e.Warning, c.reason) || !strings.Contains(*e.Warning, "503") {
 				t.Fatalf("/api/auth: %+v %+v", info, e)
 			}
@@ -1095,13 +1095,13 @@ func TestAuthInfoV2(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("password, anonymous:\n got %v\nwant %v", got, want)
 	}
-	if e, ok := exp.(map[string]any); !ok || e["requested"] != "0.0.0.0:8000" || e["open"] != false || !strings.Contains(fmt.Sprint(e["warning"]), "plain HTTP") {
+	if e, ok := exp.(map[string]any); !ok || e["requested_host"] != "0.0.0.0:8000" || e["open"] != false || !strings.Contains(fmt.Sprint(e["warning"]), "plain HTTP") {
 		t.Errorf("password exposure: %v", exp)
 	}
 
 	cookie := pw.login()
 	g := get(pw, withCookie(cookie, nil)).(map[string]any)
-	if g["scheme"] != "session" || !reflect.DeepEqual(g["user"], decode(`{"id":"local:admin","name":"admin","kind":"human"}`)) ||
+	if g["scheme"] != "login" || !reflect.DeepEqual(g["user"], decode(`{"id":"local:admin","name":"admin","kind":"human"}`)) ||
 		!reflect.DeepEqual(g["verbs"], decode(`["operate","read"]`)) {
 		t.Errorf("signed in: %v", g)
 	}

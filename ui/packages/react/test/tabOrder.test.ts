@@ -8,7 +8,7 @@ const row = (name: string, created_ns: number, order?: number | null): Dashboard
   rig: "t",
   created_ns,
   sha256: "",
-  body: { schema_version: 3, name, rig: "t", grid: { cols: 24, row_height: 24 }, widgets: [], ...(order === undefined ? {} : { order }) },
+  body: { schema_version: 6, name, rig: "t", grid: { cols: 24, row_height: 24 }, widgets: [], ...(order === undefined ? {} : { order }) },
 });
 
 describe("byTabOrder", () => {

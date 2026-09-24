@@ -181,7 +181,7 @@ is checked when the class is defined, not on the first request. The command's
 name defaults to the method name; `@command(name="off")` overrides it, and a
 command needs a docstring. `schema` is reserved as a route segment.
 
-A command with a `mode` or a linked argument changes what drives the
+A command with a `sets_mode` or a linked argument changes what drives the
 device, so it is refused while a controller drives one of its demands —
 unless `interrupts=True`. Then the rig checks everything first, runs the
 method, and only once it has succeeded puts the controller in manual (an
@@ -202,7 +202,7 @@ def off(self) -> None:
 ```
 
 It is then refused while a controller drives the device, like a command
-with a `mode`. A command that drives a private child device the rig cannot
+with a `sets_mode`. A command that drives a private child device the rig cannot
 see (a dosing pump's motor) names the child (`writes=("pump",)`); that
 refuses nothing yet, since no controller can drive the child.
 

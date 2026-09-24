@@ -75,7 +75,7 @@ subclassing, with a pydantic model derived from the class itself.
 | --- | --- | --- |
 | control laws | `class X(ControlLaw, type=…)` | `__init__` → config; `_state_fields` → state |
 | trajectories | `class X(SetpointGenerator, type=…)` | the same |
-| program steps | `class X(Step, tag=…)` | the dataclass constructor → request |
+| program steps | `class X(Step, type=…)` | the dataclass constructor → request |
 | configs | `class X(Config, type=…)` | the model itself; `union` discriminates on `type` |
 
 Devices do the same without a registry: descriptors in the class body (or

@@ -6,7 +6,7 @@ A program file is a mapping with `name` and `steps`. Loaded from `.yaml`,
 ```yaml
 name: string            # required
 steps:                  # required, at least one
-  - <tag>: <arguments>
+  - <type>: <arguments>
     <modifier>: <value> # optional, application-defined
 ```
 
@@ -30,7 +30,7 @@ declares. Any other key is an error.
 | `Duration \| Rate` (a pace) | either form; **may be written flat** beside the other arguments when it is the command's only such field, `timeout` aside (`foldable()` in `flyball.interfaces.server.dialect`). `timeout` is always a `Duration` named `timeout` and is never itself a fold candidate; a step whose only time field is `timeout` (`prompt`, `settle`) takes no flat keys. `wait`'s `duration` folds flat only when the step has no `message`: `wait: {minutes: 20, message: "…"}` is refused (that is what an old operator prompt with a flat timeout looked like) -- write `wait: {duration: {minutes: 20}, message: "…"}` |
 | `ValueSource \| float` | a number, or `measured`, `setpoint`, `output` |
 | a controller name | the address of the demand it drives, e.g. `heaters.heater1` — a controller is named by its output |
-| a law (`tuning`) | the name of a registered tuning, or `{type: PI, kp: …, ki: …, tt: …}` |
+| a law (`tuning`) | the name of a registered tuning, or `{type: pi, kp: …, ki: …, tt_s: …}` |
 | `Transfer` | `track`, `carry`, `cold`, `none` |
 
 ## The library's steps
@@ -39,7 +39,7 @@ Every rig has these; `controllers` is one address, a list of addresses, or
 omitted for the rig's default controller. Source:
 `flyball.sequencing.{loops,devices,activities}`.
 
-| tag | field | type | default |
+| type | field | type | default |
 | --- | --- | --- | --- |
 | `regulate` | `setpoint` (primary) | number | — |
 | | `controllers` | address, list, or omitted | rig default |
@@ -63,7 +63,7 @@ omitted for the rig's default controller. Source:
 | `manual` | `controllers` (primary) | address, list, or omitted | rig default |
 | `set` | `device` | name | — |
 | | `values` | `{name: value}` | — |
-| `command` | `device_command` | string | — |
+| `run` | `command` | string | — |
 | | `device` | name | — |
 | | `args` | `{name: value}` | none |
 | `prompt` | `message` (primary) | string | — |
@@ -75,11 +75,11 @@ omitted for the rig's default controller. Source:
 waits on that signal's readings meeting a criterion
 (`flyball.foundation.device.criterion.Criterion`; see
 [Waiting on a signal](../1-running/programs/writing.md#waiting-on-a-signal));
-`set` and `command` reach a **device**
+`set` and `run` reach a **device**
 directly — `set` is one demand (`rig.write`) on its writable signals,
-`command` calls one of its `@command` methods, `device_command` naming the
-device command rather than `command` because a step's own wire form reserves
-`command` for its own key. See [Programs](../1-running/programs/index.md) for
+`run` calls one of its `@command` methods, named by its own `command`
+field since a step's own wire form reserves `type` for the step's own key.
+See [Programs](../1-running/programs/index.md) for
 the concepts and [Writing programs](../1-running/programs/writing.md) for the full
 worked example.
 
@@ -88,7 +88,7 @@ worked example.
 `program_schema(dialect)` (`flyball.interfaces.server.dialect`) emits the JSON Schema
 for the whole file from the command registry: one `oneOf` branch per
 command, each requiring its key; the value is the command's request schema
-without `command`, or the bare `primary` field's schema as an alternative;
+without `type`, or the bare `primary` field's schema as an alternative;
 foldable time fields gain their flat keys; modifier keys are allowed on
 every branch. Point an editor at it with
 

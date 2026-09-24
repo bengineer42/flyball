@@ -60,7 +60,7 @@ PercentRH = Fraction.unit("percent relative humidity", "%RH", 0.01, scale=(0.0, 
 HUMIDITY = Quantity("humidity", PercentRH)
 TEMPERATURE = Quantity("temperature", Celsius)
 HTU21D_ADDRESS = 0x40
-"""The only address; there is no ADDR pin (unlike the SHT3x family)."""
+"""The only i2c_address; there is no ADDR pin (unlike the SHT3x family)."""
 
 
 def crc8(data: bytes) -> int:
@@ -115,23 +115,23 @@ def encode(value: float, *, humidity: bool) -> bytes:
 
 
 class Htu21dSensor:
-    """One chip at a fixed address: two no-hold-master transactions, one `read`."""
+    """One chip at a fixed i2c_address: two no-hold-master transactions, one `read`."""
 
-    __slots__ = ("address", "link", "sleep")
+    __slots__ = ("i2c_address", "link", "sleep")
 
-    def __init__(self, link: I2cLink, address: int = HTU21D_ADDRESS, sleep: bool = True) -> None:
+    def __init__(self, link: I2cLink, i2c_address: int = HTU21D_ADDRESS, sleep: bool = True) -> None:
         self.link = link
-        self.address = address
+        self.i2c_address = i2c_address
         self.sleep = sleep
         """Whether to wait the conversion time; off in a test against a fake."""
 
     def _measure(self, command: int, precision: Precision) -> bytes:
-        self.link.write(self.address, [command])
+        self.link.write(self.i2c_address, [command])
         if self.sleep:
             time.sleep(MAX_WAIT_S[precision])
         for attempt in range(MAX_POLL_ATTEMPTS):
             try:
-                return self.link.read(self.address, 3)
+                return self.link.read(self.i2c_address, 3)
             except OSError:
                 if not self.sleep or attempt == MAX_POLL_ATTEMPTS - 1:
                     raise
@@ -155,17 +155,17 @@ class Htu21d(Readable):
         self,
         name: str,
         link: I2cLink,
-        address: int = HTU21D_ADDRESS,
+        i2c_address: int = HTU21D_ADDRESS,
         sleep: bool = True,
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
         self.link = link
-        self.sensor = Htu21dSensor(link, address, sleep)
+        self.sensor = Htu21dSensor(link, i2c_address, sleep)
 
     @property
     def config(self) -> Htu21dConfig:
-        return Htu21dConfig(link="", address=self.sensor.address)
+        return Htu21dConfig(link="", i2c_address=self.sensor.i2c_address)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         temperature, humidity = self.sensor.read()
@@ -173,15 +173,15 @@ class Htu21d(Readable):
 
 
 class Htu21dConfig(DriverConfig[Htu21d], type="htu21d"):
-    """One chip; there is no address pin, but the field stays for parity with sht31/sht4x."""
+    """One chip; there is no i2c_address pin, but the field stays for parity with sht31/sht4x."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(default=HTU21D_ADDRESS, ge=0x03, le=0x77)
+    i2c_address: int = Field(default=HTU21D_ADDRESS, ge=0x03, le=0x77)
 
     def build(self, name: str, label: str | None = None) -> Htu21d:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return Htu21d(name, resolve(self.link), self.address, label=label)
+        return Htu21d(name, resolve(self.link), self.i2c_address, label=label)
 
 
 Htu21d.config_type = Htu21dConfig  # the config is declared after the device it builds

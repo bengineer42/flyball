@@ -58,8 +58,8 @@ class TestSgp30Sensor:
         bus = FakeI2c()
         sensor = sgp30.Sgp30Sensor(bus, sleep=False)
         sensor.set_baseline(sgp30.Baseline(co2eq=0x8973, tvoc=0x8AAE))
-        (address, register, data) = bus.written[0]
-        assert address == sgp30.SGP30_ADDRESS and register is None
+        (i2c_address, register, data) = bus.written[0]
+        assert i2c_address == sgp30.SGP30_ADDRESS and register is None
         assert data[:2] == [0x20, 0x1E]
         assert data[2:5] == sgp30.word_with_crc(0x8AAE)
         assert data[5:8] == sgp30.word_with_crc(0x8973)
@@ -114,7 +114,7 @@ class TestSgp30Device:
         (sample,) = gas.read(9)
         assert sample.node is gas.root and sample.time_ns == 9
         assert sample.by_name() == {"co2eq": 400, "tvoc": 10}
-        assert gas.config.address == sgp30.SGP30_ADDRESS
+        assert gas.config.i2c_address == sgp30.SGP30_ADDRESS
 
     def test_the_warm_up_s_placeholders_are_measured_but_not_read(self):
         frame = sgp30.word_with_crc(400) + sgp30.word_with_crc(0)

@@ -14,6 +14,7 @@ import (
 
 	"flyballd/internal/backend"
 	"flyballd/internal/config"
+	"flyballd/internal/names"
 )
 
 // Entry is one registered runner. Status is read from the backend each
@@ -96,6 +97,7 @@ func (r *Registry) Start(m config.Manifest) error {
 	if err := m.Validate(); err != nil {
 		return err
 	}
+	m.Name = names.Canonical(m.Name) // humidity-sim is the runner humidity_sim (D-079)
 	if err := r.reserve(m); err != nil {
 		return err
 	}
@@ -118,6 +120,7 @@ func (r *Registry) Start(m config.Manifest) error {
 }
 
 func (r *Registry) Stop(name string) error {
+	name = names.Canonical(name)
 	if err := r.be.Stop(name); err != nil {
 		return err
 	}
@@ -128,14 +131,14 @@ func (r *Registry) Stop(name string) error {
 }
 
 func (r *Registry) Restart(name string) error {
-	return r.be.Restart(name)
+	return r.be.Restart(names.Canonical(name))
 }
 
 // Logs reaches the backend's own Logs(name) -- the registry is the only
 // thing above Backend that the API layer talks to, so it needs a narrow
 // accessor rather than exposing the whole backend.Backend.
 func (r *Registry) Logs(name string) (io.ReadCloser, error) {
-	return r.be.Logs(name)
+	return r.be.Logs(names.Canonical(name))
 }
 
 // Channel is what a front needs to reach runner name: its endpoint, aud
@@ -143,6 +146,7 @@ func (r *Registry) Logs(name string) (io.ReadCloser, error) {
 // routes by, so aud and route cannot disagree. An error if name is not
 // registered or the backend is not backend.Fronted.
 func (r *Registry) Channel(name string) (backend.Channel, error) {
+	name = names.Canonical(name)
 	r.mu.RLock()
 	_, ok := r.entries[name]
 	r.mu.RUnlock()
@@ -158,6 +162,7 @@ func (r *Registry) Channel(name string) (backend.Channel, error) {
 
 // Get returns a copy of the entry, its status read from the backend.
 func (r *Registry) Get(name string) (*Entry, bool) {
+	name = names.Canonical(name)
 	r.mu.RLock()
 	e, ok := r.entries[name]
 	r.mu.RUnlock()

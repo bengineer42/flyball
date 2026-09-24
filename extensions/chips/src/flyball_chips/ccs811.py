@@ -32,7 +32,7 @@ from flyball_chips._links import I2cLinkConfig
 CO2EQ = Quantity("CO2 equivalent", PartsPerMillion)
 TVOC = Quantity("total VOC", PartsPerBillion)
 CCS811_ADDRESS = 0x5A
-"""The default ADDR-low address; ADDR pulled high answers at 0x5B."""
+"""The default ADDR-low i2c_address; ADDR pulled high answers at 0x5B."""
 
 STATUS = 0x00
 MEAS_MODE = 0x01
@@ -88,18 +88,18 @@ def decode_alg_result(data: bytes) -> tuple[int, int]:
 
 
 class Ccs811Sensor:
-    """One chip at `address`: the boot sequence, then register reads for a measurement."""
+    """One chip at `i2c_address`: the boot sequence, then register reads for a measurement."""
 
-    __slots__ = ("address", "link", "sleep")
+    __slots__ = ("i2c_address", "link", "sleep")
 
-    def __init__(self, link: I2cLink, address: int = CCS811_ADDRESS, sleep: bool = True) -> None:
+    def __init__(self, link: I2cLink, i2c_address: int = CCS811_ADDRESS, sleep: bool = True) -> None:
         self.link = link
-        self.address = address
+        self.i2c_address = i2c_address
         self.sleep = sleep
         """Whether to wait between boot steps; off in a test against a fake."""
 
     def _status(self) -> int:
-        return self.link.read_register(self.address, STATUS, 1)[0]
+        return self.link.read_register(self.i2c_address, STATUS, 1)[0]
 
     def boot(self, drive_mode: int = DRIVE_MODE_1S) -> None:
         """Leaves boot mode and starts periodic measurement. Mandatory before any read.
@@ -111,18 +111,18 @@ class Ccs811Sensor:
         if status & STATUS_ERROR:
             raise HardwareError(f"CCS811 reports an error at boot: STATUS=0x{status:02x}")
         if not (status & STATUS_FW_MODE):
-            self.link.write(self.address, [APP_START])
+            self.link.write(self.i2c_address, [APP_START])
             if self.sleep:
                 time.sleep(0.001)
             status = self._status()
             if not (status & STATUS_FW_MODE):
                 raise HardwareError(f"CCS811 did not leave boot mode: STATUS=0x{status:02x}")
-        self.link.write_register(self.address, MEAS_MODE, [drive_mode])
+        self.link.write_register(self.i2c_address, MEAS_MODE, [drive_mode])
 
     def set_environment(self, humidity_percent_rh: float, temperature_c: float) -> None:
         """Feeds humidity/temperature compensation ahead of the next measurement."""
         self.link.write_register(
-            self.address, ENV_DATA, encode_env_data(humidity_percent_rh, temperature_c)
+            self.i2c_address, ENV_DATA, encode_env_data(humidity_percent_rh, temperature_c)
         )
 
     def measure(self) -> tuple[int, int] | None:
@@ -139,11 +139,11 @@ class Ccs811Sensor:
         if not (status & STATUS_FW_MODE):
             raise HardwareError("CCS811 read attempted before APP_START / boot()")
         if status & STATUS_ERROR:
-            error = self.link.read_register(self.address, ERROR_ID, 1)[0]
+            error = self.link.read_register(self.i2c_address, ERROR_ID, 1)[0]
             raise HardwareError(f"CCS811 reports an error: ERROR_ID=0x{error:02x}")
         if not (status & STATUS_DATA_READY):
             return None
-        return decode_alg_result(self.link.read_register(self.address, ALG_RESULT_DATA, 4))
+        return decode_alg_result(self.link.read_register(self.i2c_address, ALG_RESULT_DATA, 4))
 
 
 class Ccs811(Readable):
@@ -156,18 +156,18 @@ class Ccs811(Readable):
         self,
         name: str,
         link: I2cLink,
-        address: int = CCS811_ADDRESS,
+        i2c_address: int = CCS811_ADDRESS,
         sleep: bool = True,
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
         self.link = link
-        self.sensor = Ccs811Sensor(link, address, sleep)
+        self.sensor = Ccs811Sensor(link, i2c_address, sleep)
         self.sensor.boot()
 
     @property
     def config(self) -> Ccs811Config:
-        return Ccs811Config(link="", address=self.sensor.address)
+        return Ccs811Config(link="", i2c_address=self.sensor.i2c_address)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """One result, when the chip has a new one; nothing (not read this time) when not."""
@@ -181,12 +181,12 @@ class Ccs811Config(DriverConfig[Ccs811], type="ccs811"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(default=CCS811_ADDRESS, ge=0x03, le=0x77)
+    i2c_address: int = Field(default=CCS811_ADDRESS, ge=0x03, le=0x77)
 
     def build(self, name: str, label: str | None = None) -> Ccs811:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return Ccs811(name, resolve(self.link), self.address, label=label)
+        return Ccs811(name, resolve(self.link), self.i2c_address, label=label)
 
 
 Ccs811.config_type = Ccs811Config

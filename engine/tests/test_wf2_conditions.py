@@ -2,126 +2,22 @@
 
 from __future__ import annotations
 
-import json
-import sqlite3
 import threading
 
 import pytest
 
 from flyball.control.laws import P
-from flyball.foundation.device import Code, Committable, Demand, Sample, Scope, Severity
-from flyball.record.migrate import available
+from flyball.foundation.actor import Actor
+from flyball.foundation.device import Code, Committable, Demand, Sample, Severity, SubjectKind
 from flyball.record.sqlite import SqliteStore
-from flyball.rig.stopping import Actor
 from test_rig_devices import POWER, Furnace
 
-# region Migration
-
-
-def _store_at_0018(path, events: list[tuple[int, str | None, str, dict]]) -> None:
-    """A database at schema 0018 with one session and `events` in the old shape."""
-    connection = sqlite3.connect(path)
-    files = available()
-    for version in range(1, 19):
-        connection.executescript("BEGIN;\n" + files[version].read_text() + "\nCOMMIT;")
-    connection.executescript("""
-        DELETE FROM schema_version;
-        INSERT INTO schema_version (version) VALUES (18);
-        INSERT INTO session (id, start_ns, end_ns, origin_ns) VALUES (1, 1000, 5000, 1000);
-    """)
-    connection.executemany(
-        "INSERT INTO event (session_id, offset_ns, source, kind, detail) VALUES (1, ?, ?, ?, ?)",
-        [(offset, source, kind, json.dumps(detail)) for offset, source, kind, detail in events],
-    )
-    connection.commit()
-    connection.close()
-
-
-def test_the_migration_renames_kind_to_code_and_level_to_a_severity_string(tmp_path):
-    path = tmp_path / "old.db"
-    _store_at_0018(
-        path,
-        [
-            (10, "furnace", "offline", {"level": 40, "scope": "device", "message": "gone"}),
-            (20, "bake", "step", {"level": 20, "scope": "program", "message": "one"}),
-            (30, None, "note", {"x": 1}),
-        ],
-    )
-    store = SqliteStore(path)
-    events = store.events(1)
-    assert [(e.code, e.source) for e in events] == [
-        ("offline", "furnace"),
-        ("step", "bake"),
-        ("note", None),
-    ]
-    assert events[0].detail == {"severity": "error", "scope": "device", "message": "gone"}
-    assert events[1].detail["severity"] == "info" and "level" not in events[1].detail
-    assert events[2].detail == {"x": 1}, "a detail with no numeric level is left as it was"
-    assert [e.code for e in store.events(1, code="offline")] == ["offline"]
-    store.close()
-
-
-def test_the_migration_turns_the_recovery_codes_into_cleared_edges(tmp_path):
-    path = tmp_path / "old.db"
-    device = {"level": 40, "scope": "device", "message": "m"}
-    controller = {"level": 40, "scope": "controller", "message": "m"}
-    program = {"level": 40, "scope": "program", "message": "m"}
-    _store_at_0018(
-        path,
-        [
-            (1, "pump", "write_failed", device),
-            (2, "pump", "write_recovered", {**device, "level": 20}),
-            (3, "pump", "commit_failed", device),
-            (4, "pump", "commit_recovered", {**device, "level": 20}),
-            (5, "pump.power", "step_failed", controller),
-            (6, "pump.power", "step_recovered", {**controller, "level": 20}),
-            (7, "bake[1]", "step_failed", program),
-            (8, "pump.power", "limit_unknown", controller),
-            (9, "pump.power", "limit_known", {**controller, "level": 20}),
-            (10, "daq", "offline", device),
-            (11, "daq", "restarted", {**device, "level": 20}),
-            (12, "daq", "slow", device),
-            (13, "bake", "started", program),
-        ],
-    )
-    store = SqliteStore(path)
-    assert [(e.code, e.edge) for e in store.events(1)] == [
-        ("write_failed", "raised"),
-        ("write_failed", "cleared"),
-        ("write_failed", "raised"),  # 0022: commit_failed is write_failed now (A6)
-        ("write_failed", "cleared"),
-        ("step_failed", "raised"),
-        ("step_failed", "cleared"),
-        ("step_failed", None),  # a program's step: a point event
-        ("limit_unknown", "raised"),
-        ("limit_unknown", "cleared"),
-        ("offline", "raised"),
-        ("offline", "cleared"),
-        ("slow", "raised"),
-        ("started", None),
-    ]
-    store.close()
+# region Severity
 
 
 def test_a_severity_is_ranked_as_logging_ranks_it():
     assert [s.rank for s in Severity] == [10, 20, 30, 40]
     assert str(Severity.WARNING) == "warning"
-
-
-def test_an_events_widget_level_is_migrated_to_its_severity():
-    from flyball.interfaces.server.routes.dashboards import SCHEMA_VERSION, migrate
-
-    v4 = {
-        "schema_version": 4,
-        "widgets": [
-            {"id": "e", "kind": "events", "config": {"level": "WARNING", "limit": 5}},
-            {"id": "r", "kind": "readout", "config": {"level": "kept"}},
-        ],
-    }
-    migrated = migrate(v4)
-    assert migrated["schema_version"] == SCHEMA_VERSION == 5
-    assert migrated["widgets"][0]["config"] == {"severity": "warning", "limit": 5}
-    assert migrated["widgets"][1]["config"] == {"level": "kept"}, "only the events widget"
 
 
 # endregion
@@ -130,12 +26,12 @@ def test_an_events_widget_level_is_migrated_to_its_severity():
 
 
 def test_an_event_on_the_wire_carries_a_code_and_a_lowercase_severity():
-    from flyball.foundation.device import Code, Scope
+    from flyball.foundation.device import Code, SubjectKind
     from flyball.interfaces.server.routes.events import event_out
     from flyball.rig import Rig
 
     rig = Rig("t")
-    event = rig.event(Severity.WARNING, Scope.RIG, "t", Code.RESTORED, "hello")
+    event = rig.event(Severity.WARNING, SubjectKind.RIG, "t", Code.RESTORED, "hello")
     out = event_out(event)
     assert (out["code"], out["severity"]) == ("restored", "warning")
     assert "kind" not in out and "level" not in out
@@ -161,7 +57,7 @@ class TestEdges:
         (condition,) = rig.conditions.of(furnace)
         assert condition.message == "second", "a repeated set updates the message"
         assert condition.since_ns == clock.now_ns() - 2_000_000_000, "and keeps when it began"
-        assert (condition.scope, condition.subject) == (Scope.DEVICE, furnace.name)
+        assert (condition.subject_kind, condition.subject) == (SubjectKind.DEVICE, furnace.name)
         assert _edges(rig, Code.SLOW) == [("raised", furnace.name)], "one edge, not one per set"
         clock.advance(3.0)
         cleared = rig.conditions.clear(furnace, Code.SLOW)
@@ -316,9 +212,9 @@ class TestProducers:
         assert rig.hold_reason(controller) == Code.STALE_INPUT, "never read: stale"
         assert rig.hold_reason(controller) == Code.STALE_INPUT
         (held,) = rig.conditions.of(controller)
-        assert (held.code, held.scope, held.subject) == (
+        assert (held.code, held.subject_kind, held.subject) == (
             Code.STALE_INPUT,
-            Scope.CONTROLLER,
+            SubjectKind.CONTROLLER,
             controller.name,
         )
         rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 20.0})])
@@ -348,7 +244,7 @@ class TestProducers:
             rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: value})])
         broken["on"] = False
         assert controller.mode.value == "manual", "a law error takes at least on_fault: manual"
-        rig.stopping.reset(f"on_fault:{controller.name}", Actor("ben", "", "human", "http"))
+        rig.stopping.reset(f"on_fault:{controller.name}", Actor("ben", "human", "http"))
         controller.regulate(30.0)
         clock.advance(1.0)
         rig.on_samples([Sample(furnace.root, clock.now_ns(), {zone1: 22.0})])
@@ -375,19 +271,19 @@ def test_a_session_records_when_a_condition_started_and_cleared(rig, clock, fres
     rig.conditions.clear(furnace, Code.SLOW)
     rig.stop_recording()
     events = [e for e in store.events(recorder.writer.session.id) if e.code == "slow"]
-    assert [(e.edge, e.offset_ns, e.source) for e in events] == [
+    assert [(e.edge, e.offset_ns, e.subject) for e in events] == [
         ("raised", 1_000_000_000, furnace.name),
         ("cleared", 5_000_000_000, furnace.name),
     ]
-    assert events[0].detail["severity"] == "warning"
-    assert events[1].detail["details"]["duration_s"] == pytest.approx(4.0)
+    assert events[0].details["severity"] == "warning"
+    assert events[1].details["details"]["duration_s"] == pytest.approx(4.0)
     store.close()
 
 
 def test_a_failed_recording_is_a_condition_on_the_rig_until_the_next_starts(rig, tmp_path):
     rig._recording_failed(OSError("disk full"))
     (failed,) = rig.conditions.of(rig)
-    assert (failed.code, failed.scope) == (Code.RECORDING_FAILED, Scope.RIG)
+    assert (failed.code, failed.subject_kind) == (Code.RECORDING_FAILED, SubjectKind.RIG)
     store = SqliteStore(tmp_path / "s.db")
     rig.start_recording(store)
     assert rig.conditions.of(rig) == []
@@ -413,7 +309,7 @@ def test_health_conditions_come_from_the_store_with_scope_and_subject(rig, fresh
             body = client.get("/api/health").json()
     finally:
         set_rig(None)
-    held = [(c["scope"], c["subject"], c["code"], c["severity"]) for c in body["conditions"]]
+    held = [(c["subject_kind"], c["subject"], c["code"], c["severity"]) for c in body["conditions"]]
     assert held == [
         ("controller", controller.name, "stale_input", "warning"),
         ("device", furnace.name, "offline", "error"),
@@ -515,9 +411,9 @@ class TestDriverConditions:
         zone1 = furnace.signals["zone1"]
         assert furnace.set_condition("railed", Severity.WARNING, "at the power limit") is True
         furnace.set_condition("broken", Severity.ERROR, "open circuit", signal=zone1)
-        assert [(c.code, c.scope, c.subject) for c in rig.conditions.all()] == [
-            ("railed", Scope.DEVICE, furnace.name),
-            ("broken", Scope.SIGNAL, zone1.address),
+        assert [(c.code, c.subject_kind, c.subject) for c in rig.conditions.all()] == [
+            ("railed", SubjectKind.DEVICE, furnace.name),
+            ("broken", SubjectKind.SIGNAL, zone1.address),
         ]
         assert [c.code for c in furnace.held_conditions()] == ["railed", "broken"]
         clock.advance(2.0)
@@ -546,7 +442,11 @@ class TestDriverConditions:
         rig.add_device(daq)
         daq.fail("t")
         (broken,) = rig.conditions.all()
-        assert (broken.code, broken.scope, broken.subject) == ("broken", Scope.SIGNAL, "daq.t")
+        assert (broken.code, broken.subject_kind, broken.subject) == (
+            "broken",
+            SubjectKind.SIGNAL,
+            "daq.t",
+        )
         daq.restore("t")
         assert rig.conditions.all() == []
 

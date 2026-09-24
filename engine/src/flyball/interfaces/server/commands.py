@@ -20,11 +20,11 @@ __all__ = ["WIRE_TYPES", "CommandBase", "command_request", "commands_schema", "r
 
 
 class CommandBase(BaseModel):
-    """Shared by every generated request. `command` is narrowed per command."""
+    """Shared by every generated request. `type` is narrowed per command."""
 
     model_config = ConfigDict(extra="forbid")
 
-    command: str
+    type: str
     _command_cls: ClassVar[type[Step]]
     """The command this request describes -- set once, on the subclass `request_model` builds."""
 
@@ -33,14 +33,14 @@ class CommandBase(BaseModel):
         fields = {
             name: value.parse() if hasattr(value, "parse") else value
             for name, value in self
-            if name != "command"
+            if name != "type"
         }
         return self._command_cls(**fields)
 
 
 def request_model(command: type[Step]) -> type[CommandBase]:
-    """The pydantic request for `command`: one field per constructor parameter, plus its tag."""
-    fields: dict[str, Any] = {"command": (Literal[command.tag], command.tag)}
+    """The pydantic request for `command`: one field per constructor parameter, plus its type."""
+    fields: dict[str, Any] = {"type": (Literal[command.type], command.type)}
     fields.update(wire_fields(command))
     model = create_model(f"{command.__name__}Request", __base__=CommandBase, **fields)
     model._command_cls = command
@@ -62,10 +62,10 @@ def request_for(command: type[Step]) -> type[CommandBase]:
 
 
 def command_request(commands: Mapping[str, type[Step]]) -> Any:
-    """`commands` (a dialect's, or a catalog's) as one request type, discriminated by tag."""
+    """`commands` (a dialect's, or a catalog's) as one request type, discriminated by type."""
     if not commands:
         raise LookupError("no commands are registered")
-    return discriminated_union(commands, "command", request_for)
+    return discriminated_union(commands, "type", request_for)
 
 
 def commands_schema(commands: Mapping[str, type[Step]]) -> dict[str, Any]:

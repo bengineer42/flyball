@@ -12,6 +12,7 @@ from collections.abc import ItemsView, Iterator
 
 from flyball.foundation.device import Signal
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
+from flyball.foundation.keys import canonical
 from flyball.model.controller import Controller, ControllerSpec, ControllerState, ControllerView
 
 
@@ -43,7 +44,7 @@ class Controllers:
     _controllers: dict[str, Controller]
     _measured: dict[Signal, Controller]
     _outputs: dict[Signal, Controller]
-    default: str | None = None
+    default_controller: str | None = None
 
     def __init__(self) -> None:
         self._controllers = {}
@@ -51,22 +52,22 @@ class Controllers:
         self._outputs = {}
 
     def __getitem__(self, name: str) -> Controller:
-        return self._controllers[name]
+        return self._controllers[canonical(name)]
 
     def get(self, name: str) -> Controller | None:
-        """By name, or None; one dict lookup, safe without the rig's lock."""
-        return self._controllers.get(name)
+        """By name (either spelling, D-079), or None; safe without the rig's lock."""
+        return self._controllers.get(canonical(name))
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._controllers)
 
     def __contains__(self, name: str) -> bool:
-        return name in self._controllers
+        return canonical(name) in self._controllers
 
     def __len__(self) -> int:
         return len(self._controllers)
 
-    def add(self, controller: Controller, default: bool = False) -> None:
+    def add(self, controller: Controller, is_default: bool = False) -> None:
         """Register `controller` under its output's address.
 
         Raises:
@@ -80,19 +81,19 @@ class Controllers:
         self._controllers[controller.name] = controller
         self._outputs[controller.output_signal] = controller
         self._measured[controller.measured_signal] = controller
-        if default or self.default is None:
-            self.default = controller.name
+        if is_default or self.default_controller is None:
+            self.default_controller = controller.name
 
     def remove(self, name: str) -> Controller:
         """Detach a controller; its output and measured signal are free for another."""
         try:
-            controller = self._controllers.pop(name)
+            controller = self._controllers.pop(canonical(name))
         except KeyError as e:
             raise ControllerNotFoundError(name) from e
         self._outputs.pop(controller.output_signal, None)
         self._measured.pop(controller.measured_signal, None)
-        if self.default == name:
-            self.default = next(iter(self._controllers), None)
+        if self.default_controller == name:
+            self.default_controller = next(iter(self._controllers), None)
         return controller
 
     def find(self, measured: Signal) -> Controller | None:
@@ -105,11 +106,11 @@ class Controllers:
 
     def resolve(self, name: str | None = None) -> Controller:
         """By name, or the default. Raises rather than returning None."""
-        name = name or self.default
+        name = name or self.default_controller
         if name is None:
             raise NoDefaultControllerError()
         try:
-            return self._controllers[name]
+            return self._controllers[canonical(name)]
         except KeyError as e:
             raise ControllerNotFoundError(name) from e
 

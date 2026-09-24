@@ -56,14 +56,14 @@ class Heater(Committable):
             if self.mode.value is not Mode.AUTO:
                 self.mode.push(Mode.AUTO, time_ns)
 
-    @command(mode=Mode.HAND)
+    @command(sets_mode=Mode.HAND)
     def set_banks(self, a: Annotated[float, a], b: Annotated[float, b]) -> float:
         """Drive each bank at a duty."""
         self.writes.append(("a", a))
         self.writes.append(("b", b))
         return a + b
 
-    @command(mode=Mode.OFF, interrupts=True)
+    @command(sets_mode=Mode.OFF, interrupts=True)
     def off(self) -> None:
         """Both banks off; a controller on `power` goes to manual."""
         self.a.push(0.0)

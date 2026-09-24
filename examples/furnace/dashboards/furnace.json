@@ -1,6 +1,7 @@
 {
-  "schema_version": 2,
+  "schema_version": 6,
   "name": "furnace",
+  "label": "Furnace",
   "rig": "furnace",
   "description": "Three zones, a sample thermocouple, and the heaters holding them.",
   "grid": {
@@ -10,7 +11,7 @@
   "widgets": [
     {
       "id": "w1",
-      "kind": "health",
+      "type": "health",
       "x": 0,
       "y": 0,
       "w": 24,
@@ -27,8 +28,8 @@
     },
     {
       "id": "w2",
-      "kind": "chart",
-      "title": "Zones \u00b0C",
+      "type": "chart",
+      "label": "Zones \u00b0C",
       "x": 0,
       "y": 2,
       "w": 18,
@@ -46,7 +47,7 @@
     },
     {
       "id": "w3",
-      "kind": "readout",
+      "type": "readout",
       "x": 18,
       "y": 2,
       "w": 6,
@@ -59,7 +60,7 @@
     },
     {
       "id": "w4",
-      "kind": "text",
+      "type": "text",
       "x": 18,
       "y": 7,
       "w": 6,
@@ -71,7 +72,7 @@
     },
     {
       "id": "w5",
-      "kind": "loop",
+      "type": "loop",
       "x": 0,
       "y": 10,
       "w": 8,
@@ -83,7 +84,7 @@
     },
     {
       "id": "w6",
-      "kind": "loop",
+      "type": "loop",
       "x": 8,
       "y": 10,
       "w": 8,
@@ -95,7 +96,7 @@
     },
     {
       "id": "w7",
-      "kind": "loop",
+      "type": "loop",
       "x": 16,
       "y": 10,
       "w": 8,
@@ -107,7 +108,7 @@
     },
     {
       "id": "w8",
-      "kind": "device",
+      "type": "device",
       "x": 0,
       "y": 18,
       "w": 18,
@@ -119,14 +120,14 @@
     },
     {
       "id": "w11",
-      "kind": "program",
+      "type": "program",
       "x": 0,
       "y": 23,
       "w": 24,
       "h": 6,
       "config": {
         "events": 8,
-        "interrupt": true
+        "cancel": true
       }
     }
   ]

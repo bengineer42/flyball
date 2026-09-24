@@ -54,7 +54,7 @@ export function useControllers(windowS = 3600, every?: number): { controllers: R
   for (const name of Object.keys(controllers)) {
     const version = store.controllerVersion(name);
     if (name in next && current.seen.get(name) === version) continue;
-    const last = store.controller(name)?.measured;
+    const last = store.controller(name)?.measured_value;
     const fromS = windowS < store.windowS && last ? last.time_ns / 1e9 - windowS : undefined;
     next[name] = store.readController(name, emptyControllerView(), {
       ...(fromS !== undefined ? { fromS } : {}),

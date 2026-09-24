@@ -8,7 +8,7 @@ import { hashFor } from "../router.js";
 import { useEventsData, useRigData } from "../dashboard/context.js";
 import { humaniseSubject, TIME } from "./Events.js";
 import { rowsThatFit } from "./size.js";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 /** The status row (28px), the progress bar (4px) and the two gaps between them and the list (dashboard.css `.dash-program`). */
 const HEAD_PX = 28 + 8 + 4 + 8;
@@ -30,9 +30,9 @@ const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComp
   // Stays set (with the error) until the next run clears it, even once `running` goes false.
   const failed = p?.failed ?? false;
   const shown = Math.min(Math.max(0, Number(config.events ?? 5)), rowsThatFit(widget.h, rowHeight, true, HEAD_PX, ROW_PX));
-  const recent = events.filter((e) => e.scope === "program").slice(-shown).reverse();
+  const recent = events.filter((e) => e.subject_kind === "program").slice(-shown).reverse();
   // The programmer says step and command; the program's name is in the step events' subject (`anneal[4]`).
-  const latest = [...events].reverse().find((e) => e.scope === "program" && e.code === "step");
+  const latest = [...events].reverse().find((e) => e.subject_kind === "program" && e.code === "step");
   const name = latest ? latest.subject.replace(/\[\d+\]$/, "") : null;
   const cancel = () => {
     setBusy(true);
@@ -54,7 +54,7 @@ const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComp
           </Typography>
         )}
         <Typography variant="body2" noWrap color={failed ? "error" : "text.secondary"} sx={{ minWidth: 0 }}>
-          {!p ? "…" : running ? `step ${stepOf(p)}${p.command ? ` · ${humanise(p.command)}` : ""}` : failed ? `failed${p.error ? ` · ${p.error}` : ""}` : "nothing is running"}
+          {!p ? "…" : running ? `step ${stepOf(p)}${p.type ? ` · ${humanise(p.type)}` : ""}` : failed ? `failed${p.error ? ` · ${p.error}` : ""}` : "nothing is running"}
         </Typography>
         {running && config.cancel !== false && (
           <Button size="small" variant="outlined" color="error" startIcon={<CancelIcon />} onClick={cancel} disabled={busy || !canWrite} sx={{ ml: "auto", flex: "none" }}>
@@ -87,8 +87,8 @@ const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComp
   );
 });
 
-export const program: WidgetKind = {
-  kind: "program",
+export const program: WidgetType = {
+  type: "program",
   label: "Program",
   description: "What the programmer is running: the program, its step, progress, and the last few program events.",
   category: "control",
@@ -104,6 +104,6 @@ export const program: WidgetKind = {
     },
   }),
   defaultConfig: () => ({ events: 5, cancel: true }),
-  titleFor: () => "Program",
+  labelFor: () => "Program",
   Component: ProgramWidget,
 };

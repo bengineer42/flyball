@@ -1,6 +1,8 @@
 # Devices
 
-What is on the rig, keyed by name. Every entry is the same **envelope**
+What is on the rig, keyed by name -- a key: lower-case letters, digits and
+`_`, starting with a letter, `-` read as `_` ([Names](../../7-reference/rig-file.md#names)).
+Every entry is the same **envelope**
 with the driver's own config flat beside it: every key that is not the
 envelope's is the driver's.
 
@@ -14,7 +16,7 @@ devices:
     channels: { voltage: { query: "MEAS:VOLT:DC?", unit: V } }
     signals:
       voltage: { range: [0, 30], precision: 3, warning: [0, 25] }
-  wet_supply: { driver: sht4x, link: i2c1, address: 0x46, poll_s: 5 }
+  wet_supply: { driver: sht4x, link: i2c1, i2c_address: 0x46, poll_s: 5 }
 ```
 
 | key | type | |
@@ -88,7 +90,7 @@ limits only colour a widget:
   clears the condition at once.
 
 Each raise and clear is an event (`raised`, `cleared`) like any other
-condition's, and the device's `conditions` carry it with `scope: signal`
+condition's, and the device's `conditions` carry it with `subject_kind: signal`
 and the signal's address as `subject`. `/api/health` counts the signals
 holding each in `alarms` ([API](../../4-server/api.md)). A band alarm is not
 a fault: it does not make the rig unhealthy.
@@ -309,7 +311,7 @@ must keep running after a stop needs `stop: {drive: 1}` or `keep`. Run-on
 [What flyball does not do](../../0-overview/limits.md).
 
 `GET /api/rig/stop` lists every writable output with what a stop would do
-to it and why (`off`, `you said`, `nobody said`, `command`), and warns about
+to it and why (its `origin`: `off`, `you_said`, `nobody_said`, `command`), and warns about
 a controller's output nobody gave a stop, which a stop leaves energised and
 open loop. The runner logs the same warnings at start. `flyball rig check`
 checks the file's schema only and cannot see a driver's `off`, so this

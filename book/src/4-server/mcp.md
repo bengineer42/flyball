@@ -14,24 +14,24 @@ nothing about any particular device. The same server runs over stdio for a
 machine that can reach the rig but is not it (the `mcp` extra):
 
 ```
-flyball-mcp --url http://pi:8000 --mode author     # or export FLYBALL_URL
+flyball-mcp --url http://pi:8000 --tier author     # or export FLYBALL_URL
 ```
 
 The repository's `.mcp.json` points Claude Code at a local runner's
 `/mcp/author`, so a checkout gets the simulated rig offered on first open.
 
-`/mcp` with no mode is not a fourth, default tier -- there is no default
+`/mcp` with no tier is not a fourth, default tier -- there is no default
 tier. It has no row in the runner's verb table, so it is refused (`403`)
 like any path nobody decided on; a client has to name `read`, `author` or
 `operate`.
 
-## Modes
+## Tiers
 
-The mode chooses a tier; every tool at or below it is listed, so a client in
-`read` mode cannot call a tool that moves anything because it was never told
+A server is given a tier; every tool at or below it is listed, so a client on
+the `read` tier cannot call a tool that moves anything because it was never told
 one exists.
 
-| mode | adds | for |
+| tier | adds | for |
 | --- | --- | --- |
 | `read` (default) | every `GET`, plus `check_program` and `check_rig`, which validate and return | asking the rig questions |
 | `author` | saving programs, dashboards and tunings to the store | "write me a program that…", "make a dashboard for the blender" |
@@ -44,13 +44,13 @@ commands and `regulate` are refused, and a Reset
 (`POST /api/rig/reset`) needs a person
 ([the latch](../1-running/runner/access.md#the-latch)).
 
-Entering a mode needs a verb (pending D-034): `read` for `/mcp/read`,
+Entering a tier needs a verb (pending D-034): `read` for `/mcp/read`,
 `operate` for `/mcp/author` and `/mcp/operate`. Every call a tool makes
-then carries the caller's own verbs cut to what the mode allows, so a
+then carries the caller's own verbs cut to what the tier allows, so a
 `read` token at `/mcp/read` cannot reach a route that needs more, whatever
 the tool.
 
-Two entries in the client's config, one per mode you want, is the usual
+Two entries in the client's config, one per tier you want, is the usual
 arrangement:
 
 ```json
@@ -64,7 +64,7 @@ arrangement:
 
 ## The token
 
-Whoever can reach `/mcp` through the door can drive what its mode offers,
+Whoever can reach `/mcp` through the door can drive what its tier offers,
 so a model needs a credential wherever a person would:
 
 - **the `local` shape** (`flyball run` with nothing configured) needs none,
@@ -109,11 +109,11 @@ Every tool call is recorded like any other request that needs more than
   marked destructive, so a client can ask first; its description says the
   controller goes to manual once the command succeeds, and the call's result
   is `{result, interrupted: [{controller, was}]}`, naming it. A command with
-  a `mode` or `writes` that does not interrupt says it is refused while a
+  a `sets_mode` or `writes` that does not interrupt says it is refused while a
   controller drives the device.
 - `list_devices` is name, type, label and a one-line description -- not the
   full tree `GET /api/devices` answers (signals, commands, conditions),
-  which is tens of kB even on a one-device rig; its `detail` argument asks
+  which is tens of kB even on a one-device rig; its `verbose` argument asks
   for that instead. `describe_device` for one device's full schema either
   way. A tool that answers a list wraps it in a named key (`{"devices":
   [...]}`, `{"controllers": [...]}`, and so on), not a bare array, and
@@ -125,12 +125,15 @@ Every tool call is recorded like any other request that needs more than
   can reach a route other than the tool's own. The Python client does the
   same (`flyball.interfaces.client.segment`).
 - `describe_device` is the schema; `widget_schema` every dashboard widget
-  kind with its `config`; `program_schema` the program dialect. Together
+  type with its `config`; `program_schema` the program dialect. Together
   they are what a model needs to write a program or a dashboard that names
   real signals, and `check_program` / `save_dashboard` say what it named
   that the rig lacks.
 - `update_dashboard` changes a dashboard by its parts (add, remove, move,
-  reconfigure a widget) rather than by rewriting the document. Programs are
+  reconfigure or relabel a widget; `set_label` the dashboard's own label,
+  `set_description` its description) rather than by rewriting the document.
+  `rename_dashboard` moves one to a new name, its key; what a person sees
+  is its label. Programs are
   text and are saved whole.
 - `activities` lists what a running program is waiting on; `fire_activity`
   answers one (the operator pressed the button, or wants a timer skipped)
@@ -190,4 +193,4 @@ Three routes exist for this and the CLI: `GET /api/rig/schema`, `GET
 /api/rig/config` and `POST /api/rig/check`, so a rig file can be checked
 against the drivers the runner has without installing them where the model
 runs. `GET /api/dashboards/widgets` is the widget catalogue -- a copy of the
-UI's registry kept beside the server, since the kinds are the UI's.
+UI's registry kept beside the server, since the widget types are the UI's.

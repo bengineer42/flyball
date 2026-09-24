@@ -44,7 +44,7 @@ def test_read_commands_then_collects_one_sample():
         "temperature": pytest.approx(21.5, abs=0.01),
     }
     assert bus.written == [(0x44, None, [0x24, 0x16])]
-    assert air.config.address == 0x44 and air.config.precision == "low"
+    assert air.config.i2c_address == 0x44 and air.config.precision == "low"
 
 
 def test_a_missing_chip_raises_so_the_device_goes_offline():
@@ -55,7 +55,7 @@ def test_a_missing_chip_raises_so_the_device_goes_offline():
 
 def test_alternate_address():
     bus = FakeI2c(replies={0x45: [list(sht31.encode(19.0, 40.0))]})
-    air = sht31.Sht31("air", bus, address=0x45, sleep=False)
+    air = sht31.Sht31("air", bus, i2c_address=0x45, sleep=False)
     (sample,) = air.read(0)
     assert sample.by_name()["temperature"] == pytest.approx(19.0, abs=0.01)
     assert bus.written == [(0x45, None, [0x24, 0x00])]

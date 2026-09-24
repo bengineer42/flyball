@@ -139,7 +139,7 @@ class I2cTable(Readable, Committable):
         self,
         name: str,
         link: I2cLink,
-        address: int,
+        i2c_address: int,
         registers: Mapping[str, Register],
         init: Sequence[InitWrite] = (),
         label: str | None = None,
@@ -148,7 +148,7 @@ class I2cTable(Readable, Committable):
         if not registers:
             raise ValueError(f"{name}: an i2c_table reads at least one register")
         self.link = link
-        self.address = address
+        self.i2c_address = i2c_address
         self.registers = dict(registers)
         self.init = list(init)
         # Device.blocking is a ClassVar; this driver's real bus or fake is only known
@@ -167,17 +167,17 @@ class I2cTable(Readable, Committable):
         ])
         self._signals = [self.signals[key] for key in self.registers]
         for w in self.init:
-            self.link.write_register(self.address, w.address, w.encode())
+            self.link.write_register(self.i2c_address, w.address, w.encode())
 
     @property
     def config(self) -> I2cTableConfig:
         return I2cTableConfig(
-            link="", address=self.address, registers=self.registers, init=self.init
+            link="", i2c_address=self.i2c_address, registers=self.registers, init=self.init
         )
 
     def _value(self, signal: Signal) -> float:
         register = self.registers[signal.name]
-        data = self.link.read_register(self.address, register.address, register.length)
+        data = self.link.read_register(self.i2c_address, register.address, register.length)
         return register.decode(data)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
@@ -191,7 +191,7 @@ class I2cTable(Readable, Committable):
         for signal, value in self.staged.items():
             register = self.registers[signal.name]
             data = register.encode(value)
-            self.link.write_register(self.address, register.address, data)
+            self.link.write_register(self.i2c_address, register.address, data)
             readback = register.decode(data)
             if readback != value:
                 signal.push(readback, time_ns)
@@ -204,7 +204,7 @@ class I2cTableConfig(DriverConfig[I2cTable], type="i2c_table"):
     board_temp:
       driver: i2c_table
       link: i2c1
-      address: 0x48
+      i2c_address: 0x48
       init:
         - { address: 0x01, value: 0x60 }   # one-shot mode, per the datasheet
       registers:
@@ -213,7 +213,7 @@ class I2cTableConfig(DriverConfig[I2cTable], type="i2c_table"):
     """
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(ge=0x03, le=0x77, description="The chip's bus address.")
+    i2c_address: int = Field(ge=0x03, le=0x77, description="The chip's bus address.")
     registers: dict[str, Register]
     init: list[InitWrite] = Field(
         default_factory=list,
@@ -224,7 +224,7 @@ class I2cTableConfig(DriverConfig[I2cTable], type="i2c_table"):
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
         return I2cTable(
-            name, resolve(self.link), self.address, self.registers, self.init, label=label
+            name, resolve(self.link), self.i2c_address, self.registers, self.init, label=label
         )
 
 

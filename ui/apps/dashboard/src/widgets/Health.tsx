@@ -5,7 +5,7 @@ import { CircleIcon, OkIcon, PAGE_ICONS, SignalIcon, WarnIcon, type IconComponen
 import { hashFor } from "../router.js";
 import { duration } from "../time.js";
 import { useEventsData, useRigData } from "../dashboard/context.js";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 type Tone = "ok" | "warn" | "bad";
 const TONE_COLOUR: Record<Tone, string | undefined> = { ok: undefined, warn: "warning.main", bad: "error.main" };
@@ -47,7 +47,7 @@ const HealthWidget = memo(function HealthWidget({ config }: WidgetComponentProps
   const stopped = h ? Object.values(h.devices).filter((d) => !d.running).length : 0;
   const problems = events.filter((e) => e.severity === "error" || e.severity === "warning").length;
   const errors = events.filter((e) => e.severity === "error").length;
-  // Every condition the rig holds at warning or above, on any scope (faults and the band alarms it
+  // Every condition the rig holds at warning or above, on any subject (faults and the band alarms it
   // raises on signals), counted the same way as the app-bar chip, so the two agree.
   const active = (h?.conditions ?? []).filter((c) => atLeast(c.severity, "warning"));
   const conditionsCount = active.length;
@@ -70,8 +70,8 @@ const HealthWidget = memo(function HealthWidget({ config }: WidgetComponentProps
   );
 });
 
-export const health: WidgetKind = {
-  kind: "health",
+export const health: WidgetType = {
+  type: "health",
   label: "Health",
   description: "The rig's condition at a glance: fault or ok, recording, devices polling, controllers, conditions, activities, uptime.",
   category: "status",
@@ -86,6 +86,6 @@ export const health: WidgetKind = {
     },
   }),
   defaultConfig: () => ({ tiles: TILES.slice(0, 5) }),
-  titleFor: () => undefined,
+  labelFor: () => undefined,
   Component: HealthWidget,
 };

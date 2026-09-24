@@ -73,13 +73,13 @@ def decode_words(frame: bytes, count: int) -> list[int]:
 
 
 class Sgp30Sensor:
-    """One chip at `address`: IAQ init, measure, and baseline get/set."""
+    """One chip at `i2c_address`: IAQ init, measure, and baseline get/set."""
 
-    __slots__ = ("address", "link", "sleep")
+    __slots__ = ("i2c_address", "link", "sleep")
 
-    def __init__(self, link: I2cLink, address: int = SGP30_ADDRESS, sleep: bool = True) -> None:
+    def __init__(self, link: I2cLink, i2c_address: int = SGP30_ADDRESS, sleep: bool = True) -> None:
         self.link = link
-        self.address = address
+        self.i2c_address = i2c_address
         self.sleep = sleep
         """Whether to wait the conversion time; off in a test against a fake."""
 
@@ -89,21 +89,21 @@ class Sgp30Sensor:
 
     def init_air_quality(self) -> None:
         """Starts the on-chip IAQ algorithm. Call once before the first `measure`."""
-        self.link.write(self.address, command(INIT_AIR_QUALITY))
+        self.link.write(self.i2c_address, command(INIT_AIR_QUALITY))
         self._wait(0.010)
 
     def measure(self) -> tuple[int, int]:
         """(CO2eq ppm, TVOC ppb): one I2C transaction."""
-        self.link.write(self.address, command(MEASURE_IAQ))
+        self.link.write(self.i2c_address, command(MEASURE_IAQ))
         self._wait(0.012)
-        co2eq, tvoc = decode_words(self.link.read(self.address, 6), 2)
+        co2eq, tvoc = decode_words(self.link.read(self.i2c_address, 6), 2)
         return co2eq, tvoc
 
     def get_baseline(self) -> Baseline:
         """The current CO2eq/TVOC baseline, to persist across power cycles."""
-        self.link.write(self.address, command(GET_IAQ_BASELINE))
+        self.link.write(self.i2c_address, command(GET_IAQ_BASELINE))
         self._wait(0.010)
-        co2eq, tvoc = decode_words(self.link.read(self.address, 6), 2)
+        co2eq, tvoc = decode_words(self.link.read(self.i2c_address, 6), 2)
         return Baseline(co2eq, tvoc)
 
     def set_baseline(self, baseline: Baseline) -> None:
@@ -112,7 +112,7 @@ class Sgp30Sensor:
         The chip takes the words as (TVOC, CO2eq), the reverse of `get_baseline`'s order.
         """
         self.link.write(
-            self.address,
+            self.i2c_address,
             [
                 *command(SET_IAQ_BASELINE),
                 *word_with_crc(baseline.tvoc),
@@ -124,7 +124,7 @@ class Sgp30Sensor:
         """Humidity compensation input; `None` turns compensation off (writes 0x0000)."""
         raw = 0 if grams_per_m3 is None else round(grams_per_m3 * 256.0)
         raw = max(0, min(0xFFFF, raw))
-        self.link.write(self.address, [*command(SET_ABSOLUTE_HUMIDITY), *word_with_crc(raw)])
+        self.link.write(self.i2c_address, [*command(SET_ABSOLUTE_HUMIDITY), *word_with_crc(raw)])
 
 
 class Sgp30(Readable):
@@ -137,7 +137,7 @@ class Sgp30(Readable):
         self,
         name: str,
         link: I2cLink,
-        address: int = SGP30_ADDRESS,
+        i2c_address: int = SGP30_ADDRESS,
         sleep: bool = True,
         baseline: Baseline | None = None,
         label: str | None = None,
@@ -147,14 +147,14 @@ class Sgp30(Readable):
         self.link = link
         self.warmup_s = warmup_s
         self._first_ns: int | None = None
-        self.sensor = Sgp30Sensor(link, address, sleep)
+        self.sensor = Sgp30Sensor(link, i2c_address, sleep)
         self.sensor.init_air_quality()
         if baseline is not None:
             self.sensor.set_baseline(baseline)
 
     @property
     def config(self) -> Sgp30Config:
-        return Sgp30Config(link="", address=self.sensor.address)
+        return Sgp30Config(link="", i2c_address=self.sensor.i2c_address)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         """One measurement; nothing for `warmup_s` from the first, while the outputs are fixed.
@@ -180,7 +180,7 @@ class Sgp30Config(DriverConfig[Sgp30], type="sgp30"):
     """One chip by its I2C address."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(default=SGP30_ADDRESS, ge=0x03, le=0x77)
+    i2c_address: int = Field(default=SGP30_ADDRESS, ge=0x03, le=0x77)
     baseline: tuple[int, int] | None = Field(
         default=None,
         description="[co2eq, tvoc] IAQ baseline words to restore at startup, as read back "
@@ -192,7 +192,7 @@ class Sgp30Config(DriverConfig[Sgp30], type="sgp30"):
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
         baseline = None if self.baseline is None else Baseline(*self.baseline)
-        return Sgp30(name, resolve(self.link), self.address, baseline=baseline, label=label)
+        return Sgp30(name, resolve(self.link), self.i2c_address, baseline=baseline, label=label)
 
 
 Sgp30.config_type = Sgp30Config

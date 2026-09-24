@@ -61,11 +61,11 @@ def _calibration_bytes() -> tuple[bytes, bytes, bytes]:
 T_P_BLOCK, H1_BYTE, H2_6_BLOCK = _calibration_bytes()
 
 
-def _bus(has_humidity: bool = True, address: int = ADDRESS) -> FakeI2c:
-    registers = {address: {bme280._CALIB_T_P: list(T_P_BLOCK)}}
+def _bus(has_humidity: bool = True, i2c_address: int = ADDRESS) -> FakeI2c:
+    registers = {i2c_address: {bme280._CALIB_T_P: list(T_P_BLOCK)}}
     if has_humidity:
-        registers[address][bme280._CALIB_H1] = list(H1_BYTE)
-        registers[address][bme280._CALIB_H2_6] = list(H2_6_BLOCK)
+        registers[i2c_address][bme280._CALIB_H1] = list(H1_BYTE)
+        registers[i2c_address][bme280._CALIB_H2_6] = list(H2_6_BLOCK)
     return FakeI2c(registers=registers)
 
 
@@ -214,10 +214,10 @@ class TestBme280Device:
 
     def test_config_round_trips(self):
         chip = bme280.Bme280(
-            "wet", _bus(), address=ADDRESS, osrs_t=2, osrs_p=4, osrs_h=8, sleep=False
+            "wet", _bus(), i2c_address=ADDRESS, osrs_t=2, osrs_p=4, osrs_h=8, sleep=False
         )
         cfg = chip.config
-        assert cfg.address == ADDRESS
+        assert cfg.i2c_address == ADDRESS
         assert (cfg.osrs_t, cfg.osrs_p, cfg.osrs_h) == (2, 4, 8)
         assert cfg.has_humidity is True
 

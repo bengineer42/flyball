@@ -75,11 +75,8 @@ export type Dtype = "float" | "int" | "bool" | "str" | "enum" | "json";
  * written from outside), `setting` (re-set by a command; an operator-entered
  * value of a `driver: values` device is a setting with `rpw`). A number a
  * device is built from is not a signal. Inputs are bindings, not signals.
- *
- * `config` is never sent since wave 2 stage 7 (`ConfigSignal` is gone); it stays in the
- * union only until the panels stop testing for it.
  */
-export type Role = "demand" | "readout" | "setting" | "config";
+export type Role = "demand" | "readout" | "setting";
 
 /**
  * What a signal's value is worth now: `ok`, or why there is none. First match wins:
@@ -212,7 +209,7 @@ export interface Condition {
   /** When it was raised. */
   since_ns: Nanoseconds;
   /** The owner's kind: `device`, `signal`, `controller`, `rig`. */
-  scope: string;
+  subject_kind: string;
   /** The owner: a device's or controller's name, a signal's address, the rig's name. */
   subject: string;
   details?: unknown;
@@ -304,11 +301,11 @@ export interface CommandOut {
   /** The method only records; the rig commits the device after it. */
   commit: boolean;
   /** What the device's `mode` output becomes when this runs, if it has one. */
-  mode: Value;
+  sets_mode: Value;
   /** Runs while a controller drives the device and puts it into manual once the method has succeeded (the response's `interrupted` names it); without it the command is refused while one is active. */
   interrupts: boolean;
-  /** What it moves that no linked argument says: demand paths (gpio `on`/`off` move `on`), or a private child's name (a dosing pump's `pump`). A command with any is refused while a controller drives the device, unless it `interrupts`. Always sent; optional here only for older fixtures. */
-  writes?: string[];
+  /** What it moves that no linked argument says: demand paths (gpio `on`/`off` move `on`), or a private child's name (a dosing pump's `pump`). A command with any is refused while a controller drives the device, unless it `interrupts`. */
+  writes: string[];
   /** A synthesised `set_<name>`: the path of the demand it sets. */
   demand_of: string | null;
   /** Argument name -> the path (relative to the device) of the demand or setting it is a value for. */
@@ -362,17 +359,17 @@ export interface InputOut {
 
 /**
  * Where a `driver: values` signal's value in force came from, for the device
- * page: `rig_file` ("rig file"), `restored` ("restored, written by `writer`
- * at `written_ns`"), `written` (written in this run, by `writer` at
- * `written_ns`).
+ * page: `rig_file` ("rig file"), `restored` ("restored, written by `actor`
+ * at `written_utc_ns`"), `written` (written in this run, by `actor` at
+ * `written_utc_ns`).
  */
 export interface ValueSourceOut {
   origin: "rig_file" | "restored" | "written";
   /** The rig file's `initial` in force. */
   initial: number;
-  writer: string | null;
+  actor: Actor | null;
   /** Wall time, ns since the epoch. */
-  written_ns: Nanoseconds | null;
+  written_utc_ns: Nanoseconds | null;
 }
 
 /** How the runtime is polling a device; null on a `DeviceOut` when nothing on it is polled. */
@@ -445,10 +442,11 @@ export interface CommandSchema {
   arguments: JsonSchema;
   simulation: boolean;
   commit: boolean;
-  mode: Value;
+  /** As `CommandOut.sets_mode`. */
+  sets_mode: Value;
   interrupts: boolean;
-  /** As `CommandOut.writes`. Always sent; optional here only for older fixtures. */
-  writes?: string[];
+  /** As `CommandOut.writes`. */
+  writes: string[];
   demand_of: string | null;
 }
 
@@ -464,7 +462,7 @@ export interface SignalSchema {
   dimension: string | null;
   dtype: Dtype;
   /** The JSON schema of one value: a number, an enum's members, a structure. */
-  value: JsonSchema;
+  value_schema: JsonSchema;
   range: Bounds | null;
   precision: number | null;
   limits: Bounds | null;
@@ -612,12 +610,12 @@ export interface ControllerOut {
   label: string | null;
   output_signal: Address;
   measured_signal: Address;
-  default: boolean;
+  is_default: boolean;
   mode: ControllerMode;
   /** The law's config and state flattened, `type` first; null when there is no law. */
   law: Record<string, unknown> | null;
   feedforward: FeedforwardConfig;
-  /** The unit `output`, `expected` and `correction` are in: the output signal's. */
+  /** The unit `output_value`, `expected` and `correction` are in: the output signal's. */
   output_unit: string;
   /** A fixed setpoint, or the trajectory being followed (a ramp, a dwell, a profile). */
   reference: number | GeneratorOut | null;
@@ -627,11 +625,11 @@ export interface ControllerOut {
   arrived?: boolean;
   correction: number;
   /** The last value asked of the output signal. */
-  output: number | null;
+  output_value: number | null;
   expected: number | null;
   delivered_correction: number | null;
   /** The measured signal's reading at the last tick. */
-  measured: ReadingOut | null;
+  measured_value: ReadingOut | null;
   /** What it does once its source has been faulty for its wait (the rig file's `on_fault`). */
   on_fault?: OnFault;
   /**
@@ -664,7 +662,7 @@ export interface SignalChoice {
 /** A stored tuning as the controller form offers it: its name, the law it is for, and the gains. */
 export interface TuningChoice {
   name: string;
-  /** The law's type (`PI`, `PID`, ...), so a form can offer the tunings for one law. */
+  /** The law's type (`pi`, `pid`, ...), so a form can offer the tunings for one law. */
   law: string;
   config: LawConfig;
 }
@@ -700,7 +698,7 @@ export interface NewController {
    * units agree, else `none`. `"identity"` across differing units is refused (409).
    */
   feedforward?: FeedforwardConfig | string | null;
-  default?: boolean;
+  is_default?: boolean;
   min_period_s?: number | null;
   /** While following a moving setpoint, re-apply its feedforward this often between readings; omitted: `max(0.1 s, poll_s / 4)`. */
   setpoint_period_s?: number | null;
@@ -751,7 +749,6 @@ export interface ClockOut {
   start_time_ns: Nanoseconds;
   now_ns: Nanoseconds;
   elapsed_ns: Nanoseconds;
-  tags: Record<string, Nanoseconds>;
   /** How fast the rig's time runs against wall time; only a simulated rig is ever not 1. */
   speed: number;
 }
@@ -765,7 +762,7 @@ export interface Health {
   devices: Record<string, { running: boolean; last_read_ns: Nanoseconds | null }>;
   /** Each controller's mode, by name. */
   controllers: Record<Address, ControllerMode>;
-  /** Every condition held now, on any device, signal, controller or the rig (`scope`, `subject`). */
+  /** Every condition held now, on any device, signal, controller or the rig (`subject_kind`, `subject`). */
   conditions: Condition[];
   /**
    * Signals holding the rig's `band_warning` (warn), `band_alarm` (alarm) or
@@ -778,7 +775,7 @@ export interface Health {
   activities: string[];
   recording: boolean;
   /** The rig stop's latch, if it holds: who, when (wall ns) and why; null when not stopped. */
-  stopped: { by: string; at_ns: Nanoseconds; reason: string } | null;
+  stopped: { actor: Actor; at_utc_ns: Nanoseconds; reason: string } | null;
   /** Every latch cause held now, one row per subject it holds. */
   latches: LatchRow[];
   exposure?: Exposure | null;
@@ -786,7 +783,7 @@ export interface Health {
 
 /** One subject a latch holds (`/api/health` `latches`). */
 export interface LatchRow {
-  scope: "rig" | "device" | "signal" | "controller";
+  subject_kind: "rig" | "device" | "signal" | "controller";
   subject: string;
   /** `stop` (the rig stop), or `on_fault:<controller>`: what a Reset names. */
   cause: string;
@@ -800,7 +797,7 @@ export interface ErrorDetail {
 export interface Event {
   time_ns: Nanoseconds;
   severity: Severity;
-  scope: string;
+  subject_kind: string;
   subject: string;
   code: string;
   message: string;
@@ -877,7 +874,7 @@ export interface RigVersion {
  */
 export interface RigEditOut {
   /** The edit's rig version, now the head. */
-  version: number;
+  rig_version_id: number;
   /** The head before it: what a start that cannot build the edit goes back to. */
   previous: number | null;
   /** The version's reason: `edited: added device probe`, `restored from 3`. */
@@ -887,7 +884,8 @@ export interface RigEditOut {
   restarting: boolean;
   /** The stop's report, as `POST /api/rig/stop` answers; null if the stop failed. */
   stop: StopReport | null;
-  detail: string;
+  /** What the edit did, as a sentence. */
+  message: string;
 }
 
 /**
@@ -945,7 +943,7 @@ export interface AuthInfo {
   /** How this rig's door is set up. */
   shape: "local" | "password" | "proxy" | "bare";
   /** How this caller got in. */
-  scheme: "local" | "anonymous" | "session" | "token" | "proxy";
+  scheme: "local" | "anonymous" | "login" | "token" | "proxy";
   user: { id: string; name: string; kind: "human" | "service" | "agent" } | null;
   /** This caller's verbs on this rig, sorted; the UI decides from these, never from `scheme` or `shape` alone. */
   verbs: string[];
@@ -967,23 +965,27 @@ export interface AuthInfo {
   rig?: string;
 }
 
-/** Who asked for the stop (`StopReport.actor`), and how they reached it. */
-export interface StopActor {
-  sub: string;
-  sid: string;
+/**
+ * Who acted, on every record of an action (a stop, a latch, a write): the principal, its
+ * kind (`human`, `service`, `agent`; the rig's own `program`, `controller`, `rule`), how it
+ * came in (`rig` for the rig's own), the login (`sid`, `""` for none) and a note.
+ */
+export interface Actor {
+  principal: string;
   kind: string;
-  via: "http" | "mcp" | "signal";
-  detail: string;
+  via: "http" | "mcp" | "signal" | "rig";
+  sid: string;
+  message: string;
 }
 
 /**
  * One device's outcome of a stop: `stopped` (its stop command ran, or its stop values
- * were written), `unchanged` (every output kept as it was), `failed` (`detail` says why;
+ * were written), `unchanged` (every output kept as it was), `failed` (`message` says why;
  * "may still act" when the time ran out).
  */
 export interface DeviceStopOut {
   state: "stopped" | "unchanged" | "failed";
-  detail: string;
+  message: string;
   /** What it wrote, by address. */
   written?: Record<Address, number>;
   /** What it left as it was, by address, with the value it holds (null: not known): energised if it was. */
@@ -996,8 +998,8 @@ export interface DeviceStopOut {
  * (`POST /api/rig/reset`). `interim` is false: it wrote each device's resolved stop.
  */
 export interface StopReport {
-  at_ns: Nanoseconds;
-  actor: StopActor;
+  at_utc_ns: Nanoseconds;
+  actor: Actor;
   reason: string;
   devices: Record<Address, DeviceStopOut>;
   program_interrupted: boolean;
@@ -1015,9 +1017,9 @@ export interface ResetRequest {
 /** A latch held: `GET /api/rig/latches`, and what `POST /api/rig/reset` answers. */
 export interface LatchOut {
   cause: string;
-  subjects: { scope: LatchRow["scope"]; subject: string }[];
-  by: string;
-  at_ns: Nanoseconds;
+  subjects: { subject_kind: LatchRow["subject_kind"]; subject: string }[];
+  actor: Actor;
+  at_utc_ns: Nanoseconds;
   reason: string;
   /** A fault's action (`manual`, `stop`, `stop_device`); "" for the rig stop. */
   action: string;
@@ -1029,8 +1031,8 @@ export interface OutputStopOut {
   device: string;
   /** What a stop writes: a number, or `keep`; null where the device's stop command runs. */
   stop: number | "keep" | null;
-  /** `off` (the driver's inactive level), `you said` (the rig file's `stop:`), `nobody said`, `command`. */
-  source: "off" | "you said" | "nobody said" | "command";
+  /** `off` (the driver's inactive level), `you_said` (the rig file's `stop:`), `nobody_said`, `command`. */
+  origin: "off" | "you_said" | "nobody_said" | "command";
   command: string | null;
   /** The controller driving it, if any. */
   controller: Address | null;
@@ -1052,7 +1054,7 @@ export interface StopPlan {
 export interface PasskeyOut {
   id: number;
   label: string;
-  created_ns: number;
+  created_utc_ns: number;
   transports: string[];
 }
 
@@ -1068,7 +1070,7 @@ export interface PasskeyListOut {
  * with `--insecure-open` it is served where asked, and `open_network` says anyone who reaches it may operate.
  */
 export interface Exposure {
-  requested: string;
+  requested_host: string;
   host: string;
   port: number;
   open: boolean;
@@ -1142,7 +1144,7 @@ export interface SessionRow {
   id: number;
   start_ns: Nanoseconds;
   end_ns: Nanoseconds | null;
-  version: string | null;
+  flyball_version: string | null;
   config: unknown;
   hardware: unknown;
   details: unknown;
@@ -1225,14 +1227,12 @@ export type StoreFlag = 1 | 2 | 3 | 4 | 16 | 17;
  * One stored reading, with its `flag`. An averaged bucket carries the lowest no-value code in
  * it when any reading in it had no value.
  *
- * NOTE: since store migration 0021 the server sends `value: null` for a reading with no value
- * (`flag` 1-4; a chart breaks there), and for such a bucket. `value` stays typed `number` only
- * until the UI's session loaders (`useSession.ts`, `store/telemetry.ts`) map null to a break;
- * then it becomes `number | null`.
+ * `value` is `null` for a reading with no value (`flag` 1-4; a chart breaks there), and for
+ * such a bucket.
  */
 export interface Point {
   offset_ns: Nanoseconds;
-  value: number;
+  value: number | null;
   flag?: StoreFlag | null;
 }
 
@@ -1258,15 +1258,15 @@ export interface Tick {
   mode: string;
   /** The law's share of the output, in the output's unit; null when it was not a number (a NaN integral). */
   correction: number | null;
-  measured: number | null;
+  measured_value: number | null;
   /** The setpoint resolved at this tick, in the measured unit (a ramp's value, not its name). */
   setpoint: number | null;
-  output: number | null;
+  output_value: number | null;
   expected: number | null;
   delivered_correction: number | null;
   /**
    * A re-apply between readings (a moving setpoint's feedforward, on the rig clock): no reading,
-   * so `measured` is null and the law did not step. Always sent; optional for older servers.
+   * so `measured_value` is null and the law did not step. Always sent; optional for older servers.
    */
   reapplied?: boolean;
 }
@@ -1279,8 +1279,10 @@ export interface WriteStateRow extends WriteOut {
 export interface SessionEvent {
   offset_ns: Nanoseconds;
   code: string;
-  source: string | null;
-  detail: unknown;
+  /** What it is about: a device, a signal, a controller, a program step, the rig. */
+  subject: string | null;
+  /** `{severity, subject_kind, message, details}` as the rig recorded it. */
+  details: unknown;
   id: number | null;
   /** `raised` or `cleared` for a condition's start or end; `null` for a point event. */
   edge: Edge | null;
@@ -1299,7 +1301,7 @@ export interface Span {
 /** Body for `POST /api/recording`. */
 export interface StartRecording {
   details?: unknown;
-  version?: string;
+  flyball_version?: string;
   config?: unknown;
   hardware?: unknown;
   /** Backfill the new session with this much of the scratch record, in the rig's clock, so what was just watched is kept. */
@@ -1320,7 +1322,7 @@ export interface ProgramRow {
   body: string;
   created_ns: Nanoseconds;
   sha256: string;
-  label: string | null;
+  /** What the author said about this version: text, or any JSON. */
   notes: unknown;
 }
 
@@ -1337,7 +1339,7 @@ export interface ProgrammerState {
   running: boolean;
   step: number;
   steps: number;
-  command: string | null;
+  type: string | null;
   failed: boolean;
   error: string | null;
 }
@@ -1362,9 +1364,8 @@ export interface SimulationClock {
 
 /** What the rig last delivered on one signal read off a plant: noise and all, not the model's state. */
 export interface SimulationReading {
-  /** The delivered value. NOTE: `null` when the reading has none (a failed sensor); typed
-   * `number` until the simulation page handles that, like `Point.value`. */
-  value: number;
+  /** The delivered value; `null` when the reading has none (a failed sensor): `quality` says why. */
+  value: number | null;
   /** `ok`, or why there is no value (a failed sensor reads `invalid`). */
   quality?: Quality;
   unit: string;

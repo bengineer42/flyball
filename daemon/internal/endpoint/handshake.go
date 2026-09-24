@@ -26,10 +26,10 @@ type Signer func(r *http.Request, key [32]byte, aud string) error
 // FrontInfo is a fronted runner's answer to a signed GET
 // <root>/api/auth/front.
 type FrontInfo struct {
-	Protocol int    `json:"protocol"`
-	Aud      string `json:"aud"`
-	Pid      int    `json:"pid"`
-	Flyball  string `json:"flyball"`
+	Protocol       int    `json:"protocol"`
+	Aud            string `json:"aud"`
+	Pid            int    `json:"pid"`
+	FlyballVersion string `json:"flyball_version"`
 }
 
 // Protocol is the front <-> runner protocol this front speaks.

@@ -28,7 +28,7 @@ are in `DECISIONS.md` at the repository root; this is the index.
 | **D-031** | Licence: **MIT**, with a copy in every package root (PEP 639 forbids `..` in `license-files`, so one file at the repository root cannot reach the ten Python packages or the npm ones). Apache-2.0 was recommended first and withdrawn: its patent grant covers only *contributors'* patents, which for a solo author with none is an empty set, and the instrumentation field's own publishers ship MIT (National Instruments' `nidaqmx-python`, Microsoft's QCoDeS, Zurich Instruments' `zhinst-toolkit`). MIT keeps driver code flowing both ways with the MIT/BSD projects flyball already adapts to. Contributions are certified by a **DCO** sign-off rather than a CLA; a CLA would additionally allow relicensing others' work later, and can be added the day that matters — but only for contributions from that day on | decided |
 | **D-032** | Authentication has one door for people: a Go **front** (one package, used by `flyball run` and `flyballd`) authenticates people and machines, and the runner authorises from its own route table. The front signs a per-request principal (HMAC-SHA256, versioned, 60 s, a key per runner incarnation) carrying the caller's `sub`, `sid`, scopes, `kind` and `aud`, over a unix socket in a 0700 front-dir. No user accounts yet: one admin password, named tokens, anonymous read. The `local` shape stays sign-in-free on loopback, guarded by `Host` and `Origin` checks. `flyball run` always starts the front. A stop slot (`POST /api/rig/stop`, a `SIGUSR1` break-glass), and revoking a principal never changes hardware state; what a stop does to outputs is the signals work's. Easy wrapping in external identity proxies (trusted-header and signed-JWT presets) | decided |
 | **D-033** | flyball terminates TLS from a certificate file: an optional `tls: {cert, key}` on the front, reloaded on renewal; no ACME, no self-signed generation, and a proxy in front stays supported -- a narrow reversal of "flyball does not do TLS" | decided |
-| **D-034** | The permission vocabulary: which verbs exist (a ladder such as `read < operate < configure < admin`, or an unordered set with `author`), where the risky routes sit, the MCP modes' verbs, an agent deny-list, and the role names for proxy grants. One point decided: stopping the rig needs `operate`. Until then a two-verb placeholder, `read` and `operate`, reproduces the earlier rule | **open** |
+| **D-034** | The permission vocabulary: which verbs exist (a ladder such as `read < operate < configure < admin`, or an unordered set with `author`), where the risky routes sit, the MCP tiers' verbs, an agent deny-list, and the grant names for proxy grants. One point decided: stopping the rig needs `operate`. Until then a two-verb placeholder, `read` and `operate`, reproduces the earlier rule | **open** |
 | **D-035** | Distribution: no Go binary in the Python wheel (release binaries later), and no split of the `flyball` distribution yet -- one package with extras; the `web` extra is renamed `server` | decided |
 | **D-036** | Named-token lifetimes are configurable, tighten-only (`tokens.default_lifetime`, `tokens.max_lifetime`; built-ins 90 and 365 days; 30 days at most for agent tokens and tokens made over plain HTTP from another machine). `flyball login --scope` may ask for more than `read`, with four safeguards: `read` by default and a warning above it; a bare verb means this rig only; at most 30 days above `read`, enforced by the front for any token above `read` made from a session; the token named `cli:<user>@<host>`. `manage` is never issued by a login | decided |
 | **D-037** | `flyballd` leaves its runners running when it stops, however it stops, and adopts them when it starts again (the signed handshake, no restart); its systemd unit uses `KillMode=process`. Two explicit stop-alls: `flyball stop --all` (the rig stop on every rig, `operate` on each, processes stay up) and `flyball runners stop --all` (end the processes, `manage`). `flyball run` still stops its runner on Ctrl-C | decided |
@@ -57,6 +57,12 @@ are in `DECISIONS.md` at the repository root; this is the index.
 | **D-061** | A permissive always permits a write of the output's resolved stop value, a stop ignores it, and a controller whose output it refuses is held (frozen, `not_permitted`), not failed | decided; built |
 | **D-062** | Reset is allowed while its cause persists (unlike PackML's Clear), because Reset resumes nothing: controllers stay in manual and programs stay ended | decided; built |
 | **D-063** | A planned stop (`Stopper.stop(..., latch=False)`) for a rig edit before its restart (D-051): the same writes and controllers to manual, nothing latched, so the rig comes back passive | decided; built |
+| **D-064** | Until flyball is released, every store, rig folder and install is wipeable: no exports, shims, read-time converters or migrations for existing data. The store's migrations were folded into one baseline (`0001_initial.sql`) at the R1 rename; a store made before it is refused, with the advice to delete it, and a dashboard document is version 6 only | decided; built |
+| **D-077** | A name is a key and a label is its display text. A key is `^[a-z][a-z0-9_]{0,63}$`, checked by one `check_key` (`flyball.foundation.keys`) wherever a name enters: an address's segments (devices, links, namespaces, signals, controllers), tag axes and values, `values:` entries, and the rig, board, program, tuning and dashboard names; the daemon's runner names take the same grammar | decided; the grammar built (labels to follow) |
+| **D-078** | Auth drops the word "role": the front's grant sets are named by their key under `grants:` (`viewer`, `all`); auth keeps `scope` (the OAuth word), so what an event or a condition is about is its `subject` and that subject's kind its `subject_kind` | decided; built |
+| **D-079** | `-` and `_` are one character in a name: input and lookups may use either, `_` is what is stored and compared (`name: wet-pump` is found by `device: wet_pump`), and two names that differ only by `-`/`_` are refused as one. A system that allows only one of them gets that one at its edge (none today) | decided; built |
+| **D-081** | One `actor` `{principal, kind, via}` (plus `sid` and a `message`) on every record of an action -- a stop, a latch, a write, the audit -- in place of `by`, `writer` and `sub`; `user` names only auth's account record | decided; built |
+| **D-084** | A timestamp field's name says its clock: a bare `_ns` is a time on the rig's clock, absolute (`time_ns`) or an offset (`offset_ns`); a field holding wall-clock time is `_utc_ns` (the audit's `time_utc_ns`, a stop's or a latch's `at_utc_ns`, a value's `written_utc_ns`). The two read the same on hardware and differ in a simulation, whose clock runs scaled or stepped | decided; built |
 
 Nothing in this book is settled unless `DECISIONS.md` says so. Where a
 chapter describes intent rather than fact, it says which.
@@ -90,8 +96,10 @@ and generators) now has an explicit `register(catalog)`, called by
 `Catalogs.discover()`; the four old implicit, process-wide
 `__init_subclass__` writes (`Config.registry`, `ControlLaws`,
 `Feedforwards`, `SetPointGenerators`) are all gone, so a collision is caught
-by the `Catalog` that actually holds a type (`register()` raises), not
-silently, for devices and links *and* laws/feedforwards/generators alike.
+by the `Catalog` that actually holds a type (`register()` raises, and
+`discover()` leaves that package out whole, logs it and names it in
+`discovery_errors`), not silently, for devices and links *and*
+laws/feedforwards/generators alike.
 `discover()` still only runs at runner startup (live reload of a
 newly-installed package remains open, unlike a `drivers/` directory's `POST
 /api/drivers/reload`), but a missing or silently-empty `register()` is no
@@ -107,4 +115,8 @@ re-entering a module still mid-import through an extension's own import
 chain (`flyball_sim` imports `RigConfig` from `runtime/config.py`, for
 instance). A third-party law would need that static typing revisited, the
 same way `rig_model()` already rebuilds the `links` field dynamically per
-request for devices/links.
+request for devices/links. Generators no longer have the asymmetry:
+`GeneratorConfig` keeps the built-in union (its type and its schema) but
+consults the current `Catalogs` when a value is validated, so a registered
+generator is a controller's `at` and a profile's segment alike, and `GET
+/api/controllers/schema` lists it. Laws and feedforwards still have it.

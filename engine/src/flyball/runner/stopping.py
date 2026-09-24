@@ -18,18 +18,18 @@ import time
 from collections.abc import Callable
 from types import FrameType
 
-from flyball.rig.stopping import Actor, DeviceStop, InterimStopper, Stopper, StopReport
+from flyball.foundation.actor import Actor
+from flyball.rig.stopping import DeviceStop, InterimStopper, Stopper, StopReport
 
-__all__ = ["Actor", "DeviceStop", "InterimStopper", "StopReport", "Stopper", "install_break_glass"]
+__all__ = ["DeviceStop", "InterimStopper", "StopReport", "Stopper", "install_break_glass"]
 
 log = logging.getLogger("flyball.stop")
 
 SIGNAL_ACTOR = Actor(
-    sub="local:signal",
-    sid="",
+    principal="local:signal",
     kind="human",
     via="signal",
-    detail="SIGUSR1 from a process of the runner's user or root; the sender is not recorded",
+    message="SIGUSR1 from a process of the runner's user or root; the sender is not recorded",
 )
 """Who a break-glass stop is recorded as.
 
@@ -73,12 +73,12 @@ def _stop(stopper: Callable[[], Stopper | None]) -> None:
     # the server extra (fastapi) is there, and a rig attached means it is.
     from flyball.interfaces.server.audit import record_stop
 
-    at_ns = time.time_ns()
+    at_utc_ns = time.time_ns()
     try:
         report = target.stop(SIGNAL_ACTOR, "SIGUSR1")
     except Exception:
         log.exception("SIGUSR1: the stop failed")
-        record_stop(SIGNAL_ACTOR, "SIGUSR1", at_ns, done=False)
+        record_stop(SIGNAL_ACTOR, "SIGUSR1", at_utc_ns, done=False)
         return
-    record_stop(SIGNAL_ACTOR, "SIGUSR1", report.at_ns)
+    record_stop(SIGNAL_ACTOR, "SIGUSR1", report.at_utc_ns)
     log.warning("stop report: %s", json.dumps(report.as_dict()))

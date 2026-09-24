@@ -3,10 +3,10 @@
 A *verb* is what a principal's scopes (`scp`) grant on a rig. The vocabulary is pending
 D-034; until then it is a two-verb placeholder, `read` and `operate`, that reproduces the
 door's old rule (a GET or a stream needs read, anything else operate) plus the rows already
-decided: the two check routes need read, stop needs operate, and each `/mcp/<mode>` needs a
-verb of [MCP_MODES][flyball.interfaces.server.verbs.MCP_MODES] for its mode.
+decided: the two check routes need read, stop needs operate, and each `/mcp/<tier>` needs a
+verb of [MCP_TIERS][flyball.interfaces.server.verbs.MCP_TIERS] for its tier.
 
-The D-034 round edits `VOCABULARY`, the verbs in `TABLE`, `MCP_MODES`, and the front's
+The D-034 round edits `VOCABULARY`, the verbs in `TABLE`, `MCP_TIERS`, and the front's
 `daemon/internal/grants/vocabulary.json` (whose vocabulary must equal `VOCABULARY`) -- data,
 not code.
 """
@@ -43,12 +43,12 @@ class Rule:
     """What the request needs; None: open (only `/api/auth` and its sub-routes)."""
 
 
-MCP_MODES: Final[dict[str, frozenset[str]]] = {  # TODO(D-034)
+MCP_TIERS: Final[dict[str, frozenset[str]]] = {  # TODO(D-034)
     "read": frozenset({READ}),
     "author": frozenset({OPERATE}),
     "operate": frozenset({OPERATE}),
 }
-"""The verbs that admit a caller to `/mcp/<mode>`: any one of them."""
+"""The verbs that admit a caller to `/mcp/<tier>`: any one of them."""
 
 # One row per route and method, in the order the app matches them, so a literal path
 # (`/api/controllers/schema`) comes before the pattern that would also match it.
@@ -239,9 +239,9 @@ def allows(scp: Collection[str], scope: Mapping[str, Any]) -> bool:
     if verb is None:
         return True
     path = _path(scope)
-    mode = path.removeprefix("/mcp/") if path.startswith("/mcp/") else None
-    if mode in MCP_MODES:
-        return not MCP_MODES[mode].isdisjoint(scp)
+    tier = path.removeprefix("/mcp/") if path.startswith("/mcp/") else None
+    if tier in MCP_TIERS:
+        return not MCP_TIERS[tier].isdisjoint(scp)
     return verb in scp
 
 

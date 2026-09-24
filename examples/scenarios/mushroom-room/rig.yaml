@@ -21,7 +21,7 @@ devices:
     poll_s: 5
     link: i2c1
     sensors:
-      chamber: { address: 0x44 }
+      chamber: { i2c_address: 0x44 }
     signals:
       chamber:
         label: Chamber
@@ -34,7 +34,7 @@ devices:
     label: CO2 sensor
     poll_s: 10                             # SCD30's own measurement interval floor is ~2s; no need to poll faster
     link: i2c1
-    address: 0x61
+    i2c_address: 0x61
     signals:
       co2: { label: Chamber CO2, warning: [400, 5000] }
 
@@ -55,10 +55,10 @@ devices:
 controllers:
   fogger.drive:
     measured: climate.chamber.humidity
-    law: { type: PI, kp: 0.03, ki: 0.001 }
-    default: true
+    law: { type: pi, kp: 0.03, ki: 0.001 }
+    is_default: true
 
   fan.drive:
     # more CO2 -> more fan, so this is reverse-acting like chiller.yaml's drive
     measured: co2.co2
-    law: { type: PI, kp: -0.0002, ki: -0.000005 }
+    law: { type: pi, kp: -0.0002, ki: -0.000005 }

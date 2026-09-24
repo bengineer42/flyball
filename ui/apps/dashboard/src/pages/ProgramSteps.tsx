@@ -82,7 +82,7 @@ export interface ProgramStepsProps {
   commands: JsonSchema | undefined;
   /** `GET /api/programs/schema`, for the commands' descriptions. */
   programSchema?: JsonSchema;
-  /** The rig's devices and their commands, so a `command` step's `args` show with that command's titles and units. */
+  /** The rig's devices and their commands, so a `run` step's `args` show with that command's titles and units. */
   devices?: DevicePicks;
 }
 
@@ -99,13 +99,13 @@ export function ProgramSteps({ program, commands, programSchema, devices }: Prog
 }
 
 function StepCard({ index, step, commands, programSchema, devices }: { index: number; step: NormalisedStep; commands: JsonSchema | undefined; programSchema: JsonSchema | undefined; devices: DevicePicks | undefined }) {
-  const { command: tag, ...args } = step.command;
+  const { type: tag, ...args } = step.command;
   const { command: _c, ...modifiers } = step;
   void _c;
   let schema = commandSchemaFor(commands, tag);
   let root = commands;
-  // a `command` step's `args` are the device command's own: its schema in place of the dialect's untyped object, its `$defs` beside the root's
-  const device = tag === "command" && typeof args.device === "string" && typeof args.device_command === "string" ? devices?.commands[args.device]?.[args.device_command] : undefined;
+  // a `run` step's `args` are the device command's own: its schema in place of the dialect's untyped object, its `$defs` beside the root's
+  const device = tag === "run" && typeof args.device === "string" && typeof args.command === "string" ? devices?.commands[args.device]?.[args.command] : undefined;
   if (device && schema?.properties?.args) {
     const { $defs, ...deviceArgs } = device.arguments;
     schema = { ...schema, properties: { ...schema.properties, args: { ...deviceArgs, title: schema.properties.args.title } } };
@@ -130,7 +130,7 @@ function StepCard({ index, step, commands, programSchema, devices }: { index: nu
           {shortDescription}
         </Typography>
       )}
-      <ArgRows value={args} schema={schema ? { ...schema, properties: Object.fromEntries(Object.entries(schema.properties ?? {}).filter(([k]) => k !== "command")) } : undefined} root={root} />
+      <ArgRows value={args} schema={schema ? { ...schema, properties: Object.fromEntries(Object.entries(schema.properties ?? {}).filter(([k]) => k !== "type")) } : undefined} root={root} />
     </Paper>
   );
 }

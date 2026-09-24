@@ -33,7 +33,7 @@ hardware.
 
 ```
 cd engine && uv sync --all-extras && cd ../ui && npm install && npm run build
-cd ../daemon && go build ./cmd/flyball
+cd ../daemon && CGO_ENABLED=0 go build ./cmd/flyball
 ./flyball run ../examples/simulated/oven.yaml --serve-ui :8000
 ```
 

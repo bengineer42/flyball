@@ -97,7 +97,7 @@ def fragment(bus_name: str, address: int) -> str:
     link = bus_name.replace("i2c-", "i2c")
     fields = [f"driver: {driver}", "poll_s: 1", f"link: {link}"]
     if driver != "sht4x":
-        fields.append(f"address: 0x{address:02x}")
+        fields.append(f"i2c_address: 0x{address:02x}")
     if driver == "ads1115":
         fields.append("channels: { volts: { channel: 0 } }")
     note = ""
@@ -138,7 +138,7 @@ def report(scan: bool = True) -> str:
     for device in found["onewire"]:
         out.append(
             f"# 1-Wire {device}\nprobe_{device[-4:]}:"
-            f' {{ driver: ds18b20, poll_s: 2, link: w1, device: "{device}" }}'
+            f' {{ driver: ds18b20, poll_s: 2, link: w1, probe_id: "{device}" }}'
         )
     return "\n".join(out)
 

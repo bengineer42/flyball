@@ -21,7 +21,7 @@ devices:
     label: Pressure
     poll_s: 1
     link: i2c1
-    address: 0x5C
+    i2c_address: 0x5C
     registers:
       ctrl1: { address: 0x10, length: 1, unit: "1", write: true }   # ODR=1Hz continuous = 0x10
       pressure: { address: 0x28, length: 3, signed: true, byteorder: little, scale: 0.000244140625, unit: hPa }   # 1/4096

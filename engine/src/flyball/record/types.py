@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from typing import Any, Literal
 
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import Bounds, Limit, NoValue, Quality, Reason
 from flyball.foundation.primitives import Labelled
 
@@ -28,7 +29,7 @@ class SessionRow:
     """When the session started -- or, for a scratch session, the oldest row it still holds:
     trimming moves it forward. Offsets are from here either way."""
     end_ns: int | None
-    version: str | None
+    flyball_version: str | None
     config: Any
     hardware: Any
     details: Any
@@ -120,13 +121,14 @@ class ControllerRow:
 class LatchRow:
     """A latch kept across restarts: a stop's or a fault action's, until a person resets it.
 
-    Keyed by `cause` (`stop`, `on_fault:<controller>`). `subjects` is `[{scope, subject}]`.
+    Keyed by `cause` (`stop`, `on_fault:<controller>`). `subjects` is `[{subject_kind, subject}]`.
     """
 
     cause: str
     subjects: list[dict[str, str]]
-    by: str
-    at_ns: int
+    actor: Actor
+    """Who set it: a stop's person or agent, a fault action's controller."""
+    at_utc_ns: int
     """When it was set, wall time in ns since the epoch."""
     reason: str = ""
     action: str = ""
@@ -149,9 +151,9 @@ class LiveValueRow:
     """The unit symbol when it was written; None: unitless."""
     initial: Any
     """The rig file's value in force when it was written."""
-    writer: str | None
-    """Who wrote it: the principal's `sub`; None when not known."""
-    written_ns: int
+    actor: Actor | None
+    """Who wrote it; None when not known."""
+    written_utc_ns: int
     """When, wall time in ns since the epoch."""
     config_field: str | None = None
     """A setting's driver config field; None for a value."""
@@ -203,8 +205,8 @@ class ProgramRow:
     body: str
     created_ns: int
     sha256: str
-    label: str | None = None
     notes: Any = None
+    """What the author said about this version: free text, or any JSON."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,9 +347,9 @@ class Tick:
     mode: str
     correction: float | None
     """None when the law's output was not a number (a NaN integral)."""
-    measured: float | None = None
+    measured_value: float | None = None
     setpoint: float | None = None
-    output: float | None = None
+    output_value: float | None = None
     expected: float | None = None
     delivered_correction: float | None = None
     reapplied: bool = False
@@ -372,8 +374,9 @@ class Event:
 
     offset_ns: int
     code: str
-    source: str | None = None
-    detail: Any = None
+    subject: str | None = None
+    """What it is about: a device, a signal, a controller, a program step, the rig."""
+    details: Any = None
     id: int | None = None
     edge: str | None = None
     """`raised` or `cleared` for a condition's start or end; None for a point event."""

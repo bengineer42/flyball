@@ -104,8 +104,8 @@ def run_command(
     # Validated here rather than in the signature: the command union exists
     # only once commands have registered, which is after this module loads.
     try:
-        rest = {key: value for key, value in body.items() if key != "command"}
-        check_renamed(body.get("command"), rest, "command", dialect.steps)
+        rest = {key: value for key, value in body.items() if key != "type"}
+        check_renamed(body.get("type"), rest, "type", dialect.steps)
     except StepError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     try:

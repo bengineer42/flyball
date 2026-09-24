@@ -14,7 +14,7 @@ devices:
     driver: sim_daq
     label: Light (simulated)
     poll_s: 1
-    address: null
+    i2c_address: null
     registers: null
     link: light_plant
     ports:

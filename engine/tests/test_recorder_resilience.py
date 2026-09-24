@@ -57,9 +57,11 @@ def _session(fresh):
 
 def test_a_tick_whose_correction_is_nan_is_kept_not_fatal(fresh):
     store, writer, controller, _, _ = _session(fresh)
-    writer.write_tick(Tick(controller.name, 1_000_000_000, "regulating", 5.0, output=5.0))
-    writer.write_tick(Tick(controller.name, 2_000_000_000, "regulating", math.nan, output=math.nan))
-    writer.write_tick(Tick(controller.name, 3_000_000_000, "regulating", 6.0, output=6.0))
+    writer.write_tick(Tick(controller.name, 1_000_000_000, "regulating", 5.0, output_value=5.0))
+    writer.write_tick(
+        Tick(controller.name, 2_000_000_000, "regulating", math.nan, output_value=math.nan)
+    )
+    writer.write_tick(Tick(controller.name, 3_000_000_000, "regulating", 6.0, output_value=6.0))
 
     ticks = store.ticks(writer.session.id, controller.name)
     assert [t.correction for t in ticks] == [5.0, None, 6.0], (

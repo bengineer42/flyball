@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Search the driver catalogue -- `drivers-manifest.yaml` joined with `drivers-signals.yaml`.
 
-    uv run python scripts/search_drivers.py --domain mushroom --tier config_only
+    uv run python scripts/search_drivers.py --domain mushroom --support config_only
     uv run python scripts/search_drivers.py --unit ppm
     uv run python scripts/search_drivers.py --dimension Fraction --json
 
@@ -52,7 +52,7 @@ def matches(entry: dict[str, Any], args: argparse.Namespace) -> bool:
         return False
     if args.interface and args.interface.lower() != field("interface"):
         return False
-    if args.tier and args.tier.lower() != field("tier"):
+    if args.support and args.support.lower() != field("support"):
         return False
     if args.status and args.status.lower() != field("status"):
         return False
@@ -82,13 +82,13 @@ def render_table(entries: list[dict[str, Any]]) -> str:
             e.get("part_number", ""),
             e.get("manufacturer", ""),
             e.get("category", ""),
-            e.get("tier", ""),
+            e.get("support", ""),
             e.get("status", ""),
             ", ".join(f"{s['unit']}" for s in e.get("signals", [])) or "-",
         )
         for e in entries
     ]
-    header = ("type", "part_number", "manufacturer", "category", "tier", "status", "units")
+    header = ("type", "part_number", "manufacturer", "category", "support", "status", "units")
     widths = [max(len(str(r[i])) for r in [header, *rows]) for i in range(len(header))]
     lines = [" | ".join(h.ljust(w) for h, w in zip(header, widths, strict=True))]
     lines.append("-+-".join("-" * w for w in widths))
@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--type", help="substring match on the driver type")
     parser.add_argument("--category")
     parser.add_argument("--interface")
-    parser.add_argument("--tier", choices=["config_only", "generic_link", "bespoke_driver"])
+    parser.add_argument("--support", choices=["config_only", "generic_link", "bespoke_driver"])
     parser.add_argument("--status", choices=["done", "in_progress", "planned"])
     parser.add_argument("--manufacturer", help="substring match")
     parser.add_argument("--domain", help="which roadmap lead this serves, e.g. mushroom")

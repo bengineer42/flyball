@@ -19,13 +19,13 @@ function fakeRig(conditions: unknown[]) {
 }
 
 const edge = (t: number, code: string, subject: string, e: "raised" | "cleared"): Event =>
-  ({ time_ns: t * 1e9, code, severity: code === "band_alarm" ? "error" : "warning", scope: "signal", subject, message: "", edge: e, details: {} }) as unknown as Event;
+  ({ time_ns: t * 1e9, code, severity: code === "band_alarm" ? "error" : "warning", subject_kind: "signal", subject, message: "", edge: e, details: {} }) as unknown as Event;
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
 describe("the rig's band alarms in the store", () => {
   it("is unknown until the rig's conditions have been read, then follows them", async () => {
-    const { rig } = fakeRig([{ code: "band_alarm", severity: "error", scope: "signal", subject: "furnace.zone1", message: "", since_ns: 0 }]);
+    const { rig } = fakeRig([{ code: "band_alarm", severity: "error", subject_kind: "signal", subject: "furnace.zone1", message: "", since_ns: 0 }]);
     const store = new TelemetryStore(rig);
     expect(store.bandOf("furnace.zone1")).toBeUndefined();
     store.seedBands();
@@ -54,13 +54,18 @@ describe("the rig's band alarms in the store", () => {
 describe("alarmLevel with the rig's band", () => {
   const signal = { warning: [0, 10] as [number, number], alarm: [-5, 20] as [number, number] };
   it("shows the rig's word over the value's own check", () => {
-    expect(alarmLevel(50, signal, undefined, "ok")).toBe("ok");
-    expect(alarmLevel(5, signal, undefined, "alarm")).toBe("alarm");
+    expect(alarmLevel(50, signal, "ok")).toBe("ok");
+    expect(alarmLevel(5, signal, "alarm")).toBe("alarm");
+    expect(alarmLevel(null, signal, "unknown")).toBe("unknown");
   });
   it("checks the value itself only without a rig feed", () => {
     expect(alarmLevel(50, signal)).toBe("alarm");
   });
-  it("stale still comes first", () => {
-    expect(alarmLevel(5, signal, { periodS: 1, lastSampleS: 0, nowS: 100 }, "alarm")).toBe("stale");
+  it("the rig's stale reading still comes first", () => {
+    expect(alarmLevel(null, signal, "alarm", "stale")).toBe("stale");
+    expect(alarmLevel(null, signal, "unknown", "stale")).toBe("stale");
+  });
+  it("a reading with no value is not judged against the bands here", () => {
+    expect(alarmLevel(null, signal, undefined, "invalid")).toBe("ok");
   });
 });

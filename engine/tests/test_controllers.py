@@ -27,14 +27,14 @@ def _controller(furnace: Furnace, target: str, source: str) -> Controller:
 
 def test_keyed_by_target_address_with_the_first_as_default(furnace):
     controllers = Controllers()
-    assert controllers.default is None and len(controllers) == 0
+    assert controllers.default_controller is None and len(controllers) == 0
     c1 = _controller(furnace, "heater1", "zone1")
     c2 = _controller(furnace, "heater2", "zone2")
     controllers.add(c1)
     controllers.add(c2)
     assert list(controllers) == ["furnace.heater1", "furnace.heater2"]
     assert controllers["furnace.heater2"] is c2 and "furnace.heater2" in controllers
-    assert controllers.default == "furnace.heater1"
+    assert controllers.default_controller == "furnace.heater1"
     assert controllers.resolve() is c1 and controllers.resolve("furnace.heater2") is c2
     assert controllers.find(furnace.signals["zone2"]) is c2
     assert controllers.find(furnace.signals["sample"]) is None
@@ -55,14 +55,14 @@ def test_default_can_be_chosen_and_moves_on_remove(furnace):
     c1 = _controller(furnace, "heater1", "zone1")
     c2 = _controller(furnace, "heater2", "zone2")
     controllers.add(c1)
-    controllers.add(c2, default=True)
-    assert controllers.default == "furnace.heater2"
+    controllers.add(c2, is_default=True)
+    assert controllers.default_controller == "furnace.heater2"
     assert controllers.remove("furnace.heater2") is c2
-    assert controllers.default == "furnace.heater1"
+    assert controllers.default_controller == "furnace.heater1"
     assert controllers.find(furnace.signals["zone2"]) is None
     assert controllers.driving(furnace.signals["heater2"]) is None
     controllers.remove("furnace.heater1")
-    assert controllers.default is None
+    assert controllers.default_controller is None
     with pytest.raises(NoDefaultControllerError, match="No default controller set"):
         controllers.resolve()
     with pytest.raises(ControllerNotFoundError, match="Controller 'furnace.heater1' not found"):

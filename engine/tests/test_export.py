@@ -78,16 +78,16 @@ def client(tmp_path, fresh):
             2_000_000_000,
             "regulating",
             5.0,
-            measured=21.0,
+            measured_value=21.0,
             setpoint=25.0,
-            output=5.0,
+            output_value=5.0,
         )
     )
     writer.write_states(
         2_000_000_000,
         {drive: WriteState(value=5.0, requested=None, at_limit=None, controller=controller.name)},
     )
-    writer.write_event(Event(1_500_000_000, "note", detail={"x": 1}))
+    writer.write_event(Event(1_500_000_000, "note", details={"x": 1}))
     session_id = writer.session.id
     writer.end(START_NS + 3_000_000_000)
     rig = Rig()
@@ -148,7 +148,7 @@ def test_session_long_json_and_zip(client):
             {
                 "name": f"{heater}.power",
                 "measured": f"{probe}.temperature",
-                "law": {"type": "PI", "kp": 1.0, "ki": 0.0, "tt": 0.0, "b": 1.0},
+                "law": {"type": "pi", "kp": 1.0, "ki": 0.0, "tt_s": 0.0, "b": 1.0},
                 "feedforward": {"type": "none"},
             }
         ]
@@ -175,7 +175,7 @@ def test_signal_controller_write_and_events(client):
     assert series[0][2] == f"{probe}.temperature (°C)" and series[1][2] == "20.5"
 
     ticks = rows(c.get(f"/api/history/sessions/{sid}/ticks/{heater}.power/export").text)
-    assert ticks[0][2:5] == ["mode", "setpoint", "measured"]
+    assert ticks[0][2:5] == ["mode", "setpoint", "measured_value"]
     assert ticks[1][:5] == ["2.0", "2023-11-14T22:13:22.000Z", "regulating", "25.0", "21.0"]
 
     writes = c.get(f"/api/history/sessions/{sid}/writes/{heater}.power/export?format=json").json()
@@ -196,8 +196,8 @@ def test_signal_controller_write_and_events(client):
             "time_s": 1.5,
             "time": "2023-11-14T22:13:21.500Z",
             "code": "note",
-            "source": "",
-            "detail": '{"x": 1}',
+            "subject": "",
+            "details": '{"x": 1}',
         }
     ]
 

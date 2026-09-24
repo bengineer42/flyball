@@ -11,6 +11,7 @@ import { AppTheme } from "./theme.js";
 import { AuthProvider, useAuth, watchUnauthorized } from "./auth.js";
 import { LoginPage } from "./Login.js";
 import { App } from "./App.js";
+import { RigEditProvider } from "./rigEdit.js";
 
 /**
  * The door, then the app. While the runner says this browser may see nothing, the login page is all there
@@ -20,9 +21,11 @@ import { App } from "./App.js";
 function Root() {
   const auth = useAuth();
   const { epoch, unauthorized, mustSignIn, canOperate, denied, info, error } = auth;
+  // A rig edit restarts the runner; once it is back, `generation` rebuilds the connection and the app, so every page reads the new rig.
+  const [generation, setGeneration] = useState(0);
   // The transport tells the door about every 401; `epoch` in the deps is what rebuilds it after a sign in.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const transport = useMemo(() => watchUnauthorized(browserTransport(), unauthorized), [unauthorized, epoch]);
+  const transport = useMemo(() => watchUnauthorized(browserTransport(), unauthorized), [unauthorized, epoch, generation]);
   const [wantLogin, setWantLogin] = useState(false);
   const [nudge, setNudge] = useState(false);
   useEffect(() => {
@@ -41,7 +44,8 @@ function Root() {
   if (mustSignIn) return <LoginPage />;
   if (wantLogin) return <LoginPage onCancel={() => setWantLogin(false)} />;
   return (
-    <RigProvider transport={transport}>
+    <RigEditProvider transport={transport} onBack={() => setGeneration((g) => g + 1)}>
+    <RigProvider key={generation} transport={transport}>
       <App onSignIn={() => setWantLogin(true)} />
       <Snackbar
         open={nudge}
@@ -56,6 +60,7 @@ function Root() {
         data-testid="auth-nudge"
       />
     </RigProvider>
+    </RigEditProvider>
   );
 }
 

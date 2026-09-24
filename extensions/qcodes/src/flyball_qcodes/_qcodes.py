@@ -11,9 +11,13 @@ driver:
         channels:
           voltage: { property: source.voltage, publish: true }
 
-Nothing here imports qcodes at module load: `QCoDeSConfig.build` does, so the
-`qcodes` extra is only needed where it is actually used. A fake with the
-same attributes drives the tests.
+Nothing here imports qcodes at module load: validating a `QCoDeSConfig`
+does, so the `qcodes` extra is only needed where it is actually used. A fake
+with the same attributes drives the tests. `instrument` must be a QCoDeS
+`Instrument` subclass from `qcodes.instrument_drivers.` or
+`qcodes.instrument.` (or a package in `$FLYBALL_INSTRUMENT_PACKAGES`): the
+class is imported and called with the file's arguments, so any other dotted
+path -- `os.system` -- is refused when the config is validated.
 """
 
 from __future__ import annotations
@@ -39,7 +43,7 @@ from flyball.foundation.quantities.dimension import Unit
 from flyball.foundation.quantities.errors import UnitNotFoundError
 from flyball.foundation.quantities.si import One
 from flyball.hardware.scan import Scan
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def unit_for(symbol: str | None, overrides: Mapping[str, str] = {}) -> Unit:
@@ -214,11 +218,34 @@ class QCoDeSConfig(DriverConfig[QCoDeS], type="qcodes"):
     kwargs: dict[str, Any] = Field(default_factory=dict)
     channels: dict[str, QCoDeSSignal]
 
+    @field_validator("instrument")
+    @classmethod
+    def _a_qcodes_instrument(cls, dotted: str) -> str:
+        instrument_class(dotted)
+        return dotted
+
     def build(self, name: str, label: str | None = None) -> QCoDeS:
-        instrument = import_object(self.instrument)(
+        instrument = instrument_class(self.instrument)(
             self.instrument_name or name, *self.args, **self.kwargs
         )
         return QCoDeS(name, instrument, self.channels, label=label)
 
 
-__all__ = ["QCoDeS", "QCoDeSConfig", "QCoDeSSignal", "bounds", "unit_for"]
+INSTRUMENTS = ("qcodes.instrument_drivers", "qcodes.instrument")
+"""Where `instrument` may name a class from, besides `$FLYBALL_INSTRUMENT_PACKAGES`."""
+
+
+def instrument_class(dotted: str) -> type:
+    """`dotted`, a QCoDeS `Instrument` subclass under `INSTRUMENTS`, or `ValueError`."""
+    return import_object(dotted, allowed=INSTRUMENTS, base="qcodes.instrument.Instrument")
+
+
+__all__ = [
+    "INSTRUMENTS",
+    "QCoDeS",
+    "QCoDeSConfig",
+    "QCoDeSSignal",
+    "bounds",
+    "instrument_class",
+    "unit_for",
+]

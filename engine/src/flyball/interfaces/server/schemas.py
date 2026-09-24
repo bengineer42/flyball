@@ -57,7 +57,9 @@ from flyball.rig.bands import on_no_value
 # extension's own import chain -- see `runtime/config.py`'s equivalent
 # comment on `LawConfig`/`FeedforwardConfig` there.
 _LAWS = (OpenLoop, P, PI, PID, IMC, OnOff, SmithPredictor, Scheduled, SlidingMode)
-LawConfig = discriminated_union({law.type: law for law in _LAWS}, "type", lambda law: law.config)
+LawConfig = discriminated_union(
+    {law.type: law for law in _LAWS}, "type", lambda law: law.config_type
+)
 LawsSchema = TypeAdapter(LawConfig).json_schema()
 
 ANY = TypeAdapter(Any)
@@ -72,7 +74,6 @@ class ClockOut(BaseModel):
     start_time_ns: int
     now_ns: int
     elapsed_ns: int
-    tags: dict[str, int]
     speed: float = 1.0
     """How fast the rig's time runs against wall time; only a simulated rig is ever not 1."""
 
@@ -83,7 +84,6 @@ class ClockOut(BaseModel):
             now_ns=clock.now_ns(),
             speed=float(getattr(clock, "speed", 1.0)),
             elapsed_ns=clock.elapsed_ns(),
-            tags={label: clock.elapsed_ns(label) for label in clock.tags_ns if label is not None},
         )
 
 
@@ -497,7 +497,7 @@ class CommandOut(BaseModel):
     description: str | None = None
     simulation: bool = False
     commit: bool = False
-    mode: Any = None
+    sets_mode: Any = None
     """What the device's `mode` becomes when this runs, if it has one."""
     interrupts: bool = False
     writes: list[str] = []
@@ -515,7 +515,7 @@ class CommandOut(BaseModel):
             description=spec.doc,
             simulation=spec.simulation,
             commit=spec.commit,
-            mode=spec.mode,
+            sets_mode=spec.sets_mode,
             interrupts=spec.interrupts,
             writes=list(spec.writes),
             demand_of=spec.demand_of,
@@ -597,18 +597,29 @@ class InputOut(BaseModel):
         )
 
 
+class ActorOut(BaseModel):
+    """Who acted (D-081): the principal, its kind, the way it came in; the login and a note."""
+
+    principal: str
+    kind: str
+    via: str
+    """`http`, `mcp`, `signal`, or `rig` (the rig's own: a program, a controller, a stop)."""
+    sid: str = ""
+    message: str = ""
+
+
 class ValueSourceOut(BaseModel):
     """Where a `driver: values` signal's value in force came from, for the device page.
 
     `rig_file`: its `initial`; `restored`: kept from an earlier run ("restored, written by
-    `writer` at `written_ns`"); `written`: written in this run.
+    `actor` at `written_utc_ns`"); `written`: written in this run.
     """
 
     origin: Literal["rig_file", "restored", "written"]
     initial: Any
     """The rig file's `initial` in force."""
-    writer: str | None = None
-    written_ns: int | None = None
+    actor: ActorOut | None = None
+    written_utc_ns: int | None = None
     """Wall time, ns since the epoch."""
 
 
@@ -719,8 +730,8 @@ class DeviceOut(BaseModel):
                 path: ValueSourceOut(
                     origin=source.origin,
                     initial=source.initial,
-                    writer=source.writer,
-                    written_ns=source.written_ns,
+                    actor=None if source.actor is None else ActorOut(**source.actor.as_dict()),
+                    written_utc_ns=source.written_utc_ns,
                 )
                 for path, signal in device.signals.items()
                 if sources is not None and (source := sources(signal)) is not None
@@ -786,7 +797,7 @@ class ControllerOut(BaseModel):
     """The output signal's display name; None: show `name`."""
     output_signal: str
     measured_signal: str
-    default: bool
+    is_default: bool
     mode: str
     law: SerializeAsAny[ControlLawView] | None
     feedforward: SerializeAsAny[FeedforwardConfig]
@@ -798,10 +809,10 @@ class ControllerOut(BaseModel):
     arrived: bool
     """Whether the reference has landed: a number has; a trajectory once it finishes."""
     correction: float
-    output: float | None
+    output_value: float | None
     expected: float | None
     delivered_correction: float | None
-    measured: ReadingOut | None
+    measured_value: ReadingOut | None
     on_fault: str | dict[str, Any] = "freeze"
     """What it does once its source has been faulty for its wait: `freeze`, `manual`, `stop`,
     `stop_device`, or `{freeze_s, then}`."""
@@ -821,7 +832,7 @@ class ControllerOut(BaseModel):
     def of(
         cls,
         controller: Controller,
-        default: bool,
+        is_default: bool,
         state: ControllerState | None = None,
         latched: list[str] | None = None,
     ) -> ControllerOut:
@@ -837,7 +848,7 @@ class ControllerOut(BaseModel):
             label=controller.output_signal.label or None,
             output_signal=controller.output_signal.address,
             measured_signal=controller.measured_signal.address,
-            default=default,
+            is_default=is_default,
             mode=view.mode.value,
             law=view.law,
             feedforward=view.feedforward,
@@ -848,10 +859,12 @@ class ControllerOut(BaseModel):
             setpoint=view.setpoint,
             arrived=view.arrived,
             correction=view.correction,
-            output=view.output,
+            output_value=view.output_value,
             expected=view.expected,
             delivered_correction=view.delivered_correction,
-            measured=None if view.measured is None else ReadingOut.of(view.measured),
+            measured_value=None
+            if view.measured_value is None
+            else ReadingOut.of(view.measured_value),
             on_fault=controller.on_fault.document(),
             latched=list(latched or []),
         )

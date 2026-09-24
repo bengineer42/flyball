@@ -137,7 +137,7 @@ func (r *Runner) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if path == "/api/auth/front" {
-		json.NewEncoder(w).Encode(map[string]any{"protocol": endpoint.Protocol, "aud": r.Aud, "pid": os.Getpid(), "flyball": "fake"})
+		json.NewEncoder(w).Encode(map[string]any{"protocol": endpoint.Protocol, "aud": r.Aud, "pid": os.Getpid(), "flyball_version": "fake"})
 		return
 	}
 	json.NewEncoder(w).Encode(Echo{Path: req.URL.Path, Claims: claims, Pid: os.Getpid(), Key: fmt.Sprintf("%x", r.Key[:4])})

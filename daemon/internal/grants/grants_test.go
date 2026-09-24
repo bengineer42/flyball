@@ -29,14 +29,14 @@ func TestVocabularyIsTheFile(t *testing.T) {
 }
 
 func TestExpand(t *testing.T) {
-	for role, want := range map[string][]string{
+	for name, want := range map[string][]string{
 		"all":    {"operate", "read"},
 		"viewer": {"read"},
 		"nobody": nil,
 		"":       nil,
 	} {
-		if got := Expand(role); !reflect.DeepEqual(got, want) {
-			t.Errorf("Expand(%q) = %v, want %v", role, got, want)
+		if got := Expand(name); !reflect.DeepEqual(got, want) {
+			t.Errorf("Expand(%q) = %v, want %v", name, got, want)
 		}
 	}
 	// The caller cannot change the table through the slice it gets.
@@ -118,7 +118,7 @@ func TestAll(t *testing.T) {
 }
 
 // A proxy user who matches no grant gets read (Ben, 23 Sep); a matched
-// subject or group gets the role's verbs; an unknown role gives nothing
+// subject or group gets the grant's verbs; an unknown grant gives nothing
 // beyond the default.
 func TestMatch(t *testing.T) {
 	g := map[string][]string{
@@ -144,8 +144,8 @@ func TestMatch(t *testing.T) {
 			t.Errorf("Match(%q, %v) = %v, want %v", c.subject, c.groups, got, c.want)
 		}
 	}
-	if bad := UnknownRoles(g); !reflect.DeepEqual(bad, []string{"unknown"}) {
-		t.Errorf("UnknownRoles = %v", bad)
+	if bad := UnknownGrants(g); !reflect.DeepEqual(bad, []string{"unknown"}) {
+		t.Errorf("UnknownGrants = %v", bad)
 	}
 }
 

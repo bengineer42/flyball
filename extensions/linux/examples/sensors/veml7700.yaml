@@ -20,7 +20,7 @@ devices:
     label: Light
     poll_s: 1
     link: i2c1
-    address: 0x10
+    i2c_address: 0x10
     registers:
       als_conf: { address: 0x00, length: 2, byteorder: little, unit: "1", write: true }
       als: { address: 0x04, length: 2, byteorder: little, scale: 0.0576, unit: lx }

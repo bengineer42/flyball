@@ -32,9 +32,10 @@ class FeedforwardConfig(BaseModel):
 
 
 class Feedforward:
-    """Base for feedforwards. `Sub.config` is the model; `sub.config` its values."""
+    """Base for feedforwards. `Sub.config_type` is the model; `sub.config` its values."""
 
     type: ClassVar[str] = None  # pyright: ignore[reportAssignmentType]
+    config_type: ClassVar[Any] = None
     config: ClassVar[Any] = None
 
     def __init_subclass__(cls, type: str | None = None, **kwargs: Any) -> None:
@@ -50,6 +51,7 @@ class Feedforward:
             model.feedforward = cls  # pyright: ignore[reportAttributeAccessIssue]
             model.init_names = tuple(signature(cls).parameters)  # pyright: ignore[reportAttributeAccessIssue]
             cls.config = ModelOf(model, tuple(model.model_fields))
+        cls.config_type = cls.config
 
     def __call__(self, setpoint: float, rate: float = 0.0) -> float:
         """The demand, in the actuator's unit, that ought to hold `setpoint`.

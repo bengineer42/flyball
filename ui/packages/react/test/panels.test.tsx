@@ -69,11 +69,11 @@ describe("readoutLevel", () => {
     expect(readoutLevel(s, 95, undefined).level).toBe("warn");
     expect(readoutLevel(s, 5, undefined).level).toBe("alarm");
   });
-  it("is stale, with the age in the footer, once no sample has arrived for max(3 × period, 5 s)", () => {
-    const stale = readoutLevel(s, 60, { periodS: 2, lastSampleS: 100, nowS: 112 });
+  it("is stale when the rig pushed a stale reading, saying why and what it last read", () => {
+    const stale = readoutLevel(s, { t: 112, value: null, quality: "stale", reason: "silent", lastUsable: { t: 100, value: 60 } }, "ok");
     expect(stale.level).toBe("stale");
-    expect(stale.footer).toBe("last sample 12 s ago");
-    expect(readoutLevel(s, 60, { periodS: 2, lastSampleS: 100, nowS: 105 }).level).toBe("ok");
+    expect(stale.label).toMatch(/^stale: device silent · last usable 60.00 °C at /);
+    expect(readoutLevel(s, { t: 105, value: 60, quality: "ok" }, "ok").level).toBe("ok");
   });
 });
 

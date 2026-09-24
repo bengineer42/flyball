@@ -2,8 +2,8 @@
 
 `flyball` is a standalone Go binary (`daemon/cmd/flyball`), one client of
 [the server](../../4-server/index.md) -- anything it can do the
-[HTTP API](../../4-server/api.md) can too. Build it with `cd daemon && go
-build ./cmd/flyball`, or `./build-with-ui.sh` for one whose `flyball run`
+[HTTP API](../../4-server/api.md) can too. Build it with `cd daemon &&
+CGO_ENABLED=0 go build ./cmd/flyball`, or `./build-with-ui.sh` for one whose `flyball run`
 serves the dashboard (no packaged install yet --
 [Installing](../runner/index.md#installing)). Each page of this section is
 one kind of task and names the UI page that does the same thing; the UI

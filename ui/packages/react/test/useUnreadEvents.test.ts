@@ -10,7 +10,7 @@ function makeEvent(severity: Severity, overrides: Partial<RigEvent> = {}): RigEv
   seq += 1;
   return {
     time_ns: seq * 1_000_000_000,
-    scope: "device",
+    subject_kind: "device",
     subject: `dev${seq}`,
     code: "changed",
     severity,

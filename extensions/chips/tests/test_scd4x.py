@@ -69,7 +69,7 @@ class TestScd4x:
         # after stop_periodic_measurement; a restart may find it still measuring.
         events: list[object] = []
         bus = FakeI2c()
-        monkeypatch.setattr(bus, "write", lambda address, data: events.append(list(data)))
+        monkeypatch.setattr(bus, "write", lambda i2c_address, data: events.append(list(data)))
         monkeypatch.setattr(scd4x.time, "sleep", lambda s: events.append(s))
         scd4x.Scd4xSensor(bus, sleep=True)
         assert events == [[0x3F, 0x86], 0.5, [0x21, 0xB1]]
@@ -116,5 +116,5 @@ class TestScd4x:
             list(air.read(0))
 
     def test_config_round_trips_the_address_and_variant(self):
-        air = scd4x.Scd4x("air", FakeI2c(), address=0x62, variant="scd41", sleep=False)
-        assert air.config.address == 0x62 and air.config.variant == "scd41"
+        air = scd4x.Scd4x("air", FakeI2c(), i2c_address=0x62, variant="scd41", sleep=False)
+        assert air.config.i2c_address == 0x62 and air.config.variant == "scd41"

@@ -13,7 +13,7 @@
  * too.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FieldProps } from "@rjsf/utils";
 import { deref, formatValue, humanise, unwrapNullable, type JsonSchema } from "@flyball/client";
 import { enumCount, impliedUiSchema, isTaggedUnion } from "./uiSchema.js";
@@ -58,8 +58,9 @@ export function matchBranch(value: unknown, branches: JsonSchema[]): number {
   return best;
 }
 
-/** A property's default: on the field itself (a `$ref` with a sibling `default`), else on what it resolves to. */
+/** A property's default: its `const` (a branch's fixed marker, `keep: true`), else on the field itself (a `$ref` with a sibling `default`), else on what it resolves to. */
 function fieldDefault(field: JsonSchema, root: JsonSchema): unknown {
+  if (field.const !== undefined) return field.const;
   return field.default !== undefined ? field.default : deref(field, root).default;
 }
 
@@ -89,8 +90,8 @@ export function formatTagged(value: unknown, schema: JsonSchema | undefined, roo
   if (!branch) return null;
   const row = value as Record<string, unknown>;
   const parts = Object.entries(branch.properties ?? {})
-    .filter(([k]) => k in row)
-    .map(([k, field]) => formatValue(row[k], deref(field as JsonSchema, root)));
+    .filter(([k, field]) => k in row && (field as JsonSchema).const === undefined)
+    .map(([k, field]) => formatTagged(row[k], field as JsonSchema, root) ?? formatValue(row[k], deref(field as JsonSchema, root)));
   const title = branchTitle(branch);
   return [title, ...parts].filter((s) => s !== "").join(" · ") || null;
 }
@@ -110,8 +111,17 @@ export function TaggedUnionField(props: FieldProps) {
   const root = (registry.rootSchema ?? {}) as JsonSchema;
   const s = schema as JsonSchema;
   const branches = taggedBranches(s, root);
-  const [index, setIndex] = useState(() => matchBranch(formData, branches));
+  // The variant the person picked, else the one the value matches -- read again as the value
+  // arrives (RJSF may fill a nested union's value a render after mounting it).
+  const [picked, setIndex] = useState<number | null>(null);
+  const index = picked ?? matchBranch(formData, branches);
   const branch = branches[index] ?? branches[0];
+  const empty = formData === undefined || formData === null;
+  // No value yet (a union just switched on from "leave unchanged"): start from the shown variant's defaults, so what is sent is what is shown.
+  useEffect(() => {
+    if (empty && branch) onChange(branchDefaults(branch, root));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empty]);
   const label = labelProp || s.title || humanise(name);
   if (!branch) return null;
   // Always present: RJSF's own default registry always has it, and nothing here replaces it.
@@ -149,7 +159,10 @@ export function TaggedUnionField(props: FieldProps) {
         })}
       </div>
       <div className="fb-tagged-fields">
-        {Object.entries(branch.properties ?? {}).map(([key, fieldSchema]) => (
+        {/* A `const` field (`keep: true`) only marks the branch: the variant picker already says it, and branchDefaults sets it. */}
+        {Object.entries(branch.properties ?? {})
+          .filter(([, fieldSchema]) => (fieldSchema as JsonSchema).const === undefined)
+          .map(([key, fieldSchema]) => (
           <SchemaField
             key={key}
             name={key}

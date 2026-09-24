@@ -35,7 +35,7 @@ function fakeTransport(): Transport {
     async request({ path }: Request): Promise<Response> {
       if (path === "/api/devices") return { status: 200, json: [] };
       if (path === "/api/controllers") return { status: 200, json: [] };
-      if (path === "/api/clock") return { status: 200, json: { start_time_ns: 0, now_ns: 0, elapsed_ns: 0, tags: {}, speed: 1 } };
+      if (path === "/api/clock") return { status: 200, json: { start_time_ns: 0, now_ns: 0, elapsed_ns: 0, speed: 1 } };
       if (path === "/api/history/sessions") return { status: 200, json: [] };
       if (path === "/api/recording") return { status: 200, json: null };
       return { status: 404, json: undefined };
@@ -80,7 +80,7 @@ const CONTROLLER: ControllerOut = {
   label: null,
   output_signal: "heater.demand",
   measured_signal: "chamber.temp",
-  default: false,
+  is_default: false,
   mode: "regulating",
   law: null,
   feedforward: { type: "none" },
@@ -88,10 +88,10 @@ const CONTROLLER: ControllerOut = {
   reference: 50,
   setpoint: 50,
   correction: 0,
-  output: 10,
+  output_value: 10,
   expected: 10,
   delivered_correction: 0,
-  measured: null,
+  measured_value: null,
 };
 
 /**

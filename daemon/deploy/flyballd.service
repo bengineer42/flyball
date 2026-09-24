@@ -36,5 +36,14 @@ RuntimeDirectory=flyball
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
 
+# flyballd's state: /var/lib/flyball, made for User= with mode 0700 and
+# passed as $STATE_DIRECTORY. With no data_dir or manifests_dir in
+# flyballd.yaml, the runners' logs and the front's tokens and audit go
+# there, and the manifests in its manifests/. A relative data_dir or
+# manifests_dir is under /etc/flyball, beside flyballd.yaml -- never the
+# unit's working directory.
+StateDirectory=flyball
+StateDirectoryMode=0700
+
 [Install]
 WantedBy=multi-user.target

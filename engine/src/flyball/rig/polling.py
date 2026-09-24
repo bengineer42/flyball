@@ -32,7 +32,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from flyball.foundation.device import Code, Device, Readable, Sample, Scope, Severity
+from flyball.foundation.device import Code, Device, Readable, Sample, Severity, SubjectKind
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.router import Latest
 from flyball.foundation.time import PeriodicLoop
@@ -245,7 +245,7 @@ class Polling:
             if in_flight is not None and in_flight > run.period_s:
                 self.rig.event(
                     Severity.WARNING,
-                    Scope.DEVICE,
+                    SubjectKind.DEVICE,
                     name,
                     Code.NOT_REVIVED,
                     f"the command succeeded, but a read has been in flight for {in_flight:.1f} s"
@@ -256,7 +256,7 @@ class Polling:
         try:
             self.restart(name)
         except ConflictError as error:  # a read in flight after all: say so, don't wait
-            self.rig.event(Severity.WARNING, Scope.DEVICE, name, Code.NOT_REVIVED, str(error))
+            self.rig.event(Severity.WARNING, SubjectKind.DEVICE, name, Code.NOT_REVIVED, str(error))
             return False
         return True
 
@@ -314,7 +314,7 @@ class Polling:
             log.exception("delivering %s's samples", device.name)
             self.rig.event(
                 Severity.ERROR,
-                Scope.RIG,
+                SubjectKind.RIG,
                 device.name,
                 Code.DELIVERY_FAILED,
                 f"{type(error).__name__}: {error}",
@@ -431,7 +431,7 @@ class Polling:
             self._update(device, running=False, next_retry_ns=None)
             self.rig.event(
                 Severity.ERROR,
-                Scope.DEVICE,
+                SubjectKind.DEVICE,
                 device.name,
                 Code.GAVE_UP,
                 f"offline for {(now_ns - held.since_ns) / 1e9:.0f} s, past give_up_after_s"

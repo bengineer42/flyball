@@ -78,7 +78,7 @@ function session(id: number): SessionRow {
     id,
     start_ns: 0,
     end_ns: 60_000_000_000,
-    version: null,
+    flyball_version: null,
     config: null,
     hardware: null,
     details: null,

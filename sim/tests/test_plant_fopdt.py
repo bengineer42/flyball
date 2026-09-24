@@ -11,17 +11,17 @@ from flyball_sim import Fopdt
 TAU, DEAD = 10.0, 5.0
 
 
-def _after_a_step(t_s: float, dt_s: float, dead_s: float = DEAD) -> float:
+def _after_a_step(t_s: float, dt_s: float, dead_time_s: float = DEAD) -> float:
     """The output `t_s` after the input steps 0 -> 1, stepped `dt_s` at a time."""
-    plant = Fopdt(TAU, dead_s)
+    plant = Fopdt(TAU, dead_time_s)
     plant.input = 1.0
     for _ in range(round(t_s / dt_s)):
         plant.advance(dt_s)
     return plant.output
 
 
-def _exact(t_s: float, dead_s: float = DEAD) -> float:
-    return 1 - math.exp(-max(0.0, t_s - dead_s) / TAU)
+def _exact(t_s: float, dead_time_s: float = DEAD) -> float:
+    return 1 - math.exp(-max(0.0, t_s - dead_time_s) / TAU)
 
 
 @pytest.mark.parametrize("dt_s", [0.1, 0.5, 1.0, 2.5, 5.0, 10.0])
@@ -33,7 +33,7 @@ def test_the_output_does_not_depend_on_the_step_size(dt_s):
 @pytest.mark.parametrize("dt_s", [0.7, 1.0, 2.0])
 def test_a_dead_time_between_steps_is_honoured(dt_s):
     t = 7.0 * dt_s * 2  # a whole number of steps for each dt
-    assert _after_a_step(t, dt_s, dead_s=3.3) == pytest.approx(_exact(t, 3.3))
+    assert _after_a_step(t, dt_s, dead_time_s=3.3) == pytest.approx(_exact(t, 3.3))
 
 
 def test_nothing_arrives_before_the_dead_time():
@@ -42,7 +42,7 @@ def test_nothing_arrives_before_the_dead_time():
 
 
 def test_no_dead_time_is_a_plain_lag():
-    assert _after_a_step(10.0, 2.0, dead_s=0.0) == pytest.approx(1 - math.exp(-1))
+    assert _after_a_step(10.0, 2.0, dead_time_s=0.0) == pytest.approx(1 - math.exp(-1))
 
 
 def test_an_input_change_mid_run_is_delayed_whole():

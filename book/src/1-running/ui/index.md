@@ -10,7 +10,7 @@ with no front-end change. This section is what the app does, a page per area:
 | --- | --- |
 | [Devices](devices.md) | a card per device: signals, commands, conditions; adding and removing devices and links |
 | [Controllers](controllers.md) | the faceplate: reading, target, output, trends, the law |
-| [Charts and the Graph page](charts.md) | Readings, Graph, chart controls, keyboard shortcuts, downloads, stale tiles |
+| [Charts and the Graph page](charts.md) | Readings, Graph, chart controls, keyboard shortcuts, downloads, readings with no value, stale tiles |
 | [Sessions](sessions.md) | recording, the rolling record, keep, pin, export, delete |
 | [The rig file](rig.md) | Options › Rig file: the running document, versions and restore, save, restart, connect a model |
 | [Dashboards](../dashboards.md) | saved and generated layouts of widgets |
@@ -29,7 +29,8 @@ There is no sidebar: the app bar at the top of every page is how you move.
   one is set, else the generated overview).
 - **Dashboards are tabs.** On the dashboards page the bar shows one tab per
   saved dashboard, after the generated overview; `[+]` makes a new, empty
-  one. Each tab is a link (`#/dashboards/<name>`). On a phone the tabs sit
+  one. A tab shows the dashboard's label and links by its name
+  (`#/dashboards/<name>`). On a phone the tabs sit
   on a row of their own, under the chips. On any other page the bar shows
   that page's title.
 - **The chips are the way to the running pages.** Each is always there, grey
@@ -66,8 +67,8 @@ opens Options › Rig file.
 | **Dashboards** | saved and generated layouts of widgets — see [Dashboards](../dashboards.md) |
 | **Readings** | the plain fall-back view (Options › Pages): every published signal charted, grouped by device or by unit, with each device's commands; `#/readings/<address>` is one signal, `#/devices/<name>` one device. The generated dashboard is the rig at a glance |
 | **Controllers** | one card per writable signal: with a controller the card is the faceplate, its device's other signals and commands open inline below; without one, the signal's card alone plus an "Add controller" button. `#/loops` and `#/actuators` redirect here |
-| **Programs** | the program library (each row with the rig's check of it: ok, warnings or error; run, delete, upload; **Run a step** runs one step now without saving a program, new) and, for one program, its editor and, while it runs or afterwards, its steps and events. The editor has two tabs over one document: **Steps**, a palette of the rig's step kinds and a card per step whose arguments are a form (drag a chip in as a new step, drag a card's handle to move it; buttons do the same without a pointer; a `command` or `set` step picks a device, then that device's own command or writable signals), and **Text**, the YAML or JSON. Either side updates the other; the rig re-checks the document as it changes and marks the offending step, red for an error and amber for a step naming something the rig lacks right now. Every save is a new version; Save as makes a new program |
-| **Events** | the rig's event log, live, filterable by severity; a condition's start and end are marked `raised` and `cleared after …` (how long it held) beside its code |
+| **Programs** | the program library (each row with the rig's check of it: ok, warnings or error; run, delete, upload; **Run a step** runs one step now without saving a program, new) and, for one program, its editor and, while it runs or afterwards, its steps and events. The editor has two tabs over one document: **Steps**, a palette of the rig's step kinds and a card per step whose arguments are a form (drag a chip in as a new step, drag a card's handle to move it; buttons do the same without a pointer; a `command` or `set` step picks a device, then that device's own command or writable signals), and **Text**, the YAML or JSON. Either side updates the other; the rig re-checks the document as it changes and marks the offending step, red for an error and amber for a step naming something the rig lacks right now. Every save is a new version, with the **notes** typed beside Save (shown in the library and the history); Save as makes a new program |
+| **Events** | the rig's event log, live, filterable by severity; a condition's start and end are marked `raised` and `cleared after …` (how long it held) beside its code; a controller's `interrupted` reads **Put in manual**, its message naming what did it (a command that interrupts, or a stop) |
 | **Sessions** | start/stop recording, list recorded sessions and the runner's rolling buffer(s) (if it keeps one) in their own table, keep a range as a session or forget it outright, pin, open a session and rename it, export, delete |
 | **Simulation** | simulation-only controls: clock speed, each plant's live parameters, and per-device faults (`fail`, `restore`, `disturb`, `set_limits`) — these never appear on a controller's device section |
 | **Options** | behind the gear. **Dashboards** (`#/options/dashboards`, the default tab): order, read-only, home. **Rig file** (`#/options/rig`; `#/rig` redirects here): devices, links and controllers, the running rig as a file would show it and what has changed since the runner started. **Runner** (`#/options/runner`): its version history (the current one marked) and restore, saving it, connecting a model over MCP, and — when the runner allows — restarting or shutting it down. **Access** (`#/options/access`): who this browser is, its verbs, Sign in / Sign out. **Appearance**: the theme. **Pages**: every page not reached from the app bar |
@@ -90,7 +91,8 @@ from the telemetry store, which cuts the window from what it already holds
 (up to an hour) or reads it from the session's `/api/history` once a seek
 settles — a panel never knows the difference, and nothing moves or changes
 size when the page flips between live and history. A signal with no sample
-in that window shows a blank value, not a stale or alarm state; a bool, enum
+in that window shows a blank value, not a stale or alarm state; a reading
+recorded with no value shows `—` and its quality, read off its stored flag; a bool, enum
 or JSON signal (a mode, a device's blend) shows what was recorded at that
 moment, read from the session.
 
@@ -140,15 +142,23 @@ Beside the chips, for anyone allowed to operate the rig, is **Software
 stop**: after a confirmation it latches the rig, cancels running device
 commands, interrupts any running program, puts every controller in manual
 and writes each device's stop, for everyone ([the software
-stop](../runner/access.md#stopping-the-rig)). Afterwards a message says
-how many devices stopped, were left unchanged or failed (naming each
-failure), and that the rig is latched; one with a failure stays until
-closed. The app has no Reset button and no banner
-for a latched rig yet: the rig's `stopped` condition is among its
-conditions (`GET /api/health`), and a person resets it with `POST /api/rig/reset`
-([Reset](../runner/access.md#reset)). A caller without `operate` does not
-see the button at all. A stop that fails says so; it never reports a stop
+stop](../runner/access.md#stopping-the-rig)). The confirmation lists what
+the stop will do to each output (`GET /api/rig/stop`): off and its value,
+the value the rig file gives, a stop command, or kept, with any warning
+beside it. Afterwards a message says how many devices stopped, were left
+unchanged or failed (naming each failure), and that the rig is latched;
+one with a failure stays until closed, and **Details** opens a table of
+what each device wrote and kept. A caller without `operate` does not see
+the button at all. A stop that fails says so; it never reports a stop
 that did not happen.
+
+While the rig is latched, a banner at the top of every page says who
+stopped it, when and why, and that regulation and automatic writes stay
+refused. A controller latched by its own fault action (`on_fault`) gets a
+banner line of its own. Each line has **Reset**, behind a confirmation
+([Reset](../runner/access.md#reset)): it needs `operate`, and it lets the
+latch go without writing anything or starting a controller. Controllers
+stay in manual until someone sets them regulating.
 
 ## Density and theme
 
@@ -213,6 +223,7 @@ neutral, warn and alarm change the tile's border and never only its colour,
 and warn and alarm are the rig's word, not the browser's: a tile shows the
 band alarm the rig holds on its signal (raised at once, cleared with the
 rig's hysteresis), never a check of the value against the bands of its own,
-and a stale tile is dashed with a hollow status dot. Every colour, space,
+a stale tile (the rig's `stale` reading) is dashed with a hollow status dot,
+and a tile whose band is unknown is dotted in its own colour, never red. Every colour, space,
 radius and duration is a token in `ui/packages/react/src/styles.css`
 (`ui/README.md` *Theming* lists them with their purpose and contrast).

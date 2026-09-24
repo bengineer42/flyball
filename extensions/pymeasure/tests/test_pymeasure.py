@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 from flyball.foundation.device import Access, Role
 from pydantic import ValidationError
 
-from flyball_pymeasure import PyMeasure, PyMeasureSignal, properties, unit_from_doc
+from flyball_pymeasure import (
+    PyMeasure,
+    PyMeasureConfig,
+    PyMeasureSignal,
+    properties,
+    unit_from_doc,
+)
 
 # region PyMeasure fakes
 
@@ -186,25 +194,98 @@ def test_a_signal_needs_extra_forbid():
         PyMeasureSignal(property="voltage", nope=True)  # type: ignore[call-arg]
 
 
-class FakePyMeasureInstrumentWithAdapter(FakePyMeasureInstrument):
-    def __init__(self, adapter, **kwargs):
-        super().__init__()
-        self.adapter = adapter
-
-
-def test_a_rig_file_names_the_driver(fresh):
-    from flyball.runtime.config import RigConfig
-
-    document = {
+def _smu(instrument: str, adapter: str = "GPIB::24") -> dict:
+    return {
         "devices": {
-            "k2400": {
+            "smu": {
                 "driver": "pymeasure",
-                "instrument": f"{__name__}.FakePyMeasureInstrumentWithAdapter",
-                "adapter": "GPIB::24",
+                "instrument": instrument,
+                "adapter": adapter,
                 "channels": {"voltage": {"property": "voltage", "publish": True}},
             }
         }
     }
-    rig = RigConfig.model_validate(document).build(start=False)
-    assert isinstance(rig.devices["k2400"], PyMeasure)
-    assert rig.resolve("k2400.voltage").access is Access.RP
+
+
+def test_a_rig_file_names_the_driver():
+    """A PyMeasure instrument class -- its own simulated one, here -- validates and builds."""
+    pytest.importorskip("pymeasure")
+    from flyball.runtime.config import RigConfig
+
+    rig = RigConfig.model_validate(_smu("pymeasure.instruments.fakes.SwissArmyFake")).build(
+        start=False
+    )
+    assert isinstance(rig.devices["smu"], PyMeasure)
+    assert rig.resolve("smu.voltage").access is Access.RP
+    assert RigConfig.model_validate(_smu("pymeasure.instruments.keithley.Keithley2400"))
+
+
+@pytest.mark.parametrize(
+    "instrument",
+    [
+        "os.system",
+        "subprocess.getoutput",
+        "builtins.exec",
+        "pymeasure",
+        f"{__name__}.FakePyMeasureInstrument",
+    ],
+)
+def test_anything_but_a_pymeasure_instrument_is_refused_at_validation(tmp_path, instrument):
+    """`instrument` is imported and called with `adapter`: `os.system` + a command runs it.
+
+    Refused by its path, before anything is imported -- pymeasure need not be installed.
+    """
+    from flyball.runtime.config import RigConfig
+
+    marker = tmp_path / "pwned"
+    with pytest.raises(
+        ValidationError, match=r"is not a (class from pymeasure\.instruments\.|dotted path)"
+    ):
+        RigConfig.model_validate(_smu(instrument, adapter=f"touch {marker}"))
+    # and build() checks again, for a config that skipped validation
+    config = PyMeasureConfig.model_construct(
+        instrument=instrument, adapter=f"touch {marker}", kwargs={}, channels={}
+    )
+    with pytest.raises(ValueError, match="is not a"):
+        config.build("smu")
+    assert not marker.exists()
+
+
+def test_a_class_under_pymeasure_instruments_must_be_an_instrument():
+    pytest.importorskip("pymeasure")
+    from flyball.runtime.config import RigConfig
+
+    with pytest.raises(
+        ValidationError, match="is not a subclass of pymeasure.instruments.Instrument"
+    ):
+        RigConfig.model_validate(_smu("pymeasure.instruments.fakes.FakeAdapter"))
+    with pytest.raises(ValidationError, match="has no 'Nope'"):
+        RigConfig.model_validate(_smu("pymeasure.instruments.fakes.Nope"))
+
+
+def test_more_packages_come_from_the_machine_not_the_file(monkeypatch):
+    """`$FLYBALL_INSTRUMENT_PACKAGES` widens where a class may come from; still an `Instrument`."""
+    pytest.importorskip("pymeasure")
+    from flyball.model.config import INSTRUMENT_PACKAGES_ENV
+    from flyball.runtime.config import RigConfig
+    from pymeasure.instruments import Instrument
+
+    class InHouse(Instrument):
+        voltage = Instrument.measurement("VOLT?", "The voltage, in volts.")
+
+        def __init__(self, adapter, **kwargs):
+            super().__init__(adapter, "in-house", **kwargs)
+
+    monkeypatch.setattr(sys.modules[__name__], "InHouse", InHouse, raising=False)
+    document = _smu(f"{__name__}.InHouse")
+    with pytest.raises(ValidationError, match="is not a class from"):
+        RigConfig.model_validate(document)
+    monkeypatch.setenv(INSTRUMENT_PACKAGES_ENV, __name__)
+    assert RigConfig.model_validate(document)
+    with pytest.raises(
+        ValidationError, match="is not a subclass of pymeasure.instruments.Instrument"
+    ):
+        RigConfig.model_validate(_smu(f"{__name__}.FakePyMeasureInstrument"))
+    monkeypatch.setenv(INSTRUMENT_PACKAGES_ENV, "os")
+    with pytest.raises(ValidationError, match="is not a subclass"):
+        RigConfig.model_validate(_smu("os.system"))

@@ -38,8 +38,8 @@ class TestSgp40Sensor:
         bus = FakeI2c(replies={sgp40.SGP40_ADDRESS: [frame]})
         sensor = sgp40.Sgp40Sensor(bus, sleep=False)
         assert sensor.measure() == 0x5678
-        (address, register, data) = bus.written[0]
-        assert address == sgp40.SGP40_ADDRESS and register is None
+        (i2c_address, register, data) = bus.written[0]
+        assert i2c_address == sgp40.SGP40_ADDRESS and register is None
         assert data[:2] == [0x26, 0x0F]
         assert data[2:5] == sgp40.word_with_crc(sgp40.DEFAULT_HUMIDITY_TICKS)
         assert data[5:8] == sgp40.word_with_crc(sgp40.DEFAULT_TEMPERATURE_TICKS)
@@ -82,7 +82,7 @@ class TestSgp40Device:
         (_, _, data) = bus.written[0]
         assert data[2:5] == sgp40.word_with_crc(sgp40.humidity_ticks(60.0))
         assert data[5:8] == sgp40.word_with_crc(sgp40.temperature_ticks(18.0))
-        assert gas.config.address == sgp40.SGP40_ADDRESS
+        assert gas.config.i2c_address == sgp40.SGP40_ADDRESS
 
     def test_config_round_trips_the_compensation_sources(self):
         bus = FakeI2c()

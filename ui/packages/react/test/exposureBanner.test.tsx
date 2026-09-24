@@ -8,7 +8,7 @@ import { ExposureBanner } from "../src/panels/ExposureBanner.js";
 afterEach(cleanup);
 
 const base: Exposure = {
-  requested: "127.0.0.1",
+  requested_host: "127.0.0.1",
   host: "127.0.0.1",
   port: 8000,
   open: true,
@@ -28,7 +28,7 @@ describe("ExposureBanner", () => {
 
   it("warns, with no way to dismiss it, while an open runner is on the network", () => {
     const warning = "serving an OPEN runner on '0.0.0.0' (--insecure-open): anyone who can reach it may operate the rig";
-    render(createElement(ExposureBanner, { exposure: { ...base, requested: "0.0.0.0", host: "0.0.0.0", open_network: true, warning } }));
+    render(createElement(ExposureBanner, { exposure: { ...base, requested_host: "0.0.0.0", host: "0.0.0.0", open_network: true, warning } }));
     const banner = screen.getByTestId("exposure-banner");
     expect(banner.textContent).toMatch(/anyone on the network/i);
     expect(banner.textContent).toContain(warning);
@@ -37,7 +37,7 @@ describe("ExposureBanner", () => {
 
   it("says why an open runner asked for the network is on loopback only", () => {
     const warning = "host is '0.0.0.0' but the runner has no password and no token: serving on 127.0.0.1:8000 only";
-    render(createElement(ExposureBanner, { exposure: { ...base, requested: "0.0.0.0", restricted: true, warning } }));
+    render(createElement(ExposureBanner, { exposure: { ...base, requested_host: "0.0.0.0", restricted: true, warning } }));
     expect(screen.getByTestId("exposure-banner").textContent).toMatch(/this machine only/i);
   });
 });
@@ -46,7 +46,7 @@ describe("ExposureBanner at a front that fell back", () => {
   it("does not say 'no password and no token' when a configured sign-in could not be used", () => {
     const warning =
       "front: auth: password needs a password: line (`flyball password` makes one) -- serving the local shape on 127.0.0.1:8443 only; the rig keeps running (D-028)";
-    render(createElement(ExposureBanner, { exposure: { ...base, requested: "0.0.0.0:8443", host: "127.0.0.1", restricted: true, warning } }));
+    render(createElement(ExposureBanner, { exposure: { ...base, requested_host: "0.0.0.0:8443", host: "127.0.0.1", restricted: true, warning } }));
     const text = screen.getByTestId("exposure-banner").textContent ?? "";
     expect(text).not.toMatch(/no password and no token/i);
     expect(text).toMatch(/this machine only/i);
@@ -54,7 +54,7 @@ describe("ExposureBanner at a front that fell back", () => {
   });
 
   it("an open network rig is described without claiming which credentials it lacks", () => {
-    render(createElement(ExposureBanner, { exposure: { ...base, requested: "0.0.0.0", host: "0.0.0.0", open_network: true } }));
+    render(createElement(ExposureBanner, { exposure: { ...base, requested_host: "0.0.0.0", host: "0.0.0.0", open_network: true } }));
     expect(screen.getByTestId("exposure-banner").textContent).not.toMatch(/no password and no token/i);
   });
 });

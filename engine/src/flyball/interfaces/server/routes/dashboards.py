@@ -4,14 +4,14 @@ A dashboard is a document the UI owns -- a grid of widgets, each bound to a
 signal address, a controller, a device or nothing -- validated here only in
 outline, so the widget catalogue can grow without a server release. The
 server keeps every version under a name, like programs; the newest is what
-`GET` returns. A rig can ship dashboards as ``dashboards/*.toml``,
+`GET` returns. The name is the key; what a person sees is the document's
+`label`, and renaming one in the UI edits that. A rig can ship dashboards as ``dashboards/*.toml``,
 ``dashboards/*.yaml`` or ``dashboards/*.json`` beside its file (whichever
 format the author prefers, per [flyball.foundation.files][]): they are imported
 on start, and an edited file becomes a new version.
 
-Documents carry a `schema_version`; an older one is migrated on read (see
-[migrate][flyball.interfaces.server.routes.dashboards.migrate]), never refused, and
-what is stored is left as saved.
+Documents carry `schema_version` 6, and only 6: a save of any other is refused, and a
+file of any other is skipped on import. Nothing converts an older document (D-064).
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -28,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from flyball.foundation.device import Access
 from flyball.foundation.files import SUFFIXES, load_document
+from flyball.foundation.keys import check_key
 from flyball.interfaces.server.deps import RigDep, StoreDep
 from flyball.record import DashboardRow
 from flyball.record.errors import DashboardNotFoundError
@@ -38,20 +38,20 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dashboards", tags=["dashboards"])
 
-SCHEMA_VERSION = 5
-"""The document shape this server writes: bindings are addresses and controller names (2); a
-document says whether it is read-only and where its tab sits (3); a program widget's button
-cancels, `cancel` (4)."""
+SCHEMA_VERSION: Literal[6] = 6
+"""The document shape this server reads and writes, and the only one it takes."""
 
 
 class Widget(BaseModel):
-    """One tile on the grid. `config` is the widget kind's own business."""
+    """One tile on the grid. `config` is the widget type's own business."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    kind: str = Field(description="Which widget: `readout`, `chart`, `loop`, `device`, ...")
-    title: str | None = None
+    type: str = Field(description="Which widget: `readout`, `chart`, `loop`, `device`, ...")
+    label: str | None = Field(
+        default=None, description="The tile's heading; none: the widget names itself."
+    )
     x: int = Field(ge=0)
     y: int = Field(ge=0)
     w: int = Field(ge=1)
@@ -69,12 +69,20 @@ class Grid(BaseModel):
 
 
 class Dashboard(BaseModel):
-    """The document. `name` is the key it is saved under; `rig` which rig it was made for."""
+    """The document, saved under `name` for the rig `rig` names.
+
+    `name` is the key (its URL, its file); `label` is what a person sees (its tab, its row in a
+    list). `rig` is the rig it was made for.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: int = SCHEMA_VERSION
+    schema_version: Literal[6] = SCHEMA_VERSION
     name: str = Field(min_length=1)
+    label: str | None = Field(
+        default=None,
+        description="What its tab and its row in a list show; none: the name. Renaming edits it.",
+    )
     rig: str
     description: str | None = None
     grid: Grid = Field(default_factory=Grid)
@@ -112,7 +120,7 @@ class Problem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     widget_id: str
-    ref: str
+    address: str
     reason: str
 
 
@@ -131,7 +139,7 @@ class DashboardWithProblems(BaseModel):
 
     @classmethod
     def of(cls, row: DashboardRow, rig: Rig) -> DashboardWithProblems:
-        body = migrate(row.body) if isinstance(row.body, dict) else row.body
+        body = row.body
         return cls(
             id=row.id,
             name=row.name,
@@ -143,108 +151,10 @@ class DashboardWithProblems(BaseModel):
         )
 
 
-def _address_of(value: Any) -> str | None:
-    """A version-1 channel binding as an address.
-
-    Either the `source.measurand` string the UI used, or the `{source,
-    measurand}` shape the layout schema described; a source was a device and
-    a measurand its signal, so the address is the same dotted path.
-    """
-    if isinstance(value, str) and value:
-        return value
-    if isinstance(value, dict) and value.get("source") and value.get("measurand"):
-        return f"{value['source']}.{value['measurand']}"
-    return None
-
-
-def migrate(document: dict[str, Any]) -> dict[str, Any]:
-    """A document at any schema version, brought to the current one; a copy.
-
-    Version 1 bound widgets to channels, loops and actuators: a `readout`'s
-    or `gauge`'s `channel` becomes `address`, a `chart`'s `channels`
-    become `addresses`, a `loop`'s `loop` becomes `controller`, and the
-    `actuator` widget becomes a `device` widget bound by `device`. A loop
-    was named by its actuator and a controller is named by its output's
-    address, so the name is carried as it was; `problems` says if it no
-    longer resolves. Version 2 had no `readonly` or `order`: it is writable
-    and unordered. Up to version 3 a `program` widget's `interrupt` was what
-    is now its `cancel` button. Up to version 4 an `events` widget's `level`
-    (`"WARNING"`) was what is now its `severity` (`"warning"`).
-    """
-    version = document.get("schema_version", 1)
-    if not isinstance(version, int) or version >= SCHEMA_VERSION:
-        return document
-    if version < 2:
-        document = _bindings_by_address(document)
-    if version < 4:
-        document = _program_cancel(document)
-    if version < 5:
-        document = _events_severity(document)
-    return {"readonly": False, "order": None, **document, "schema_version": SCHEMA_VERSION}
-
-
-def _bindings_by_address(document: dict[str, Any]) -> dict[str, Any]:
-    """Version 1 → 2: channel, loop and actuator bindings become addresses and names."""
-    widgets: list[Any] = []
-    for widget in document.get("widgets") or []:
-        if not isinstance(widget, dict) or not isinstance(widget.get("config"), dict):
-            widgets.append(widget)
-            continue
-        kind = widget.get("kind")
-        config = dict(widget["config"])
-        if kind in ("readout", "gauge") and "channel" in config:
-            if (address := _address_of(config.pop("channel"))) is not None:
-                config["address"] = address
-        elif kind == "chart" and "channels" in config:
-            channels = config.pop("channels")
-            config["addresses"] = (
-                [a for c in channels if (a := _address_of(c)) is not None]
-                if isinstance(channels, list)
-                else []
-            )
-        elif kind == "loop" and "loop" in config:
-            config["controller"] = config.pop("loop")
-        elif kind == "actuator":
-            kind = "device"
-            if "actuator" in config:
-                config["device"] = config.pop("actuator")
-        widgets.append({**widget, "kind": kind, "config": config})
-    return {**document, "widgets": widgets}
-
-
-def _program_cancel(document: dict[str, Any]) -> dict[str, Any]:
-    """Version 3 → 4: a `program` widget's `interrupt` button is its `cancel` button."""
-    widgets: list[Any] = []
-    for widget in document.get("widgets") or []:
-        config = widget.get("config") if isinstance(widget, dict) else None
-        if widget.get("kind") == "program" and isinstance(config, dict) and "interrupt" in config:
-            config = {("cancel" if k == "interrupt" else k): v for k, v in config.items()}
-            widget = {**widget, "config": config}
-        widgets.append(widget)
-    return {**document, "widgets": widgets}
-
-
-def _events_severity(document: dict[str, Any]) -> dict[str, Any]:
-    """Version 4 → 5: an `events` widget's `level` is its `severity`, a lowercase string."""
-    widgets: list[Any] = []
-    for widget in document.get("widgets") or []:
-        config = widget.get("config") if isinstance(widget, dict) else None
-        if widget.get("kind") == "events" and isinstance(config, dict) and "level" in config:
-            config = {
-                ("severity" if k == "level" else k): (
-                    v.lower() if k == "level" and isinstance(v, str) else v
-                )
-                for k, v in config.items()
-            }
-            widget = {**widget, "config": config}
-        widgets.append(widget)
-    return {**document, "widgets": widgets}
-
-
 def problems_for(document: dict[str, Any], rig: Rig) -> list[Problem]:
     """Every widget whose binding names a signal, controller or device `rig` lacks.
 
-    Bindings live in each widget kind's own `config`; only the kinds that
+    Bindings live in each widget type's own `config`; only the types that
     reference the rig by name are checked, matching the widget catalogue
     (readout/gauge: one address; chart: several; loop: a controller;
     device: a device). A readout binds to what publishes.
@@ -257,36 +167,34 @@ def problems_for(document: dict[str, Any], rig: Rig) -> list[Problem]:
     }
     problems: list[Problem] = []
 
-    def flag(widget_id: str, ref: str) -> None:
-        problems.append(Problem(widget_id=widget_id, ref=ref, reason=f"{ref} is not on this rig"))
+    def flag(widget_id: str, address: str) -> None:
+        problems.append(
+            Problem(widget_id=widget_id, address=address, reason=f"{address} is not on this rig")
+        )
 
     for widget in document.get("widgets") or []:
         if not isinstance(widget, dict):
             continue
         widget_id = str(widget.get("id", ""))
-        kind = widget.get("kind")
+        type_ = widget.get("type")
         config = widget.get("config") or {}
         if not isinstance(config, dict):
             continue
         refs: list[str] = []
-        if kind in ("readout", "gauge"):
+        if type_ in ("readout", "gauge"):
             if isinstance(address := config.get("address"), str) and address:
                 refs.append(address)
-        elif kind == "chart":
+        elif type_ == "chart":
             candidates = config.get("addresses") or []
             refs.extend(a for a in candidates if isinstance(a, str) and a)
         for ref in refs:
             if ref not in published:
                 flag(widget_id, ref)
-        name = config.get("controller") if kind == "loop" else config.get("device")
-        known = rig.controllers if kind == "loop" else rig.devices
+        name = config.get("controller") if type_ == "loop" else config.get("device")
+        known = rig.controllers if type_ == "loop" else rig.devices
         if isinstance(name, str) and name and name not in known:
             flag(widget_id, name)
     return problems
-
-
-def _migrated(row: DashboardRow) -> DashboardRow:
-    return replace(row, body=migrate(row.body)) if isinstance(row.body, dict) else row
 
 
 def import_directory(store: Store, directory: Path, rig: str, now_ns: int) -> list[DashboardRow]:
@@ -303,9 +211,10 @@ def import_directory(store: Store, directory: Path, rig: str, now_ns: int) -> li
         if not path.is_file():
             continue
         try:
+            name = check_key(path.stem, "dashboard name")
             document = Dashboard.model_validate({
                 **load_document(path),
-                "name": path.stem,
+                "name": name,
                 "rig": rig,
             })
         except (ValueError, TypeError) as e:
@@ -314,11 +223,11 @@ def import_directory(store: Store, directory: Path, rig: str, now_ns: int) -> li
         body = document.model_dump(mode="json")
         digest = hashlib.sha256(json.dumps(body, separators=(",", ":")).encode()).hexdigest()
         try:
-            if store.dashboard(path.stem).sha256 == digest:
+            if store.dashboard(name).sha256 == digest:
                 continue
         except DashboardNotFoundError:
             pass
-        imported.append(store.save_dashboard(path.stem, rig, body, now_ns))
+        imported.append(store.save_dashboard(name, rig, body, now_ns))
     return imported
 
 
@@ -330,13 +239,13 @@ async def read_dashboard_schema() -> dict[str, Any]:
 
 @router.get("/widgets")
 async def read_widget_catalogue() -> dict[str, Any]:
-    """Every widget kind and its `config` schema, for a client writing a document by hand.
+    """Every widget type and its `config` schema, for a client writing a document by hand.
 
-    The UI owns the kinds; `widgets.json` beside the server package is a copy
+    The UI owns the types; `widgets.json` beside the server package is a copy
     of its registry with the rig-dependent pickers reduced to `x-binding`.
     """
     path = Path(__file__).parent.parent / "widgets.json"
-    return json.loads(path.read_text())  # type: ignore[no-any-return]
+    return json.loads(path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
 
 
 @router.get("")
@@ -346,7 +255,7 @@ def list_dashboards(
     every: bool = Query(False, description="Every rig's, not only this one's."),
 ) -> list[DashboardRow]:
     """The newest version of each dashboard, by name; this rig's unless ``every``."""
-    return [_migrated(row) for row in store.dashboards(None if every else rig.name)]
+    return store.dashboards(None if every else rig.name)
 
 
 @router.get("/{name}")
@@ -357,7 +266,7 @@ def read_dashboard(store: StoreDep, rig: RigDep, name: str) -> DashboardWithProb
 @router.get("/{name}/history")
 def read_dashboard_history(store: StoreDep, name: str) -> list[DashboardRow]:
     """Every version, newest first."""
-    return [_migrated(row) for row in store.dashboard_history(name)]
+    return store.dashboard_history(name)
 
 
 @router.put("/{name}", status_code=201)
@@ -365,6 +274,7 @@ def save_dashboard(
     store: StoreDep, rig: RigDep, name: str, body: Dashboard
 ) -> DashboardWithProblems:
     """Save a version under `name`; the document's `name` and `rig` are overwritten to match."""
+    name = check_key(name, "dashboard name")
     document = body.model_copy(update={"name": name, "rig": body.rig or rig.name})
     row = store.save_dashboard(
         name, document.rig, document.model_dump(mode="json"), rig.clock.now_ns()
@@ -374,15 +284,20 @@ def save_dashboard(
 
 @router.post("/{name}/rename")
 def rename_dashboard(store: StoreDep, name: str, body: Rename) -> list[DashboardRow]:
-    """Move every version under a new name. 409 if taken."""
-    rows = store.rename_dashboard(name, body.name)
+    """Move every version under a new name: the key, in URLs and files. 409 if taken.
+
+    What a person sees is the document's `label`; renaming a dashboard in the UI saves a
+    version with a new `label` and leaves the name alone. This is the rarer act.
+    """
+    new_name = check_key(body.name, "dashboard name")
+    rows = store.rename_dashboard(name, new_name)
     # The document names itself too: keep the newest in step with its key.
     newest = rows[0]
-    if isinstance(newest.body, dict) and newest.body.get("name") != body.name:
+    if isinstance(newest.body, dict) and newest.body.get("name") != new_name:
         store.save_dashboard(
-            body.name, newest.rig, {**newest.body, "name": body.name}, newest.created_ns + 1
+            new_name, newest.rig, {**newest.body, "name": new_name}, newest.created_ns + 1
         )
-        rows = store.dashboard_history(body.name)
+        rows = store.dashboard_history(new_name)
     return rows
 
 

@@ -14,8 +14,12 @@ wrapper walks them, so one class serves every driver:
           bias: { property: source_voltage }
 
 Units come from the docstring by a word table (`volts` -> V), overridable
-per channel. Nothing here imports pymeasure at module load: `PyMeasureConfig.build`
-does, so the `pymeasure` extra is only needed where it is actually used.
+per channel. Nothing here imports pymeasure at module load: validating a
+`PyMeasureConfig` does, so the `pymeasure` extra is only needed where it is
+actually used. `instrument` must be a PyMeasure `Instrument` subclass from
+`pymeasure.instruments.` (or a package in `$FLYBALL_INSTRUMENT_PACKAGES`):
+the class is imported and called with the file's arguments, so any other
+dotted path -- `os.system` -- is refused when the config is validated.
 """
 
 from __future__ import annotations
@@ -42,7 +46,7 @@ from flyball.foundation.quantities.dimension import Unit
 from flyball.foundation.quantities.errors import UnitNotFoundError
 from flyball.foundation.quantities.si import One
 from flyball.hardware.scan import Scan
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 WORDS: dict[str, str] = {
     "volts": "V",
@@ -236,15 +240,32 @@ class PyMeasureConfig(DriverConfig[PyMeasure], type="pymeasure"):
     kwargs: dict[str, Any] = Field(default_factory=dict)
     channels: dict[str, PyMeasureSignal]
 
+    @field_validator("instrument")
+    @classmethod
+    def _a_pymeasure_instrument(cls, dotted: str) -> str:
+        instrument_class(dotted)
+        return dotted
+
     def build(self, name: str, label: str | None = None) -> PyMeasure:
-        instrument = import_object(self.instrument)(self.adapter, **self.kwargs)
+        instrument = instrument_class(self.instrument)(self.adapter, **self.kwargs)
         return PyMeasure(name, instrument, self.channels, label=label)
 
 
+INSTRUMENTS = ("pymeasure.instruments",)
+"""Where `instrument` may name a class from, besides `$FLYBALL_INSTRUMENT_PACKAGES`."""
+
+
+def instrument_class(dotted: str) -> type:
+    """`dotted`, a PyMeasure `Instrument` subclass under `INSTRUMENTS`, or `ValueError`."""
+    return import_object(dotted, allowed=INSTRUMENTS, base="pymeasure.instruments.Instrument")
+
+
 __all__ = [
+    "INSTRUMENTS",
     "PyMeasure",
     "PyMeasureConfig",
     "PyMeasureSignal",
+    "instrument_class",
     "properties",
     "unit_from_doc",
 ]

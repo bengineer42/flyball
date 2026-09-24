@@ -16,6 +16,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.staticfiles import StaticFiles
 
+from flyball.foundation.actor import Actor
 from flyball.foundation.errors import (
     ConflictError,
     FlyballError,
@@ -55,7 +56,6 @@ from flyball.interfaces.server.routes import (
 )
 from flyball.interfaces.server.routes.auth import router as auth_router
 from flyball.interfaces.server.routes.stop import router as stop_router
-from flyball.rig.stopping import Actor
 from flyball.runtime.config import AuthConfig
 
 # The UI is served from its own dev server during development.
@@ -122,7 +122,7 @@ def _stop() -> None:
             rig.stop_recording()
 
 
-SHUTDOWN_ACTOR = Actor(sub="local:shutdown", sid="", kind="service", via="signal")
+SHUTDOWN_ACTOR = Actor(principal="local:shutdown", kind="service", via="signal")
 
 
 def _shutdown_stop() -> None:

@@ -33,7 +33,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`sht31`](#sht31), [`htu21d`](#htu21d) | more Sensirion / TE humidity + temperature | `i2c` | `flyball-chips` | datasheet-checked |
 | [`ms5611`](#ms5611) | TE barometric pressure | `i2c` | `flyball-chips` | known issue |
 | [`bme280`](#bme280) | Bosch temperature / pressure / humidity | `i2c` | `flyball-chips` | partial |
-| [`scd30`](#scd30), [`scd40`](#scd40) | Sensirion CO₂ + temperature + humidity | `i2c` | `flyball-chips` | partial |
+| [`scd30`](#scd30), [`scd4x`](#scd4x) | Sensirion CO₂ + temperature + humidity | `i2c` | `flyball-chips` | partial |
 | [`sgp30`](#sgp30), [`sgp40`](#sgp40) | Sensirion eCO₂ / TVOC / VOC index | `i2c` | `flyball-chips` | partial |
 | [`ccs811`](#ccs811) | ams eCO₂ / TVOC | `i2c` | `flyball-chips` | partial |
 | [`mhz19`](#mhz19) | Winsen CO₂ | `uart` | `flyball-chips` | datasheet-checked |
@@ -93,7 +93,7 @@ driver here follows it:
 | `max31855` | a fault (open circuit, or a short to VCC/GND) → `temperature` `invalid`, naming every fault bit set; `cold_junction` always reads | the bus |
 | `max31856` | a fault bit in the status register → that signal's own `invalid(reason)` | the bus |
 | `max31865` | an RTD/reference fault → both signals `invalid(reason)` | the bus |
-| `sht4x`, `sht4x_set`, `sht31`, `htu21d`, `scd30`, `scd40`, `sgp40`, `mhz19`, `ms5611` | none (humidity is cropped to 0-100 %, as the datasheets say) | a CRC failure, a short frame, a sensor not ready in time; in an `sht4x_set` one sensor's failure fails that read of the set |
+| `sht4x`, `sht4x_set`, `sht31`, `htu21d`, `scd30`, `scd4x`, `sgp40`, `mhz19`, `ms5611` | none (humidity is cropped to 0-100 %, as the datasheets say) | a CRC failure, a short frame, a sensor not ready in time; in an `sht4x_set` one sensor's failure fails that read of the set |
 | `bme280` | a BMP280 has no `humidity` signal at all | the bus |
 | `ezo_*` | none | a `*` status reply, a malformed one |
 | `ccs811` | no new result yet (`DATA_READY` clear) → nothing read | an error status, not in app mode |
@@ -192,13 +192,27 @@ Two Python libraries carry hundreds of drivers between them; one wrapper
 each turns any of them into a device. The library owns the connection, so
 the link fakes are not involved -- test against the library's own
 simulated instruments. Their calls block like any polled device's. Neither
-wrapper imports its library until built, so `import flyball` needs nothing.
+wrapper imports its library until a rig names it, so `import flyball` needs
+nothing.
+
+`instrument` is imported and then called with the file's arguments, so it
+is held to the library's own instrument classes: a subclass of the
+library's `Instrument` from under its driver package (below). Anything
+else -- `os.system`, a function, a class from another package -- is refused
+when the rig is validated, before anything is imported or called; a rig
+edit through the API that names one is refused with 422. An in-house
+driver package is allowed only by the machine running the rig:
+`FLYBALL_INSTRUMENT_PACKAGES` in the runner's environment, comma-separated
+package prefixes (`my_lab.instruments,qcodes_contrib_drivers`); a class
+from one must still subclass the library's `Instrument`. No rig file key
+widens it. `flyball rig check` checks the schema only and does not see
+this; the runner does, and it needs the library installed to check.
 
 ### `qcodes`
 
 | field | default | |
 | --- | --- | --- |
-| `instrument` | required | a dotted class in an installed package: `qcodes.instrument_drivers.Keithley.Keithley2450` |
+| `instrument` | required | a dotted `qcodes.instrument.Instrument` subclass under `qcodes.instrument_drivers.` or `qcodes.instrument.`: `qcodes.instrument_drivers.Keithley.Keithley2450` |
 | `instrument_name` | the device's name | the QCoDeS instrument's own `name` |
 | `args`, `kwargs` | `[]`, `{}` | passed to the class |
 | `link` | none | a transport by name, where the class takes one |
@@ -221,7 +235,7 @@ also has a getter). A `None` from a getter is a reading with no value
 
 | field | default | |
 | --- | --- | --- |
-| `instrument` | required | `pymeasure.instruments.keithley.Keithley2400` |
+| `instrument` | required | a dotted `pymeasure.instruments.Instrument` subclass under `pymeasure.instruments.`: `pymeasure.instruments.keithley.Keithley2400` |
 | `adapter` | required | `"GPIB::24"`, `"ASRL/dev/ttyUSB0"`, a VISA string |
 | `kwargs` | `{}` | |
 | `link` | none | a transport by name |
@@ -304,7 +318,7 @@ MCP9808, INA219, LM75.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | required | the chip's bus address |
+| `i2c_address` | required | the chip's bus address |
 | `init` | none | `[{address, value, length?, byteorder?, signed?}]` -- writes sent once, in order, when the device is built: a mode or reset register no signal reads back |
 | `registers` | required | `{signal: {address, length, signed?, byteorder?, shift?, mask?, sign_bit?, scale?, offset?, unit, write?, role?}}` -- `write: true` makes a register a demand; `role: setting` makes a writable one a setting instead (a configuration register), which no controller can drive |
 
@@ -317,7 +331,7 @@ with either is read-only: there is no safe read-modify-write of the bits around 
 board_temp:
   driver: i2c_table
   link: i2c1
-  address: 0x48
+  i2c_address: 0x48
   init:
     - { address: 0x01, value: 0x60 }   # one-shot mode, per the datasheet
   registers:
@@ -332,7 +346,7 @@ One Sensirion SHT40/41/45: `humidity` and `temperature`, both `[RP]`.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x44` | |
+| `i2c_address` | `0x44` | |
 | `precision` | `high` | `high`, `medium`, `low` -- conversion time against resolution |
 
 ### `sht4x_set`
@@ -343,7 +357,7 @@ read in one poll.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | |
-| `sensors` | required | `{name: {address}}` |
+| `sensors` | required | `{name: {i2c_address}}` |
 | `precision` | `high` | |
 
 ```yaml
@@ -351,7 +365,7 @@ hum_sensors:
   driver: sht4x_set
   link: i2c1
   poll_s: 1
-  sensors: { chamber: { address: 0x44 }, dry: { address: 0x45 }, wet: { address: 0x46 } }
+  sensors: { chamber: { i2c_address: 0x44 }, dry: { i2c_address: 0x45 }, wet: { i2c_address: 0x46 } }
 ```
 
 ### `ads1115`
@@ -361,7 +375,7 @@ TI 16-bit ADC, four single-ended channels.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x48` | |
+| `i2c_address` | `0x48` | |
 | `gain` | `1` | PGA gain: `2/3`, `1`, `2`, `4`, `8` or `16` |
 | `channels` | required | `{signal: {channel, scale?, unit?}}` -- volts unless `scale` and `unit` say otherwise |
 
@@ -503,7 +517,7 @@ A 1-Wire thermometer of the `w1_therm` family, in °C.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `onewire` link |
-| `device` | required | the probe's id under `/sys/bus/w1/devices` (`28-0316…`) |
+| `probe_id` | required | the probe's id under `/sys/bus/w1/devices` (`28-0316…`) |
 
 ### `sht31`
 
@@ -513,7 +527,7 @@ shape as `sht4x`, a different command/CRC family -- not a register table.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x44` | `0x45` on the -B variant |
+| `i2c_address` | `0x44` | `0x45` on the -B variant |
 | `precision` | `high` | `high`, `medium`, `low` |
 
 ### `htu21d`
@@ -524,7 +538,7 @@ TE Connectivity HTU21D(F) / Silicon Labs Si7021: `humidity` and
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x40` | fixed -- no address pin |
+| `i2c_address` | `0x40` | fixed -- no address pin |
 
 ### `ms5611`
 
@@ -534,7 +548,7 @@ TE MS5611 barometric pressure: `pressure` (Pa) and `temperature`, both
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x77` | `0x76` on the CSB-low variant |
+| `i2c_address` | `0x77` | `0x76` on the CSB-low variant |
 
 !!! note "Known issue"
     The PROM's CRC-4 checksum is read but not verified -- a corrupted
@@ -551,7 +565,7 @@ don't convert linearly.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x76` | `0x77` on SDO-high |
+| `i2c_address` | `0x76` | `0x77` on SDO-high |
 | `has_humidity` | `true` | `false` for a BMP280 (no humidity registers) |
 
 ### `scd30`
@@ -563,14 +577,14 @@ mode isn't wired up.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x61` | fixed |
+| `i2c_address` | `0x61` | fixed |
 | `pressure_mbar` | `0` | ambient pressure for the chip's own compensation; `0` turns it off |
 | `sleep` | `true` | wait for the chip's data-ready flag before each read (up to its timeout) rather than read whatever it last measured |
 
 The chip runs in continuous mode at its own 2 s period; there is no
 `interval_s` here -- pace it with the device's `poll_s`.
 
-### `scd40`
+### `scd4x`
 
 Sensirion SCD40/SCD41: `co2` (ppm), `humidity`, `temperature`, all `[RP]`.
 Same three-value CRC family as `scd30`, a different command set.
@@ -578,7 +592,7 @@ Same three-value CRC family as `scd30`, a different command set.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x62` | fixed |
+| `i2c_address` | `0x62` | fixed |
 | `variant` | `scd40` | `scd40` or `scd41` -- SCD41 adds a single-shot mode |
 | `low_power` | `false` | periodic measurement every 30 s instead of 5 s |
 | `single_shot` | `false` | SCD41 only: measure on demand at each read rather than periodically; refused on an SCD40 |
@@ -599,7 +613,7 @@ signals stay `pending`.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x58` | fixed |
+| `i2c_address` | `0x58` | fixed |
 | `baseline` | none | `[co2eq, tvoc]` IAQ baseline words to restore at startup, as read back earlier from `get_baseline`; omitted lets the chip's own algorithm re-settle from cold |
 
 ### `sgp40`
@@ -613,7 +627,7 @@ falls back to the datasheet's fixed default (50 %RH, 25 °C) for that input.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x59` | fixed |
+| `i2c_address` | `0x59` | fixed |
 | `humidity_source` | none | signal address to read humidity compensation from each read; omit for the fixed 50 %RH default |
 | `temperature_source` | none | signal address to read temperature compensation from each read; omit for the fixed 25 °C default |
 
@@ -626,7 +640,7 @@ new result is ready (`STATUS` without `DATA_READY`) reads nothing.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x5A` | `0x5B` on the ADDR-high variant |
+| `i2c_address` | `0x5A` | `0x5B` on the ADDR-high variant |
 
 ### `mhz19`
 
@@ -875,7 +889,7 @@ commanded directly in engineering units instead of a bare fraction.
 | field | default | |
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
-| `address` | `0x60` | `0x61` on the -A0T variant |
+| `i2c_address` | `0x60` | `0x61` on the -A0T variant |
 | `unit`, `quantity`, `span` | none | omitted, `drive` is the fraction itself (0-1). Given, `drive` is set in `unit` and `span: [lo, hi]` maps it linearly onto 0-100 % -- the same rule as `pwm_channel` |
 
 **Stop:** `drive` declares no `off`: 0 V is a setpoint for a positioner or

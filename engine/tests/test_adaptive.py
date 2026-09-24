@@ -90,7 +90,7 @@ class Loop:
 
 
 def oven(delay_samples: int = 5) -> Loop:
-    """`oven.yaml`: FOPDT, tau 60 s, dead 5 s, gain 80 over ambient 20, a smart drive in °C.
+    """`oven.yaml`: FOPDT, tau_s 60 s, dead 5 s, gain 80 over ambient 20, a smart drive in °C.
 
     Seen through the drive, the plant has unit gain: a demand of 50 °C holds 50 °C.
     """
@@ -101,14 +101,14 @@ def oven(delay_samples: int = 5) -> Loop:
 
 
 def chiller() -> Loop:
-    """A lag driven raw: full drive pulls 30 °C below a 20 °C room, tau 120 s. Negative gain."""
+    """A lag driven raw: full drive pulls 30 °C below a 20 °C room, tau_s 120 s. Negative gain."""
     plant = Noisy(Lag(120.0, value=20.0, gain=-30.0, ambient=20.0), 0.1, seed=2)
     ident = Identifier(SCHEMA, interval=1.0, excitation=Excitation(threshold=0.05, hold=200))
     return Loop(plant, PI(-0.05, -0.002, 0.0, 1.0, smart=False, bias=0.5), 1.0, 20.0, None, ident)
 
 
 def tank() -> Loop:
-    """`tank.yaml`: an integrator against a drain, which is a lag of tau 1/leak = 20 s."""
+    """`tank.yaml`: an integrator against a drain, which is a lag of tau_s 1/leak = 20 s."""
     plant = Noisy(Integrator(gain=2.0, leak=0.05, value=10.0), 0.02, seed=1)
     ident = Identifier(SCHEMA, interval=0.5)
     return Loop(plant, PI(0.05, 0.01, 0, 40), 0.5, 10.0, lambda d: d * 0.05 / 2.0, ident)
@@ -164,12 +164,12 @@ def test_the_oven_is_identified_from_setpoint_steps():
     steps(loop, [50, 70, 40, 80], 900)
     plant = loop.identifier.plant()  # type: ignore[union-attr]
     assert plant.gain == pytest.approx(1.0, rel=0.1)
-    assert plant.tau == pytest.approx(60.0, rel=0.15)
-    assert plant.dead_time == 5.0 and abs(plant.ambient) < 5.0
+    assert plant.tau_s == pytest.approx(60.0, rel=0.15)
+    assert plant.dead_time_s == 5.0 and abs(plant.ambient) < 5.0
 
 
 def test_a_wrong_dead_time_lands_in_the_time_constant():
-    """Dead time is not identified: given none, the lag absorbs it and tau comes out long.
+    """Dead time is not identified: given none, the lag absorbs it and tau_s comes out long.
 
     The gain is off too (1.22 against 1.0): the whole 5 s of dead time is
     unmodelled.
@@ -177,7 +177,7 @@ def test_a_wrong_dead_time_lands_in_the_time_constant():
     loop = oven(delay_samples=0)
     steps(loop, [50, 70, 40, 80], 900)
     plant = loop.identifier.plant()  # type: ignore[union-attr]
-    assert plant.gain == pytest.approx(1.0, rel=0.25) and plant.tau > 65.0
+    assert plant.gain == pytest.approx(1.0, rel=0.25) and plant.tau_s > 65.0
 
 
 def test_a_plant_resting_away_from_zero_is_identified_with_its_sign():
@@ -186,7 +186,7 @@ def test_a_plant_resting_away_from_zero_is_identified_with_its_sign():
     steps(loop, [5, 0, 10, -5], 1800)
     plant = loop.identifier.plant()  # type: ignore[union-attr]
     assert plant.gain < 0 and plant.gain == pytest.approx(-30.0, rel=0.25)
-    assert plant.tau == pytest.approx(120.0, rel=0.25)
+    assert plant.tau_s == pytest.approx(120.0, rel=0.25)
     assert plant.ambient == pytest.approx(20.0, abs=3.0)
     # Feedforward inverts the model, operating point included: holding 5 °C takes about half drive.
     assert loop.identifier.feedforward(5.0) == pytest.approx(0.5, abs=0.1)  # type: ignore[union-attr]
@@ -196,7 +196,7 @@ def test_the_tank_is_a_lag_of_one_over_leak():
     loop = tank()
     steps(loop, [20, 30, 15, 35], 450)
     plant = loop.identifier.plant()  # type: ignore[union-attr]
-    assert plant.gain == pytest.approx(1.0, rel=0.1) and plant.tau == pytest.approx(20.0, rel=0.1)
+    assert plant.gain == pytest.approx(1.0, rel=0.1) and plant.tau_s == pytest.approx(20.0, rel=0.1)
 
 
 def test_noise_alone_does_not_pass_for_a_plant():
@@ -223,7 +223,7 @@ def test_noise_alone_does_not_pass_for_a_plant():
 
 
 def rule(plant: Plant) -> Gains:
-    return imc(FOPDT(plant.gain, plant.tau, plant.dead_time), derivative=False)
+    return imc(FOPDT(plant.gain, plant.tau_s, plant.dead_time_s), derivative=False)
 
 
 def test_a_retune_is_offered_once_then_held_until_the_model_drifts():
@@ -269,7 +269,7 @@ def test_a_changed_plant_is_refitted_and_offered():
 def test_divergence_is_a_rise_in_the_residual_s_level_not_one_bad_sample():
     ident = Identifier(SCHEMA, settle=1)
     tuner = SelfTuner(ident, rule, residual_growth=3.0)
-    tuner.accept(Plant(gain=1.0, tau=60.0))
+    tuner.accept(Plant(gain=1.0, tau_s=60.0))
 
     def fitted(residual: float) -> None:
         ident._seen += 1
@@ -285,14 +285,14 @@ def test_divergence_is_a_rise_in_the_residual_s_level_not_one_bad_sample():
     assert tuner._diverging()
     tuner.observe()  # a tick with nothing fitted changes nothing
     assert tuner._diverging()
-    tuner.accept(Plant(gain=1.0, tau=60.0))  # a fresh model starts the comparison over
+    tuner.accept(Plant(gain=1.0, tau_s=60.0))  # a fresh model starts the comparison over
     assert not tuner._diverging()
 
 
 def test_a_sign_flip_or_a_wild_fit_is_implausible():
     ident = Identifier(SCHEMA)
-    tuner = SelfTuner(ident, rule, bounds=Bounds(gain=(0.5, 2.0), tau=(10.0, 100.0)))
-    tuner.accept(Plant(gain=1.0, tau=60.0))
+    tuner = SelfTuner(ident, rule, bounds=Bounds(gain=(0.5, 2.0), tau_s=(10.0, 100.0)))
+    tuner.accept(Plant(gain=1.0, tau_s=60.0))
     tuner._since = 1e9  # well past the settling time
     ident._seen = ident.settle  # identified, by fiat
     ident._rls._parameters = [0.9835, -0.0165, 0.0]  # gain -1: the wrong way round

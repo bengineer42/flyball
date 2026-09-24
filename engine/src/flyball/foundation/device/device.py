@@ -58,10 +58,19 @@ from pydantic import Field
 
 from flyball.model.config import Config
 
+from ..keys import Keyed, check_key
 from ..router.router import Router
 from ..time.clock import Clock
 from .binding import InputBinding
-from .building import _inputs, _last_of, _Leaf, _leaves, _link_params, _setter
+from .building import (
+    _inputs,
+    _last_of,
+    _Leaf,
+    _leaves,
+    _link_params,
+    _refuse_setter_clash,
+    _setter,
+)
 from .commands import RESERVED_NAMES, CommandSpec, _check_command_signature, _schemable, command
 from .conditions import Conditions
 from .descriptors import Descriptor, Input, Namespace, _descriptors
@@ -259,7 +268,7 @@ class Device:
     tree computed at construction (a class's demands get theirs at definition)."""
 
     def __init__(self, name: str, label: str | None = None) -> None:
-        self.name = name
+        self.name = check_key(name, "device")
         self.label = label
         self.bound = {n: InputBinding(self, n, spec) for n, spec in self.INPUTS.items()}
         self.staged = Staged()
@@ -413,8 +422,8 @@ class Device:
         else:
             self._extended = True
         self._bind_under(self.root, specs)
-        self.signals = {str(signal.path): signal for signal in self.root.walk()}
-        self.nodes = {str(node.path): node for node in self.root.descendants()}
+        self.signals = Keyed((str(signal.path), signal) for signal in self.root.walk())
+        self.nodes = Keyed((str(node.path), node) for node in self.root.descendants())
         self.commands = dict(type(self).commands)
         # A demand a computed tree binds gets its setter here, as a class's do at definition.
         linked = {p.link for c in self.commands.values() for p in c.params.values() if p.link}
@@ -423,11 +432,12 @@ class Device:
             for path, signal in self.signals.items()
             if signal.role is Role.DEMAND and path not in linked
         ]
+        _refuse_setter_clash(self.name, setters)
         new = [s for s in setters if s.name not in self.commands]
         for setter in new:
             self.commands[setter.name] = setter
-        self.signals = {str(signal.path): signal for signal in self.root.walk()}
-        self.nodes = {str(node.path): node for node in self.root.descendants()}
+        self.signals = Keyed((str(signal.path), signal) for signal in self.root.walk())
+        self.nodes = Keyed((str(node.path), node) for node in self.root.descendants())
         for signal in self.root.walk():
             if signal.spec.initial is not None and signal.router.reading(signal) is None:
                 signal.push(signal.spec.initial, 0)
@@ -580,10 +590,14 @@ class Device:
             )
         cls.stop_command = stops[0] if stops else None
         linked = {p.link for c in cls.commands.values() for p in c.params.values() if p.link}
-        for leaf in _leaves(cls.TREE):
-            if leaf.role is Role.DEMAND and leaf.path not in linked:
-                setter = _setter(cls, leaf)
-                cls.commands[setter.name] = setter
+        setters = [
+            _setter(cls, leaf)
+            for leaf in _leaves(cls.TREE)
+            if leaf.role is Role.DEMAND and leaf.path not in linked
+        ]
+        _refuse_setter_clash(cls.__name__, setters)
+        for setter in setters:
+            cls.commands[setter.name] = setter
         if any(not c.simulation and c.demand_of is None for c in cls.commands.values()):
             cls.TREE = (*cls.TREE, _last_of(cls))
 

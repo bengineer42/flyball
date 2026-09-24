@@ -80,7 +80,7 @@ class Ads1115(Readable):
         name: str,
         link: I2cLink,
         channels: Mapping[str, Channel],
-        address: int = 0x48,
+        i2c_address: int = 0x48,
         gain: float = 1,
         sleep: bool = True,
         label: str | None = None,
@@ -91,7 +91,7 @@ class Ads1115(Readable):
         if not channels:
             raise ValueError(f"{name}: an ads1115 reads at least one channel")
         self.link = link
-        self.address = address
+        self.i2c_address = i2c_address
         self.gain = gain
         self.sleep = sleep
         """Whether to wait the conversion time; off in a test against a fake."""
@@ -105,17 +105,17 @@ class Ads1115(Readable):
 
     @property
     def config(self) -> Ads1115Config:
-        return Ads1115Config(link="", channels=self.channels, address=self.address, gain=self.gain)
+        return Ads1115Config(link="", channels=self.channels, i2c_address=self.i2c_address, gain=self.gain)
 
     def _volts_on(self, channel: int) -> float:
         _, full_scale = FULL_SCALE[self.gain]
         self.link.write_register(
-            self.address, CONFIG, config_word(channel, self.gain).to_bytes(2, "big")
+            self.i2c_address, CONFIG, config_word(channel, self.gain).to_bytes(2, "big")
         )
         if self.sleep:
             time.sleep(0.009)  # 128 SPS: 7.8 ms
         raw = int.from_bytes(
-            self.link.read_register(self.address, CONVERSION, 2), "big", signed=True
+            self.link.read_register(self.i2c_address, CONVERSION, 2), "big", signed=True
         )
         return raw * full_scale / 32768.0
 
@@ -136,14 +136,14 @@ class Ads1115Config(DriverConfig[Ads1115], type="ads1115"):
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
     channels: dict[str, Channel]
-    address: int = Field(default=0x48, ge=0x48, le=0x4B)
+    i2c_address: int = Field(default=0x48, ge=0x48, le=0x4B)
     gain: float = Field(default=1, description="PGA gain: 2/3, 1, 2, 4, 8 or 16.")
 
     def build(self, name: str, label: str | None = None) -> Ads1115:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
         return Ads1115(
-            name, resolve(self.link), self.channels, self.address, self.gain, label=label
+            name, resolve(self.link), self.channels, self.i2c_address, self.gain, label=label
         )
 
 

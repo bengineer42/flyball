@@ -48,7 +48,7 @@ from .signal import (
     WriteState,
     normalised,
 )
-from .state import Code, Condition, Edge, Event, Scope, Severity
+from .state import Code, Condition, Edge, Event, Severity, SubjectKind
 
 __all__ = [
     "KEEP",
@@ -95,13 +95,13 @@ __all__ = [
     "Reason",
     "Role",
     "Sample",
-    "Scope",
     "Setting",
     "Severity",
     "Signal",
     "SignalRef",
     "SignalSpec",
     "Staged",
+    "SubjectKind",
     "Value",
     "Write",
     "WriteState",

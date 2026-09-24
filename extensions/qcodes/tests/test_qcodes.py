@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,7 +10,7 @@ import pytest
 from flyball.foundation.device import Access, Role
 from pydantic import ValidationError
 
-from flyball_qcodes import QCoDeS, QCoDeSSignal, bounds, unit_for
+from flyball_qcodes import QCoDeS, QCoDeSConfig, QCoDeSSignal, bounds, unit_for
 
 # region QCoDeS fakes
 
@@ -166,20 +167,94 @@ def test_a_signal_needs_extra_forbid():
         QCoDeSSignal(property="volt", nope=True)  # type: ignore[call-arg]
 
 
-def test_a_rig_file_names_the_driver(fresh):
-    from flyball.runtime.config import RigConfig
-
-    qcodes_name = fresh("smu_name")
-    document = {
+def _smu(instrument: str, name: str, **extra: Any) -> dict:
+    return {
         "devices": {
             "smu": {
                 "driver": "qcodes",
-                "instrument": f"{__name__}.FakeInstrument",
-                "instrument_name": qcodes_name,
-                "channels": {"volt": {"property": "volt", "publish": True}},
+                "instrument": instrument,
+                "instrument_name": name,
+                "channels": {"dac1": {"property": "dac1", "publish": True}},
+                **extra,
             }
         }
     }
+
+
+def test_a_rig_file_names_the_driver(fresh):
+    """A QCoDeS instrument class -- its own mock one, here -- validates and builds."""
+    pytest.importorskip("qcodes")
+    from flyball.runtime.config import RigConfig
+
+    document = _smu("qcodes.instrument_drivers.mock_instruments.DummyInstrument", fresh("dummy"))
     rig = RigConfig.model_validate(document).build(start=False)
-    assert isinstance(rig.devices["smu"], QCoDeS)
-    assert rig.resolve("smu.volt").access is Access.RPW, "volt is settable too"
+    try:
+        assert isinstance(rig.devices["smu"], QCoDeS)
+        assert rig.resolve("smu.dac1").access is Access.RPW, "dac1 is settable too"
+    finally:
+        rig.devices["smu"].instrument.close()
+    keithley = "qcodes.instrument_drivers.Keithley.Keithley2450"
+    assert RigConfig.model_validate(_smu(keithley, fresh("k")))
+
+
+@pytest.mark.parametrize(
+    "instrument",
+    [
+        "os.system",
+        "subprocess.getoutput",
+        "builtins.exec",
+        "qcodes",
+        "qcodes.utils.QCoDeSDeprecationWarning",
+        f"{__name__}.FakeInstrument",
+    ],
+)
+def test_anything_but_a_qcodes_instrument_is_refused_at_validation(tmp_path, instrument):
+    """`instrument` is imported and called with `args`: `os.system` + a command runs it.
+
+    Refused by its path, before anything is imported -- qcodes need not be installed.
+    """
+    from flyball.runtime.config import RigConfig
+
+    marker = tmp_path / "pwned"
+    with pytest.raises(ValidationError, match=r"is not a (class from qcodes\.|dotted path)"):
+        RigConfig.model_validate(_smu(instrument, f"touch {marker}"))
+    # and build() checks again, for a config that skipped validation
+    config = QCoDeSConfig.model_construct(
+        instrument=instrument, instrument_name=f"touch {marker}", args=[], kwargs={}, channels={}
+    )
+    with pytest.raises(ValueError, match="is not a"):
+        config.build("smu")
+    assert not marker.exists()
+
+
+def test_a_class_under_qcodes_must_be_an_instrument(fresh):
+    pytest.importorskip("qcodes")
+    from flyball.runtime.config import RigConfig
+
+    with pytest.raises(ValidationError, match="is not a subclass of qcodes.instrument.Instrument"):
+        RigConfig.model_validate(_smu("qcodes.instrument.InstrumentModule", fresh("p")))
+    with pytest.raises(ValidationError, match="has no 'Nope'"):
+        RigConfig.model_validate(_smu("qcodes.instrument_drivers.Keithley.Nope", fresh("n")))
+
+
+def test_more_packages_come_from_the_machine_not_the_file(monkeypatch, fresh):
+    """`$FLYBALL_INSTRUMENT_PACKAGES` widens where a class may come from; still an `Instrument`."""
+    pytest.importorskip("qcodes")
+    from flyball.model.config import INSTRUMENT_PACKAGES_ENV
+    from flyball.runtime.config import RigConfig
+    from qcodes.instrument_drivers.mock_instruments import DummyInstrument
+
+    class InHouse(DummyInstrument):
+        pass
+
+    monkeypatch.setattr(sys.modules[__name__], "InHouse", InHouse, raising=False)
+    document = _smu(f"{__name__}.InHouse", fresh("in_house"))
+    with pytest.raises(ValidationError, match="is not a class from"):
+        RigConfig.model_validate(document)
+    monkeypatch.setenv(INSTRUMENT_PACKAGES_ENV, __name__)
+    assert RigConfig.model_validate(document)
+    with pytest.raises(ValidationError, match="is not a subclass of qcodes.instrument.Instrument"):
+        RigConfig.model_validate(_smu(f"{__name__}.FakeInstrument", fresh("fake")))
+    monkeypatch.setenv(INSTRUMENT_PACKAGES_ENV, "os")
+    with pytest.raises(ValidationError, match="is not a subclass"):
+        RigConfig.model_validate(_smu("os.system", fresh("os")))

@@ -8,7 +8,7 @@ const row = (name: string, order: number | null = null): DashboardRow => ({
   rig: "t",
   created_ns: 0,
   sha256: "",
-  body: { schema_version: 3, name, rig: "t", grid: { cols: 24, row_height: 24 }, widgets: [], readonly: false, order },
+  body: { schema_version: 6, name, rig: "t", grid: { cols: 24, row_height: 24 }, widgets: [], readonly: false, order },
 });
 
 describe("reorder", () => {

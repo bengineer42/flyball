@@ -43,7 +43,7 @@ type Config struct {
 	// nil: the built-ins (store.DefaultLifetimes).
 	Tokens *TokensConfig `yaml:"tokens"`
 	// Reference-only keys.
-	Session        string   `yaml:"session"`         // idle session lifetime, "12h" / "2d"
+	Login          string   `yaml:"login"`           // idle login lifetime, "12h" / "2d"
 	TrustedProxies []string `yaml:"trusted_proxies"` // peers whose X-Forwarded-For names the client
 }
 
@@ -81,7 +81,7 @@ type ProxyConfig struct {
 	Team         string              `yaml:"team"`
 	Issuer       string              `yaml:"issuer"`
 	Audience     string              `yaml:"audience"`
-	Grants       map[string][]string `yaml:"grants"` // role (pending D-034) -> subjects / "group:<id>"
+	Grants       map[string][]string `yaml:"grants"` // grant name (pending D-034) -> subjects / "group:<id>"
 	UserHeader   string              `yaml:"user_header"`
 	GroupsHeader string              `yaml:"groups_header"`
 	Separator    string              `yaml:"separator"`
@@ -276,8 +276,8 @@ func ResolveWith(c Config, insecureOpen bool, proxy ProxyFactory) (Plan, Client)
 			fallback("auth: proxy: this build has no proxy presets")
 		default:
 			p.Grants = c.Proxy.Grants
-			for _, role := range grants.UnknownRoles(p.Grants) {
-				p.Warnings = append(p.Warnings, fmt.Sprintf("proxy.grants: role %q is not in the vocabulary; it grants nothing", role))
+			for _, name := range grants.UnknownGrants(p.Grants) {
+				p.Warnings = append(p.Warnings, fmt.Sprintf("proxy.grants: %q is not a grant in the vocabulary; it grants nothing", name))
 			}
 		}
 	case ShapeSSO:
@@ -320,10 +320,10 @@ func ResolveWith(c Config, insecureOpen bool, proxy ProxyFactory) (Plan, Client)
 	default:
 		p.Warnings = append(p.Warnings, fmt.Sprintf("anonymous: %q is not none or read; using none", c.Anonymous))
 	}
-	if c.Session != "" {
-		d, err := store.ParseDuration(c.Session)
+	if c.Login != "" {
+		d, err := store.ParseDuration(c.Login)
 		if err != nil || d <= 0 {
-			p.Warnings = append(p.Warnings, fmt.Sprintf("session: %q is not a duration like 12h or 7d; using the default", c.Session))
+			p.Warnings = append(p.Warnings, fmt.Sprintf("login: %q is not a duration like 12h or 7d; using the default", c.Login))
 		} else {
 			p.SessionIdle = d
 		}

@@ -1,4 +1,4 @@
-"""The MCP server: the tiers a mode lists, and each tool as one call on the rig."""
+"""The MCP server: what each tier lists, and each tool as one call on the rig."""
 
 from __future__ import annotations
 
@@ -63,17 +63,17 @@ def client(tmp_path, rig, fresh):
 
 @pytest.fixture
 def setpoint(fresh) -> str:
-    """One program command, under a tag of its own."""
-    tag = fresh("setpoint")
+    """One program command, under a type of its own."""
+    type_ = fresh("setpoint")
 
     @dataclass(frozen=True)
-    class Setpoint(Step, tag=tag, primary="at"):
+    class Setpoint(Step, type=type_, primary="at"):
         at: float
 
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     get_catalog().register_step(Setpoint)
-    return tag
+    return type_
 
 
 def names(tools) -> set[str]:
@@ -144,12 +144,12 @@ class TestTools:
         assert set(devices[0]) == {"name", "class_name", "label", "description"}, (
             "projected: not the full tree"
         )
-        detailed = self.tool(client, "list_devices").run(client, {"detail": True})["devices"]
-        assert "signals" in detailed[0], "`detail` asked for the rest"
+        detailed = self.tool(client, "list_devices").run(client, {"verbose": True})["devices"]
+        assert "signals" in detailed[0], "`verbose` asked for the rest"
         schema = self.tool(client, "describe_device").run(client, {"name": "heaters"})
         assert "set_duty" in schema["commands"]
-        kinds = self.tool(client, "widget_schema").run(client, {})["kinds"]
-        assert [k["kind"] for k in kinds][:3] == ["readout", "gauge", "chart"]
+        types = self.tool(client, "widget_schema").run(client, {})["types"]
+        assert [t["type"] for t in types][:3] == ["readout", "gauge", "chart"]
 
     @pytest.mark.parametrize("name", ["..", ".", "", "../health", "heaters/../../health"])
     def test_a_name_cannot_climb_to_another_route(self, client, name):
@@ -197,7 +197,7 @@ class TestTools:
             "widgets": [
                 {
                     "id": "a",
-                    "kind": "readout",
+                    "type": "readout",
                     "x": 0,
                     "y": 0,
                     "w": 6,
@@ -214,11 +214,13 @@ class TestTools:
                 "changes": [
                     {"op": "move_widget", "id": "a", "x": 6},
                     {"op": "set_widget_config", "id": "a", "config": {"sparkline": False}},
+                    {"op": "set_widget_label", "id": "a", "label": "Zone 1"},
+                    {"op": "set_label", "label": "Furnace"},
                     {
                         "op": "add_widget",
                         "widget": {
                             "id": "b",
-                            "kind": "gauge",
+                            "type": "gauge",
                             "x": 0,
                             "y": 5,
                             "w": 6,
@@ -234,6 +236,7 @@ class TestTools:
             "address": "furnace.zone1",
             "sparkline": False,
         }
+        assert widgets["a"]["label"] == "Zone 1" and result["body"]["label"] == "Furnace"
         assert [p["widget_id"] for p in result["problems"]] == ["b"]
         assert len(client.get("/api/dashboards/d/history")) == 2
 
@@ -320,7 +323,7 @@ class TestOverTheWire:
                 tg.start_soon(serve)
                 async with ClientSession(*client_streams) as session:
                     init = await session.initialize()
-                    assert "mode `author`" in (init.instructions or "")
+                    assert "tier `author`" in (init.instructions or "")
                     listed = await session.list_tools()
                     by_name = {t.name: t for t in listed.tools}
                     assert by_name["status"].annotations.read_only_hint is True
@@ -338,7 +341,7 @@ class TestOverTheWire:
 
 
 class TestMounted:
-    """`/mcp/<mode>` in the runner's app: the JSON-RPC exchange a client makes, by hand."""
+    """`/mcp/<tier>` in the runner's app: the JSON-RPC exchange a client makes, by hand."""
 
     @pytest.fixture
     def http(self, tmp_path, rig):
@@ -356,12 +359,12 @@ class TestMounted:
         set_rig(None)
         set_store(None)
 
-    def rpc(self, http, mode, method, params=None, session=None, id=1):
+    def rpc(self, http, tier, method, params=None, session=None, id=1):
         headers = {"Accept": "application/json, text/event-stream"}
         if session:
             headers["mcp-session-id"] = session
         body = {"jsonrpc": "2.0", "id": id, "method": method, "params": params or {}}
-        return http.post(f"/mcp/{mode}", json=body, headers=headers)
+        return http.post(f"/mcp/{tier}", json=body, headers=headers)
 
     def test_initialize_list_and_call(self, http):
         init = self.rpc(
@@ -375,7 +378,7 @@ class TestMounted:
             },
         )
         assert init.status_code == 200, init.text
-        assert "mode `read`" in init.json()["result"]["instructions"]
+        assert "tier `read`" in init.json()["result"]["instructions"]
         session = init.headers["mcp-session-id"]
         http.post(
             "/mcp/read",
@@ -447,13 +450,13 @@ class TestMounted:
             set_rig(None)
 
     def test_each_mode_has_a_route(self, http):
-        for mode in ("read", "author", "operate"):
-            assert self.rpc(http, mode, "ping").status_code in (200, 400), mode
+        for tier in ("read", "author", "operate"):
+            assert self.rpc(http, tier, "ping").status_code in (200, 400), tier
 
-    def initialize(self, http, mode):
+    def initialize(self, http, tier):
         init = self.rpc(
             http,
-            mode,
+            tier,
             "initialize",
             {
                 "protocolVersion": "2025-06-18",
@@ -463,7 +466,7 @@ class TestMounted:
         )
         session = init.headers["mcp-session-id"]
         http.post(
-            f"/mcp/{mode}",
+            f"/mcp/{tier}",
             json={"jsonrpc": "2.0", "method": "notifications/initialized"},
             headers={"mcp-session-id": session, "Accept": "application/json, text/event-stream"},
         )
@@ -490,8 +493,8 @@ class TestMounted:
 
 
 class TestDriverTools:
-    def tool(self, client, name, mode="operate"):
-        return next(t for t in tools_for(client, mode) if t.name == name)
+    def tool(self, client, name, tier="operate"):
+        return next(t for t in tools_for(client, tier) if t.name == name)
 
     def test_tools_whose_routes_the_runner_lacks_are_not_listed(self, client, monkeypatch):
         from flyball.interfaces.mcp import tools
@@ -618,9 +621,11 @@ class TestComposition:
                 },
             )
             assert out["restarting"] is True and out["reason"].startswith("edited: added a doc")
-            assert runner.edits == [(out["version"], out["previous"], False)]
+            assert runner.edits == [(out["rig_version_id"], out["previous"], False)]
             assert "spare" not in self.tool(client, "rig_document").run(client, {})["devices"]
-            saved = self.tool(client, "rig_version").run(client, {"version_id": out["version"]})
+            saved = self.tool(client, "rig_version").run(
+                client, {"version_id": out["rig_version_id"]}
+            )
             assert "spare" in saved["document"]["devices"], "saved: the restart builds it"
             again = self.tool(client, "attach_link")
             with pytest.raises(RigError, match="restarting"):
@@ -669,7 +674,7 @@ class TestComposition:
             set_runner(None)
 
 
-# region The re-mint: an MCP tool's inner call carries its caller, capped to the mode
+# region The re-mint: an MCP tool's inner call carries its caller, capped to the tier
 
 
 class Spy:
@@ -727,10 +732,10 @@ class Served:
         )
         return {"X-Flyball-Principal": principal.mint(self.key, claims)}
 
-    def session(self, http: Any, mode: str, auth: dict[str, str]) -> dict[str, str]:
+    def session(self, http: Any, tier: str, auth: dict[str, str]) -> dict[str, str]:
         headers = {"Accept": "application/json, text/event-stream", **auth}
         init = http.post(
-            f"/mcp/{mode}",
+            f"/mcp/{tier}",
             json={
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -746,32 +751,32 @@ class Served:
         assert init.status_code == 200, init.text
         headers["mcp-session-id"] = init.headers["mcp-session-id"]
         http.post(
-            f"/mcp/{mode}",
+            f"/mcp/{tier}",
             json={"jsonrpc": "2.0", "method": "notifications/initialized"},
             headers=headers,
         )
         return headers
 
     def call(
-        self, mode: str, tool: str, arguments: dict[str, Any] | None = None, *, scp: set[str]
+        self, tier: str, tool: str, arguments: dict[str, Any] | None = None, *, scp: set[str]
     ) -> dict[str, Any]:
         with self.http() as http:
-            headers = self.session(http, mode, self.caller(scp))
+            headers = self.session(http, tier, self.caller(scp))
             body = {
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "tools/call",
                 "params": {"name": tool, "arguments": arguments or {}},
             }
-            answer = http.post(f"/mcp/{mode}", json=body, headers=headers)
+            answer = http.post(f"/mcp/{tier}", json=body, headers=headers)
             assert answer.status_code == 200, answer.text
             return answer.json()["result"]
 
-    def listed(self, mode: str, *, scp: set[str]) -> set[str]:
+    def listed(self, tier: str, *, scp: set[str]) -> set[str]:
         with self.http() as http:
-            headers = self.session(http, mode, self.caller(scp))
+            headers = self.session(http, tier, self.caller(scp))
             body = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
-            answer = http.post(f"/mcp/{mode}", json=body, headers=headers)
+            answer = http.post(f"/mcp/{tier}", json=body, headers=headers)
             return {t["name"] for t in answer.json()["result"]["tools"]}
 
     def minted(self) -> list[Any]:
@@ -870,7 +875,7 @@ def extra_tools(monkeypatch):
 
 class TestReMint:
     def test_inner_call_carries_caller(self, served):
-        """`sub`/`sid`/`kind` are the caller's, `via` is mcp, `scp` is caller ∩ the mode."""
+        """`sub`/`sid`/`kind` are the caller's, `via` is mcp, `scp` is caller ∩ the tier."""
         result = served.call("read", "status", scp={"read", "operate"})
         assert not result.get("isError"), result
         inner = served.minted()
@@ -880,7 +885,7 @@ class TestReMint:
         want_sub = "token:ci" if served.fronted else "token:bare"
         for claims in calls:
             assert claims.sub == want_sub
-            assert claims.scp == {"read"}, "read mode: operate is dropped"
+            assert claims.scp == {"read"}, "read tier: operate is dropped"
             assert claims.aud == served.aud
             assert claims.exp - claims.iat == 60
         if served.fronted:
@@ -908,7 +913,7 @@ class TestReMint:
         assert all(token is not None for _, token in served.spy.inner), served.spy.inner
 
     def test_read_caller_cannot_reach_operate_route(self, served, extra_tools, rig):
-        """F1, merge requirement 7: a read-mode tool that acts is refused at the door."""
+        """F1, merge requirement 7: a read-tier tool that acts is refused at the door."""
         refused = served.call("read", "sneak", scp={"read", "operate"})
         assert refused.get("isError"), refused
         assert "operate" in refused["content"][0]["text"]
@@ -929,9 +934,9 @@ class TestReMint:
         assert len(health) == 2 and health[1].iat - health[0].iat >= 70
 
     def test_no_code_exec_tools_over_http(self, served):
-        for mode in ("read", "author", "operate"):
-            listed = served.listed(mode, scp={"read", "operate"})
-            assert not {"check_driver", "search_drivers"} & listed, mode
+        for tier in ("read", "author", "operate"):
+            listed = served.listed(tier, scp={"read", "operate"})
+            assert not {"check_driver", "search_drivers"} & listed, tier
 
     def test_stop_rig_tool(self, served):
         assert "stop_rig" not in served.listed("author", scp={"read", "operate"})
@@ -942,7 +947,7 @@ class TestReMint:
         report = result["structuredContent"]
         assert report["reason"] == "agent saw smoke"
         assert report["actor"]["via"] == "mcp"
-        assert report["actor"]["sub"] == ("token:ci" if served.fronted else "token:bare")
+        assert report["actor"]["principal"] == ("token:ci" if served.fronted else "token:bare")
 
 
 class TestSelfCall:
@@ -963,12 +968,12 @@ class TestSelfCall:
 
     def test_stdio_keeps_the_code_exec_tools(self, client):
         assert {"check_driver", "search_drivers"} <= names(tools_for(client, "operate"))
-        for mode in ("read", "author", "operate"):
-            over_http = names(tools_for(client, mode, host_code=False))
-            assert not {"check_driver", "search_drivers"} & over_http, mode
+        for tier in ("read", "author", "operate"):
+            over_http = names(tools_for(client, tier, host_code=False))
+            assert not {"check_driver", "search_drivers"} & over_http, tier
 
     def test_the_cap_is_the_mode_s_verbs_and_those_below(self):
-        """Placeholder MCP_MODES admit author/operate on `operate` alone; the cap keeps read."""
+        """Placeholder MCP_TIERS admit author/operate on `operate` alone; the cap keeps read."""
         from flyball.runner.serving import mcp_caps
 
         caps = mcp_caps()

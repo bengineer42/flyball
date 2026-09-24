@@ -6,6 +6,7 @@ import { Shell } from "./Shell.js";
 import { EventToasts } from "./EventToasts.js";
 import { AuthChip, LoginPage } from "./Login.js";
 import { useAuth } from "./auth.js";
+import { LatchBanner } from "./LatchBanner.js";
 import { StopButton } from "./StopButton.js";
 import { PAGES, hashFor, hrefFor, useRoute, useScrollMemory, type Page } from "./router.js";
 import { optionTab } from "./pages/optionTabs.js";
@@ -336,6 +337,7 @@ export function App({ onSignIn }: { onSignIn(): void }) {
               >
                 <PageBoundary key={page}>
                   <ExposureBanner exposure={exposure} />
+                  <LatchBanner />
                   <Prompts />
                   <Suspense fallback={<PageFallback />}>
                     {page === "dashboards" && <DashboardsPage name={name} generated={"generated" in params} devices={all} onOpen={openDashboard} {...charts} />}

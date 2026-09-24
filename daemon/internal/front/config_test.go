@@ -163,7 +163,7 @@ func TestResolveURL(t *testing.T) {
 }
 
 func TestResolveReferenceKeys(t *testing.T) {
-	p := Resolve(Config{Auth: "password", Password: testScrypt, Anonymous: "read", Session: "2d",
+	p := Resolve(Config{Auth: "password", Password: testScrypt, Anonymous: "read", Login: "2d",
 		TrustedProxies: []string{"10.0.0.0/8", "192.168.1.5", "nonsense"}}, false)
 	if p.Anonymous != "read" || p.SessionIdle != 48*time.Hour {
 		t.Fatalf("plan: %+v", p)
@@ -171,7 +171,7 @@ func TestResolveReferenceKeys(t *testing.T) {
 	if len(p.Trusted) != 2 || len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "nonsense") {
 		t.Fatalf("trusted %v warnings %v", p.Trusted, p.Warnings)
 	}
-	p = Resolve(Config{Auth: "password", Password: testScrypt, Anonymous: "write", Session: "soon"}, false)
+	p = Resolve(Config{Auth: "password", Password: testScrypt, Anonymous: "write", Login: "soon"}, false)
 	if p.Anonymous != "none" || p.SessionIdle != 0 || len(p.Warnings) != 2 {
 		t.Fatalf("bad reference keys: %+v", p)
 	}

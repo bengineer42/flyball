@@ -25,18 +25,45 @@ func TestDaemonConfigFrontKeysAtTheTop(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.Front.Listen != "0.0.0.0:9443" || cfg.Front.Auth != "password" || cfg.Front.Anonymous != "read" ||
-		cfg.Front.URL != "https://pi.lab:9443" || cfg.ManifestsDir != "m" || cfg.DataDir != "d" || cfg.FrontError != nil {
+		cfg.Front.URL != "https://pi.lab:9443" || filepath.Base(cfg.ManifestsDir) != "m" || filepath.Base(cfg.DataDir) != "d" ||
+		cfg.FrontError != nil {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 }
 
+// With no manifests_dir or data_dir: systemd's StateDirectory=
+// ($STATE_DIRECTORY, the first of several), else /var/lib/flyball.
 func TestDaemonConfigDefaults(t *testing.T) {
+	t.Setenv("STATE_DIRECTORY", "")
 	cfg, err := LoadDaemonConfig(filepath.Join(t.TempDir(), "absent.yaml"))
-	if err != nil || cfg.Front.Listen != "127.0.0.1:9000" || cfg.ManifestsDir != "manifests" || cfg.DataDir != "data" {
+	if err != nil || cfg.Front.Listen != "127.0.0.1:9000" || cfg.ManifestsDir != "/var/lib/flyball/manifests" ||
+		cfg.DataDir != "/var/lib/flyball" {
 		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}
-	cfg, err = loadDaemon(t, "data_dir: d\n")
-	if err != nil || cfg.Front.Listen != "127.0.0.1:9000" {
+	t.Setenv("STATE_DIRECTORY", "/srv/state:/srv/other")
+	cfg, err = loadDaemon(t, "listen: 127.0.0.1:9001\n")
+	if err != nil || cfg.ManifestsDir != "/srv/state/manifests" || cfg.DataDir != "/srv/state" {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+	cfg, err = loadDaemon(t, "data_dir: /abs/d\n")
+	if err != nil || cfg.Front.Listen != "127.0.0.1:9000" || cfg.DataDir != "/abs/d" || cfg.ManifestsDir != "/srv/state/manifests" {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+}
+
+// A relative manifests_dir or data_dir is under flyballd.yaml's directory,
+// not the process's cwd -- also when the config's own path is relative.
+func TestDaemonConfigRelativeDirsUnderTheFile(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "flyballd.yaml"), []byte("manifests_dir: m\ndata_dir: ../d\n"), 0o600)
+	t.Chdir(t.TempDir())
+	cfg, err := LoadDaemonConfig(filepath.Join(dir, "flyballd.yaml"))
+	if err != nil || cfg.ManifestsDir != filepath.Join(dir, "m") || cfg.DataDir != filepath.Join(filepath.Dir(dir), "d") {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+	t.Chdir(filepath.Dir(dir))
+	cfg, err = LoadDaemonConfig(filepath.Join(filepath.Base(dir), "flyballd.yaml"))
+	if err != nil || cfg.ManifestsDir != filepath.Join(dir, "m") {
 		t.Fatalf("cfg = %+v, %v", cfg, err)
 	}
 }
@@ -48,7 +75,7 @@ func TestDaemonConfigOldAuthBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ManifestsDir != "m" || cfg.FrontError == nil || cfg.Front.Listen != "0.0.0.0:9000" {
+	if filepath.Base(cfg.ManifestsDir) != "m" || cfg.FrontError == nil || cfg.Front.Listen != "0.0.0.0:9000" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 	msg := cfg.FrontError.Error()
@@ -62,7 +89,7 @@ func TestDaemonConfigOldAuthBlock(t *testing.T) {
 func TestDaemonConfigBadKeys(t *testing.T) {
 	for _, y := range []string{"auth: [local]\n", "lisen: 1\n", "tls: {cert: /c, key: /k, chain: /x}\n"} {
 		cfg, err := loadDaemon(t, "manifests_dir: m\n"+y)
-		if err != nil || cfg.FrontError == nil || cfg.ManifestsDir != "m" {
+		if err != nil || cfg.FrontError == nil || filepath.Base(cfg.ManifestsDir) != "m" {
 			t.Fatalf("%q: cfg = %+v, %v", y, cfg, err)
 		}
 	}

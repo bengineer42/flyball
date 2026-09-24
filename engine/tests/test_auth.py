@@ -203,7 +203,7 @@ def test_a_pasted_token_logs_in_and_logout_forgets_the_session(secured):
     signed_in = secured.post("/api/auth/login", json={"token": "s3cret"})
     assert signed_in.status_code == 200, signed_in.text
     info = signed_in.json()
-    assert info["scheme"] == "session" and info["user"]["kind"] == "human"
+    assert info["scheme"] == "login" and info["user"]["kind"] == "human"
     cookie = signed_in.headers["set-cookie"]
     assert cookie.startswith("flyball-bare-8123=")
     assert "HttpOnly" in cookie and "SameSite=lax" in cookie and "Path=/" in cookie
@@ -212,7 +212,7 @@ def test_a_pasted_token_logs_in_and_logout_forgets_the_session(secured):
     assert secured.get("/api/health").status_code == 200
     with secured.websocket_connect("/ws/events"):  # the cookie rides on the upgrade
         pass
-    assert secured.get("/api/auth").json()["scheme"] == "session"
+    assert secured.get("/api/auth").json()["scheme"] == "login"
     out = secured.post("/api/auth/logout")
     assert out.json()["scheme"] == "anonymous"
     assert secured.get("/api/health").status_code == 401
@@ -596,7 +596,7 @@ def test_fronted_auth_front_is_the_handshake(fronted):
         "protocol": 1,
         "aud": AUD,
         "pid": os.getpid(),
-        "flyball": flyball.__version__,
+        "flyball_version": flyball.__version__,
     }
     for path in ("/api/auth", "/api/auth/link?n=x"):
         assert fronted.get(path, headers=signed()).status_code == 404, path

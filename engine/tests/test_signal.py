@@ -58,11 +58,13 @@ class TestAccess:
 
 
 class TestSpecs:
-    def test_a_segment_has_no_dots(self):
-        with pytest.raises(ValueError, match="not an address segment"):
-            SignalSpec(name="dry.humidity", quantity=TEMP, access=Access.RP)
-        with pytest.raises(ValueError, match="not an address segment"):
+    def test_a_segment_is_a_key(self):
+        for name in ("dry.humidity", "a/b", "my value", "Dry", "1st", ""):
+            with pytest.raises(ValueError, match=f"signal {name!r} is not a key"):
+                SignalSpec(name=name, quantity=TEMP, access=Access.RP)
+        with pytest.raises(ValueError, match="namespace '' is not a key"):
             NodeSpec(name="", children=())
+        assert SignalSpec(name="dry-bulb", quantity=TEMP, access=Access.RP).name == "dry_bulb"
 
     def test_defaults(self):
         spec = SignalSpec(name="zone1", quantity=TEMP, access=Access.RP)
@@ -237,10 +239,11 @@ class TestPath:
         for text in (".", "dry.", ".dry", "dry..humidity"):
             with pytest.raises(ValueError, match="an empty segment"):
                 Path.parse(text)
-        with pytest.raises(ValueError, match="not an address segment"):
+        with pytest.raises(ValueError, match="address segment 'dry.humidity' is not a key"):
             Path() / "dry.humidity"
-        with pytest.raises(ValueError, match="not an address segment"):
+        with pytest.raises(ValueError, match="address segment '' is not a key"):
             Path() / ""
+        assert Path.parse("wet-probe.dry-bulb") == Path(("wet_probe", "dry_bulb"))
 
     def test_bound_objects_carry_paths_made_once(self):
         probe = Probe("hum")

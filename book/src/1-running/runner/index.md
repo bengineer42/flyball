@@ -170,9 +170,15 @@ takes them over ([what stopping `flyballd` does](../../7-reference/cli.md#what-s
 
 A plain `go build` embeds a placeholder instead of the dashboard.
 `./build-with-ui.sh` (in `daemon/`) builds the UI, copies it into the Go
-tree and builds `flyball` with it; a `go build ./cmd/flyballd` after that
-embeds it too. A front built without it answers every page with one saying
-so, and the API still works.
+tree and builds `flyball` with it; a `CGO_ENABLED=0 go build ./cmd/flyballd`
+after that embeds it too. A front built without it answers every page with
+one saying so, and the API still works.
+
+Build with `CGO_ENABLED=0` (the script does): the binary is then static
+and starts on any Linux of its architecture. Without it, a native build
+links the build machine's C library, and one built on a new distribution
+will not start on an older one (Ubuntu 20.04, for instance). Nothing in
+`daemon/` uses cgo; a cross-build (`GOOS`/`GOARCH`) is static either way.
 
 ## What it exposes
 

@@ -7,7 +7,7 @@ import { sessionName } from "../model.js";
 import { hashFor } from "../router.js";
 import { duration, useNow, when } from "../time.js";
 import { useCanWrite, useRigData } from "../dashboard/context.js";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 const RecordingWidget = memo(function RecordingWidget({ config }: WidgetComponentProps) {
   const { recording } = useRigData();
@@ -83,8 +83,8 @@ const RecordingWidget = memo(function RecordingWidget({ config }: WidgetComponen
   );
 });
 
-export const recording: WidgetKind = {
-  kind: "recording",
+export const recording: WidgetType = {
+  type: "recording",
   label: "Recording",
   description: "The open session, and buttons to start or end one.",
   category: "control",
@@ -97,6 +97,6 @@ export const recording: WidgetKind = {
     properties: { controls: { type: "boolean", title: "Start/end buttons", default: true, description: "Off, the tile only says whether a session is open." } },
   }),
   defaultConfig: () => ({ controls: true }),
-  titleFor: () => "Recording",
+  labelFor: () => "Recording",
   Component: RecordingWidget,
 };

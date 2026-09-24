@@ -14,7 +14,7 @@ from flyball.interfaces.client import Rig as Client
 from flyball.interfaces.mcp.http import mount
 from flyball.interfaces.server import create_app, verbs
 from flyball.interfaces.server.verbs import (
-    MCP_MODES,
+    MCP_TIERS,
     OPERATE,
     READ,
     TABLE,
@@ -32,9 +32,9 @@ DECIDED = {
     ("POST", "/api/rig/check"): READ,
     ("POST", "/api/programs/check"): READ,
     ("POST", "/api/rig/stop"): OPERATE,
-    # Every `/mcp/<mode>` row, whatever the method, needs a verb of `MCP_MODES[mode]`.
+    # Every `/mcp/<tier>` row, whatever the method, needs a verb of `MCP_TIERS[tier]`.
     **{(m, "/mcp/read"): READ for m in MCP_METHODS},
-    **{(m, f"/mcp/{mode}"): OPERATE for m in MCP_METHODS for mode in ("author", "operate")},
+    **{(m, f"/mcp/{tier}"): OPERATE for m in MCP_METHODS for tier in ("author", "operate")},
 }
 
 
@@ -140,7 +140,7 @@ def test_decided_rows():
     assert not allows({READ}, _scope("POST", "/mcp/author"))
     assert not allows({READ}, _scope("POST", "/mcp/operate"))
     assert allows({OPERATE}, _scope("POST", "/mcp/operate"))
-    assert set(MCP_MODES) == {"read", "author", "operate"}
+    assert set(MCP_TIERS) == {"read", "author", "operate"}
 
 
 def test_the_bundled_ui_is_open():
@@ -169,13 +169,13 @@ def test_unmapped_guarded_path_refused():
     assert not allows(VOCABULARY, scope)
 
 
-def test_mcp_rows_follow_the_modes():
+def test_mcp_rows_follow_the_tiers():
     for rule in TABLE:
         if rule.path.startswith("/mcp/"):
-            assert rule.verb in MCP_MODES[rule.path.removeprefix("/mcp/")], rule
+            assert rule.verb in MCP_TIERS[rule.path.removeprefix("/mcp/")], rule
 
 
 def test_verbs_are_in_the_vocabulary():
     assert {rule.verb for rule in TABLE} - {None} <= VOCABULARY
-    assert all(modes <= VOCABULARY for modes in MCP_MODES.values())
+    assert all(verbs <= VOCABULARY for verbs in MCP_TIERS.values())
     assert verbs.READ in VOCABULARY and verbs.OPERATE in VOCABULARY

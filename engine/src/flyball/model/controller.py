@@ -159,13 +159,13 @@ class ValueSource(Labelled):
 
 
 class ApplyResult(NamedTuple):
-    output: float
+    output_value: float
     expected: float | None
     delivered_correction: float | None
 
 
 class RegulateResult(NamedTuple):
-    output: float
+    output_value: float
     expected: float | None
     delivered_correction: float | None
     bump: float
@@ -208,12 +208,12 @@ class ControllerState:
     """The reference resolved at the last tick: a ramp's value then, in the measured unit."""
     arrived: bool = False
     """Whether the reference has landed: a fixed one always has; a trajectory once it finishes."""
-    output: float | None = None
+    output_value: float | None = None
     """The last output value asked of the output signal, in its unit."""
     expected: float | None = None
     delivered_correction: float | None = None
     mode: ControllerMode = ControllerMode.MANUAL
-    measured: Reading | None = None
+    measured_value: Reading | None = None
     """The last reading of the measured signal."""
 
 
@@ -238,11 +238,11 @@ class ControllerView(ControllerSpec, ControllerState):
             reference=state.reference,
             setpoint=state.setpoint,
             arrived=state.arrived,
-            output=state.output,
+            output_value=state.output_value,
             expected=state.expected,
             delivered_correction=state.delivered_correction,
             mode=state.mode,
-            measured=state.measured,
+            measured_value=state.measured_value,
         )
 
 
@@ -258,9 +258,9 @@ class Controller:
     offset_ns: int = 0
     reference: float | SetpointGenerator | None = None
     setpoint: float | None = None
-    output: float | None = None
+    output_value: float | None = None
     expected: float | None = None
-    measured: Reading | None = None
+    measured_value: Reading | None = None
     delivered_correction: float | None = None
     mode: ControllerMode = ControllerMode.MANUAL
     _on_tick: dict[ControllerTickCallback, None]
@@ -368,7 +368,7 @@ class Controller:
     @property
     def last_value(self) -> float | None:
         """The last measured value; None before one, or while the newest reading has none."""
-        measured = self.measured
+        measured = self.measured_value
         return None if measured is None or not measured.usable else measured.value
 
     @property
@@ -402,11 +402,11 @@ class Controller:
             reference=self.reference,
             setpoint=self.setpoint,
             arrived=self.arrived,
-            output=self.output,
+            output_value=self.output_value,
             expected=self.expected,
             delivered_correction=self.delivered_correction,
             mode=self.mode,
-            measured=self.measured,
+            measured_value=self.measured_value,
         )
 
     @property
@@ -506,7 +506,7 @@ class Controller:
             if (refused := self.guard()) is not None:
                 raise ConflictError(refused)
             time_ns = self.get_time_ns(time_ns)
-            held = self.expected if self.expected is not None else self.output
+            held = self.expected if self.expected is not None else self.output_value
             setpoint = _finite_aim(self.resolve_value(at, time_ns), at)
 
             if tuning is not None:
@@ -533,7 +533,7 @@ class Controller:
                         self.correction = self.law.resume(reading, setpoint, hold)
             self.mode = ControllerMode.REGULATING
             applied = self._apply_output(setpoint, self.rate_at(time_ns))
-            bump = 0.0 if held is None else applied.output - held
+            bump = 0.0 if held is None else applied.output_value - held
         self.on_reference()
         return RegulateResult(*applied, bump=bump)
 
@@ -587,7 +587,7 @@ class Controller:
     def tick(self, reading: Reading | None) -> None:
         time_ns = self.get_time_ns(reading and reading.time_ns)
         if reading is not None:
-            self.measured = reading
+            self.measured_value = reading
         self._run_on_tick(reading)
 
         # A fast measured signal updates the reading every time but steps the law at
@@ -670,13 +670,13 @@ class Controller:
         with self.lock:
             if not self.follows(time_ns) or self.held is not None:
                 return False
-            if self.measured is not None and not self.measured.usable:
+            if self.measured_value is not None and not self.measured_value.usable:
                 return False
             if self.hold() is not None:
                 return False
             setpoint = self.setpoint_at(time_ns)
             rate = self.rate_at(time_ns)
-            if self.feedforward(setpoint, rate) + self.correction == self.output:
+            if self.feedforward(setpoint, rate) + self.correction == self.output_value:
                 return False
             self._apply_output(setpoint, rate)
             return True
@@ -707,13 +707,13 @@ class Controller:
     def _apply_output(self, setpoint: float, rate: float = 0.0) -> ApplyResult:
         self.setpoint = setpoint
         self._base = base = self.feedforward(setpoint, rate)
-        self.output = base + self.correction
-        self.expected = self.write(self.output)
+        self.output_value = base + self.correction
+        self.expected = self.write(self.output_value)
         self.delivered_correction = None if self.expected is None else self.expected - base
 
         return ApplyResult(
             expected=self.expected,
-            output=self.output,
+            output_value=self.output_value,
             delivered_correction=self.delivered_correction,
         )
 

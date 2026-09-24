@@ -25,9 +25,9 @@ function asDtype(dtype: string): Dtype {
 }
 
 /** The last point of a trace, formatted -- a generator-based controller write can record a non-numeric value (a ramp's `regulate` object, say), so this guards the same way `ControllerPanel.tsx`'s `value()`/`describeReference` do. */
-function latest(v: number[], precision: number): string {
+function latest(v: (number | null)[], precision: number): string {
   const last = v[v.length - 1];
-  return typeof last === "number" ? fixed(last, precision) : "?";
+  return typeof last === "number" ? fixed(last, precision) : last === null ? "—" : "?";
 }
 
 /** A recorded signal as the charts take one: the row's metadata, no role or tags (not recorded) and no live values. */
@@ -56,21 +56,21 @@ function asSignal(row: SignalRow): SignalOut {
   };
 }
 
-/** A law config (`{type, kp, ki, tt, ...}`) as `PI` plus a short `kp 100 · ki 0.15 · tt 30 s` line: the gains as the field names a controls engineer already knows, a unit only where one is fixed. */
+/** A law config (`{type, kp, ki, tt_s, ...}`) as `PI` plus a short `kp 100 · ki 0.15 · tt_s 30 s` line: the gains as the field names a controls engineer already knows, a unit only where one is fixed. */
 function lawSummary(config: unknown): { type: string | null; gains: string } {
   if (!config || typeof config !== "object") return { type: null, gains: "" };
   const { type, ...gains } = config as Record<string, unknown>;
   const gains_ = Object.entries(gains)
     .filter(([, v]) => v !== null && v !== undefined && typeof v !== "object")
-    .map(([k, v]) => `${k} ${String(v)}${k === "tt" ? " s" : ""}`)
+    .map(([k, v]) => `${k} ${String(v)}${k === "tt_s" ? " s" : ""}`)
     .join(" · ");
   return { type: typeof type === "string" ? type : null, gains: gains_ };
 }
 
-/** `recorder.py`'s `event()` wraps the severity, scope and message around the emitter's own `details`. */
-function storedEvent(detail: unknown): { severity?: string; message?: string; details: unknown } {
-  if (!detail || typeof detail !== "object" || !("message" in detail)) return { details: detail };
-  const { severity, message, details } = detail as { severity?: string; message?: string; details?: unknown };
+/** `recorder.py`'s `event()` wraps the severity, subject kind and message around the emitter's own `details`. */
+function storedEvent(stored: unknown): { severity?: string; message?: string; details: unknown } {
+  if (!stored || typeof stored !== "object" || !("message" in stored)) return { details: stored };
+  const { severity, message, details } = stored as { severity?: string; message?: string; details?: unknown };
   return { severity: typeof severity === "string" ? severity : undefined, message, details };
 }
 
@@ -392,7 +392,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
 
       {session.config != null && (
         <details className="fb-section">
-          <summary>rig config as recorded{session.version ? ` · version ${String(session.version)}` : ""}</summary>
+          <summary>rig config as recorded{session.flyball_version ? ` · flyball ${String(session.flyball_version)}` : ""}</summary>
           <ValueView value={session.config} />
         </details>
       )}
@@ -507,7 +507,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
           <table className="fb-table">
             <tbody>
               {events.map((e, i) => {
-                const { severity, message, details } = storedEvent(e.detail);
+                const { severity, message, details } = storedEvent(e.details);
                 return (
                 <tr key={e.id ?? i}>
                   <td className="fb-muted">+{duration(e.offset_ns / 1e9)}</td>
@@ -515,7 +515,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
                     {severity && <span className={`fb-badge fb-event-${severity}`}>{severity}</span>} <span className="fb-tag">{describeEventCode(e.code)}</span>
                     {e.edge && <span className={`fb-event-edge fb-event-${e.edge}`}>{describeEdge(e.edge, details)}</span>}
                   </td>
-                  <td>{e.source ? describeSubject(e.source) : ""}</td>
+                  <td>{e.subject ? describeSubject(e.subject) : ""}</td>
                   <td>
                     {message}
                     {details !== undefined && details !== null && (

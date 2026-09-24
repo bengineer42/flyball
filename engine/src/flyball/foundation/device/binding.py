@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("flyball.inputs")
 
-type Source = Signal | Node | float
+type Followable = Signal | Node | float
 """What an input may follow: a signal, a whole namespace, or a number."""
 
 
@@ -54,8 +54,8 @@ class InputState:
     age_s: float | None
     """Seconds since the rig received the newest reading with a value, on the rig's clock;
     None for a constant, and before a first reading."""
-    source: str | None
-    """The source's address; None for a constant or an unbound input."""
+    follows: str | None
+    """The address it follows; None for a constant or an unbound input."""
     constant: float | None
     """The number, for a constant binding."""
     unit: str | None
@@ -77,7 +77,7 @@ class InputBinding:
     reading on the source -- a change of quality always arrives as a reading.
     """
 
-    __slots__ = ("_constant", "_source", "_watchers", "declared", "name", "owner", "where")
+    __slots__ = ("_constant", "_follows", "_watchers", "declared", "name", "owner", "where")
 
     def __init__(
         self, owner: object, name: str, declared: Input | None = None, *, where: str = ""
@@ -87,7 +87,7 @@ class InputBinding:
         self.declared: Any = declared  # not a class-level Descriptor annotation: see Namespace
         self.where = where or f"{getattr(owner, 'name', owner)}.inputs.{name}"
         """How the binding is named in a message: `blender.inputs.dry`."""
-        self._source: Signal | Node | None = None
+        self._follows: Signal | Node | None = None
         self._constant: float | None = None
         self._watchers: list[Callable[[InputBinding], None]] = []
 
@@ -99,17 +99,17 @@ class InputBinding:
     @property
     def bound(self) -> bool:
         """Whether the rig has given it a source or a number."""
-        return self._source is not None or self._constant is not None
+        return self._follows is not None or self._constant is not None
 
     @property
-    def source(self) -> Signal | Node | None:
+    def follows(self) -> Signal | Node | None:
         """The signal or namespace it follows; None for a constant, or before it is bound."""
-        return self._source
+        return self._follows
 
     @property
     def signal(self) -> Signal | None:
         """The source when it is one signal; None otherwise."""
-        return self._source if isinstance(self._source, Signal) else None
+        return self._follows if isinstance(self._follows, Signal) else None
 
     @property
     def constant(self) -> float | None:
@@ -119,12 +119,12 @@ class InputBinding:
     @property
     def address(self) -> str | None:
         """The source's address; None for a constant or an unbound input."""
-        return None if self._source is None else self._source.address
+        return None if self._follows is None else self._follows.address
 
     @property
     def spelled(self) -> str | float | None:
         """As the rig file writes it: the address, or the number; None while unbound."""
-        return self._constant if self._source is None else self._source.address
+        return self._constant if self._follows is None else self._follows.address
 
     @property
     def unit(self) -> Unit | None:
@@ -138,13 +138,13 @@ class InputBinding:
     def attach(self, source: Signal | Node | float) -> None:
         """Point it at `source`. The rig's: [Rig.bind][flyball.rig.rig.Rig.bind] checks first."""
         if isinstance(source, (Signal, Node)):
-            self._source, self._constant = source, None
+            self._follows, self._constant = source, None
         else:
-            self._source, self._constant = None, float(source)
+            self._follows, self._constant = None, float(source)
 
     def detach(self) -> None:
         """Back to unbound: its source went away. Watchers stay attached."""
-        self._source = self._constant = None
+        self._follows = self._constant = None
 
     # endregion
 
@@ -168,7 +168,7 @@ class InputBinding:
         """
         if self._constant is not None:
             return self._constant
-        source = self._source
+        source = self._follows
         if source is None:
             raise NotReadyError(f"{self.where}: not bound")
         if isinstance(source, Node):
@@ -190,7 +190,7 @@ class InputBinding:
         """
         if self._constant is not None:
             return Quality.OK
-        source = self._source
+        source = self._follows
         if source is None:
             return Quality.PENDING
         if isinstance(source, Signal):
@@ -232,7 +232,7 @@ class InputBinding:
         return max(0.0, (now - (reading.received_ns or reading.time_ns)) / 1e9)
 
     def state(self, now_ns: int | None = None) -> InputState:
-        """Everything about it now, in one call: value, quality, reason, caveat, age, source."""
+        """Everything about it now, in one call: value, quality, reason, caveat, age, followed."""
         try:
             value: Value | None = self.value
         except (NotReadyError, TypeError):
@@ -244,7 +244,7 @@ class InputBinding:
             reason=self.reason,
             at_limit=self.at_limit,
             age_s=self.age_s(now_ns),
-            source=self.address,
+            follows=self.address,
             constant=self._constant,
             unit=None if unit is None else unit.symbol,
         )
@@ -331,4 +331,4 @@ def values_of(*bindings: InputBinding) -> tuple[Value, ...]:
     return tuple(values)
 
 
-__all__ = ["InputBinding", "InputState", "Source", "rank", "values_of"]
+__all__ = ["Followable", "InputBinding", "InputState", "rank", "values_of"]

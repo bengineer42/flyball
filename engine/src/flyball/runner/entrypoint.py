@@ -20,8 +20,10 @@ from pathlib import Path
 from typing import IO, Any
 
 from flyball.foundation.device import Code, Severity
+from flyball.foundation.keys import canonical
 from flyball.foundation.optional import require
 from flyball.model.catalog import Catalogs, set_catalog
+from flyball.record.errors import SchemaError
 from flyball.rig.stopping import Stopper
 from flyball.runtime.config import RigConfig, RunnerConfig, resolve_documents, saved_overlay_path
 from flyball.runtime.drivers import load_drivers
@@ -133,7 +135,9 @@ def _main(args: Any, front: frontdir.FrontDir | None = None, mine: IO[str] | Non
         # the rig file may name a driver from there.
         section = RunnerConfig.model_validate(document.get("runner") or {})
         name = document.get("name")
-        settings = settle(section, args, first, name if isinstance(name, str) else None, files)
+        settings = settle(
+            section, args, first, canonical(name) if isinstance(name, str) else None, files
+        )
         logging.getLogger().setLevel(settings.log_level.upper())
         assert settings.store is not None and settings.drivers is not None
     except Exception as e:  # a bad file is the user's problem, not a traceback
@@ -180,6 +184,8 @@ def _run(
         record = True if args.record or (edit or "").endswith(":1") else None
         at = int(edit.split(":")[0]) if edit else None
         rig, store = start_with_store(config, record=record, store_path=settings.store, edit=at)
+    except SchemaError as e:  # a store from before the baseline, or a newer flyball's
+        return _refuse(args, e)
     except BuildFailed as e:  # a driver refused its config, a device is not there
         if edit is not None:
             _roll_back(edit, e, origin, settings.store)
@@ -267,7 +273,7 @@ def _roll_back(edit: str, error: Exception, origin: Origin, store_path: Path) ->
     finally:
         store.close()
     os.environ[EDIT_FAILED_ENV] = json.dumps({
-        "version": int(version),
+        "rig_version_id": int(version),
         "previous": previous,
         "error": str(error),
     })
@@ -280,7 +286,7 @@ def _not_built(rig: Any, failed: str) -> None:
     try:
         details = json.loads(failed)
         message = (
-            f"edit to version {details['version']} did not build: {details['error']};"
+            f"edit to version {details['rig_version_id']} did not build: {details['error']};"
             f" running version {details['previous']}"
         )
     except (ValueError, KeyError, TypeError):

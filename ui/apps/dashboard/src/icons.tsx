@@ -5,6 +5,7 @@ import BoltIcon from "@mui/icons-material/Bolt";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import LoopIcon from "@mui/icons-material/Loop";
 import MemoryIcon from "@mui/icons-material/Memory";
 import MultilineChartIcon from "@mui/icons-material/MultilineChart";
@@ -58,4 +59,6 @@ export {
   TuneIcon as WriteIcon,
   WarningAmberIcon as WarnIcon,
   ErrorOutlineIcon as ErrorIcon,
+  /** A band the rig cannot judge (`band_unknown`): no value because of a fault. Never the alarm icon. */
+  HelpOutlineIcon as UnknownIcon,
 };

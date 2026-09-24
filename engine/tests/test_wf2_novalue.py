@@ -232,7 +232,7 @@ class TestNothingSubstitutes:
 class TestAControllerFreezes:
     def _run(self, rig: Rig, oven: Oven, values: list[object]) -> tuple[PI, list[float | None]]:
         zone, heater = oven.signals["zone"], oven.signals["heater"]
-        law = PI(kp=1.0, ki=0.5, tt=2.0)
+        law = PI(kp=1.0, ki=0.5, tt_s=2.0)
         _push(rig, zone, 20.0)
         controller = rig.attach_controller(heater, zone, law=law)
         controller.regulate(30.0, transfer=Transfer.COLD)
@@ -513,46 +513,6 @@ class TestTheStoreFlag:
         buckets = store.series(session, zone, downsample=Downsample(bucket_ns=10_000_000_000))
         (bucket,) = buckets.points
         assert bucket.value is None and bucket.flag == Flag.INVALID
-
-    def test_a_store_recorded_before_the_flag_migrates_with_its_readings(
-        self, tmp_path, oven, monkeypatch
-    ):
-        from flyball.record import migrate
-
-        shipped = migrate.available
-        monkeypatch.setattr(
-            migrate, "available", lambda: {v: p for v, p in shipped().items() if v <= 20}
-        )
-        store = SqliteStore(tmp_path / "old.db")
-        writer = store.open_session(0)
-        zone = oven.signals["zone"]
-        writer.declare_device(oven)
-        writer.declare_signal(zone)
-        session = writer.session.id
-        store.close()
-        old = sqlite3.connect(tmp_path / "old.db")
-        (did,) = old.execute("SELECT id FROM device WHERE session_id = ?", (session,)).fetchone()
-        (sid,) = old.execute(
-            "SELECT id FROM signal WHERE session_id = ? AND address = ?", (session, zone.address)
-        ).fetchone()
-        for seq, value in ((1, 20.0), (2, 21.0)):
-            old.execute(
-                "INSERT INTO sample (session_id, device_id, seq, node, offset_ns)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (session, did, seq, oven.name, seq * 1_000_000_000),
-            )
-            old.execute(
-                "INSERT INTO reading (session_id, device_id, seq, signal_id, offset_ns, value)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (session, did, seq, sid, seq * 1_000_000_000, value),
-            )
-        old.commit()
-        old.close()
-        monkeypatch.setattr(migrate, "available", shipped)
-        store = SqliteStore(tmp_path / "old.db")
-        points = store.series(session, zone.address).points
-        assert [(p.value, p.flag) for p in points] == [(20.0, None), (21.0, None)]
-        store.close()
 
     def test_the_checks_refuse_a_mismatched_pair(self, tmp_path):
         store = SqliteStore(tmp_path / "t.db")

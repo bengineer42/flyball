@@ -222,7 +222,7 @@ func fakeFront(key [32]byte, aud string, unsigned, signed int, bodyAud string) h
 			return
 		}
 		w.WriteHeader(signed)
-		io.WriteString(w, `{"protocol":1,"aud":"`+bodyAud+`","pid":4242,"flyball":"0.9.0"}`)
+		io.WriteString(w, `{"protocol":1,"aud":"`+bodyAud+`","pid":4242,"flyball_version":"0.9.0"}`)
 	})
 }
 
@@ -261,7 +261,7 @@ func TestProbeOverUnix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a fronted runner: %v", err)
 	}
-	if info.Protocol != 1 || info.Aud != "oven" || info.Pid != 4242 || info.Flyball != "0.9.0" {
+	if info.Protocol != 1 || info.Aud != "oven" || info.Pid != 4242 || info.FlyballVersion != "0.9.0" {
 		t.Errorf("info: %+v", info)
 	}
 

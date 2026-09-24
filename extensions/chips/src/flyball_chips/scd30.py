@@ -80,28 +80,28 @@ def encode(co2: float, temperature: float, humidity: float) -> bytes:
 
 
 class Scd30Sensor:
-    """One chip at `address`: starts continuous measurement, then polls and reads it."""
+    """One chip at `i2c_address`: starts continuous measurement, then polls and reads it."""
 
-    __slots__ = ("address", "link", "sleep", "timeout_s")
+    __slots__ = ("i2c_address", "link", "sleep", "timeout_s")
 
     def __init__(
         self,
         link: I2cLink,
-        address: int = SCD30_ADDRESS,
+        i2c_address: int = SCD30_ADDRESS,
         pressure_mbar: int = 0,
         sleep: bool = True,
         timeout_s: float = 3.0,
     ) -> None:
         self.link = link
-        self.address = address
+        self.i2c_address = i2c_address
         self.sleep = sleep
         """Whether to poll for data-ready and wait between polls; off against a fake."""
         self.timeout_s = timeout_s
-        self.link.write(address, command(CMD_START_CONTINUOUS_MEASUREMENT, pressure_mbar))
+        self.link.write(i2c_address, command(CMD_START_CONTINUOUS_MEASUREMENT, pressure_mbar))
 
     def _ready(self) -> bool:
-        self.link.write(self.address, command(CMD_GET_DATA_READY))
-        (status,) = crc_words(self.link.read(self.address, 3), 1)
+        self.link.write(self.i2c_address, command(CMD_GET_DATA_READY))
+        (status,) = crc_words(self.link.read(self.i2c_address, 3), 1)
         return status == 1
 
     def read(self) -> tuple[float, float, float]:
@@ -112,8 +112,8 @@ class Scd30Sensor:
                 if time.monotonic() > deadline:
                     raise HardwareError(f"SCD30 measurement not ready within {self.timeout_s}s")
                 time.sleep(0.05)
-        self.link.write(self.address, command(CMD_READ_MEASUREMENT))
-        return decode(self.link.read(self.address, 18))
+        self.link.write(self.i2c_address, command(CMD_READ_MEASUREMENT))
+        return decode(self.link.read(self.i2c_address, 18))
 
 
 class Scd30(Readable):
@@ -127,18 +127,18 @@ class Scd30(Readable):
         self,
         name: str,
         link: I2cLink,
-        address: int = SCD30_ADDRESS,
+        i2c_address: int = SCD30_ADDRESS,
         pressure_mbar: int = 0,
         sleep: bool = True,
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
         self.link = link
-        self.sensor = Scd30Sensor(link, address, pressure_mbar, sleep)
+        self.sensor = Scd30Sensor(link, i2c_address, pressure_mbar, sleep)
 
     @property
     def config(self) -> Scd30Config:
-        return Scd30Config(link="", address=self.sensor.address)
+        return Scd30Config(link="", i2c_address=self.sensor.i2c_address)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
         co2, temperature, humidity = self.sensor.read()
@@ -149,14 +149,14 @@ class Scd30Config(DriverConfig[Scd30], type="scd30"):
     """One chip by its I2C address, in continuous-measurement mode."""
 
     link: I2cLinkConfig | str  # type: ignore[valid-type]
-    address: int = Field(default=SCD30_ADDRESS, ge=0x03, le=0x77)
+    i2c_address: int = Field(default=SCD30_ADDRESS, ge=0x03, le=0x77)
     pressure_mbar: int = Field(default=0, description="0 disables ambient-pressure compensation")
     sleep: bool = True
 
     def build(self, name: str, label: str | None = None) -> Scd30:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return Scd30(name, resolve(self.link), self.address, self.pressure_mbar, self.sleep, label)
+        return Scd30(name, resolve(self.link), self.i2c_address, self.pressure_mbar, self.sleep, label)
 
 
 Scd30.config_type = Scd30Config

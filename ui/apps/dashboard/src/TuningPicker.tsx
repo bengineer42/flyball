@@ -4,7 +4,7 @@ import TuneIcon from "@mui/icons-material/Tune";
 import type { LawConfig, TuningChoice } from "@flyball/client";
 import { ValueView } from "@flyball/react";
 
-/** `kp 5 · ki 0.017 · tt 30`: a tuning's gains on one line, the type left out. */
+/** `kp 5 · ki 0.017 · tt_s 30`: a tuning's gains on one line, the type left out. */
 export function gainsSummary(config: LawConfig): string {
   const parts = Object.entries(config)
     .filter(([k, v]) => k !== "type" && (typeof v === "number" || typeof v === "string" || typeof v === "boolean"))

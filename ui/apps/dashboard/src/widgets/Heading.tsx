@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Typography } from "@mui/material";
-import type { WidgetKind, WidgetComponentProps } from "./types.js";
+import type { WidgetType, WidgetComponentProps } from "./types.js";
 
 const HeadingWidget = memo(function HeadingWidget({ config }: WidgetComponentProps) {
   const size = String(config.size ?? "section");
@@ -8,8 +8,8 @@ const HeadingWidget = memo(function HeadingWidget({ config }: WidgetComponentPro
   return <Typography component={size === "page" ? "h2" : "h3"} className={`dash-heading dash-heading-${size}`}>{String(config.text ?? "")}</Typography>;
 });
 
-export const heading: WidgetKind = {
-  kind: "heading",
+export const heading: WidgetType = {
+  type: "heading",
   label: "Heading",
   description: "A section title across the grid, to group the tiles under it.",
   category: "layout",
@@ -25,7 +25,7 @@ export const heading: WidgetKind = {
     required: ["text"],
   }),
   defaultConfig: () => ({ text: "Section", size: "section" }),
-  titleFor: () => undefined,
+  labelFor: () => undefined,
   header: false,
   Component: HeadingWidget,
 };
@@ -34,8 +34,8 @@ const SpacerWidget = memo(function SpacerWidget() {
   return null;
 });
 
-export const spacer: WidgetKind = {
-  kind: "spacer",
+export const spacer: WidgetType = {
+  type: "spacer",
   label: "Spacer",
   description: "Empty room, to push tiles apart or start a new row.",
   category: "layout",
@@ -43,7 +43,7 @@ export const spacer: WidgetKind = {
   minSize: { w: 1, h: 1 },
   cost: "cheap",
   configSchema: () => ({ type: "object", properties: {} }),
-  titleFor: () => undefined,
+  labelFor: () => undefined,
   header: false,
   Component: SpacerWidget,
 };

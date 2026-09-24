@@ -57,7 +57,7 @@ def test_a_crossing_raises_once_at_once_with_side_value_and_bounds():
     assert _edges(rig) == [("band_warning", "raised", "furnace.zone1")], "once, not per reading"
     (condition,) = rig.conditions.of(furnace.signals["zone1"])
     assert condition.code == Code.BAND_WARNING and condition.severity == Severity.WARNING
-    assert condition.scope == "signal" and condition.subject == "furnace.zone1"
+    assert condition.subject_kind == "signal" and condition.subject == "furnace.zone1"
     assert condition.details == {"side": "high", "value": 60.0, "bounds": [10.0, 50.0]}
     _push(rig, furnace, 5.0, "zone2")
     (low,) = rig.conditions.of(furnace.signals["zone2"])
@@ -226,7 +226,7 @@ def test_health_counts_band_conditions_only():
             assert health["ok"] is False
             # The device's own view carries its signals' band conditions.
             (device,) = [d for d in client.get("/api/devices").json() if d["name"] == "furnace"]
-            held = {(c["scope"], c["subject"], c["code"]) for c in device["conditions"]}
+            held = {(c["subject_kind"], c["subject"], c["code"]) for c in device["conditions"]}
             assert ("signal", "furnace.zone2", "band_alarm") in held
     finally:
         set_rig(None)

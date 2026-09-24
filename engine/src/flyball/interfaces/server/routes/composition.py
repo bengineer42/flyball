@@ -86,7 +86,7 @@ def _validated[T](adapter: TypeAdapter[T], body: Any) -> T:
 class EditOut(BaseModel):
     """What a rig edit did: saved as a version, the rig stopped, the runner restarting."""
 
-    version: int
+    rig_version_id: int
     """The edit's rig version, now the head: what the runner starts again from."""
     previous: int | None
     """The head before it; what a start that cannot build the edit goes back to."""
@@ -98,7 +98,7 @@ class EditOut(BaseModel):
     restarting: bool = True
     stop: dict[str, Any] | None
     """The stop's report (`POST /api/rig/stop`'s shape); None if the stop failed (logged)."""
-    detail: str
+    message: str
 
 
 _editing = threading.Lock()
@@ -182,12 +182,12 @@ def _edit(
         report = _stop(rig, request, f"rig edit: {reason}; restarting at version {row.id}")
         runner.restart_for_edit(row.id, previous, record=rig.recording is not None)
     return EditOut(
-        version=row.id,
+        rig_version_id=row.id,
         previous=previous,
         reason=reason,
         saved=None if plan.path is None else str(plan.path),
         stop=report,
-        detail=f"The rig is restarting at version {row.id}: outputs went to their stop,"
+        message=f"The rig is restarting at version {row.id}: outputs went to their stop,"
         " a running program was cancelled, and controllers come back in manual;"
         " a recording goes on in a new session",
     )
@@ -547,7 +547,7 @@ def save(rig: RigDep, body: SaveIn | None = None) -> dict[str, Any]:
         document = rig.document()
     text = dumps_without_none({**document, **_runner_section(target)}, target.suffix)
     partial = target.with_name(target.name + ".tmp")
-    partial.write_text(text)
+    partial.write_text(text, encoding="utf-8")
     os.replace(partial, target)
     if (
         body.path is not None

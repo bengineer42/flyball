@@ -37,7 +37,7 @@ def _missing_controllers(rig: Rig, which: ControllerNames) -> list[str]:
     out = []
     for name in names:
         if name is None:
-            if rig.controllers.default is None:
+            if rig.controllers.default_controller is None:
                 out.append("the rig has no default controller")
         elif name not in rig.controllers:
             out.append(f"controller {name!r} is not on the rig")
@@ -45,7 +45,7 @@ def _missing_controllers(rig: Rig, which: ControllerNames) -> list[str]:
 
 
 @dataclass(frozen=True)
-class Regulate(Step, tag="regulate", primary="setpoint"):
+class Regulate(Step, type="regulate", primary="setpoint"):
     """Aim a controller at a setpoint and let its law drive; returns at once."""
 
     setpoint: float
@@ -67,7 +67,7 @@ class Regulate(Step, tag="regulate", primary="setpoint"):
 
 
 @dataclass(frozen=True)
-class Ramp(Step, tag="ramp", primary="to"):
+class Ramp(Step, type="ramp", primary="to"):
     """Walk a controller's setpoint to `to` at `pace`, and wait until it arrives.
 
     `pace` is a rate (`per_minute: 5`) or how long the whole ramp should take
@@ -116,7 +116,7 @@ class Ramp(Step, tag="ramp", primary="to"):
 
 
 @dataclass(frozen=True)
-class Wait(Step, tag="wait", primary="duration"):
+class Wait(Step, type="wait", primary="duration"):
     """Keep everything as it is for `duration`; the controllers go on regulating.
 
     `timeout`, like `prompt`'s, ends the program instead if `duration` itself
@@ -142,7 +142,7 @@ _CRITERION_FIELDS = ("above", "below", "near", "from_start", "on_no_value")
 
 
 @dataclass(frozen=True)
-class Settle(Step, tag="settle", primary="controllers"):
+class Settle(Step, type="settle", primary="controllers"):
     """Wait until controllers have settled at their setpoints, or until a signal meets a test.
 
     Either form, never both. Named `controllers` (or none, for the rig's
@@ -254,7 +254,7 @@ class Settle(Step, tag="settle", primary="controllers"):
 
 
 @dataclass(frozen=True)
-class Manual(Step, tag="manual", primary="controllers"):
+class Manual(Step, type="manual", primary="controllers"):
     """Stop a controller regulating; its output keeps its last value and takes demands directly."""
 
     controllers: ControllerNames = None

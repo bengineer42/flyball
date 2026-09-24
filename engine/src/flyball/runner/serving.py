@@ -49,7 +49,7 @@ opens a new one). If that start cannot build the rig, it rolls the edit back (`e
 Not a flag: nothing but the runner itself sets it."""
 
 EDIT_FAILED_ENV = "FLYBALL_EDIT_FAILED"
-"""Set for the start after a rollback: `{"version", "previous", "error"}` as JSON, which that
+"""Set for the start after a rollback: `{"rig_version_id", "previous", "error"}` as JSON, which that
 start raises as an `edit_not_built` condition on the rig."""
 
 
@@ -191,27 +191,27 @@ def mcp_client(settings: RunnerConfig, front: FrontDir | None) -> Client:
 
 
 def mcp_caps() -> dict[str, frozenset[str]]:
-    """Per MCP mode, the verbs a tool's call may carry: the mode's own and every lower mode's.
+    """Per MCP tier, the verbs a tool's call may carry: the tier's own and every lower tier's.
 
-    A mode serves its tier's tools and every tier below (`mcp.tools.MODES`), so its cap is
-    the union of `verbs.MCP_MODES` over those modes -- `MCP_MODES` alone says who may
+    A tier serves its tools and every lower tier's (`mcp.tools.TIERS`), so its cap is
+    the union of `verbs.MCP_TIERS` over those tiers -- `MCP_TIERS` alone says who may
     enter, and with the placeholder vocabulary `operate` would lose `read`.
     """
-    from flyball.interfaces.mcp.tools import MODES
-    from flyball.interfaces.server.verbs import MCP_MODES
+    from flyball.interfaces.mcp.tools import TIERS
+    from flyball.interfaces.server.verbs import MCP_TIERS
 
     return {
-        mode: frozenset().union(*(MCP_MODES[m] for m, t in MODES.items() if t <= tier))
-        for mode, tier in MODES.items()
+        tier: frozenset().union(*(MCP_TIERS[m] for m, t in TIERS.items() if t <= level))
+        for tier, level in TIERS.items()
     }
 
 
 def mcp_signer(key: bytes, aud: str) -> Callable[[Claims | None, str], str]:
-    """`sign(caller, mode)` for [mount][flyball.interfaces.mcp.http.mount].
+    """`sign(caller, tier)` for [mount][flyball.interfaces.mcp.http.mount].
 
     Each call mints a principal now, for one request, with `key` for `aud` (the door's own).
     For a caller: its `sub`, `sid`, `kind`, `nm`, `cip` and `sch`, `scp` = its verbs ∩ the
-    mode's cap (`mcp_caps`), `via: "mcp"`. For None, the runner's own read: `runner:mcp`,
+    tier's cap (`mcp_caps`), `via: "mcp"`. For None, the runner's own read: `runner:mcp`,
     a service with `read` only. No principal is kept: each lives 60 s and is used once.
     """
     from flyball.interfaces.server.principal import LIFETIME, Claims, mint
@@ -220,7 +220,7 @@ def mcp_signer(key: bytes, aud: str) -> Callable[[Claims | None, str], str]:
     caps = mcp_caps()
     sid = f"mcp-{secrets.token_urlsafe(12)}"
 
-    def sign(caller: Claims | None, mode: str) -> str:
+    def sign(caller: Claims | None, tier: str) -> str:
         now = int(time.time())
         if caller is None:
             claims = Claims(
@@ -228,7 +228,7 @@ def mcp_signer(key: bytes, aud: str) -> Callable[[Claims | None, str], str]:
                 aud=aud, cip="", sch="http", iat=now, exp=now + LIFETIME,
             )  # fmt: skip
         else:
-            scp = caller.scp & caps[mode]
+            scp = caller.scp & caps[tier]
             claims = replace(caller, scp=scp, aud=aud, via="mcp", iat=now, exp=now + LIFETIME)
         return mint(key, claims)
 
@@ -238,7 +238,7 @@ def mcp_signer(key: bytes, aud: str) -> Callable[[Claims | None, str], str]:
 def mount_mcp(
     app: FastAPI, name: str | None, settings: RunnerConfig, front: FrontDir | None
 ) -> None:
-    """`/mcp/<mode>` on `app`, its tools calling back as their caller (`mcp_signer`)."""
+    """`/mcp/<tier>` on `app`, its tools calling back as their caller (`mcp_signer`)."""
     from flyball.interfaces.mcp.http import mount
 
     door = app.state.door
@@ -377,7 +377,7 @@ def serve(
         bind = {"host": front.host, "port": front.port}
     else:
         bind = {"host": settings.host, "port": settings.port}
-    if settings.mcp:  # `/mcp/<mode>`: a model's way in
+    if settings.mcp:  # `/mcp/<tier>`: a model's way in
         mount_mcp(app, rig.name, settings, front)
     server = uvicorn.Server(
         uvicorn.Config(

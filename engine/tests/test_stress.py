@@ -87,4 +87,4 @@ def test_stress_rig_samples_every_signal_and_regulates_every_controller(built):
         if controller.output_signal not in controller.output_signal.device.written
     ]
     assert not undemanded, f"no demand yet on {undemanded}"
-    assert all(c.state.output is not None for _, c in rig.controllers.items())
+    assert all(c.state.output_value is not None for _, c in rig.controllers.items())

@@ -149,11 +149,11 @@
           {
             "type": "object",
             "properties": {
-              "command": {
+              "run": {
                 "additionalProperties": false,
                 "properties": {
-                  "device_command": {
-                    "title": "Device Command",
+                  "command": {
+                    "title": "Command",
                     "type": "string"
                   },
                   "device": {
@@ -175,7 +175,7 @@
                   }
                 },
                 "required": [
-                  "device_command",
+                  "command",
                   "device"
                 ],
                 "title": "RunCommandRequest",
@@ -183,10 +183,10 @@
               }
             },
             "required": [
-              "command"
+              "run"
             ],
             "additionalProperties": false,
-            "description": "Call one of `device`'s own commands, exactly as `POST /api/devices/{name}/{tag}` would.\n\n`device_command`, not `command`: every step's wire form reserves `command`\nfor its own tag (`\"command\"`, here), so the device command it should run\nneeds a different name."
+            "description": "Call one of `device`'s own commands, exactly as `POST /api/devices/{name}/{command}` would.\n\n`command` names the device command to run: the step's own wire form\ndiscriminator is `type` (`\"run\"`, here), not `command`, so `command` is\nfree for this."
           },
           {
             "type": "object",

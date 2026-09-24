@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from flyball.foundation.config import Config, resolve
+from flyball.foundation.config import Config, import_object, resolve
+from flyball.model.config import INSTRUMENT_PACKAGES_ENV
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "simulated"
 
@@ -143,3 +144,49 @@ class TestResolveDocumentsAndLoadRigConfig:
             r" controllers replace them, see book/src/7-reference/rig-file\.md",
         ):
             load_rig_config(tmp_path / "old.yaml")
+
+
+class TestImportObject:
+    """A rig file's dotted class path: only a subclass of `base`, only from under `allowed`."""
+
+    def test_a_subclass_under_the_prefix_is_returned(self):
+        import json.decoder
+
+        assert (
+            import_object("json.decoder.JSONDecoder", allowed=["json"], base="json.JSONDecoder")
+            is json.decoder.JSONDecoder
+        )
+
+    @pytest.mark.parametrize("dotted", ["os.system", "subprocess.run", "builtins.exec", "jsonx.A"])
+    def test_anything_outside_the_prefix_is_refused_before_it_is_imported(self, dotted):
+        with pytest.raises(ValueError, match=r"is not a class from json\.: only those"):
+            import_object(dotted, allowed=["json"], base="json.JSONDecoder")
+
+    @pytest.mark.parametrize("dotted", ["json", "json..x", "json.decoder.", " json.x", "json.x-y"])
+    def test_a_path_that_is_not_dotted_is_refused(self, dotted):
+        with pytest.raises(ValueError, match="is not a dotted path to a class"):
+            import_object(dotted, allowed=["json"], base="json.JSONDecoder")
+
+    def test_under_the_prefix_it_must_be_a_subclass_of_base(self):
+        with pytest.raises(ValueError, match=r"'json.dumps' is not a subclass of json.JSONDecoder"):
+            import_object("json.dumps", allowed=["json"], base="json.JSONDecoder")
+        with pytest.raises(ValueError, match="'json.decoder.Nope': json.decoder has no 'Nope'"):
+            import_object("json.decoder.Nope", allowed=["json"], base="json.JSONDecoder")
+        with pytest.raises(ValueError, match="cannot import json.nope"):
+            import_object("json.nope.X", allowed=["json"], base="json.JSONDecoder")
+
+    def test_a_base_that_is_not_installed_says_so(self):
+        with pytest.raises(ValueError, match="cannot import no_such_library"):
+            import_object("json.decoder.JSONDecoder", allowed=["json"], base="no_such_library.X")
+
+    def test_more_packages_come_from_the_environment_and_still_need_the_base(self, monkeypatch):
+        import email.parser
+
+        monkeypatch.setenv(INSTRUMENT_PACKAGES_ENV, " email.parser , other.")
+        assert (
+            import_object("email.parser.Parser", allowed=["json"], base="email.parser.Parser")
+            is email.parser.Parser
+        )
+        monkeypatch.setenv(INSTRUMENT_PACKAGES_ENV, "os")
+        with pytest.raises(ValueError, match="'os.system' is not a subclass of json.JSONDecoder"):
+            import_object("os.system", allowed=["json"], base="json.JSONDecoder")

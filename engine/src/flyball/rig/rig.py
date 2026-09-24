@@ -20,7 +20,7 @@ from pathlib import Path
 from threading import Lock, RLock
 from typing import TYPE_CHECKING, Any, overload
 
-from flyball.foundation import Clock, Rate
+from flyball.foundation import Actor, Clock, Rate
 from flyball.foundation.device import (
     RESERVED_NAMES,
     Access,
@@ -44,16 +44,17 @@ from flyball.foundation.device import (
     Reason,
     Role,
     Sample,
-    Scope,
     Severity,
     Signal,
     Staged,
+    SubjectKind,
     WriteState,
     normalised,
     stale,
 )
 from flyball.foundation.device.values import Values
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
+from flyball.foundation.keys import Keyed, canonical
 from flyball.foundation.router import RECENT_READINGS, Latest, Router, Topic
 from flyball.foundation.time import Timer, Timers
 from flyball.foundation.typing import OrderedSet
@@ -70,7 +71,7 @@ from .faults import Faults
 from .latches import RIG_STOP
 from .liveness import Liveness
 from .polling import Polling, poll_period
-from .stopping import Actor, Stopping, resolve_output
+from .stopping import STOP_ACTOR, Stopping, resolve_output
 from .triggers import Triggers
 from .values import LiveValues
 
@@ -232,8 +233,8 @@ class Rig:
     values: LiveValues
     """Where each `driver: values` signal's value came from, and the store row that keeps its
     last write across restarts."""
-    _written_by: dict[Signal, str | None]
-    """Who asked for each staged write, until its commit: a values signal's writer."""
+    _written_by: dict[Signal, Actor | None]
+    """Who asked for each staged write, until its commit: a values signal's actor."""
     _requested: dict[Signal, float]
     """What a demand asked for where the clamp changed it, until the commit reports it."""
     _touched: dict[Device, None] | None
@@ -286,13 +287,13 @@ class Rig:
 
     def __init__(self, name: str | None = None) -> None:
         self.name = name
-        self.links = {}
+        self.links = Keyed()
         self._clock = Clock()
         self._timers: Timers | None = None
         self._timers_lock = Lock()
         self._closed = False
-        self.devices = {}
-        self._claims = {}
+        self.devices = Keyed()
+        self._claims = Keyed()
         self._writers = {}
         self.lock = RLock()
         self.triggers = Triggers(lambda: self.clock)
@@ -334,8 +335,8 @@ class Rig:
         self._retries = {}
         self._staged_ns = {}
         self._reapplying = {}
-        self.entries = {}
-        self.link_entries = {}
+        self.entries = Keyed()
+        self.link_entries = Keyed()
         self.files = []
         self.header = {}
         self.loaded = None
@@ -484,7 +485,7 @@ class Rig:
     def event(
         self,
         severity: Severity,
-        scope: Scope,
+        subject_kind: SubjectKind,
         subject: str,
         code: Code,
         message: str,
@@ -495,7 +496,7 @@ class Rig:
         A point event. What starts and ends -- a condition -- goes through
         [conditions][flyball.rig.rig.Rig.conditions], whose edges come here too.
         """
-        event = Event(self.clock.now_ns(), severity, scope, subject, code, message, details)
+        event = Event(self.clock.now_ns(), severity, subject_kind, subject, code, message, details)
         self._publish(event)
         return event
 
@@ -510,7 +511,7 @@ class Rig:
         log.log(
             Severity(event.severity).rank,
             "%s %s %s%s: %s",
-            event.scope,
+            event.subject_kind,
             event.subject,
             event.code,
             edge,
@@ -520,21 +521,21 @@ class Rig:
         self.events.publish(event)
         if (recorder := self.recorder) is not None:
             recorder.event(event)
-        if event.edge is not None and event.scope == Scope.DEVICE:
+        if event.edge is not None and event.subject_kind == SubjectKind.DEVICE:
             self.polling.touch(event.subject)
-        elif event.edge is not None and event.scope == Scope.SIGNAL:
+        elif event.edge is not None and event.subject_kind == SubjectKind.SIGNAL:
             self.polling.touch(event.subject.partition(".")[0])  # its device's run carries it
 
     def _describe(self, owner: object) -> tuple[str, str]:
-        """A condition owner's scope and name: a device, a signal, a controller, or this rig."""
+        """A condition owner's kind and name: a device, a signal, a controller, or this rig."""
         if owner is self:
-            return Scope.RIG, self.name or "rig"
+            return SubjectKind.RIG, self.name or "rig"
         if isinstance(owner, Device):
-            return Scope.DEVICE, owner.name
+            return SubjectKind.DEVICE, owner.name
         if isinstance(owner, Signal):
-            return Scope.SIGNAL, owner.address
+            return SubjectKind.SIGNAL, owner.address
         if isinstance(owner, Controller):
-            return Scope.CONTROLLER, owner.name
+            return SubjectKind.CONTROLLER, owner.name
         raise TypeError(f"{type(owner).__name__} cannot own a condition")
 
     def close(self) -> None:
@@ -762,19 +763,19 @@ class Rig:
     def unbind(self, binding: InputBinding) -> None:
         """Stop `binding` following what it follows: it is unbound (`pending`) until bound again."""
         with self.lock:
-            source = binding.source
-            if isinstance(source, Signal):
-                followers = self._followers.get(source)
+            followed = binding.follows
+            if isinstance(followed, Signal):
+                followers = self._followers.get(followed)
                 if followers is not None:
                     followers.pop(binding, None)
                     if not followers:
-                        del self._followers[source]
-            elif isinstance(source, Node):
-                followers = self._node_followers.get(source)
+                        del self._followers[followed]
+            elif isinstance(followed, Node):
+                followers = self._node_followers.get(followed)
                 if followers is not None:
                     followers.pop(binding, None)
                     if not followers:
-                        del self._node_followers[source]
+                        del self._node_followers[followed]
             binding.detach()
 
     def consumers(self, signal: Signal) -> list[InputBinding]:
@@ -798,9 +799,9 @@ class Rig:
         while stack:
             device, path = stack.pop()
             for binding in device.bound.values():
-                if (source := binding.source) is None:
+                if (followed := binding.follows) is None:
                     continue
-                follows = source.device
+                follows = followed.device
                 if follows is start:
                     return [*path, binding]
                 if follows not in seen:
@@ -859,7 +860,7 @@ class Rig:
             AddressNotFoundError: Naming the segment that failed and what
                 it was looked for under.
         """
-        name, dot, relative = address.partition(".")
+        name, dot, relative = canonical(address).partition(".")
         if (device := self.devices.get(name)) is None:
             raise AddressNotFoundError(address, name, None)
         if dot and not relative:  # "hum." names nothing; "hum" is the root
@@ -974,7 +975,6 @@ class Rig:
         values: Mapping[str | Signal, float],
         *,
         by: Controller | None = None,
-        writer: str | None = None,
         actor: Actor | None = None,
     ) -> Mapping[Signal, WriteState]:
         """Write `values` to W signals under `node`, as one atomic write, in each signal's unit.
@@ -995,9 +995,8 @@ class Rig:
         committed with everything else at its end, and this returns nothing.
         A blocking device's commit runs on its writer thread, so its states
         arrive later, through [written][flyball.rig.rig.Rig.written];
-        this returns nothing. `writer` says who asked (the principal's `sub`):
-        a `driver: values` signal's write is logged and kept under it; `actor`
-        is who asked, whole, when a request came in (its `sub` is the writer).
+        this returns nothing. `actor` says who asked: a `driver: values`
+        signal's write is logged and kept under it.
 
         A latch refuses it: a fault's latch on the signal or its device refuses
         everyone; the rig stop refuses every automatic writer and lets a
@@ -1026,8 +1025,6 @@ class Rig:
             raise ConflictError(f"'{device.name}' has nothing to commit: no demands")
         if by is not None and self.hold_reason(by) is not None:
             return {}
-        if writer is None and actor is not None:
-            writer = actor.sub
         person = actor is not None and actor.person
         resolved: dict[Signal, float] = {}
         for key, value in values.items():
@@ -1092,20 +1089,21 @@ class Rig:
                 else:
                     thread.apply(signal, time_ns, value)
             for signal in clamped:  # a newer demand supersedes an earlier clamped one
-                self._written_by[signal] = writer
+                self._written_by[signal] = actor
                 if signal in requested:
                     self._requested[signal] = requested[signal]
                 else:
                     self._requested.pop(signal, None)
             if forced is not None:
+                who = "someone" if actor is None else actor.principal
                 for signal, value in clamped.items():
                     self.event(
                         Severity.WARNING,
-                        Scope.SIGNAL,
+                        SubjectKind.SIGNAL,
                         signal.address,
                         Code.WRITTEN_WHILE_STOPPED,
-                        f"written {value:g} by {writer} while the rig is stopped; still stopped",
-                        {"value": value, "by": writer},
+                        f"written {value:g} by {who} while the rig is stopped; still stopped",
+                        {"value": value, "actor": None if actor is None else actor.as_dict()},
                     )
             if self._touched is not None:  # inside a delivery: committed at its end
                 self._touched[device] = None
@@ -1392,7 +1390,7 @@ class Rig:
                 self._staged_ns[signal] = time_ns
             else:
                 writer.apply(signal, time_ns, value)
-            self._written_by[signal] = "stop"
+            self._written_by[signal] = STOP_ACTOR
         if writer is not None:
             return {s.address: v for s, v in values.items()}, (writer, writer.request(time_ns))
         self._forcing.add(device)
@@ -1559,7 +1557,7 @@ class Rig:
             )
             self.event(
                 Severity.INFO,
-                Scope.DEVICE,
+                SubjectKind.DEVICE,
                 device.name,
                 Code.RESENT,
                 f"re-sent {signal.address}={value:g}{at}",
@@ -1651,7 +1649,7 @@ class Rig:
             age_s = (self.clock.now_ns() - staged_ns) / 1e9
             self.event(
                 Severity.WARNING,
-                Scope.DEVICE,
+                SubjectKind.DEVICE,
                 device.name,
                 Code.WRITE_DROPPED,
                 f"dropped {signal.address}={value:g}: not sent in {age_s:.0f} s, past"
@@ -1784,7 +1782,7 @@ class Rig:
             pushed = seq.get(signal, 0) != before.get(signal, 0)  # the driver's readback
             requested = self._requested.pop(signal, None)
             self._staged_ns.pop(signal, None)
-            writer = self._written_by.pop(signal, None)
+            written_by = self._written_by.pop(signal, None)
             before_value = self.router.latest.get(signal)
             ignored = signal in unread
             if ignored:
@@ -1817,7 +1815,7 @@ class Rig:
                 was = (
                     None if before_value is None or not before_value.usable else before_value.value
                 )
-                self.values.written(signal, value, was, writer)
+                self.values.written(signal, value, was, written_by)
             if self.write_states.watched:
                 self.write_states.set(signal.address, state)
             signal.at_limit = None
@@ -1855,7 +1853,7 @@ class Rig:
         self._ignored.add(signal)
         self.event(
             Severity.WARNING,
-            Scope.DEVICE,
+            SubjectKind.DEVICE,
             device.name,
             Code.DEMAND_IGNORED,
             f"'{signal.address}': {value} was not read by the driver's commit; nothing was set",
@@ -2080,7 +2078,7 @@ class Rig:
                     feedforward=None
                     if c.feedforward.config.type == "identity"
                     else c.feedforward.config,
-                    default=self.controllers.default == name,
+                    is_default=self.controllers.default_controller == name,
                     min_period_s=c.min_period_s,
                     setpoint_period_s=c.setpoint_period_s,
                     on_fault=c.on_fault.document(),  # type: ignore[arg-type]  validated as the file is
@@ -2226,7 +2224,7 @@ class Rig:
         if spec.stops or spec.simulation or not self.stopping.latches.any():
             return False
         drives = (
-            spec.mode is not None
+            spec.sets_mode is not None
             or spec.long  # a dose, a move: it drives hardware whatever it names
             or bool(spec.writes)
             or any(
@@ -2253,11 +2251,11 @@ class Rig:
         assert actor is not None
         self.event(
             Severity.WARNING,
-            Scope.DEVICE,
+            SubjectKind.DEVICE,
             device.name,
             Code.WRITTEN_WHILE_STOPPED,
-            f"{spec.name} run by {actor.sub} while the rig is stopped; still stopped",
-            {"command": spec.name, "by": actor.sub},
+            f"{spec.name} run by {actor.principal} while the rig is stopped; still stopped",
+            {"command": spec.name, "actor": actor.as_dict()},
         )
         return True
 
@@ -2280,7 +2278,7 @@ class Rig:
             elif isinstance(given[name], (int, float)):
                 given[name] = signal.clamp(float(given[name]))
         drives = (
-            spec.mode is not None
+            spec.sets_mode is not None
             or bool(spec.writes)
             or any(s.role is Role.DEMAND for s in linked.values())
         )
@@ -2313,11 +2311,11 @@ class Rig:
             interrupted.append(Interrupted(holder.name, was))
             self.event(
                 Severity.INFO,
-                Scope.CONTROLLER,
+                SubjectKind.CONTROLLER,
                 holder.name,
                 Code.INTERRUPTED,
                 f"put in manual by {device.name}.{command}",
-                {"was": was, "by": f"{device.name}.{command}"},
+                {"was": was, "command": f"{device.name}.{command}"},
             )
             if self.controller_states.watched:
                 self.controller_states.set(holder.name, holder.state)
@@ -2361,8 +2359,8 @@ class Rig:
         outer: dict[Device, None] | None,
     ) -> None:
         """After the method: `mode`, the linked readings, `last.<command>`, and the commit."""
-        if spec.mode is not None and (mode := device.signals.get("mode")) is not None:
-            mode.push(spec.mode, time_ns)
+        if spec.sets_mode is not None and (mode := device.signals.get("mode")) is not None:
+            mode.push(spec.sets_mode, time_ns)
         for name, signal in linked.items():
             if self.router.seq.get(signal, 0) == before.get(signal, 0):  # no readback
                 signal.push(given[name], time_ns)
@@ -2387,7 +2385,7 @@ class Rig:
         *,
         law: ControlLawLike | str | None = None,
         feedforward: FeedforwardLike | str | None = None,
-        default: bool = False,
+        is_default: bool = False,
         min_period_s: float | None = None,
         setpoint_period_s: float | None = None,
         on_fault: OnFault | None = None,
@@ -2401,7 +2399,7 @@ class Rig:
             feedforward: What maps the setpoint to a value in the output's
                 unit: an instance, a config, or a type. Default: the setpoint
                 itself when the units agree, else none.
-            default: Make this the controller commands address when they name none.
+            is_default: Make this the controller commands address when they name none.
             min_period_s: Step the law at most this often.
             setpoint_period_s: Re-apply a moving setpoint's feedforward this often between
                 readings; default `max(0.1 s, poll_s / 4)` from `measured`'s `poll_s`.
@@ -2452,7 +2450,7 @@ class Rig:
             controller.on_reference = lambda: self._reference_changed(controller)
             controller.guard = lambda: self.stopping.regulate_refusal(controller)
             controller.on_reseed = lambda was, now: self._reseeded(controller, was, now)
-            self.controllers.add(controller, default=default)
+            self.controllers.add(controller, is_default=is_default)
             self._changed(f"attached controller {controller.name}")
             return controller
 
@@ -2487,7 +2485,7 @@ class Rig:
         later = "" if was is None or now is None or now <= was else f", {now - was:.3f} s later"
         self.event(
             Severity.INFO,
-            Scope.CONTROLLER,
+            SubjectKind.CONTROLLER,
             controller.name,
             Code.RESEEDED,
             f"resumed after a hold: its trajectory goes on from the reading at its own rate{later}",

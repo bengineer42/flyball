@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=program.schema.json
 # Runs `chaos.yaml` straight into trouble: a ramp far faster than any of
 # these zones can follow, so every controller's demand saturates at once; a
-# spell of `command` steps that fail zone3's thermocouple, kick heater5's
+# spell of `run` steps that fail zone3's thermocouple, kick heater5's
 # plant input and restore zone3 again (the same routes
 # `scripts/chaos-disturb.sh` drives from outside, now timed against the
 # program itself); a timed `wait` whose own `timeout` gives up long before its
@@ -35,14 +35,14 @@ steps:
       to: 900
       per_minute: 2000   # absurd: every controller's demand saturates within one reading
   - wait: { duration: { seconds: 90 }, message: "saturating" }   # 1.5 s of wall time at this rig's 60x
-  - command: { device_command: fail, device: furnace, args: { signal: zone3 } }
+  - run: { command: fail, device: furnace, args: { signal: zone3 } }
   - wait: { duration: { seconds: 60 }, message: "zone3's thermocouple is dead" }
-  - command:
-      device_command: disturb
+  - run:
+      command: disturb
       device: heaters
       args: { signal: heater5, offset: -270 }
   - wait: { duration: { seconds: 60 }, message: "heater5 kicked: a door opened, a leak" }
-  - command: { device_command: restore, device: furnace, args: { signal: zone3 } }
+  - run: { command: restore, device: furnace, args: { signal: zone3 } }
   - wait:
       duration: { minutes: 5 }
       timeout: 5   # a bare number is seconds

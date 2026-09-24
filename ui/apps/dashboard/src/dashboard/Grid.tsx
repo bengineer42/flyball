@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { ResponsiveGridLayout, useContainerWidth, verticalCompactor, type Layout, type LayoutItem } from "react-grid-layout";
 import type { DashboardGrid as GridSpec, DashboardWidget } from "@flyball/client";
-import { widgetKind } from "../widgets/registry.js";
+import { widgetType } from "../widgets/registry.js";
 import { GRID_MARGIN } from "./document.js";
 import { gridGap } from "../widgets/size.js";
 
@@ -81,8 +81,8 @@ export const DashboardEditGrid = memo(function DashboardEditGrid({ widgets, grid
   const layout = useMemo<LayoutItem[]>(
     () =>
       widgets.map((w) => {
-        const kind = widgetKind(w.kind);
-        return { i: w.id, x: w.x, y: w.y, w: w.w, h: w.h, minW: kind?.minSize.w ?? 1, minH: kind?.minSize.h ?? 1 };
+        const type = widgetType(w.type);
+        return { i: w.id, x: w.x, y: w.y, w: w.w, h: w.h, minW: type?.minSize.w ?? 1, minH: type?.minSize.h ?? 1 };
       }),
     [widgets],
   );

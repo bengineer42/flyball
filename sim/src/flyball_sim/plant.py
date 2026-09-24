@@ -41,7 +41,7 @@ class Plant(Protocol):
 
 
 class Lag:
-    """A first-order lag: `dy/dt = (ambient + gain * u - y) / tau`.
+    """A first-order lag: `dy/dt = (ambient + gain * u - y) / tau_s`.
 
     A heater in a room, a stirred tank's temperature: with no input the
     output settles at `ambient`; full input adds `gain`.
@@ -120,23 +120,23 @@ class Integrator:
 
 
 class Fopdt:
-    """First order plus dead time: a lag whose input arrives `dead_s` late. The autotune case."""
+    """First order plus dead time: a lag whose input arrives `dead_time_s` late. The autotune case."""
 
-    __slots__ = ("__weakref__", "_lag", "_now", "_pipe", "dead_s", "input")
+    __slots__ = ("__weakref__", "_lag", "_now", "_pipe", "dead_time_s", "input")
 
     def __init__(
         self,
         tau_s: float,
-        dead_s: float,
+        dead_time_s: float,
         gain: float = 1.0,
         value: float = 0.0,
         input: float = 0.0,
         ambient: float = 0.0,
     ) -> None:
-        if dead_s < 0:
+        if dead_time_s < 0:
             raise ValueError("dead time cannot be negative")
         self._lag = Lag(tau_s, value, gain, input, ambient)
-        self.dead_s = dead_s
+        self.dead_time_s = dead_time_s
         self.input = input
         self._pipe: deque[tuple[float, float]] = deque()  # (arrives_at_s, value)
         self._now = 0.0
@@ -154,11 +154,11 @@ class Fopdt:
     def advance(self, dt_s: float) -> float:
         """Hold the input for `dt_s` seconds; return the new output.
 
-        What went in `dead_s` ago reaches the lag at that instant, not at the
+        What went in `dead_time_s` ago reaches the lag at that instant, not at the
         end of the step: the lag is stepped exactly up to each arrival and on
         from it, so the step size changes nothing.
         """
-        self._pipe.append((self._now + self.dead_s, self.input))
+        self._pipe.append((self._now + self.dead_time_s, self.input))
         end = self._now + dt_s
         at = self._now
         while self._pipe and self._pipe[0][0] <= end:

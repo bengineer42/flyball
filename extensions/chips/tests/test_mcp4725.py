@@ -40,13 +40,13 @@ class TestEncode:
 class TestMcp4725Output:
     def test_write_clamps_and_returns_the_achieved_fraction(self):
         bus = FakeI2c()
-        output = mcp4725.Mcp4725Output(bus, address=0x60)
+        output = mcp4725.Mcp4725Output(bus, i2c_address=0x60)
         assert output.write(-0.5) == pytest.approx(0.0)
         assert output.write(1.5) == pytest.approx(1.0)
 
     def test_write_sends_one_fast_mode_frame_at_the_address(self):
         bus = FakeI2c()
-        output = mcp4725.Mcp4725Output(bus, address=0x60)
+        output = mcp4725.Mcp4725Output(bus, i2c_address=0x60)
         output.write(1.0)
         assert bus.written == [(0x60, None, list(mcp4725.encode(mcp4725.FULL_SCALE)))]
 
@@ -60,12 +60,12 @@ class TestMcp4725Device:
 
     def test_construction_writes_zero_to_the_bus(self):
         bus = FakeI2c()
-        mcp4725.Mcp4725("dac", bus, address=0x60)
+        mcp4725.Mcp4725("dac", bus, i2c_address=0x60)
         assert bus.written == [(0x60, None, list(mcp4725.encode(0)))]
 
     def test_write_signal_drives_the_bare_fraction(self):
         bus = FakeI2c()
-        dac = mcp4725.Mcp4725("dac", bus, address=0x60)
+        dac = mcp4725.Mcp4725("dac", bus, i2c_address=0x60)
         dac.write_signal(dac.signals["drive"], 0.5)
         code = round(0.5 * mcp4725.FULL_SCALE)
         assert bus.written[-1] == (0x60, None, list(mcp4725.encode(code)))
@@ -73,7 +73,7 @@ class TestMcp4725Device:
     def test_unit_and_span_map_engineering_units_onto_the_fraction(self):
         bus = FakeI2c()
         dac = mcp4725.Mcp4725(
-            "dac", bus, address=0x60, unit="V", quantity="drive", span=(0.0, 10.0)
+            "dac", bus, i2c_address=0x60, unit="V", quantity="drive", span=(0.0, 10.0)
         )
         signal = dac.signals["drive"]
         assert signal.unit.symbol == "V"
@@ -89,10 +89,10 @@ class TestMcp4725Device:
     def test_config_round_trips_address_and_span(self):
         bus = FakeI2c()
         dac = mcp4725.Mcp4725(
-            "dac", bus, address=0x61, unit="V", quantity="drive", span=(0.0, 10.0)
+            "dac", bus, i2c_address=0x61, unit="V", quantity="drive", span=(0.0, 10.0)
         )
         config = dac.config
-        assert config.address == 0x61
+        assert config.i2c_address == 0x61
         assert config.unit == "V"
         assert config.span == (0.0, 10.0)
 
@@ -100,7 +100,7 @@ class TestMcp4725Device:
 class TestStop:
     def test_power_down_is_the_stop_and_no_off_is_declared(self):
         bus = FakeI2c()
-        dac = mcp4725.Mcp4725("dac", bus, address=0x60, unit="V", quantity="v", span=(0.0, 10.0))
+        dac = mcp4725.Mcp4725("dac", bus, i2c_address=0x60, unit="V", quantity="v", span=(0.0, 10.0))
         assert dac.stops_by() == "power_down"
         assert dac.signals["drive"].spec.off is None, "0 V is a setpoint, not off"
         dac.power_down()

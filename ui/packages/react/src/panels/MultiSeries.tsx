@@ -20,7 +20,8 @@ export interface MultiSeriesTrace {
   quantity?: string;
   /** Seconds since the epoch, ascending. Traces need not share the same times. Omitted when the chart draws from a `source`. */
   t?: number[];
-  v?: (number | null)[];
+  /** `null` (or `NaN`) where a reading had none: a break; `undefined` where there was no reading to take (joined across). */
+  v?: (number | null | undefined)[];
   /** The signal in the `source` store this trace draws from (its address); the trace at the same index of `source.keys` otherwise. */
   key?: string;
   /** Any CSS colour. Defaults cycle through `--fb-series-1` … `--fb-series-6`. */
@@ -115,7 +116,7 @@ const displayValue = (raw: number | null | undefined, s: MultiSeriesTrace): stri
  * ever reaches uPlot. Left as `NaN`, uPlot draws a point at `pixelForY(NaN)`
  * instead of breaking the line.
  */
-export const toBreaks = (v: (number | null)[]): (number | null)[] =>
+export const toBreaks = <V extends number | null | undefined>(v: V[]): (V | null)[] =>
   v.some((x) => typeof x === "number" && Number.isNaN(x)) ? v.map((x) => (typeof x === "number" && Number.isNaN(x) ? null : x)) : v;
 
 /**
@@ -126,7 +127,7 @@ export const toBreaks = (v: (number | null)[]): (number | null)[] =>
  * alignment artifacts undefined) and stays connected -- see `spanGaps: false`
  * below, which relies on that distinction.
  */
-export function align(series: Array<{ t: number[]; v: (number | null)[] }>): uPlot.AlignedData {
+export function align(series: Array<{ t: number[]; v: (number | null | undefined)[] }>): uPlot.AlignedData {
   if (series.length === 0) return [[]];
   const shared = series.every((s) => s.t === series[0]!.t);
   if (shared) return [series[0]!.t, ...series.map((s) => toBreaks(s.v))] as uPlot.AlignedData;

@@ -118,7 +118,7 @@ class Store(Protocol):
     def open_session(
         self,
         start_ns: int,
-        version: str | None = None,
+        flyball_version: str | None = None,
         config: Any = None,
         hardware: Any = None,
         details: Any = None,
@@ -320,7 +320,6 @@ class Store(Protocol):
         format: ProgramFormat,
         body: str,
         created_ns: int,
-        label: str | None = None,
         notes: Any = None,
     ) -> ProgramRow:
         """Add a version under `name`, verbatim. Earlier versions stay; `program` is the newest."""

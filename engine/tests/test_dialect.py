@@ -30,7 +30,7 @@ def commands(fresh):
     tags = {k: fresh(k) for k in ("setpoint", "ramp", "flag", "twice", "timer", "ask")}
 
     @dataclass(frozen=True)
-    class Setpoint(Step, tag=tags["setpoint"], primary="at"):
+    class Setpoint(Step, type=tags["setpoint"], primary="at"):
         """Go to this value and hold."""
 
         at: Percent
@@ -38,7 +38,7 @@ def commands(fresh):
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     @dataclass(frozen=True)
-    class Ramp(Step, tag=tags["ramp"]):
+    class Ramp(Step, type=tags["ramp"]):
         to: Percent
         pace: Rate | Duration
         start: Percent | str = "setpoint"
@@ -46,20 +46,20 @@ def commands(fresh):
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     @dataclass(frozen=True)
-    class Flag(Step, tag=tags["flag"], primary="flag"):
+    class Flag(Step, type=tags["flag"], primary="flag"):
         flag: str
 
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     @dataclass(frozen=True)
-    class Twice(Step, tag=tags["twice"]):
+    class Twice(Step, type=tags["twice"]):
         a: Duration
         b: Duration
 
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     @dataclass(frozen=True)
-    class Timer(Step, tag=tags["timer"], primary="duration"):
+    class Timer(Step, type=tags["timer"], primary="duration"):
         duration: Duration
         message: str | None = None
         timeout: Duration | None = None
@@ -67,7 +67,7 @@ def commands(fresh):
         def run(self, rig: Any, operator: Any = None) -> Any: ...
 
     @dataclass(frozen=True)
-    class Ask(Step, tag=tags["ask"], primary="message"):
+    class Ask(Step, type=tags["ask"], primary="message"):
         message: str
         timeout: Duration | None = None
 
@@ -104,7 +104,7 @@ class TestNormalise:
     def test_scalar_shorthand_means_the_primary_field(self, dialect, commands):
         tags, _ = commands
         assert normalise_step({tags["setpoint"]: 50}, dialect) == {
-            "command": {"command": tags["setpoint"], "at": 50}
+            "command": {"type": tags["setpoint"], "at": 50}
         }
         assert normalise_step({tags["flag"]: "loaded"}, dialect)["command"]["flag"] == "loaded"
 
@@ -157,7 +157,7 @@ class TestNormalise:
         [
             ({"setpint": 50}, "unknown key"),
             ({"RAMP": 60}, "takes a mapping"),
-            ({"SETPOINT": {"command": "x"}}, "'command' is not an argument"),
+            ({"SETPOINT": {"type": "x"}}, "'type' is not an argument"),
             ("setpoint", "expected a mapping"),
             ({"RAMP": {"to": 60, "pace": 600, "minutes": 1}}, "not both"),
             ({"TWICE": {"a": 1, "minutes": 2}}, "ambiguous"),

@@ -85,7 +85,7 @@ class CommandSpec:
     commit: bool = False
     """The method only records; the rig commits the device afterwards. Most commands do their
     own I/O and need none."""
-    mode: Any = None
+    sets_mode: Any = None
     """What the device's `mode` output becomes when this runs, if it has one."""
     interrupts: bool = False
     """Runs even while a controller drives one of the device's demands (`stop`, a manual flow),
@@ -95,7 +95,7 @@ class CommandSpec:
     """What the command moves that no linked argument says: paths of the device's own demands
     (gpio `on`/`off` move `on`), or the name of a private child it drives (a dosing pump's
     `pump`). A command that declares any is refused while a controller drives the device, like
-    one with a `mode` or a linked demand, unless it `interrupts`."""
+    one with a `sets_mode` or a linked demand, unless it `interrupts`."""
     long: bool = False
     """The method waits (a dose, a move): the rig runs it off its lock, so polling, deliveries
     and a `stop` carry on meanwhile. It waits with
@@ -125,7 +125,7 @@ def command[F: Callable[..., Any]](
     name: str | None = None,
     simulation: bool = False,
     commit: bool = False,
-    mode: Any = None,
+    sets_mode: Any = None,
     interrupts: bool = False,
     long: bool = False,
     writes: Iterable[Any] = (),
@@ -138,7 +138,7 @@ def command(
     name: str | None = None,
     simulation: bool = False,
     commit: bool = False,
-    mode: Any = None,
+    sets_mode: Any = None,
     interrupts: bool = False,
     long: bool = False,
     writes: Iterable[Any] = (),
@@ -149,7 +149,7 @@ def command(
     `@command` or `@command(name="stop")`. The method's signature is the
     command's; an argument annotated `Annotated[<type>, <descriptor>]` (or
     named like a descriptor) is a value for that demand -- legal in the
-    class body, since the descriptor's name is already bound there. `mode`
+    class body, since the descriptor's name is already bound there. `sets_mode`
     is what the device's `mode` output becomes when it runs. `commit=True`
     for a method that only records and needs the device committed after.
     `interrupts=True` runs while a controller
@@ -184,7 +184,7 @@ def command(
         f.__command_options__ = {
             "simulation": simulation,
             "commit": commit,
-            "mode": mode,
+            "sets_mode": sets_mode,
             "interrupts": interrupts,
             "long": long,
             "writes": paths,
