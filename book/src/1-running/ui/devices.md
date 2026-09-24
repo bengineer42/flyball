@@ -20,7 +20,10 @@ device silent", `…` while pending), the last usable value on hover, never the
 value before it ([Readings with no value](charts.md#readings-with-no-value)). A
 signal's name carries, on hover, what the rig says of it beyond its value: a
 demand's readback (`echo`: its reading is what was committed; `sensed`: read
-back from the device) and a banded signal's `on_no_value`.
+back from the device) and a banded signal's `on_no_value`. A demand the device only
+reports (`access: rp`, a readback its commands move, such as a blender's pump
+flows) is shown read-only, like a reading: no entry and no **Set**, since the
+rig refuses every write to it.
 
 The line under the title lists what the device follows, one per input: `dry ←
 hum_sensors.dry.humidity` for one bound to a signal (with its quality when not

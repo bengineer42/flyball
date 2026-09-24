@@ -167,4 +167,14 @@ describe("panels show a reading with no value as a dash and why, never the value
     expect(screen.getByTestId("input-constant").textContent).toBe("Dry = 36.5 %RH");
     expect(screen.getByText("stale: device silent")).toBeTruthy();
   });
+
+  it("DeviceSignals: a demand the device only reports (access rp, a readback) is read-only: no entry, no Set", () => {
+    const { wrap } = driven();
+    const readback = { ...SIGNAL, name: "dry", address: "blend.dry", label: "Dry pump flow", role: "demand", access: "rp", unit: "L/min", readback: "sensed" } as SignalOut;
+    const settable = { ...SIGNAL, name: "wet", address: "blend.wet", label: "Wet pump flow", role: "demand", access: "rpw", unit: "L/min" } as SignalOut;
+    const device = { name: "blend", label: null, kind: "device", driver: "blend", class_name: "Blend", link: null, poll_s: null, signals: [readback, settable], commands: [], inputs: {}, consumers: {}, sources: {}, readable: true, writable: true, conditions: [], run: null } as unknown as DeviceOut;
+    render(wrap(createElement(DeviceSignals, { device, sparkline: false })));
+    expect(screen.getAllByRole("button", { name: "Set" })).toHaveLength(1); // the settable one only
+    expect(screen.queryByLabelText(/Dry pump flow/)).toBeNull();
+  });
 });

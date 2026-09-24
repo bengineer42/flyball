@@ -442,7 +442,7 @@ label.fb-toggle { display: inline-flex; align-items: center; gap: 0.5rem; cursor
 .fb-readout.fb-alarm-alarm .fb-range-fill { background: var(--fb-alarm); }
 /* A reading with no value: "—" (or "…" while pending) in the number's place and why beside it. Faults read in the
    secondary colour, the benign n/a and pending in the tertiary one; neither is an alarm colour. */
-.fb-quality { font-size: var(--fb-text-sm, 12px); line-height: 1.25; color: var(--fb-fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fb-quality { margin-left: 0.4em; font-size: var(--fb-text-sm, 12px); line-height: 1.25; color: var(--fb-fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .fb-quality-pending, .fb-quality-not_applicable { color: var(--fb-fg-3); }
 .fb-quality-stale { font-style: italic; }
 /* A usable value's caveat (at a limit, out of range): a quiet mark before the number, the words on hover. */

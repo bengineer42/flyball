@@ -536,7 +536,7 @@ export function ControllerPanel({
   const banner = offline
     ? { text: "measured offline", hint: `${deviceOf(controller.measured_signal)} is not being read; the controller has nothing to regulate on.`, level: "warn" }
     : frozen
-      ? { text: "frozen", hint: `${frozen.message || `${controller.measured_signal} has no value`}${frozenWhy ? ` (${frozenWhy})` : ""}: the law is not stepped and nothing is written until it reads again.`, level: frozen.severity === "info" ? "info" : "warn" }
+      ? { text: "frozen", hint: `${frozen.message || `${controller.measured_signal} has no value${frozenWhy ? ` (${frozenWhy})` : ""}`}. The law is not stepped and nothing is written until it reads again.`, level: frozen.severity === "info" ? "info" : "warn" }
       : stale
       ? { text: "no recent reading", hint: `${controller.measured_signal}: ${describeQuality("stale", measured?.reason)}.`, level: "warn" }
       : clamped

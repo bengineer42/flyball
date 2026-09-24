@@ -46,6 +46,20 @@ describe("the store keeps a reading with no value as a break, with why", () => {
     expect(store.reading("f.t")).toEqual({ t: 3, value: 21, quality: "ok", caveats: { at_limit: "high" } });
   });
 
+  it("a no-value reading that arrived before the seed still learns the rig's last usable value", async () => {
+    vi.useFakeTimers();
+    const devices = async () => [{ signals: [{ address: "f.t", latest: { time_ns: 9e9, value: null, quality: "invalid", reason: "open" }, last_usable: { time_ns: 4e9, value: 19.5, quality: "ok" } }] }];
+    const { rig, send } = fakeRig({ devices });
+    const store = new TelemetryStore(rig);
+    store.subscribeLatest("f.t", () => undefined, 0);
+    send("samples", { samples: [{ node: "f", time_ns: 9e9, values: { t: null }, quality: { t: "invalid" }, reason: { t: "open" } }] });
+    expect(store.reading("f.t")?.lastUsable).toBeUndefined();
+    void store.seed(["f.t"]);
+    vi.advanceTimersByTime(1);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(store.reading("f.t")).toEqual({ t: 9, value: null, quality: "invalid", reason: "open", lastUsable: { t: 4, value: 19.5 } });
+  });
+
   it("a history point with no value (flag) is a break in playback, with its quality read off the flag", async () => {
     vi.useFakeTimers();
     const series = vi.fn(async () => ({

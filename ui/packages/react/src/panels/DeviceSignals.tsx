@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { describeDevice, describeQuality, describeSignal, describeUnit, formatValue, humanise, isNamespace, isNumeric, publishes, readable, signalsOf, type Address, type DeviceOut, type InputOut, type NamespaceOut, type SignalOut, type TreeNode, isHousekeeping } from "@flyball/client";
+import { describeDevice, describeQuality, describeSignal, describeUnit, formatValue, humanise, isNamespace, isNumeric, publishes, readable, signalsOf, writable, type Address, type DeviceOut, type InputOut, type NamespaceOut, type SignalOut, type TreeNode, isHousekeeping } from "@flyball/client";
 import { Ref } from "../links.js";
 import { useDeviceRun, useLatestValue, useReading, useTraceRef } from "../store/hooks.js";
 import { CaveatMark, QualityBadge, noValue, type ReadingLike } from "./quality.js";
@@ -108,8 +108,9 @@ function InputsLine({ device }: { device: DeviceOut }) {
  * `readback` (`echo`: its reading is what was committed; `sensed`: read back), a banded signal's
  * `on_no_value` (`fire`: a fault with no value raises `band_unknown`).
  */
-export function signalHint(signal: Pick<SignalOut, "address" | "readback" | "on_no_value">): string {
+export function signalHint(signal: Pick<SignalOut, "address" | "readback" | "on_no_value" | "role" | "access">): string {
   const parts = [signal.address];
+  if (signal.role === "demand" && !writable(signal)) parts.push("read-only: moved by the device's commands");
   if (signal.readback) parts.push(signal.readback === "echo" ? "readback: echo (the value committed)" : "readback: sensed (read back from the device)");
   if (signal.on_no_value) parts.push(signal.on_no_value === "fire" ? "no value on a fault: raises band unknown" : "no value on a fault: ignored");
   return parts.join(" · ");
@@ -177,15 +178,19 @@ function DemandRow({ signal }: { signal: SignalOut }) {
 /**
  * One level of a device's tree: numeric published signals (`output`/
  * `setting`) as readout tiles; a non-numeric one as a chip row; a `demand`
- * as a write row; one read but not published as a plain row; then each namespace as a group. `last`
+ * the device takes writes on as a write row (a demand it only reports -- `access: rp`, a readback moved
+ * by its commands -- is read-only, like a readout); one read but not published as a plain row; then
+ * each namespace as a group. `last`
  * (one json signal per command) is shown beside its command, not here.
  */
 function Level({ nodes, common }: { nodes: TreeNode[]; common: Common }) {
   const signals = nodes.filter((n): n is SignalOut => !isNamespace(n));
   const namespaces = nodes.filter(isNamespace).filter((n) => n.name !== "last");
-  const demands = signals.filter((s) => s.role === "demand");
-  const muted = signals.filter((s) => s.role !== "demand" && !publishes(s) && readable(s));
-  const values = signals.filter((s) => s.role !== "demand" && publishes(s));
+  // A write row only for what accepts a write: a readback-only demand's every write is refused.
+  const settable = (s: SignalOut) => s.role === "demand" && writable(s);
+  const demands = signals.filter(settable);
+  const muted = signals.filter((s) => !settable(s) && !publishes(s) && readable(s));
+  const values = signals.filter((s) => !settable(s) && publishes(s));
   const numericValues = values.filter((s) => isNumeric(s.dtype));
   const chipValues = values.filter((s) => !isNumeric(s.dtype));
   return (

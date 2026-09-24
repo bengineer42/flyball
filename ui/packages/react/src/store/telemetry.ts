@@ -580,7 +580,19 @@ export class TelemetryStore {
     const devices = await this.rig.devices();
     let changed = false;
     for (const signal of devices.flatMap((d) => signalsOf(d.signals))) {
-      if (!wanted.has(signal.address) || !signal.latest || this.latestValues[signal.address]) continue;
+      if (!wanted.has(signal.address) || !signal.latest) continue;
+      const held = this.latestValues[signal.address];
+      if (held) {
+        // The socket got there first with a reading that has no value: the rig's last usable one is still news.
+        const last = signal.last_usable;
+        if (held.value === null && !held.lastUsable && last && last.value !== null) {
+          this.lastUsable[signal.address] ??= { t: last.time_ns / 1e9, value: last.value };
+          this.latestValues[signal.address] = { ...held, lastUsable: this.lastUsable[signal.address] };
+          this.bumpSignal(signal.address);
+          changed = true;
+        }
+        continue;
+      }
       const { latest } = signal;
       const time = latest.time_ns / 1e9;
       const value = latest.value;
