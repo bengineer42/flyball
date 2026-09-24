@@ -81,7 +81,7 @@ type ProxyConfig struct {
 	Team         string              `yaml:"team"`
 	Issuer       string              `yaml:"issuer"`
 	Audience     string              `yaml:"audience"`
-	Grants       map[string][]string `yaml:"grants"` // role (pending D-034) -> subjects / "group:<id>"
+	Grants       map[string][]string `yaml:"grants"` // grant name (pending D-034) -> subjects / "group:<id>"
 	UserHeader   string              `yaml:"user_header"`
 	GroupsHeader string              `yaml:"groups_header"`
 	Separator    string              `yaml:"separator"`
@@ -276,8 +276,8 @@ func ResolveWith(c Config, insecureOpen bool, proxy ProxyFactory) (Plan, Client)
 			fallback("auth: proxy: this build has no proxy presets")
 		default:
 			p.Grants = c.Proxy.Grants
-			for _, role := range grants.UnknownRoles(p.Grants) {
-				p.Warnings = append(p.Warnings, fmt.Sprintf("proxy.grants: role %q is not in the vocabulary; it grants nothing", role))
+			for _, name := range grants.UnknownGrants(p.Grants) {
+				p.Warnings = append(p.Warnings, fmt.Sprintf("proxy.grants: %q is not a grant in the vocabulary; it grants nothing", name))
 			}
 		}
 	case ShapeSSO:

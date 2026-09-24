@@ -102,8 +102,8 @@ describe("the store keeps a reading with no value as a break, with why", () => {
   it("holds the rig's conditions: band_unknown is its own level, a controller's frozen is there to read, and an edge clears it", async () => {
     vi.useFakeTimers();
     const conditions: Condition[] = [
-      { code: "band_unknown", severity: "error", message: "no value", since_ns: 1, scope: "signal", subject: "f.t" },
-      { code: "frozen", severity: "warning", message: "f.t has no value", since_ns: 1, scope: "controller", subject: "h.p", details: { quality: "invalid", reason: "open" } },
+      { code: "band_unknown", severity: "error", message: "no value", since_ns: 1, subject_kind: "signal", subject: "f.t" },
+      { code: "frozen", severity: "warning", message: "f.t has no value", since_ns: 1, subject_kind: "controller", subject: "h.p", details: { quality: "invalid", reason: "open" } },
     ];
     const { rig, send } = fakeRig({ health: async () => ({ conditions }) });
     const store = new TelemetryStore(rig);
@@ -114,7 +114,7 @@ describe("the store keeps a reading with no value as a break, with why", () => {
     expect(store.bandOf("f.t")).toBe("unknown");
     expect(store.bandOf("f.other")).toBe("ok");
     expect(store.conditionsOf("h.p").map((c) => c.code)).toEqual(["frozen"]);
-    send("events", { events: [{ time_ns: 5, severity: "error", scope: "signal", subject: "f.t", code: "band_unknown", message: "", details: {}, edge: "cleared" }] });
+    send("events", { events: [{ time_ns: 5, severity: "error", subject_kind: "signal", subject: "f.t", code: "band_unknown", message: "", details: {}, edge: "cleared" }] });
     expect(store.bandOf("f.t")).toBe("ok");
   });
 });

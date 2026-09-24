@@ -95,12 +95,12 @@ def test_steps_after_a_prompt_run_on_the_worker_and_a_failure_there_is_an_event(
     codes = [e.code for e in rig.recent]
     assert codes[0] == "started" and codes[-1] == "failed" and codes.count("step") == 4
     (step_event, finish_event) = [e for e in rig.recent if e.severity == Severity.ERROR]
-    assert step_event.scope == "program" and step_event.subject == "p[3]"
+    assert step_event.subject_kind == "program" and step_event.subject == "p[3]"
     assert (
         step_event.code == "step_failed"
         and step_event.details["error"] == "RuntimeError: no such thing"
     )
-    assert finish_event.scope == "program" and finish_event.subject == "p"
+    assert finish_event.subject_kind == "program" and finish_event.subject == "p"
     assert finish_event.code == "failed" and "no such thing" in finish_event.message
     state = programmer.state
     assert state.running is False and state.failed is True and "no such thing" in state.error

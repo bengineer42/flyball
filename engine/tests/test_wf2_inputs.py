@@ -13,6 +13,7 @@ from pydantic import SecretStr, ValidationError
 
 from conftest import TestClient
 from flyball.control.laws import P
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import (
     Access,
     Code,
@@ -46,10 +47,12 @@ from flyball.model.law import Transfer
 from flyball.record import LiveValueRow
 from flyball.record.sqlite import SqliteStore
 from flyball.rig import Rig
-from flyball.rig.stopping import Actor, InterimStopper
+from flyball.rig.stopping import InterimStopper
 from flyball.runtime.config import RigConfig
 
 HUMIDITY = Quantity("humidity", Percent)
+
+BEN = Actor("ben", "human", "http")
 
 
 class Source(Readable):
@@ -147,10 +150,10 @@ class TestNumbersAndNoDefaults:
         derived = rig.devices["d"]
         assert isinstance(derived, Derived)
         binding = derived.bound["x"]
-        assert binding.constant == 21.0 and binding.source is None and binding.bound
+        assert binding.constant == 21.0 and binding.follows is None and binding.bound
         assert binding.value == 21.0 and binding.quality is Quality.OK
         state = binding.state()
-        assert (state.value, state.constant, state.source, state.age_s) == (21.0, 21.0, None, None)
+        assert (state.value, state.constant, state.follows, state.age_s) == (21.0, 21.0, None, None)
         assert state.unit == "%", "a number's unit is the declared input's"
         assert rig.latest[derived.signals["out"]].value == 42.0, "told once, at bind"
         assert rig.document()["devices"]["d"]["inputs"] == {"x": 21.0}
@@ -204,7 +207,7 @@ class TestAddressBindings:
         clock.advance(2.0)
         state = binding.state()
         assert (state.value, state.quality) == (10.0, Quality.OK)
-        assert state.source == f"{source.name}.level"
+        assert state.follows == f"{source.name}.level"
         assert state.age_s == pytest.approx(2.0), "on the rig's clock, from when it arrived"
 
     def test_a_limit_following_an_input_fails_closed_and_names_its_quality(
@@ -347,7 +350,7 @@ class TestTheBinding:
         rig.bind_inputs(derived, {"x": f"{source.name}.level"})
         _push(rig, source.signals["level"], 5.0)
         rig.remove_device(source.name)
-        assert derived.x.quality is Quality.PENDING and derived.x.source is None
+        assert derived.x.quality is Quality.PENDING and derived.x.follows is None
         assert "x" in derived.bound, "a declared input keeps its binding, unbound"
 
 
@@ -423,21 +426,21 @@ class TestValuesDevice:
         rig = _values_rig(derived_tag)
         bench, derived = rig.devices["bench"], rig.devices["d"]
         dry = bench.signals["dry"]
-        rig.write(bench.root, {"dry": 40.0}, writer="ben")
+        rig.write(bench.root, {"dry": 40.0}, actor=BEN)
         assert rig.latest[dry].value == 40.0
         assert rig.latest[derived.signals["out"]].value == 80.0
         (written,) = [e for e in rig.recent if e.code == Code.VALUE_WRITTEN]
         assert written.subject == dry.address and written.details == {
             "value": 40.0,
             "was": 36.5,
-            "writer": "ben",
+            "actor": BEN.as_dict(),
         }
         source = rig.values.source(dry)
-        assert (source.origin, source.writer) == ("written", "ben")
+        assert (source.origin, source.actor) == ("written", BEN)
 
     def test_a_stop_leaves_it_alone(self, derived_tag):
         rig = _values_rig(derived_tag)
-        report = InterimStopper(rig).stop(Actor("ben", "", "human", "http"), "test")
+        report = InterimStopper(rig).stop(BEN, "test")
         assert "bench" not in report.devices
 
     def test_a_restart_restores_the_last_write_while_the_rig_file_agrees(
@@ -446,16 +449,16 @@ class TestValuesDevice:
         store = SqliteStore(tmp_path / "s.sqlite")
         first = _values_rig(derived_tag)
         first.values.attach(store)
-        first.write(first.devices["bench"].root, {"dry": 40.0}, writer="ben")
+        first.write(first.devices["bench"].root, {"dry": 40.0}, actor=BEN)
         (row,) = store.live_values()
-        assert (row.device, row.signal, row.kind, row.value, row.unit, row.initial, row.writer) == (
+        assert (row.device, row.signal, row.kind, row.value, row.unit, row.initial, row.actor) == (
             "bench",
             "dry",
             "value",
             40.0,
             "%",
             36.5,
-            "ben",
+            BEN,
         )
 
         again = _values_rig(derived_tag)
@@ -464,9 +467,9 @@ class TestValuesDevice:
         assert again.latest[dry].value == 40.0
         assert again.latest[again.devices["d"].signals["out"]].value == 80.0
         source = again.values.source(dry)
-        assert (source.origin, source.writer, source.written_ns) == (
+        assert (source.origin, source.actor, source.written_ns) == (
             "restored",
-            "ben",
+            BEN,
             row.written_ns,
         )
         assert [e.code for e in again.recent if e.code == Code.VALUE_RESTORED] == ["value_restored"]
@@ -506,7 +509,7 @@ class TestValuesDevice:
         assert bench["consumers"] == {"dry": ["d.inputs.x"]}
         source = bench["sources"]["dry"]
         assert source["origin"] == "written" and source["initial"] == 36.5
-        assert source["writer"] == "local:console", "the principal who wrote it"
+        assert source["actor"]["principal"] == "local:console", "the principal who wrote it"
         (x,) = derived["inputs"].values()
         assert x["bound"] == "bench.dry" and x["quality"] == "ok" and "constant" not in x
         assert x["unit"] == "%" and x["label"] == "X"

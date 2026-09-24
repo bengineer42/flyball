@@ -40,24 +40,24 @@ function relative(ms: number, now: number): string {
   return new Date(ms).toLocaleDateString();
 }
 
-/** Event scopes that name a thing with a page (`device` is the one the backend emits today; the rest are for a scope a driver might add). */
-const SCOPE_KINDS: Record<string, RefKind> = { device: "device", controller: "controller", signal: "signal", session: "session" };
+/** Subject kinds that name a thing with a page (`device` is the one the backend emits today; the rest are for a kind a driver might add). */
+const SUBJECT_PAGES: Record<string, RefKind> = { device: "device", controller: "controller", signal: "signal", session: "session" };
 
 /**
  * The code as a person reads it. A controller's `interrupted` is "Put in
  * manual" (by a command that interrupts, or by a stop; its details are
- * `{was, by}` and its message names who), not a program's "Interrupted".
+ * `{was, reason}` from a stop, `{was, command}` from a command; its message names who), not a program's "Interrupted".
  */
-export function describeEvent(e: Pick<RigEvent, "scope" | "code">): string {
-  if (e.scope === "controller" && e.code === "interrupted") return "Put in manual";
+export function describeEvent(e: Pick<RigEvent, "subject_kind" | "code">): string {
+  if (e.subject_kind === "controller" && e.code === "interrupted") return "Put in manual";
   return describeEventCode(e.code);
 }
 
 /** An event's identity, stable across the seed/live boundary: used to key rows, track expansion and track read/unread (`useUnreadEvents`). */
-export const eventKey = (e: RigEvent) => `${e.time_ns}:${e.scope}:${e.subject}:${e.code}:${e.edge ?? ""}`;
+export const eventKey = (e: RigEvent) => `${e.time_ns}:${e.subject_kind}:${e.subject}:${e.code}:${e.edge ?? ""}`;
 
 /**
- * The rig's events as a table, newest first: time, severity, scope·subject,
+ * The rig's events as a table, newest first: time, severity, kind·subject,
  * code, message; click a row for its details. A condition's start and end
  * are marked `raised` and `cleared after <how long>` beside the code. The severity and text filters
  * are view state and live here. Pure; `useEvents` supplies the events.
@@ -83,7 +83,7 @@ export function EventsPanel({ events, severities: initialSeverities, onSelect, c
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i]!;
       if (!severities.has(e.severity)) continue;
-      if (needle && !`${e.scope} ${e.subject} ${e.code} ${e.edge ?? ""} ${e.message}`.toLowerCase().includes(needle)) continue;
+      if (needle && !`${e.subject_kind} ${e.subject} ${e.code} ${e.edge ?? ""} ${e.message}`.toLowerCase().includes(needle)) continue;
       out.push(e);
     }
     return out;
@@ -138,7 +138,7 @@ export function EventsPanel({ events, severities: initialSeverities, onSelect, c
             <tr>
               <th>time</th>
               <th>severity</th>
-              <th>scope</th>
+              <th>subject</th>
               <th>code</th>
               <th>message</th>
             </tr>
@@ -173,10 +173,10 @@ export function EventsPanel({ events, severities: initialSeverities, onSelect, c
                       <span aria-hidden="true">{e.code === "band_unknown" ? "?" : SEVERITY_ICON[e.severity]}</span> {e.severity}
                     </span>
                   </td>
-                  <td className="fb-event-scope" onClick={(ev) => ev.stopPropagation()}>
-                    {e.scope}
+                  <td className="fb-event-subject" onClick={(ev) => ev.stopPropagation()}>
+                    {e.subject_kind}
                     <span className="fb-muted">·</span>
-                    {SCOPE_KINDS[e.scope] ? <Ref kind={SCOPE_KINDS[e.scope]!} name={e.subject} /> : describeSubject(e.subject)}
+                    {SUBJECT_PAGES[e.subject_kind] ? <Ref kind={SUBJECT_PAGES[e.subject_kind]!} name={e.subject} /> : describeSubject(e.subject)}
                   </td>
                   <td className="fb-event-code" title={e.edge ? `${e.code} ${e.edge}` : e.code}>
                     {describeEvent(e)}

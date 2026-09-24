@@ -137,9 +137,9 @@ CREATE TABLE event (
     id          INTEGER PRIMARY KEY,
     session_id  INTEGER NOT NULL REFERENCES session(id) ON DELETE CASCADE,
     offset_ns   INTEGER NOT NULL,           -- offset from session.start_ns
-    source      TEXT,                       -- source or loop name; NULL for rig-level
+    subject     TEXT,                       -- what it is about: a device, a signal, a controller
     kind        TEXT    NOT NULL,           -- "read-failed", "retune", "flag", ...
-    detail      TEXT                        -- JSON or plain text
+    details     TEXT                        -- JSON or plain text
 );
 CREATE INDEX event_by_time ON event (session_id, offset_ns);
 

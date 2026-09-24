@@ -31,6 +31,7 @@ from dataclasses import asdict, dataclass
 from threading import Lock
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import Device, Signal
 from flyball.foundation.device.values import Values
 
@@ -57,7 +58,7 @@ def fault_cause(controller: str) -> str:
 class Subject:
     """What a latch holds: its kind and its name (a device's, a signal's address, ...)."""
 
-    scope: Kind
+    subject_kind: Kind
     subject: str
 
 
@@ -67,31 +68,32 @@ class Latch:
 
     cause: str
     subjects: tuple[Subject, ...]
-    by: str
-    """Who: the principal's `sub` for a stop, `on_fault` for a fault action."""
+    actor: Actor
+    """Who: the person or agent for a stop; the controller for a fault action."""
     at_ns: int
     """Wall-clock time it was set, ns since the epoch."""
     reason: str = ""
     action: str = ""
     """For a fault: the action that set it (`manual`, `stop`, `stop_device`)."""
 
-    def holds(self, scope: Kind, subject: str) -> bool:
-        return Subject(scope, subject) in self.subjects
+    def holds(self, subject_kind: Kind, subject: str) -> bool:
+        return Subject(subject_kind, subject) in self.subjects
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "cause": self.cause,
             "subjects": [asdict(s) for s in self.subjects],
-            "by": self.by,
+            "actor": self.actor.as_dict(),
             "at_ns": self.at_ns,
             "reason": self.reason,
             "action": self.action,
         }
 
     def rows(self) -> list[dict[str, str]]:
-        """`[{scope, subject, cause}]`: one per subject, as health lists them."""
+        """`[{subject_kind, subject, cause}]`: one per subject, as health lists them."""
         return [
-            {"scope": s.scope, "subject": s.subject, "cause": self.cause} for s in self.subjects
+            {"subject_kind": s.subject_kind, "subject": s.subject, "cause": self.cause}
+            for s in self.subjects
         ]
 
     def said(self) -> str:
@@ -99,7 +101,7 @@ class Latch:
         at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.at_ns / 1e9))
         what = "stopped" if self.cause == RIG_STOP else f"latched by {self.cause} ({self.action})"
         why = f": {self.reason}" if self.reason else ""
-        return f"{what} by {self.by} at {at}{why}"
+        return f"{what} by {self.actor.principal} at {at}{why}"
 
 
 class Latches:
@@ -172,7 +174,9 @@ class Latches:
 
     def signals_held(self, device: Device) -> set[Signal]:
         """`device`'s signals a signal latch holds (the device itself not held whole)."""
-        held = {s.subject for latch in self.all() for s in latch.subjects if s.scope == "signal"}
+        held = {
+            s.subject for latch in self.all() for s in latch.subjects if s.subject_kind == "signal"
+        }
         return {signal for signal in device.signals.values() if signal.address in held}
 
     # endregion
@@ -228,9 +232,9 @@ class Latches:
             latch = Latch(
                 cause=row.cause,
                 subjects=tuple(
-                    Subject(cast("Kind", s["scope"]), s["subject"]) for s in row.subjects
+                    Subject(cast("Kind", s["subject_kind"]), s["subject"]) for s in row.subjects
                 ),
-                by=row.by,
+                actor=row.actor,
                 at_ns=row.at_ns,
                 reason=row.reason,
                 action=row.action,
@@ -248,7 +252,7 @@ class Latches:
                 LatchRow(
                     cause=latch.cause,
                     subjects=[asdict(s) for s in latch.subjects],
-                    by=latch.by,
+                    actor=latch.actor,
                     at_ns=latch.at_ns,
                     reason=latch.reason,
                     action=latch.action,
@@ -279,7 +283,7 @@ def stoppable(device: Device) -> bool:
 
 
 def subjects(items: Iterable[tuple[Kind, str]]) -> tuple[Subject, ...]:
-    return tuple(Subject(scope, name) for scope, name in items)
+    return tuple(Subject(subject_kind, name) for subject_kind, name in items)
 
 
 __all__ = ["RIG_STOP", "Latch", "Latches", "Subject", "fault_cause", "stoppable", "subjects"]

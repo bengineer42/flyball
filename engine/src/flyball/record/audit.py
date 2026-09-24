@@ -1,7 +1,8 @@
 """The runner's action audit: who did what to the rig, kept apart from the recordings.
 
-An [Action][flyball.record.audit.Action] is one thing someone asked the rig to do: the
-verified principal (`sub`, `sid`, `kind`, `via`, `cip`), the method and route, the status
+An [Action][flyball.record.audit.Action] is one thing someone asked the rig to do: its
+`actor` (the verified principal, `sid`, `kind`, `via`), the client's `cip`, the method and
+route, the status
 and its outcome, the request id and, for a demand, each signal's old, requested and applied
 value. The rows go in the `audit` table (migration 0012): wall time, not the rig's clock;
 no session, so retention and deleting a session never reach it; append-only, the store
@@ -26,6 +27,8 @@ import secrets
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Final, Literal
+
+from flyball.foundation.actor import Actor
 
 from .sqlite import SqliteStore
 from .store import Store
@@ -59,11 +62,8 @@ class Action:
 
     time_ns: int
     """Wall-clock time it was asked for, ns since the epoch (not the rig's clock)."""
-    sub: str
-    sid: str
-    kind: str
-    via: str
-    """`http`, `mcp` (a tool's own call) or `signal` (the break-glass)."""
+    actor: Actor
+    """Who: `via` is `http`, `mcp` (a tool's own call) or `signal` (the break-glass)."""
     cip: str
     """The client's address as the front (or, bare, the runner) saw it; empty when unknown."""
     method: str
@@ -81,7 +81,7 @@ class Action:
     request_id: str = ""
     writes: Mapping[str, Write] | None = None
     """For a demand, by signal address."""
-    detail: Mapping[str, Any] | None = None
+    details: Mapping[str, Any] | None = None
     """Anything more: a stop's reason."""
 
     def as_dict(self) -> dict[str, Any]:
@@ -103,7 +103,7 @@ _COLUMNS: Final = (
     "time_ns",
     "boot",
     "seq",
-    "sub",
+    "principal",
     "name",
     "sid",
     "kind",
@@ -117,8 +117,11 @@ _COLUMNS: Final = (
     "outcome",
     "request_id",
     "writes",
-    "detail",
+    "details",
 )
+
+_NOT_FLAT: Final = ("principal", "sid", "kind", "via", "writes", "details")
+"""The columns an `AuditRow` does not take as they are: its actor's, and the JSON ones."""
 
 
 def _dumps(value: Any) -> str | None:
@@ -140,11 +143,11 @@ def append(store: Store, actions: Sequence[tuple[str, int, Action]]) -> None:
             a.time_ns,
             boot,
             seq,
-            a.sub,
+            a.actor.principal,
             a.name,
-            a.sid,
-            a.kind,
-            a.via,
+            a.actor.sid,
+            a.actor.kind,
+            a.actor.via,
             a.cip,
             a.scheme,
             a.method,
@@ -154,7 +157,7 @@ def append(store: Store, actions: Sequence[tuple[str, int, Action]]) -> None:
             a.outcome,
             a.request_id,
             _dumps(a.writes),
-            _dumps(a.detail),
+            _dumps(a.details),
         )
         for boot, seq, a in actions
     ]
@@ -173,9 +176,10 @@ def actions(store: Store, *, after: int = 0, limit: int | None = None) -> list[A
     )
     return [
         AuditRow(
-            **{c: r[c] for c in _COLUMNS if c not in ("writes", "detail")},
+            **{c: r[c] for c in _COLUMNS if c not in _NOT_FLAT},
+            actor=Actor(principal=r["principal"], kind=r["kind"], via=r["via"], sid=r["sid"]),
             writes=None if r["writes"] is None else json.loads(r["writes"]),
-            detail=None if r["detail"] is None else json.loads(r["detail"]),
+            details=None if r["details"] is None else json.loads(r["details"]),
             id=r["id"],
         )
         for r in rows

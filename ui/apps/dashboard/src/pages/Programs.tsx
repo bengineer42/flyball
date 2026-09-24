@@ -134,7 +134,7 @@ export function ProgramStatus({ programmer, events, name, onCancel }: { programm
   const { canOperate } = useAuth();
   const p = programmer.data;
   const recent = events
-    .filter((e) => e.scope === "program" && (name === undefined || e.subject === name || e.subject.startsWith(`${name}[`)))
+    .filter((e) => e.subject_kind === "program" && (name === undefined || e.subject === name || e.subject.startsWith(`${name}[`)))
     .slice(-6)
     .reverse();
   const running = p?.running ?? false;

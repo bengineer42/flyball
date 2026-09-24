@@ -48,7 +48,7 @@ func endpointOf(t *testing.T, c *http.Client, url string, hdr h) string {
 // stopReport is POST /api/rig/stop's answer (§WP0-9).
 type stopReport struct {
 	Actor struct {
-		Sub, Sid, Kind, Via string
+		Principal, Sid, Kind, Via string
 	} `json:"actor"`
 	Reason             string                     `json:"reason"`
 	Devices            map[string]json.RawMessage `json:"devices"`
@@ -277,15 +277,15 @@ func TestRunLocal(t *testing.T) {
 		var rep stopReport
 		r.json(t, &rep)
 		// The oven's heater is a setpoint port: it declares no off, so the stop keeps it.
-		if rep.Interim || !rep.Latched || !rep.ProgramInterrupted || rep.Actor.Sub != "local:console" || rep.Actor.Via != "http" ||
+		if rep.Interim || !rep.Latched || !rep.ProgramInterrupted || rep.Actor.Principal != "local:console" || rep.Actor.Via != "http" ||
 			len(rep.ControllersManual) == 0 || !strings.Contains(string(rep.Devices["heater"]), `"state":"unchanged"`) ||
 			!strings.Contains(string(rep.Devices["heater"]), "no stop declared") {
 			t.Fatalf("report: %s", r.Body)
 		}
 		fr.waitOutput(`software stop by local:console via http \(e2e-http\)`, 5*time.Second)
-		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "local:console", "via": "http",
-			"status": "200", "detail": "e2e-http"})
-		for _, sql := range []string{"update audit set sub = 'x'", "delete from audit"} {
+		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "principal": "local:console", "via": "http",
+			"status": "200", "details": "e2e-http"})
+		for _, sql := range []string{"update audit set principal = 'x'", "delete from audit"} {
 			out, err := execPython(store, sql)
 			if err == nil || !strings.Contains(out, "append-only") {
 				t.Errorf("%s: %v %s, want refused (append-only)", sql, err, out)
@@ -306,7 +306,7 @@ func TestRunLocal(t *testing.T) {
 		if code != 0 || !strings.Contains(out, "software stop: e2e-cli by local:console") || !strings.Contains(out, "program interrupted") {
 			t.Fatalf("flyball stop: %d\n%s%s", code, out, errOut)
 		}
-		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "local:console", "detail": "e2e-cli"})
+		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "principal": "local:console", "details": "e2e-cli"})
 		// The runner's access log drops query strings (it shows `?…`).
 		if strings.Contains(fr.output(), "interrupt=true") {
 			t.Error("a query string is in the runner's access log")
@@ -355,7 +355,7 @@ func TestRunLocal(t *testing.T) {
 		// dead front would have drained; with the front gone, nobody
 		// reads it, so the break-glass report is confirmed from the
 		// audit trail, not from `fr`'s own (already-dead) output.
-		waitAudit(t, store, map[string]string{"method": "SIGNAL", "route": "SIGUSR1", "sub": "local:signal", "via": "signal", "outcome": "done"})
+		waitAudit(t, store, map[string]string{"method": "SIGNAL", "route": "SIGUSR1", "principal": "local:signal", "via": "signal", "outcome": "done"})
 		time.Sleep(time.Second)
 		if !alive(pid) {
 			t.Fatal("SIGUSR1 ended the runner; it must stop the rig, not the process")
@@ -461,7 +461,7 @@ func TestRunPassword(t *testing.T) {
 		if r := do(t, hc, "POST", base+"/api/programs/cancel", "", cat(same, cookie())); r.Status != 200 {
 			t.Fatalf("interrupt with the session: %v", r)
 		}
-		row := waitAudit(t, store, map[string]string{"route": "/api/programs/cancel", "sub": "local:admin", "status": "200"})
+		row := waitAudit(t, store, map[string]string{"route": "/api/programs/cancel", "principal": "local:admin", "status": "200"})
 		if sid := row.s("sid"); sid == "" || strings.Contains(ck.Value, sid) || strings.Contains(sid, ck.Value) {
 			t.Fatalf("the audit's sid %q and the cookie %q are related", sid, ck.Value)
 		}
@@ -507,7 +507,7 @@ func TestRunPassword(t *testing.T) {
 		if r.Status != 403 || !strings.Contains(string(r.Body), `"needed":"operate"`) {
 			t.Fatalf("stop with a read token: %v, want 403 needing operate", r)
 		}
-		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "token:e2e-read", "status": "403", "outcome": "denied"})
+		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "principal": "token:e2e-read", "status": "403", "outcome": "denied"})
 		if r := do(t, hc, "GET", base+"/api/auth/tokens", "", bearer(readTok)); r.Status != 403 {
 			t.Fatalf("token routes with a token: %v, want 403", r)
 		}
@@ -534,7 +534,7 @@ func TestRunPassword(t *testing.T) {
 		if st := up.initialize(); st != 403 {
 			t.Fatalf("/mcp/operate with a read token: %d, want 403", st)
 		}
-		waitAudit(t, store, map[string]string{"route": "/mcp/operate", "sub": "token:e2e-read", "outcome": "denied"})
+		waitAudit(t, store, map[string]string{"route": "/mcp/operate", "principal": "token:e2e-read", "outcome": "denied"})
 
 		op := &mcp{t: t, url: base + "/mcp/operate", hdr: bearer(opTok)}
 		if st := op.initialize(); st != 200 {
@@ -548,8 +548,8 @@ func TestRunPassword(t *testing.T) {
 			t.Fatalf("stop_rig: %s", text)
 		}
 		// The tool's inner call carries the caller, re-minted, via mcp.
-		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "token:e2e-op", "via": "mcp",
-			"status": "200", "detail": "e2e-mcp"})
+		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "principal": "token:e2e-op", "via": "mcp",
+			"status": "200", "details": "e2e-mcp"})
 	})
 
 	t.Run("token revoked: its websocket closes 4401 within 1 s", func(t *testing.T) {
@@ -581,7 +581,7 @@ func TestRunPassword(t *testing.T) {
 	t.Run("revoking a principal leaves the program running", func(t *testing.T) {
 		reset(t, hc, base, cat(same, cookie())) // a token may not reset: a person does
 		startProgram(t, hc, base, bearer(opTok))
-		waitAudit(t, store, map[string]string{"route": "/api/programs/run", "sub": "token:e2e-op", "status": "200"})
+		waitAudit(t, store, map[string]string{"route": "/api/programs/run", "principal": "token:e2e-op", "status": "200"})
 		before := do(t, hc, "GET", base+"/api/programs/running", "", nil)
 		if r := do(t, hc, "DELETE", base+"/api/auth/tokens/"+opID, "", cat(same, cookie())); r.Status != 204 {
 			t.Fatalf("revoke: %v", r)
@@ -609,7 +609,7 @@ func TestRunPassword(t *testing.T) {
 		if code != 0 || !strings.Contains(out, "software stop: e2e-token by token:cli-op") || !strings.Contains(out, "program interrupted") {
 			t.Fatalf("flyball stop with a token: %d\n%s%s", code, out, errOut)
 		}
-		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": "token:cli-op", "kind": "service", "detail": "e2e-token"})
+		waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "principal": "token:cli-op", "kind": "service", "details": "e2e-token"})
 
 		w, res := dialWS(t, tcpDial(addr), addr, "/ws/samples", bearer(secret))
 		if res.StatusCode != 101 {
@@ -885,7 +885,7 @@ func TestRunProxy(t *testing.T) {
 	if r := do(t, hc, "POST", px+"/api/rig/stop", `{"reason":"e2e-proxy"}`, cat(as("ben"), origin(px))); r.Status != 200 {
 		t.Fatalf("ben stops: %v", r)
 	}
-	waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "sub": ben.User.ID, "detail": "e2e-proxy"})
+	waitAudit(t, store, map[string]string{"route": "/api/rig/stop", "principal": ben.User.ID, "details": "e2e-proxy"})
 	// The email is display only: it never names the subject, and a grant
 	// listing an email grants nothing through it.
 	if info := authInfo(t, hc, px, h{"X-Test-Email", "ben@lab.example"}); info.Scheme != "anonymous" {

@@ -1599,7 +1599,7 @@
             },
             "type": "array"
           },
-          "description": "A role (names pending D-034) -> subjects and `group:<id>`s.",
+          "description": "A grant (names pending D-034) -> subjects and `group:<id>`s.",
           "title": "Grants",
           "type": "object"
         },

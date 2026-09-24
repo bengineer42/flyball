@@ -76,8 +76,8 @@ reading; nothing is copied onto the device:
 | `value` | the constant, or the source's value; raises `NotReadyError` while `pending` (unbound, or nothing read yet) and `NoValueError` while the source's reading has none -- its `no_value` is the source's, quality and reason |
 | `quality`, `reason`, `at_limit` | the source's now (`pending` before its first reading; a constant is `ok`) |
 | `age_s(now_ns=None)` | seconds since the rig received the source's newest reading with a value, on the rig's clock |
-| `state()` | all of it in one call: an `InputState` of value, quality, reason, `at_limit`, age, source address or constant, unit |
-| `source`, `signal`, `constant`, `address`, `unit` | what it follows |
+| `state()` | all of it in one call: an `InputState` of value, quality, reason, `at_limit`, age, `follows` (the address) or `constant`, unit |
+| `follows`, `signal`, `constant`, `address`, `unit` | what it follows |
 | `watch(callback)` | a callback on each new reading of the source (a change of quality always arrives as one), on the delivery thread under the rig's lock; returns the detach |
 
 An input has **no default**: a rig file gives every declared input an
@@ -274,7 +274,7 @@ slow, a sensor failed, a controller held. It is not a signal. It lives in
 the rig's condition store, `rig.conditions`, keyed by the object it is
 true of -- a `Device`, a `Signal`, a `Controller`, or the rig itself --
 and its `code`, and it carries a `severity` (`debug`, `info`, `warning`,
-`error`), a message, `since_ns`, and its owner's `scope` and `subject`.
+`error`), a message, `since_ns`, and its owner's `subject_kind` and `subject`.
 Keyed by the object, not a name: a device removed and another added under
 the same name start clean, and removing a device (or detaching a
 controller) clears what it held.

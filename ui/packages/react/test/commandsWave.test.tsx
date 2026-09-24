@@ -119,7 +119,7 @@ describe("WritePanel refusal", () => {
 
 describe("describeEvent", () => {
   it("a controller's interrupted is 'Put in manual'; a program's stays 'Interrupted'", () => {
-    expect(describeEvent({ scope: "controller", code: "interrupted" })).toBe("Put in manual");
-    expect(describeEvent({ scope: "program", code: "interrupted" })).toBe("Interrupted");
+    expect(describeEvent({ subject_kind: "controller", code: "interrupted" })).toBe("Put in manual");
+    expect(describeEvent({ subject_kind: "program", code: "interrupted" })).toBe("Interrupted");
   });
 });

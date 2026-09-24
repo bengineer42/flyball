@@ -22,7 +22,8 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from flyball.foundation.device import Code, Sample, Scope, Severity, Signal
+from flyball.foundation.actor import Actor
+from flyball.foundation.device import Code, Sample, Severity, Signal, SubjectKind
 from flyball.foundation.device.values import Values
 
 if TYPE_CHECKING:
@@ -44,7 +45,7 @@ class ValueSource:
     """`rig_file` (its `initial`), `restored` (kept from an earlier run), `written` (this run)."""
     initial: Any
     """The rig file's `initial` in force."""
-    writer: str | None = None
+    actor: Actor | None = None
     """Who wrote the value in force, for `restored` and `written`; None when not known."""
     written_ns: int | None = None
     """When it was written, wall time in ns since the epoch."""
@@ -113,7 +114,7 @@ class LiveValues:
                 signal,
                 Code.VALUE_NOT_RESTORED,
                 Severity.WARNING,
-                f"{row.value!r} {row.unit or ''} was written by {row.writer or 'someone'}, but"
+                f"{row.value!r} {row.unit or ''} was written by {_who(row.actor)}, but"
                 f" the unit is now {unit or 'none'}: the rig file's {initial!r} is in force",
                 {"value": row.value, "unit": row.unit, "now": unit},
             )
@@ -128,19 +129,19 @@ class LiveValues:
                 "%s: kept value %r is not a finite number: not restored", signal.address, value
             )
             return
-        self._sources[signal] = ValueSource("restored", initial, row.writer, row.written_ns)
+        self._sources[signal] = ValueSource("restored", initial, row.actor, row.written_ns)
         now = self._rig.clock.now_ns()
         self._rig.on_samples([Sample(signal.node, now, {signal: float(value)})])
         self._rig.event(
             Severity.INFO,
-            Scope.SIGNAL,
+            SubjectKind.SIGNAL,
             signal.address,
             Code.VALUE_RESTORED,
-            f"restored {value:g}, written by {row.writer or 'someone'}",
-            {"value": value, "writer": row.writer, "written_ns": row.written_ns},
+            f"restored {value:g}, written by {_who(row.actor)}",
+            {"value": value, "actor": _dict(row.actor), "written_ns": row.written_ns},
         )
 
-    def written(self, signal: Signal, value: float | None, was: Any, writer: str | None) -> None:
+    def written(self, signal: Signal, value: float | None, was: Any, actor: Actor | None) -> None:
         """A write of values signal `signal` committed `value`: log it, keep it, note its source.
 
         Under the rig's lock, in the commit. A store that fails is logged, not raised: the
@@ -151,17 +152,17 @@ class LiveValues:
             return
         now = time.time_ns()
         initial = device.initial(str(signal.path))
-        self._sources[signal] = ValueSource("written", initial, writer, now)
+        self._sources[signal] = ValueSource("written", initial, actor, now)
         self._rig.conditions.clear(signal, Code.VALUE_NOT_RESTORED, message="written again")
         unit = signal.unit.symbol or None
         self._rig.event(
             Severity.INFO,
-            Scope.SIGNAL,
+            SubjectKind.SIGNAL,
             signal.address,
             Code.VALUE_WRITTEN,
-            f"set to {value:g}{' ' + unit if unit else ''} by {writer or 'someone'}"
+            f"set to {value:g}{' ' + unit if unit else ''} by {_who(actor)}"
             + ("" if was is None else f" (was {was:g})"),
-            {"value": value, "was": was, "writer": writer},
+            {"value": value, "was": was, "actor": _dict(actor)},
         )
         if (store := self.store) is None:
             return
@@ -177,7 +178,7 @@ class LiveValues:
                     value=value,
                     unit=unit,
                     initial=initial,
-                    writer=writer,
+                    actor=actor,
                     written_ns=now,
                     head_version=None if head is None else head.id,
                 )
@@ -202,6 +203,14 @@ class _logged:
             log.exception("live values: %s failed", self.what, exc_info=error)
             return True
         return False
+
+
+def _who(actor: Actor | None) -> str:
+    return "someone" if actor is None else actor.principal
+
+
+def _dict(actor: Actor | None) -> dict[str, Any] | None:
+    return None if actor is None else actor.as_dict()
 
 
 __all__ = ["LiveValues", "ValueSource"]

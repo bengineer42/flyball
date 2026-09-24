@@ -9,11 +9,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
-from flyball.foundation import AddressNotFoundError, NotFoundError, Operator
+from flyball.foundation import Actor, AddressNotFoundError, NotFoundError, Operator
 from flyball.foundation.device import Access, Signal
 from flyball.rig import Rig
 
 from .step import Activity, Step
+
+PROGRAM = Actor(principal="program", kind="program", via="rig")
+"""Who a program's `set` writes as."""
 
 
 @dataclass(frozen=True)
@@ -27,7 +30,7 @@ class Set(Step, type="set"):
         node = rig.resolve(self.device)
         if isinstance(node, Signal):
             raise NotFoundError(f"'{self.device}' is a signal, not a device or namespace")
-        rig.write(node, {**self.values}, writer="program")
+        rig.write(node, {**self.values}, actor=PROGRAM)
         return None
 
     def missing(self, rig: Rig) -> list[str]:

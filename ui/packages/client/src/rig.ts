@@ -383,12 +383,12 @@ export class RigClient {
   }
 
   /** Ask the runner to stop (409 unless it allows it). */
-  shutdownRunner(): Promise<{ detail: string }> {
+  shutdownRunner(): Promise<{ message: string }> {
     return this.call({ method: "POST", path: "/api/runner/shutdown" });
   }
 
   /** Ask the runner to restart in place: the same command, the rig rebuilt; sockets drop for a few seconds. */
-  restartRunner(): Promise<{ detail: string }> {
+  restartRunner(): Promise<{ message: string }> {
     return this.call({ method: "POST", path: "/api/runner/restart" });
   }
 

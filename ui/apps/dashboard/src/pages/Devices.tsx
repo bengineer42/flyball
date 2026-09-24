@@ -527,7 +527,7 @@ export function InputsLine({ inputs }: { inputs: Record<string, InputOut> }) {
 /** Where a `values` device's value came from, as the page says it. */
 export function describeValueSource(source: ValueSourceOut): string {
   if (source.origin === "rig_file") return "rig file";
-  const who = source.writer ?? "someone";
+  const who = source.actor?.principal ?? "someone";
   const when = source.written_ns !== null ? ` at ${new Date(source.written_ns / 1e6).toLocaleString()}` : "";
   return source.origin === "restored" ? `restored, written by ${who}${when}` : `written by ${who}${when}`;
 }

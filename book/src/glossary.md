@@ -9,6 +9,12 @@ rig file may widen it instead. `P` implies `R`.
 on, that knows how to attach itself to the rig (a **prompt**, a **settle**
 test, a timed **wait**, a ramp's end).
 
+**actor** — who did something, on every record of an action (a stop, a
+latch, a write, the audit): `{principal, kind, via}`, plus the login
+(`sid`) and a `message`. The **principal**'s id for a caller; the rig's own
+(`program`, a controller, `stop`) with `via: rig`. `user` names only auth's
+account record.
+
 **address** — a signal's or node's path: `device[.namespace…].signal`; no
 dots inside a segment.
 
@@ -91,7 +97,7 @@ equivalent of the program step **wait**.
 
 **event** — something that *happened*: a step failed, a device went
 offline, an activity timed out. A point in time with a `code`, a `severity`
-(`debug`, `info`, `warning`, `error`), a scope, a subject and, for a
+(`debug`, `info`, `warning`, `error`), a subject and its kind (`subject_kind`) and, for a
 condition's start or end, an **edge**; streamed on `/ws/events` and written to the session when
 recording.
 

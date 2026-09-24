@@ -166,7 +166,7 @@ migration `tick.reading`/`tick.demand` became `measured`/`output` and
 `controller.source` became `measured`. A session's `config` keeps the
 spelling it was recorded with: it is never loaded again. Migration 0019
 renamed `event.kind` to `code` and rewrote the severity each event's JSON
-`detail` carries from `logging`'s number (`level`: 10-40) to the lowercase
+`details` carries from `logging`'s number (`level`: 10-40) to the lowercase
 string the wire uses (`severity`: `debug`, `info`, `warning`, `error`).
 Migration 0020 added `event.edge`: `raised`, `cleared` or NULL for a point
 event. Codes the runtime raised as conditions before it had edges
@@ -175,7 +175,7 @@ event. Codes the runtime raised as conditions before it had edges
 `raised`; the codes that said one had ended became the `cleared` edge of
 their pair (`write_recovered`, `commit_recovered`, `step_recovered`,
 `limit_known`, and a device's `restarted`, which is `offline` cleared).
-The severity stays in the JSON `detail` as its string; the `edge` is a
+The severity stays in the JSON `details` as its string; the `edge` is a
 column, so a session's condition history is one indexed query.
 
 Migration 0021 made `reading.value` nullable and added `reading.flag`
@@ -219,7 +219,7 @@ written value a restart restores, keyed `(device, signal)`, with `kind`
 behind a config field, is reserved for live settings, C11), `value` and
 `initial` as JSON (a later setting may be a string, a bool or an enum
 member), `unit` (the symbol when it was written), `config_field` (a
-setting's; NULL for a value), `writer` (the principal's `sub`),
+setting's; NULL for a value), `actor` (who wrote it, JSON `{principal, kind, via, sid, message}`),
 `written_ns` (wall time) and `head_version` (the rig version in force). It
 does not depend on recording: the runner always opens the store. At start,
 `Rig.values.attach` restores a row while the rig file's `initial` still
@@ -237,8 +237,9 @@ no longer load.
 
 Migration 0025 added `latch`: one row per latch cause held -- the rig
 stop (`stop`) or a controller's `on_fault` action (`on_fault:<controller>`)
--- with `subjects` as JSON `[{scope, subject}]` (`rig`, `device`, `signal`,
-`controller`), `by` (the principal's `sub`, or `on_fault`), `at_ns` (wall
+-- with `subjects` as JSON `[{subject_kind, subject}]` (`rig`, `device`, `signal`,
+`controller`), `actor` (who set it, JSON `{principal, kind, via, sid, message}`: a stop's person or
+agent, a fault's controller), `at_ns` (wall
 time), `reason` and `action` (a fault's). A row is written when the latch
 is set and deleted by its Reset. At start, before serving,
 `Stopping.attach` restores every row and re-applies the stop it implies: a
@@ -260,13 +261,13 @@ when there is a store; what it does and in what order is
 
 The runner's action audit is migration 0012: the `audit` table, one row per
 action on the rig -- every request whose verb is not read, and every stop,
-the `SIGUSR1` break-glass included. A row is the verified principal (`sub`,
-`name`, `sid`, `kind`, `via`, `cip`, and `scheme`, how it got in), the
+the `SIGUSR1` break-glass included. A row is its actor, the verified principal
+(`principal`, `name`, `sid`, `kind`, `via`), its `cip`, and `scheme` (how it got in), the
 `method`, the `route` (its template) and `path`, the `status` and its
 `outcome` (`done`, `denied` by the door, `refused` by the rig, `failed`), the
 `request_id` (the front's `X-Request-Id`, or one the runner makes), and as
 JSON a demand's `writes` (`{address: {old, requested, applied}}`) and a
-stop's `detail` (its reason). It is in wall time (`time_ns`), not the rig's
+stop's `details` (its reason). It is in wall time (`time_ns`), not the rig's
 clock; it names no session, so retention and deleting a session never reach
 it; and triggers refuse any `UPDATE` or `DELETE` on it. `boot` is one runner
 process and `seq` counts its actions from 1.
@@ -282,7 +283,7 @@ refused: a request with no principal, a bad one or an anonymous one (the
 `anonymous` scheme, or the `anon:` subject the front gives a visitor with no
 credential) identifies no one and is not recorded, nor is a CORS preflight.
 An identified caller's `denied` rows are kept to `DENIED_PER_MINUTE` (10) a
-minute per `sub`, and a denied demand's `writes` to its first
+minute per `principal`, and a denied demand's `writes` to its first
 `DENIED_WRITES` (16) addresses; the log counts what was left out. The table
 is never trimmed, so a caller refused over and over adds little to it.
 

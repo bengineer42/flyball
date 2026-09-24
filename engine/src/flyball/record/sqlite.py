@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 from pydantic import SecretBytes, SecretStr
 from pydantic_core import to_jsonable_python
 
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import (
     Access,
     Bounds,
@@ -258,7 +259,7 @@ def _live_value_row(row: sqlite3.Row) -> LiveValueRow:
         value=_loads(row["value"]),
         unit=row["unit"],
         initial=_loads(row["initial"]),
-        writer=row["writer"],
+        actor=None if row["actor"] is None else Actor.from_dict(json.loads(row["actor"])),
         written_ns=row["written_ns"],
         config_field=row["config_field"],
         head_version=row["head_version"],
@@ -544,15 +545,15 @@ class SqliteSessionWriter:
         self._open()
         with self._store._transaction() as connection:
             cursor = connection.execute(
-                "INSERT INTO event (session_id, offset_ns, source, code, edge, detail)"
+                "INSERT INTO event (session_id, offset_ns, subject, code, edge, details)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     self._session.id,
                     event.offset_ns,
-                    event.source,
+                    event.subject,
                     event.code,
                     event.edge,
-                    _dumps(event.detail),
+                    _dumps(event.details),
                 ),
             )
             return int(cursor.lastrowid or 0)
@@ -1033,8 +1034,8 @@ class SqliteStore:
             (target_id, delta, *([target_id] if mapped else []), source.id, lo, hi),
         )
         connection.execute(
-            "INSERT INTO event (session_id, offset_ns, source, code, edge, detail)"
-            " SELECT ?, offset_ns + ?, source, code, edge, detail FROM event"
+            "INSERT INTO event (session_id, offset_ns, subject, code, edge, details)"
+            " SELECT ?, offset_ns + ?, subject, code, edge, details FROM event"
             " WHERE session_id = ? AND offset_ns >= ? AND offset_ns < ? ORDER BY offset_ns, id",
             (target_id, delta, source.id, lo, hi),
         )
@@ -1287,8 +1288,8 @@ class SqliteStore:
             Event(
                 r["offset_ns"] - shift,
                 r["code"],
-                r["source"],
-                _loads(r["detail"]),
+                r["subject"],
+                _loads(r["details"]),
                 r["id"],
                 r["edge"],
             )
@@ -1368,11 +1369,11 @@ class SqliteStore:
         with self._transaction() as connection:
             connection.execute(
                 "INSERT INTO live_value (device, signal, kind, value, unit, initial,"
-                " config_field, writer, written_ns, head_version)"
+                " config_field, actor, written_ns, head_version)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT (device, signal) DO UPDATE SET kind = excluded.kind,"
                 " value = excluded.value, unit = excluded.unit, initial = excluded.initial,"
-                " config_field = excluded.config_field, writer = excluded.writer,"
+                " config_field = excluded.config_field, actor = excluded.actor,"
                 " written_ns = excluded.written_ns, head_version = excluded.head_version",
                 (
                     row.device,
@@ -1382,7 +1383,7 @@ class SqliteStore:
                     row.unit,
                     _dumps(to_jsonable_python(row.initial)),
                     row.config_field,
-                    row.writer,
+                    None if row.actor is None else _dumps(row.actor.as_dict()),
                     row.written_ns,
                     row.head_version,
                 ),
@@ -1400,7 +1401,7 @@ class SqliteStore:
             LatchRow(
                 cause=r["cause"],
                 subjects=json.loads(r["subjects"]),
-                by=r["by"],
+                actor=Actor.from_dict(json.loads(r["actor"])),
                 at_ns=r["at_ns"],
                 reason=r["reason"],
                 action=r["action"],
@@ -1411,15 +1412,15 @@ class SqliteStore:
     def put_latch(self, row: LatchRow) -> None:
         with self._transaction() as connection:
             connection.execute(
-                "INSERT INTO latch (cause, subjects, by, at_ns, reason, action)"
+                "INSERT INTO latch (cause, subjects, actor, at_ns, reason, action)"
                 " VALUES (?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT (cause) DO UPDATE SET subjects = excluded.subjects,"
-                " by = excluded.by, at_ns = excluded.at_ns, reason = excluded.reason,"
+                " actor = excluded.actor, at_ns = excluded.at_ns, reason = excluded.reason,"
                 " action = excluded.action",
                 (
                     row.cause,
                     json.dumps(row.subjects, separators=(",", ":")),
-                    row.by,
+                    json.dumps(row.actor.as_dict(), separators=(",", ":")),
                     row.at_ns,
                     row.reason,
                     row.action,

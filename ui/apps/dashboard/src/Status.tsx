@@ -129,9 +129,9 @@ export const PausedChip = ({ playback }: { playback: PlaybackHook }) => {
   );
 };
 
-/** Where a condition's line in the chip's tooltip leads: the thing it is on, by its scope; the rig's own, to Events. */
-export function conditionHref(c: { scope: string; subject: string }): string {
-  switch (c.scope) {
+/** Where a condition's line in the chip's tooltip leads: the thing it is on, by its subject's kind; the rig's own, to Events. */
+export function conditionHref(c: { subject_kind: string; subject: string }): string {
+  switch (c.subject_kind) {
     case "device":
       return hrefFor({ kind: "device", name: c.subject }) ?? hashFor("events");
     case "signal":
@@ -170,7 +170,7 @@ export function Status({ recording, programmer, streams, byStream, eventsUnread 
   const health = useHealth(5000);
   const h = health.data;
 
-  // Every condition the rig holds at warning or above, on any scope: device faults, and the band
+  // Every condition the rig holds at warning or above, on any subject: device faults, and the band
   // alarms the rig raises on signals (`band_warning`/`band_alarm`). The rig decides; the chip counts.
   // `band_unknown` (a banded signal with no value because of a fault) is counted but never colours the
   // chip red: an indication, not an alarm (the rig's `max_level` ignores it too). Alone, it takes its own colour and icon.

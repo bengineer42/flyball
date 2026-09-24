@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from typing import Any, Literal
 
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import Bounds, Limit, NoValue, Quality, Reason
 from flyball.foundation.primitives import Labelled
 
@@ -120,12 +121,13 @@ class ControllerRow:
 class LatchRow:
     """A latch kept across restarts: a stop's or a fault action's, until a person resets it.
 
-    Keyed by `cause` (`stop`, `on_fault:<controller>`). `subjects` is `[{scope, subject}]`.
+    Keyed by `cause` (`stop`, `on_fault:<controller>`). `subjects` is `[{subject_kind, subject}]`.
     """
 
     cause: str
     subjects: list[dict[str, str]]
-    by: str
+    actor: Actor
+    """Who set it: a stop's person or agent, a fault action's controller."""
     at_ns: int
     """When it was set, wall time in ns since the epoch."""
     reason: str = ""
@@ -149,8 +151,8 @@ class LiveValueRow:
     """The unit symbol when it was written; None: unitless."""
     initial: Any
     """The rig file's value in force when it was written."""
-    writer: str | None
-    """Who wrote it: the principal's `sub`; None when not known."""
+    actor: Actor | None
+    """Who wrote it; None when not known."""
     written_ns: int
     """When, wall time in ns since the epoch."""
     config_field: str | None = None
@@ -372,8 +374,9 @@ class Event:
 
     offset_ns: int
     code: str
-    source: str | None = None
-    detail: Any = None
+    subject: str | None = None
+    """What it is about: a device, a signal, a controller, a program step, the rig."""
+    details: Any = None
     id: int | None = None
     edge: str | None = None
     """`raised` or `cleared` for a condition's start or end; None for a point event."""

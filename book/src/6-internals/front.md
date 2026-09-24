@@ -185,7 +185,7 @@ The vocabulary is a placeholder until D-034 is decided: two verbs, `read`
 /api/programs/check`) and `operate` (everything else, `POST /api/rig/stop`
 included). `/mcp/read` needs `read`; `/mcp/author` and `/mcp/operate` need
 `operate`. The same list is `daemon/internal/grants/vocabulary.json` on
-the Go side, with the roles `all` and `viewer` and the management scope
+the Go side, with the grants `all` and `viewer` (under `grants`) and the management scope
 `manage`; a test keeps the two equal. D-034 changes data here, not code.
 
 A scope is `<verb>:<rig>`, `<verb>:*`, a bare verb (every rig), or

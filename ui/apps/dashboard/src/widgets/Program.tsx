@@ -30,9 +30,9 @@ const ProgramWidget = memo(function ProgramWidget({ config, widget }: WidgetComp
   // Stays set (with the error) until the next run clears it, even once `running` goes false.
   const failed = p?.failed ?? false;
   const shown = Math.min(Math.max(0, Number(config.events ?? 5)), rowsThatFit(widget.h, rowHeight, true, HEAD_PX, ROW_PX));
-  const recent = events.filter((e) => e.scope === "program").slice(-shown).reverse();
+  const recent = events.filter((e) => e.subject_kind === "program").slice(-shown).reverse();
   // The programmer says step and command; the program's name is in the step events' subject (`anneal[4]`).
-  const latest = [...events].reverse().find((e) => e.scope === "program" && e.code === "step");
+  const latest = [...events].reverse().find((e) => e.subject_kind === "program" && e.code === "step");
   const name = latest ? latest.subject.replace(/\[\d+\]$/, "") : null;
   const cancel = () => {
     setBusy(true);

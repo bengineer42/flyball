@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from threading import RLock, Thread, current_thread
 from typing import TYPE_CHECKING, Any
 
-from flyball.foundation.device import Code, Scope, Severity
+from flyball.foundation.device import Code, Severity, SubjectKind
 from flyball.foundation.resource import Operator
 
 from .activities import Prompted
@@ -163,7 +163,7 @@ class Programmer:
         program = self.load(work)
         self.rig.event(
             Severity.INFO,
-            Scope.PROGRAM,
+            SubjectKind.PROGRAM,
             program.name or "program",
             Code.STARTED,
             f"{program.name or 'program'}: {len(program)} step{'s' if len(program) != 1 else ''}",
@@ -267,7 +267,7 @@ class Programmer:
         )
         self.rig.event(
             Severity.WARNING,
-            Scope.PROGRAM,
+            SubjectKind.PROGRAM,
             f"{name}[{step}]",
             Code.STEP_STILL_RUNNING,
             f"{step_type} had not returned {END_JOIN_S:g} s after the program ended: "
@@ -357,7 +357,7 @@ class Programmer:
             program = self._program
             self.rig.event(
                 Severity.WARNING,
-                Scope.PROGRAM,
+                SubjectKind.PROGRAM,
                 f"{program.name if program is not None and program.name else 'program'}"
                 f"[{self._step}]",
                 Code.STEP_TIMED_OUT,
@@ -395,7 +395,7 @@ class Programmer:
             program, step = self._program, self._step
         self.rig.event(
             Severity.INFO,
-            Scope.PROGRAM,
+            SubjectKind.PROGRAM,
             f"{program.name if program is not None and program.name else 'program'}[{step}]",
             Code.STEP,
             f"step {step + 1}/{len(program) if program is not None else '?'}: {command.type}",
@@ -426,7 +426,7 @@ class Programmer:
             self._error = failure
         self.rig.event(
             Severity.ERROR,
-            Scope.PROGRAM,
+            SubjectKind.PROGRAM,
             f"{program.name or 'program'}[{step}]",
             Code.STEP_FAILED,
             str(failure),
@@ -468,7 +468,7 @@ class Programmer:
             details["reason"] = reason
         self.rig.event(
             Severity.ERROR if error is not None else Severity.INFO,
-            Scope.PROGRAM,
+            SubjectKind.PROGRAM,
             program.name or "program",
             outcome,
             message,

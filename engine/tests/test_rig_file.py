@@ -430,7 +430,7 @@ class TestBuild:
         assert controller.output_signal is target
         assert controller.measured_signal is rig.resolve("hum_sensors.chamber.humidity")
         dry = rig.resolve("hum_sensors.dry.humidity")
-        assert rig.devices["blender"].bound["dry"].source is dry
+        assert rig.devices["blender"].bound["dry"].follows is dry
 
     def test_build_refuses_a_controller_on_an_unknown_address(self, daq_tag):
         document = {

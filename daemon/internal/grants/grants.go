@@ -1,5 +1,5 @@
 // Package grants is the front's side of the verb vocabulary: which verbs
-// exist, which verbs a role bundles, how a stored scope names verbs on a
+// exist, which verbs a grant bundles, how a stored scope names verbs on a
 // rig, and what a proxy-asserted identity is granted.
 //
 // The vocabulary is pending D-034 (brain design auth.md § Permissions).
@@ -30,7 +30,7 @@ type Vocabulary struct {
 	Version    int                 `json:"version"`
 	Pending    string              `json:"pending"`
 	Vocabulary []string            `json:"vocabulary"`
-	Roles      map[string][]string `json:"roles"`
+	Grants     map[string][]string `json:"grants"`
 	Management string              `json:"management"`
 }
 
@@ -41,17 +41,17 @@ const Read = "read"
 // AllRigs is the rig part of a scope that covers every rig.
 const AllRigs = "*"
 
-// AllRole is the role that bundles every verb: the admin password, the
+// AllGrant is the grant that bundles every verb: the admin password, the
 // local shape, and CLI-issued tokens' issuer.
-const AllRole = "all"
+const AllGrant = "all"
 
 var vocab = func() Vocabulary {
 	var v Vocabulary
 	if err := json.Unmarshal(vocabularyJSON, &v); err != nil {
 		panic("grants: vocabulary.json: " + err.Error())
 	}
-	if v.Version != 1 || v.Management == "" || !slices.Contains(v.Vocabulary, Read) || len(v.Roles[AllRole]) == 0 {
-		panic("grants: vocabulary.json lacks version 1, management, the read verb or the all role")
+	if v.Version != 1 || v.Management == "" || !slices.Contains(v.Vocabulary, Read) || len(v.Grants[AllGrant]) == 0 {
+		panic("grants: vocabulary.json lacks version 1, management, the read verb or the all grant")
 	}
 	slices.Sort(v.Vocabulary)
 	return v
@@ -61,9 +61,9 @@ var vocab = func() Vocabulary {
 func Vocab() Vocabulary {
 	v := vocab
 	v.Vocabulary = slices.Clone(v.Vocabulary)
-	v.Roles = make(map[string][]string, len(vocab.Roles))
-	for role, verbs := range vocab.Roles {
-		v.Roles[role] = slices.Clone(verbs)
+	v.Grants = make(map[string][]string, len(vocab.Grants))
+	for name, verbs := range vocab.Grants {
+		v.Grants[name] = slices.Clone(verbs)
 	}
 	return v
 }
@@ -77,10 +77,10 @@ func Management() string { return vocab.Management }
 // IsVerb reports whether v is in the vocabulary.
 func IsVerb(v string) bool { return slices.Contains(vocab.Vocabulary, v) }
 
-// Expand is the verbs role bundles, sorted; nil for a role the vocabulary
-// does not name.
-func Expand(role string) []string {
-	verbs, ok := vocab.Roles[role]
+// Expand is the verbs the grant named name bundles, sorted; nil for a grant the
+// vocabulary does not name.
+func Expand(name string) []string {
+	verbs, ok := vocab.Grants[name]
 	if !ok {
 		return nil
 	}
@@ -204,13 +204,13 @@ func Normalize(s []string) []string {
 const GroupPrefix = "group:"
 
 // Match is what a proxy-authenticated identity is granted, as scopes over
-// every rig: the union of the roles whose entries name its subject or, as
+// every rig: the union of the grants whose entries name its subject or, as
 // `group:<id>`, one of its groups; `read` on every rig when none does. The
-// map is `proxy.grants` (role -> entries). A role the vocabulary does not
-// name grants nothing (UnknownRoles reports those at startup).
+// map is `proxy.grants` (grant name -> entries). A grant the vocabulary does
+// not name grants nothing (UnknownGrants reports those at startup).
 func Match(grants map[string][]string, subject string, groups []string) []string {
 	var verbs []string
-	for role, entries := range grants {
+	for name, entries := range grants {
 		for _, e := range entries {
 			hit := false
 			if g, isGroup := strings.CutPrefix(e, GroupPrefix); isGroup {
@@ -219,7 +219,7 @@ func Match(grants map[string][]string, subject string, groups []string) []string
 				hit = e == subject
 			}
 			if hit {
-				verbs = append(verbs, Expand(role)...)
+				verbs = append(verbs, Expand(name)...)
 				break
 			}
 		}
@@ -230,12 +230,12 @@ func Match(grants map[string][]string, subject string, groups []string) []string
 	return Scopes(verbs, AllRigs)
 }
 
-// UnknownRoles is the roles in grants the vocabulary does not name, sorted.
-func UnknownRoles(grants map[string][]string) []string {
+// UnknownGrants is the grant names in grants the vocabulary does not name, sorted.
+func UnknownGrants(grants map[string][]string) []string {
 	var out []string
-	for role := range grants {
-		if _, ok := vocab.Roles[role]; !ok {
-			out = append(out, role)
+	for name := range grants {
+		if _, ok := vocab.Grants[name]; !ok {
+			out = append(out, name)
 		}
 	}
 	slices.Sort(out)

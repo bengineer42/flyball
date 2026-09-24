@@ -77,7 +77,7 @@ export function generateOverview(bindings: Bindings, rig: string): DashboardDocu
 
   const programY = y;
   widgets.push({ id: "program", type: "program", label: null, x: 0, y: programY, w: 8, h: 6, config: { events: 5, cancel: true } });
-  widgets.push({ id: "events", type: "events", label: null, x: 8, y: programY, w: 12, h: 6, config: { level: "INFO", limit: 20, scope: "" } });
+  widgets.push({ id: "events", type: "events", label: null, x: 8, y: programY, w: 12, h: 6, config: { severity: "info", limit: 20, subject_kind: "" } });
   y += 6;
 
   return { schema_version: SCHEMA_VERSION, name: GENERATED_NAME, rig, description: "Made from the rig's devices: everything it has, in the order it declares it.", grid: { ...DEFAULT_GRID }, widgets };

@@ -28,7 +28,7 @@ class Severity(StrEnum):
 _RANKS = {Severity.DEBUG: 10, Severity.INFO: 20, Severity.WARNING: 30, Severity.ERROR: 40}
 
 
-class Scope(StrEnum):
+class SubjectKind(StrEnum):
     """Which part of the rig an event or a condition concerns; its `subject` names which one."""
 
     DEVICE = "device"
@@ -127,10 +127,10 @@ class Code(StrEnum):
     # Stops and latches.
     STOPPED = "stopped"
     """A condition on the rig while its stop's latch holds: raised by the software stop,
-    cleared by its Reset. `details`: `{by, at_ns, reason}`."""
+    cleared by its Reset. `details`: `{actor, at_ns, reason}`."""
     LATCHED = "latched"
     """A condition on each controller, signal and device a fault action latched; cleared by
-    its Reset. `details`: `{cause, action, by, at_ns, reason}`."""
+    its Reset. `details`: `{cause, action, actor, at_ns, reason}`."""
     STOP_APPLIED = "stop_applied"
     """An event on the rig: what a stop, a shutdown or a re-applied latch did, device by device,
     and every output it left energised (kept) with its value. `details`: `{why, devices,
@@ -139,13 +139,13 @@ class Code(StrEnum):
     """An event: a person reset a latch (`details.cause`); nothing resumes."""
     WRITTEN_WHILE_STOPPED = "written_while_stopped"
     """An event on a signal: a person wrote it under the rig stop's latch, which holds on.
-    `details`: `{value, by}`."""
+    `details`: `{value, actor}` (a command run: `{command, actor}`)."""
     # A value an operator entered (`driver: values`).
     VALUE_WRITTEN = "value_written"
-    """An event on the signal: an operator wrote a value. `details`: `{value, was, writer}`."""
+    """An event on the signal: an operator wrote a value. `details`: `{value, was, actor}`."""
     VALUE_RESTORED = "value_restored"
     """An event on the signal, at start: the value last written was restored from the store,
-    the rig file's `initial` being unchanged. `details`: `{value, writer, written_ns}`."""
+    the rig file's `initial` being unchanged. `details`: `{value, actor, written_ns}`."""
     VALUE_NOT_RESTORED = "value_not_restored"
     """A condition on the signal, at start: the value last written was not restored because
     its unit changed in the rig file; the file's `initial` is in force. Cleared by the next
@@ -195,8 +195,8 @@ class Condition:
     message: str
     since_ns: int
     """When it was raised; a repeated `set` keeps it."""
-    scope: str
-    """The owner's kind: a [Scope][flyball.foundation.device.state.Scope] -- `device`,
+    subject_kind: str
+    """The owner's kind: a [SubjectKind][flyball.foundation.device.state.SubjectKind] -- `device`,
     `signal`, `controller`, `rig`."""
     subject: str
     """The owner's name: a device's or controller's name, a signal's address, the rig's."""
@@ -215,9 +215,9 @@ class Event:
 
     time_ns: int
     severity: Severity
-    scope: str
-    """Which part: a [Scope][flyball.foundation.device.state.Scope] -- `device`, `signal`,
-    `controller`, `program`, `rig`."""
+    subject_kind: str
+    """Which part: a [SubjectKind][flyball.foundation.device.state.SubjectKind] -- `device`,
+    `signal`, `controller`, `program`, `rig`."""
     subject: str
     """The device, signal, controller, program step or rig it concerns."""
     code: str

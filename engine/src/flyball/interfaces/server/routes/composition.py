@@ -98,7 +98,7 @@ class EditOut(BaseModel):
     restarting: bool = True
     stop: dict[str, Any] | None
     """The stop's report (`POST /api/rig/stop`'s shape); None if the stop failed (logged)."""
-    detail: str
+    message: str
 
 
 _editing = threading.Lock()
@@ -187,7 +187,7 @@ def _edit(
         reason=reason,
         saved=None if plan.path is None else str(plan.path),
         stop=report,
-        detail=f"The rig is restarting at version {row.id}: outputs went to their stop,"
+        message=f"The rig is restarting at version {row.id}: outputs went to their stop,"
         " a running program was cancelled, and controllers come back in manual;"
         " a recording goes on in a new session",
     )

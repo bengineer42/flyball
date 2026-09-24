@@ -99,7 +99,7 @@ def shutdown() -> dict[str, Any]:
     409 unless started with `--allow-shutdown`.
     """
     _may_stop().shutdown()
-    return {"detail": "shutting down"}
+    return {"message": "shutting down"}
 
 
 @router.post("/restart", status_code=202)
@@ -112,7 +112,7 @@ def restart() -> dict[str, Any]:
     started with `--allow-shutdown`; a rig edit's own restart does not need it.
     """
     _may_stop().restart()
-    return {"detail": "restarting"}
+    return {"message": "restarting"}
 
 
 __all__ = ["router"]

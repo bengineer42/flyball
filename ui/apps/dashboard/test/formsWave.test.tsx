@@ -59,10 +59,10 @@ describe("InputsLine", () => {
 
 describe("describeValueSource", () => {
   it("says the rig file, a restore, or a write in this run", () => {
-    expect(describeValueSource({ origin: "rig_file", initial: 1, writer: null, written_ns: null })).toBe("rig file");
+    expect(describeValueSource({ origin: "rig_file", initial: 1, actor: null, written_ns: null })).toBe("rig file");
     const at = new Date(1_700_000_000_000).toLocaleString();
-    expect(describeValueSource({ origin: "restored", initial: 1, writer: "ben", written_ns: 1_700_000_000_000_000_000 })).toBe(`restored, written by ben at ${at}`);
-    expect(describeValueSource({ origin: "written", initial: 1, writer: "ben", written_ns: 1_700_000_000_000_000_000 })).toBe(`written by ben at ${at}`);
+    expect(describeValueSource({ origin: "restored", initial: 1, actor: { principal: "ben", kind: "human", via: "http", sid: "", message: "" }, written_ns: 1_700_000_000_000_000_000 })).toBe(`restored, written by ben at ${at}`);
+    expect(describeValueSource({ origin: "written", initial: 1, actor: { principal: "ben", kind: "human", via: "http", sid: "", message: "" }, written_ns: 1_700_000_000_000_000_000 })).toBe(`written by ben at ${at}`);
   });
 });
 

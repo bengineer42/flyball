@@ -112,7 +112,7 @@ describe("panels show a reading with no value as a dash and why, never the value
   });
 
   it("ControllerPanel: a measured reading with no value shows its badge, not NaN; frozen shows in the header", async () => {
-    const frozen: Condition = { code: "frozen", severity: "warning", message: "f.t has no value", since_ns: 1, scope: "controller", subject: "h.p", details: { quality: "invalid", reason: "open" } };
+    const frozen: Condition = { code: "frozen", severity: "warning", message: "f.t has no value", since_ns: 1, subject_kind: "controller", subject: "h.p", details: { quality: "invalid", reason: "open" } };
     const { wrap } = driven([frozen]);
     const controller = {
       name: "h.p",

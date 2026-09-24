@@ -47,7 +47,7 @@ const HealthWidget = memo(function HealthWidget({ config }: WidgetComponentProps
   const stopped = h ? Object.values(h.devices).filter((d) => !d.running).length : 0;
   const problems = events.filter((e) => e.severity === "error" || e.severity === "warning").length;
   const errors = events.filter((e) => e.severity === "error").length;
-  // Every condition the rig holds at warning or above, on any scope (faults and the band alarms it
+  // Every condition the rig holds at warning or above, on any subject (faults and the band alarms it
   // raises on signals), counted the same way as the app-bar chip, so the two agree.
   const active = (h?.conditions ?? []).filter((c) => atLeast(c.severity, "warning"));
   const conditionsCount = active.length;

@@ -144,8 +144,8 @@ class TestTools:
         assert set(devices[0]) == {"name", "class_name", "label", "description"}, (
             "projected: not the full tree"
         )
-        detailed = self.tool(client, "list_devices").run(client, {"detail": True})["devices"]
-        assert "signals" in detailed[0], "`detail` asked for the rest"
+        detailed = self.tool(client, "list_devices").run(client, {"verbose": True})["devices"]
+        assert "signals" in detailed[0], "`verbose` asked for the rest"
         schema = self.tool(client, "describe_device").run(client, {"name": "heaters"})
         assert "set_duty" in schema["commands"]
         types = self.tool(client, "widget_schema").run(client, {})["types"]
@@ -945,7 +945,7 @@ class TestReMint:
         report = result["structuredContent"]
         assert report["reason"] == "agent saw smoke"
         assert report["actor"]["via"] == "mcp"
-        assert report["actor"]["sub"] == ("token:ci" if served.fronted else "token:bare")
+        assert report["actor"]["principal"] == ("token:ci" if served.fronted else "token:bare")
 
 
 class TestSelfCall:

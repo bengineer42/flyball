@@ -313,7 +313,7 @@ proxy: {preset: custom, jwt: {header: X-Lab-Jwt, jwks_url: https://idp.lab.org/k
 | `secret_file` | a file holding a secret of at least 16 characters, not readable by every user, which the proxy sends as `X-Flyball-Proxy-Secret`; a request without it is not believed, one with a wrong one is refused. Works with `from: unix` too, against other processes of the proxy's user ([Access](../1-running/runner/access.md#behind-an-identity-proxy)) |
 | `issuer`, `audience` | signed presets: the exact `iss`, and a value `aud` must contain |
 | `team` | `cloudflare`: the Access team name (one DNS label) |
-| `grants` | role → entries. Roles: `all` (every verb) and `viewer` (read); names pending D-034, and an unknown role grants nothing (a warning says so). An entry is a subject, or `group:<id>`. Every grant is on every rig; an identity matching none gets `read` |
+| `grants` | grant name → entries. Grants: `all` (every verb) and `viewer` (read); names pending D-034, and an unknown name grants nothing (a warning says so). An entry is a subject, or `group:<id>`. Every grant is on every rig; an identity matching none gets `read` |
 | `user_header`, `groups_header`, `separator` | `custom`, unsigned. A header name is letters, digits and `-`; the front's own (`Authorization`, `Cookie`, `Host`, `Origin`, the forwarding headers, `X-Flyball-*`) are refused |
 | `jwt` | `custom`, signed: `header`, `jwks_url` (`https`, or `http` on loopback), `issuer`, `audience`, `algorithms` (RS/PS/ES 256–512 and EdDSA; never `none` or `HS*`) |
 

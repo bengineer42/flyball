@@ -8,7 +8,7 @@ function recording(): { transport: Transport; asked: Request[] } {
     base: "",
     async request(r: Request): Promise<Response> {
       asked.push(r);
-      return { status: 202, json: { version: 7, previous: 6, reason: "edited", saved: null, restarting: true, stop: null, detail: "" } };
+      return { status: 202, json: { version: 7, previous: 6, reason: "edited", saved: null, restarting: true, stop: null, message: "" } };
     },
     stream: () => ({ close: () => undefined }),
   };

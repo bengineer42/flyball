@@ -6,7 +6,7 @@ import { EventsPanel, eventKey } from "../src/panels/EventsPanel.js";
 const event = (over: Partial<RigEvent>): RigEvent => ({
   time_ns: 1_000_000_000,
   severity: "warning",
-  scope: "device",
+  subject_kind: "device",
   subject: "furnace",
   code: "slow",
   message: "read took 2 s against a 1 s period",
@@ -36,7 +36,7 @@ describe("condition edges", () => {
   it("shows raised and cleared beside the code in the events table", () => {
     const raised = event({ edge: "raised" });
     const cleared = event({ time_ns: 13_000_000_000, severity: "info", edge: "cleared", message: "reads keep up again", details: { duration_s: 12 } });
-    const html = renderToStaticMarkup(<EventsPanel events={[raised, cleared, event({ code: "restored", scope: "rig" })]} nowS={20} />);
+    const html = renderToStaticMarkup(<EventsPanel events={[raised, cleared, event({ code: "restored", subject_kind: "rig" })]} nowS={20} />);
     expect(html).toContain("raised");
     expect(html).toContain("cleared after 12 s");
     expect(html.match(/data-testid="event-edge"/g)).toHaveLength(2);

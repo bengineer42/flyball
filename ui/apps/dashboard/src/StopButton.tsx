@@ -14,17 +14,17 @@ export function stopSummary(report: StopReport): { severity: "success" | "warnin
   const count = (state: string) => devices.filter(([, d]) => d.state === state).length;
   const failed = devices.filter(([, d]) => d.state === "failed");
   const parts = [`${count("stopped")} stopped`, `${count("unchanged")} unchanged`];
-  if (failed.length) parts.push(`${failed.length} failed (${failed.map(([name, d]) => (d.detail ? `${name}: ${d.detail}` : name)).join("; ")})`);
+  if (failed.length) parts.push(`${failed.length} failed (${failed.map(([name, d]) => (d.message ? `${name}: ${d.message}` : name)).join("; ")})`);
   const latch = report.latched ? " The rig is latched until a person resets it." : "";
   return { severity: failed.length ? "warning" : "success", message: `Software stop: ${parts.join(", ")}.${latch}` };
 }
 
 /** What a stop does to one output, as a person reads it: `off (0)`, `20 (you said)`, `its stop command`, `kept`. */
 export function describeOutputStop(output: OutputStopOut): string {
-  if (output.source === "command") return `runs ${output.command ?? "its stop command"}`;
-  if (output.stop === "keep") return output.source === "nobody said" ? "kept (nobody said)" : "kept (you said)";
+  if (output.origin === "command") return `runs ${output.command ?? "its stop command"}`;
+  if (output.stop === "keep") return output.origin === "nobody_said" ? "kept (nobody said)" : "kept (you said)";
   if (output.stop === null) return "its stop command";
-  return output.source === "off" ? `off (${output.stop})` : `${output.stop} (you said)`;
+  return output.origin === "off" ? `off (${output.stop})` : `${output.stop} (you said)`;
 }
 
 /** The stop a Software stop would apply, output by output, for the confirmation: fetched as it opens. */
@@ -64,7 +64,7 @@ function ReportDialog({ report, onClose }: { report: StopReport | null; onClose(
                 <TableCell>state</TableCell>
                 <TableCell>wrote</TableCell>
                 <TableCell>kept</TableCell>
-                <TableCell>detail</TableCell>
+                <TableCell>message</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -74,7 +74,7 @@ function ReportDialog({ report, onClose }: { report: StopReport | null; onClose(
                   <TableCell sx={d.state === "failed" ? { color: "error.main", fontWeight: 600 } : undefined}>{d.state}</TableCell>
                   <TableCell>{shown(d.written)}</TableCell>
                   <TableCell>{shown(d.kept)}</TableCell>
-                  <TableCell>{d.detail}</TableCell>
+                  <TableCell>{d.message}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

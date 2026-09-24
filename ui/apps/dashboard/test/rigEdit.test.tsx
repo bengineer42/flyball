@@ -9,7 +9,7 @@ import { Confirm } from "../src/Confirm.js";
 
 afterEach(cleanup);
 
-const EDIT = { version: 8, previous: 7, reason: "edited: removed device probe", saved: null, restarting: true, stop: null, detail: "" };
+const EDIT = { version: 8, previous: 7, reason: "edited: removed device probe", saved: null, restarting: true, stop: null, message: "" };
 
 /** A runner that answers the old clock until `restarted()` is called, then a new one; a device DELETE per `edit`. */
 function runner(edit: (r: Request) => Response) {
@@ -32,7 +32,7 @@ function runner(edit: (r: Request) => Response) {
     asked,
     restarted(failed = false) {
       start = 2;
-      if (failed) conditions = [{ code: "edit_not_built", severity: "error", message: "probe: no such link", since_ns: 0, scope: "rig", subject: "furnace" }];
+      if (failed) conditions = [{ code: "edit_not_built", severity: "error", message: "probe: no such link", since_ns: 0, subject_kind: "rig", subject: "furnace" }];
     },
   };
 }

@@ -344,7 +344,7 @@ def _legacy_store(path) -> None:
                                     (1, 'probe', 'Clash', NULL);
         INSERT INTO loop VALUES (1, 'heater', 1, 1, '{"tag":"PI"}', '{"tag":"none"}');
         INSERT INTO tick VALUES (1, 'heater', 20, 'regulating', 21.0, 25.0, 5.0, 5.0, NULL, NULL);
-        INSERT INTO event (session_id, offset_ns, kind, detail) VALUES (1, 15, 'note', '{}');
+        INSERT INTO event (session_id, offset_ns, kind, details) VALUES (1, 15, 'note', '{}');
         INSERT INTO tuning (name, law, config, created_ns, session_id, loop)
             VALUES ('warm', 'PI', '{"kp": 1}', 1, 1, 'heater');
     """)

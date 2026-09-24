@@ -41,15 +41,16 @@ from collections.abc import Iterable, Mapping
 from threading import Lock
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 
+from flyball.foundation.actor import Actor
 from flyball.foundation.device import (
     KEEP,
     Access,
     Code,
     Device,
     Role,
-    Scope,
     Severity,
     Signal,
+    SubjectKind,
 )
 from flyball.foundation.errors import NotFoundError
 from flyball.model.controller import Controller, ControllerMode, FaultAction
@@ -64,7 +65,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DEVICE_STOP_S",
-    "Actor",
+    "STOP_ACTOR",
     "DeviceStop",
     "InterimStopper",
     "OutputStop",
@@ -82,31 +83,17 @@ DEVICE_STOP_S = 5.0
 """How long a stop waits for all devices together, a stuck lock or bus included: a device
 not done by then is reported `failed` ("may still act"), and the stop returns."""
 
-type Source = Literal["off", "you said", "nobody said"]
+type Origin = Literal["off", "you_said", "nobody_said"]
 
-
-@dataclasses.dataclass(frozen=True)
-class Actor:
-    """Who asked for a stop: the principal's `sub`/`sid`/`kind`, and the way it came in."""
-
-    sub: str
-    sid: str
-    kind: str
-    via: Literal["http", "mcp", "signal"]
-    detail: str = ""
-    """Anything more about the caller, e.g. `signal from pid 4121 uid 1000`."""
-
-    @property
-    def person(self) -> bool:
-        """A person at a UI or the HTTP API: a human principal, not an agent through MCP."""
-        return self.kind == "human" and self.via != "mcp"
+STOP_ACTOR = Actor(principal="stop", kind="rule", via="rig")
+"""Who writes a stop's values: the stop itself, whoever asked for it."""
 
 
 class DeviceStop(TypedDict):
     """What a stop did to one device."""
 
     state: Literal["stopped", "unchanged", "failed"]
-    detail: str
+    message: str
     written: NotRequired[dict[str, float]]
     """What it wrote, by address: the value committed (a driver's readback where it gave one)."""
     kept: NotRequired[dict[str, float | None]]
@@ -172,8 +159,8 @@ class OutputStop:
     signal: Signal
     value: float | None
     """What a stop writes; None: `keep` (left as it is)."""
-    source: Source
-    """`off` (the driver's inactive level), `you said` (the rig file's `stop:`), `nobody said`."""
+    origin: Origin
+    """`off` (the driver's inactive level), `you_said` (the rig file's `stop:`), `nobody_said`."""
 
 
 def outputs(device: Device) -> list[Signal]:
@@ -184,12 +171,12 @@ def outputs(device: Device) -> list[Signal]:
 def resolve_output(signal: Signal) -> OutputStop:
     """`signal`'s stop: the rig file's `stop:`, else the driver's `off`, else keep."""
     if signal.stop == KEEP:
-        return OutputStop(signal, None, "you said")
+        return OutputStop(signal, None, "you_said")
     if signal.stop is not None:
-        return OutputStop(signal, float(signal.stop), "you said")
+        return OutputStop(signal, float(signal.stop), "you_said")
     if signal.spec.off is not None:
         return OutputStop(signal, signal.spec.off, "off")
-    return OutputStop(signal, None, "nobody said")
+    return OutputStop(signal, None, "nobody_said")
 
 
 # endregion
@@ -222,11 +209,11 @@ class InterimStopper:
                 continue
             errors = [failed[s.address] for s in outputs(device) if s.address in failed]
             devices[name] = (
-                {"state": "failed", "detail": "; ".join(errors)}
+                {"state": "failed", "message": "; ".join(errors)}
                 if errors
                 else {
                     "state": "unchanged",
-                    "detail": "interim stop: controllers to manual; nothing written",
+                    "message": "interim stop: controllers to manual; nothing written",
                 }
             )
         return StopReport(
@@ -293,7 +280,7 @@ class Stopping:
         details = {
             "cause": latch.cause,
             "action": latch.action,
-            "by": latch.by,
+            "actor": latch.actor.as_dict(),
             "at_ns": latch.at_ns,
             "reason": latch.reason,
         }
@@ -302,8 +289,9 @@ class Stopping:
                 rig,
                 Code.STOPPED,
                 Severity.WARNING,
-                f"stopped by {latch.by}" + (f": {latch.reason}" if latch.reason else ""),
-                {"by": latch.by, "at_ns": latch.at_ns, "reason": latch.reason},
+                f"stopped by {latch.actor.principal}"
+                + (f": {latch.reason}" if latch.reason else ""),
+                {"actor": latch.actor.as_dict(), "at_ns": latch.at_ns, "reason": latch.reason},
             )
         else:
             for owner in self._owners(latch):
@@ -326,7 +314,7 @@ class Stopping:
         latch = self.latches.clear(cause)
         if latch is None:
             raise NotFoundError(f"No latch holds for {cause!r}")
-        message = f"reset by {actor.sub}: {cause}"
+        message = f"reset by {actor.principal}: {cause}"
         if latch.cause == RIG_STOP:
             rig.conditions.clear(rig, Code.STOPPED, message=message)
         else:
@@ -337,11 +325,11 @@ class Stopping:
                 controller.clear_law()
         rig.event(
             Severity.INFO,
-            Scope.RIG,
+            SubjectKind.RIG,
             rig.name or "rig",
             Code.RESET,
             message,
-            {"cause": cause, "by": actor.sub, "latch": latch.as_dict()},
+            {"cause": cause, "actor": actor.as_dict(), "latch": latch.as_dict()},
         )
         return latch
 
@@ -350,11 +338,11 @@ class Stopping:
         rig = self.rig
         found: list[object] = []
         for subject in latch.subjects:
-            if subject.scope == "controller":
+            if subject.subject_kind == "controller":
                 owner: object | None = rig.controllers.get(subject.subject)
-            elif subject.scope == "device":
+            elif subject.subject_kind == "device":
                 owner = rig.devices.get(subject.subject)
-            elif subject.scope == "signal":
+            elif subject.subject_kind == "signal":
                 try:
                     owner = rig.resolve(subject.subject)
                 except NotFoundError:
@@ -372,13 +360,13 @@ class Stopping:
         return [
             device
             for s in latch.subjects
-            if s.scope == "device" and (device := rig.devices.get(s.subject)) is not None
+            if s.subject_kind == "device" and (device := rig.devices.get(s.subject)) is not None
         ]
 
     def _held_signals(self, latch: Latch) -> list[Signal]:
         found: list[Signal] = []
         for subject in latch.subjects:
-            if subject.scope == "signal":
+            if subject.subject_kind == "signal":
                 try:
                     signal = self.rig.resolve(subject.subject)
                 except NotFoundError:
@@ -416,7 +404,7 @@ class Stopping:
         latch = Latch(
             cause=fault_cause(controller.name),
             subjects=subjects(held),
-            by="on_fault",
+            actor=Actor(principal=controller.name, kind="controller", via="rig"),
             at_ns=time.time_ns(),
             reason=outage.reason,
             action=action.value,
@@ -430,7 +418,7 @@ class Stopping:
         accrued_s = outage.accrual.total_ns(rig.clock.now_ns()) / 1e9
         rig.event(
             Severity.ERROR,
-            Scope.CONTROLLER,
+            SubjectKind.CONTROLLER,
             controller.name,
             Code.ON_FAULT,
             f"source faulty for {accrued_s:.3f} s ({outage.reason}): {action.value}"
@@ -480,7 +468,7 @@ class Stopping:
             if not rig.lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
                 return {
                     "state": "failed",
-                    "detail": "the rig's lock was held throughout the stop's time (a delivery"
+                    "message": "the rig's lock was held throughout the stop's time (a delivery"
                     " or a command stuck): nothing written",
                     "written": {},
                     "kept": _values(rig, kept),
@@ -494,7 +482,7 @@ class Stopping:
                     return self._fallback(device, command, error, plan, locked)
                 return {
                     "state": "stopped",
-                    "detail": f"ran its stop command {command!r}",
+                    "message": f"ran its stop command {command!r}",
                     "written": written,
                     "kept": {},
                 }
@@ -502,7 +490,7 @@ class Stopping:
                 rig.replace_staged([device], [])
                 return {
                     "state": "unchanged",
-                    "detail": _kept_detail(plan),
+                    "message": _kept_message(plan),
                     "written": {},
                     "kept": _values(rig, kept),
                 }
@@ -511,7 +499,7 @@ class Stopping:
             except Exception as error:
                 return {
                     "state": "failed",
-                    "detail": f"writing its stop failed: {type(error).__name__}: {error}",
+                    "message": f"writing its stop failed: {type(error).__name__}: {error}",
                     "written": {},
                     "kept": _values(rig, [*kept, *values]),
                 }
@@ -520,20 +508,20 @@ class Stopping:
                 rig.lock.release()
         report: DeviceStop = {
             "state": "stopped",
-            "detail": _written_detail(values, plan),
+            "message": _written_message(values, plan),
             "written": written,
             "kept": _values(rig, kept),
         }
         if ticket is not None:
             writer, number = ticket
             if deadline is None:
-                report["detail"] += " (handed to its writer; not waited for)"
+                report["message"] += " (handed to its writer; not waited for)"
             elif not writer.wait(number, max(0.0, deadline - time.monotonic())):
                 report["state"] = "failed"
-                report["detail"] = "its writer did not answer in time: may still act"
+                report["message"] = "its writer did not answer in time: may still act"
             elif writer.failed is not None:
                 report["state"] = "failed"
-                report["detail"] = f"writing its stop failed: {writer.failed.message}"
+                report["message"] = f"writing its stop failed: {writer.failed.message}"
         return report
 
     def _fallback(
@@ -543,11 +531,11 @@ class Stopping:
         rig = self.rig
         why = f"its stop command {command!r} failed: {type(error).__name__}: {error}"
         log.warning("%s: %s", device.name, why)
-        values = {o.signal: o.value for o in plan if o.value is not None and o.source == "off"}
+        values = {o.signal: o.value for o in plan if o.value is not None and o.origin == "off"}
         if not values:
             return {
                 "state": "failed",
-                "detail": f"{why}; fallback: none effective",
+                "message": f"{why}; fallback: none effective",
                 "written": {},
                 "kept": _values(rig, [o.signal for o in plan]),
             }
@@ -556,13 +544,13 @@ class Stopping:
         except Exception as second:
             return {
                 "state": "failed",
-                "detail": f"{why}; fallback failed too: {type(second).__name__}: {second}",
+                "message": f"{why}; fallback failed too: {type(second).__name__}: {second}",
                 "written": {},
                 "kept": _values(rig, [o.signal for o in plan]),
             }
         return {
             "state": "failed",
-            "detail": f"{why}; fallback wrote each declared off",
+            "message": f"{why}; fallback wrote each declared off",
             "written": written,
             "kept": _values(rig, [o.signal for o in plan if o.signal not in values]),
         }
@@ -641,7 +629,7 @@ class RigStopper:
                     Latch(
                         cause=RIG_STOP,
                         subjects=subjects([("rig", rig.name or "rig")]),
-                        by=actor.sub,
+                        actor=actor,
                         at_ns=at_ns,
                         reason=reason,
                     )
@@ -653,7 +641,7 @@ class RigStopper:
             )
         log.warning(
             "software stop by %s via %s (%s): program %s, %d controller(s) manual; %s",
-            actor.sub,
+            actor.principal,
             actor.via,
             reason or "no reason given",
             "interrupted" if report.program_interrupted else "not running",
@@ -694,9 +682,9 @@ class RigStopper:
         for name, stop in stops.items():
             for address, error in failed.items():
                 if address.partition(".")[0] == name:
-                    stop["detail"] += f"; {error}"
+                    stop["message"] += f"; {error}"
         if stops:
-            _applied(rig, f"{why} by {actor.sub}" + (f": {reason}" if reason else ""), stops)
+            _applied(rig, f"{why} by {actor.principal}" + (f": {reason}" if reason else ""), stops)
         return StopReport(
             at_ns=at_ns,
             actor=actor,
@@ -724,7 +712,7 @@ def _stop_all(stopping: Stopping, devices: list[Device], deadline: float) -> dic
             log.exception("stop: %s", device.name)
             results[device.name] = {
                 "state": "failed",
-                "detail": f"{type(error).__name__}: {error}",
+                "message": f"{type(error).__name__}: {error}",
                 "written": {},
                 "kept": {},
             }
@@ -740,7 +728,7 @@ def _stop_all(stopping: Stopping, devices: list[Device], deadline: float) -> dic
     for device in devices:
         out[device.name] = results.get(device.name) or {
             "state": "failed",
-            "detail": f"no answer within {DEVICE_STOP_S:g} s: may still act",
+            "message": f"no answer within {DEVICE_STOP_S:g} s: may still act",
             "written": {},
             "kept": {},
         }
@@ -760,7 +748,7 @@ def _applied(rig: Rig, why: str, devices: Mapping[str, DeviceStop]) -> None:
     }
     rig.event(
         Severity.ERROR if counts["failed"] else Severity.WARNING,
-        Scope.RIG,
+        SubjectKind.RIG,
         rig.name or "rig",
         Code.STOP_APPLIED,
         f"{why}: {counts['stopped']} stopped, {counts['unchanged']} unchanged,"
@@ -795,11 +783,11 @@ def _manual(rig: Rig, why: str | None) -> dict[str, str]:
         if why is not None and was is ControllerMode.REGULATING:
             rig.event(
                 Severity.INFO,
-                Scope.CONTROLLER,
+                SubjectKind.CONTROLLER,
                 name,
                 Code.INTERRUPTED,
                 f"put in manual by the {why}",
-                {"was": was.value, "by": why},
+                {"was": was.value, "reason": why},
             )
     return failed
 
@@ -822,9 +810,9 @@ def _values(rig: Rig, signals: Iterable[Signal]) -> dict[str, float | None]:
     return out
 
 
-def _kept_detail(plan: list[OutputStop]) -> str:
-    said = [o.signal.name for o in plan if o.source == "you said"]
-    nobody = [o.signal.name for o in plan if o.source == "nobody said"]
+def _kept_message(plan: list[OutputStop]) -> str:
+    said = [o.signal.name for o in plan if o.origin == "you_said"]
+    nobody = [o.signal.name for o in plan if o.origin == "nobody_said"]
     parts = []
     if said:
         parts.append(f"kept as the rig file says ({', '.join(said)})")
@@ -833,20 +821,20 @@ def _kept_detail(plan: list[OutputStop]) -> str:
     return "; ".join(parts) or "nothing to write"
 
 
-def _written_detail(values: Mapping[Signal, float], plan: list[OutputStop]) -> str:
+def _written_message(values: Mapping[Signal, float], plan: list[OutputStop]) -> str:
     wrote = ", ".join(f"{s.name}={v:g}" for s, v in values.items())
     kept = [o.signal.name for o in plan if o.value is None]
     return f"wrote {wrote}" + (f"; kept {', '.join(kept)}" if kept else "")
 
 
 def stop_plan(rig: Rig) -> list[dict[str, Any]]:
-    """Every writable demand's resolved stop, sorted: `off (driver)`, `you said`, `keep`.
+    """Every writable demand's resolved stop, sorted: `off` (the driver's), `you_said`, `keep`.
 
     With the controller that drives it, and why it is worth a look: a controller target
     no one gave a stop is left energised, open loop, after a stop; an unbounded `freeze`
     on an output whose stop is its driver's `off` holds it indefinitely.
     """
-    order = {"off": 0, "you said": 1, "nobody said": 2}
+    order = {"off": 0, "you_said": 1, "nobody_said": 2}
     rows: list[dict[str, Any]] = []
     for device in list(rig.devices.values()):
         if not stoppable(device):
@@ -856,7 +844,7 @@ def stop_plan(rig: Rig) -> list[dict[str, Any]]:
             resolved = resolve_output(signal)
             controller = rig.controllers.driving(signal)
             warnings: list[str] = []
-            if command is None and controller is not None and resolved.source == "nobody said":
+            if command is None and controller is not None and resolved.origin == "nobody_said":
                 warnings.append(
                     "a controller's output with no stop: after a stop its controller is in"
                     " manual and this output stays where it was (give `stop:` a value, or"
@@ -865,7 +853,7 @@ def stop_plan(rig: Rig) -> list[dict[str, Any]]:
             if (
                 controller is not None
                 and controller.on_fault.action is FaultAction.FREEZE
-                and resolved.source == "off"
+                and resolved.origin == "off"
             ):
                 warnings.append(
                     "on_fault: freeze holds this output indefinitely while its source is"
@@ -877,11 +865,11 @@ def stop_plan(rig: Rig) -> list[dict[str, Any]]:
                 "stop": None
                 if command is not None
                 else (resolved.value if resolved.value is not None else KEEP),
-                "source": "command" if command is not None else resolved.source,
+                "origin": "command" if command is not None else resolved.origin,
                 "command": command,
                 "controller": None if controller is None else controller.name,
                 "covered_if_flyball_dies": False,
                 "warnings": warnings,
             })
-    rows.sort(key=lambda r: (r["source"] == "command", order.get(r["source"], 1), r["address"]))
+    rows.sort(key=lambda r: (r["origin"] == "command", order.get(r["origin"], 1), r["address"]))
     return rows
