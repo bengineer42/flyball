@@ -225,7 +225,7 @@ describe("fixed() is total", () => {
 // UI, which is covered in apps/dashboard/test/auth.test.tsx.
 describe("RigClient.login posts the credential the door offers", () => {
   it("posts {password} for a password-shape front", async () => {
-    const answer: AuthInfo = { v: 2, shape: "password", scheme: "session", user: { id: "local:admin", name: "admin", kind: "human" }, verbs: [OPERATE, "read"], anonymous: "read", login: { password: true, token: false, passkey: false, sso: null } };
+    const answer: AuthInfo = { v: 2, shape: "password", scheme: "login", user: { id: "local:admin", name: "admin", kind: "human" }, verbs: [OPERATE, "read"], anonymous: "read", login: { password: true, token: false, passkey: false, sso: null } };
     const { transport, asked } = fakeTransport({ "POST /api/auth/login": answer });
     const rig = new RigClient(transport);
     expect(await rig.login({ password: "hunter2" })).toEqual(answer);

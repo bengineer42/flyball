@@ -188,14 +188,14 @@ function CopyLine({ value }: { value: string }) {
 
 /** The three tiers `mcp.md` documents, narrowest first, with the server name the book's own examples use
  * where it gives one (`rig` for author, `rig-operate` for operate). */
-const MCP_MODES: Array<{ mode: "read" | "author" | "operate"; label: string; server: string; note: string }> = [
-  { mode: "read", label: "Read", server: "rig-read", note: "Every GET, plus check_program/check_rig: asking the rig questions." },
-  { mode: "author", label: "Author", server: "rig", note: "Adds saving programs, dashboards and tunings to the store." },
-  { mode: "operate", label: "Operate", server: "rig-operate", note: "Adds one tool per device command, demands, controllers, running programs, recording and a simulation's knobs: driving the rig." },
+const MCP_TIERS: Array<{ tier: "read" | "author" | "operate"; label: string; server: string; note: string }> = [
+  { tier: "read", label: "Read", server: "rig-read", note: "Every GET, plus check_program/check_rig: asking the rig questions." },
+  { tier: "author", label: "Author", server: "rig", note: "Adds saving programs, dashboards and tunings to the store." },
+  { tier: "operate", label: "Operate", server: "rig-operate", note: "Adds one tool per device command, demands, controllers, running programs, recording and a simulation's knobs: driving the rig." },
 ];
 
 /**
- * `GET /mcp/{read,author,operate}`: this runner's MCP server, one tier per mode (book's mcp.md). Shows each
+ * `GET /mcp/{read,author,operate}`: this runner's MCP server, one per tier (book's mcp.md). Shows each
  * tier's absolute URL, the `claude mcp add` line for it, and a client config block. The browser never holds
  * a token (a login is a cookie), so the block carries a placeholder for one wherever the door (`info.shape`)
  * is not `local`: a front's named token, or a bare runner's own.
@@ -203,7 +203,7 @@ const MCP_MODES: Array<{ mode: "read" | "author" | "operate"; label: string; ser
 export function ConnectModelCard() {
   const { info } = useAuth();
   const base = pageBase();
-  const urls = MCP_MODES.map((m) => ({ ...m, url: `${base}/mcp/${m.mode}` }));
+  const urls = MCP_TIERS.map((m) => ({ ...m, url: `${base}/mcp/${m.tier}` }));
   // Every shape but `local` refuses a caller with no credential, and a model cannot type a password or
   // pass a proxy's sign-in: it sends a bearer token. Which token is the door's: a front's named token,
   // or a bare runner's own.
@@ -219,12 +219,12 @@ export function ConnectModelCard() {
         Connect a model
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        This runner serves MCP over HTTP at three tiers, narrowest first: a client in read mode is never told
+        This runner serves MCP over HTTP at three tiers, narrowest first: a client on the read tier is never told
         a tool that moves anything exists.
       </Typography>
       <Stack spacing={2.5}>
         {urls.map((m) => (
-          <Box key={m.mode}>
+          <Box key={m.tier}>
             <Typography variant="subtitle2">{m.label}</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
               {m.note}

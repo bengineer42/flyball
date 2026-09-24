@@ -106,7 +106,7 @@ controllers:
         - [900, 2175.9]
         - [1000, 2658.5]
         - [1100, 3229.4]
-    default: true
+    is_default: true
   heaters.heater3:
     measured: furnace.zone3
     law: { type: pi, kp: 100, ki: 0.15, tt_s: 30 }

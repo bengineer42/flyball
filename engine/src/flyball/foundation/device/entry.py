@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from flyball.model.catalog import Catalogs, get_catalog
 
 from ..errors import NotFoundError
+from ..keys import canonical, check_address, check_key
 from ..time.clock import Rate
 from .device import Device, DriverConfig
 from .novalue import OnNoValue
@@ -177,8 +178,26 @@ class NamespaceMeta(BaseModel):
     def _positive_seconds(cls, value: float | None, info: Any) -> float | None:
         return _period(value, info.field_name)
 
+    @field_validator("signals", mode="before")
+    @classmethod
+    def _paths(cls, value: Any) -> Any:
+        return _keyed_by_path(value, "signals")
+
 
 NamespaceMeta.model_rebuild()
+
+
+def _keyed_by_path(value: Any, what: str) -> Any:
+    """A mapping keyed by paths under a device, each a dotted key, made canonical (D-079)."""
+    if not isinstance(value, Mapping):
+        return value
+    out: dict[str, Any] = {}
+    for path, item in value.items():
+        key = check_address(path, f"{what} path")
+        if key in out:
+            raise ValueError(f"{what}.{path}: given twice: `-` and `_` are one")
+        out[key] = item
+    return out
 
 
 class Permissive(BaseModel):
@@ -286,6 +305,7 @@ class DeviceEntry(BaseModel):
     @classmethod
     def _addresses_or_numbers(cls, value: Any) -> Any:
         if isinstance(value, Mapping):
+            out: dict[str, Any] = {}
             for name, source in value.items():
                 if isinstance(source, bool) or not isinstance(source, (str, int, float)):
                     raise ValueError(
@@ -293,7 +313,17 @@ class DeviceEntry(BaseModel):
                     )
                 if isinstance(source, float) and not math.isfinite(source):
                     raise ValueError(f"inputs.{name}: {source!r} is not finite")
+                key = check_key(name, "input")
+                if key in out:
+                    raise ValueError(f"inputs.{name}: given twice: `-` and `_` are one")
+                out[key] = canonical(source) if isinstance(source, str) else source
+            return out
         return value
+
+    @field_validator("signals", "stop", "permissive", mode="before")
+    @classmethod
+    def _paths(cls, value: Any, info: Any) -> Any:
+        return _keyed_by_path(value, info.field_name)
 
     @model_validator(mode="before")
     @classmethod

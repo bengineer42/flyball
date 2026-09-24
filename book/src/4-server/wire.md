@@ -129,7 +129,7 @@ Kelvin against a °C signal converts before it reports.
 | a law config | `{"type": "pi", "kp": 0.5, "ki": 0.05, "tt_s": 0.0}`; the union discriminates on `type` |
 | a law view | the config plus the law's state fields (`integral`, `last_raw`, …) |
 | `Tuning` | `{"name": name, "config": law config}` |
-| `ControllerOut` | `{name, label, output_signal, measured_signal, default, mode, law, feedforward, output_unit, reference, setpoint, arrived, correction, output, expected, delivered_correction, measured, on_fault, latched}` — `name` is `output_signal`; `measured` is a `ReadingOut`; `on_fault` the rig file's form (`"freeze"`, `"manual"`, `"stop"`, `"stop_device"` or `{freeze_s, then}`); `latched` the causes of every latch that refuses its `regulate` now (`["stop"]`, `["on_fault:heaters.heater2"]`), `[]` when none; see [Controllers](api.md#controllers) |
+| `ControllerOut` | `{name, label, output_signal, measured_signal, is_default, mode, law, feedforward, output_unit, reference, setpoint, arrived, correction, output_value, expected, delivered_correction, measured_value, on_fault, latched}` — `name` is `output_signal`; `measured_value` is a `ReadingOut`; `on_fault` the rig file's form (`"freeze"`, `"manual"`, `"stop"`, `"stop_device"` or `{freeze_s, then}`); `latched` the causes of every latch that refuses its `regulate` now (`["stop"]`, `["on_fault:heaters.heater2"]`), `[]` when none; see [Controllers](api.md#controllers) |
 | `mode` | `"manual"`, `"regulating"` (open loop is the `open_loop` law under `"regulating"`) |
 | `Transfer` | `"none"`, `"carry"`, `"track"`, `"cold"` |
 | `ValueSource` | `"measured"`, `"setpoint"`, `"output"` |
@@ -141,7 +141,7 @@ config or the name of a stored tuning instead.
 
 | type | JSON |
 | --- | --- |
-| `RigEditOut` (202 from every [rig edit](api.md#composition)) | `{version, previous, reason, saved, restarting, stop, message}` -- `version` the edit's rig version, now the head; `previous` the head before it (what a start that cannot build it goes back to); `reason` `edited: added device probe` or `restored from 3`; `saved` the overlay it was written to, or `null` for a bare or resumed rig (the store alone); `stop` the stop's report (`POST /api/rig/stop`'s), or `null` if the stop failed; `message` what the edit did, as a sentence. The runner is restarting: the next request may find it down for a moment |
+| `RigEditOut` (202 from every [rig edit](api.md#composition)) | `{rig_version_id, previous, reason, saved, restarting, stop, message}` -- `rig_version_id` the edit's rig version, now the head; `previous` the head before it (what a start that cannot build it goes back to); `reason` `edited: added device probe` or `restored from 3`; `saved` the overlay it was written to, or `null` for a bare or resumed rig (the store alone); `stop` the stop's report (`POST /api/rig/stop`'s), or `null` if the stop failed. The runner is restarting: the next request may find it down for a moment |
 
 ## Stopping and latches
 
@@ -155,7 +155,7 @@ config or the name of a stored tuning instead.
 
 ## Sessions
 
-A `SessionRow` is `{id, start_ns, end_ns, version, config, hardware,
+A `SessionRow` is `{id, start_ns, end_ns, flyball_version, config, hardware,
 details, rig_version_id, kind, pinned, continues, bytes}`. `kind` is
 `"session"` (a recording) or `"scratch"` (the runner's rolling record);
 `pinned` exempts it from ageing out; `continues` is the id of the session

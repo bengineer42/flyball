@@ -94,7 +94,7 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
             "output": target,
             "measured": source,
             "law": {"type": "p", "kp": 10.0},
-            "default": True,
+            "is_default": True,
         },
     )
     assert made.status_code == 201
@@ -104,9 +104,9 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
         and body["output_signal"] == target
         and body["measured_signal"] == source
     )
-    assert body["label"] == "Heater 1" and body["default"] is True and body["mode"] == "manual"
+    assert body["label"] == "Heater 1" and body["is_default"] is True and body["mode"] == "manual"
     assert body["feedforward"] == {"type": "none"} and body["output_unit"] == "W"
-    assert body["law"]["type"] == "p" and body["measured"] is None
+    assert body["law"]["type"] == "p" and body["measured_value"] is None
     assert client.get(f"/api/controllers/{target}").json() == body
     assert client.get("/api/controllers/default").json() == body
     assert [c["name"] for c in client.get("/api/controllers").json()] == [target]
@@ -140,9 +140,9 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
     reg = client.post(f"/api/controllers/{target}/regulate", json={"at": 60.0, "transfer": "cold"})
     assert reg.status_code == 200
     assert reg.json()["mode"] == "regulating" and reg.json()["reference"] == 60.0
-    assert reg.json()["output"] == 0.0 and reg.json()["expected"] == 0.0
+    assert reg.json()["output_value"] == 0.0 and reg.json()["expected"] == 0.0
     assert drive.inputs["heater1"] == 0.0
-    assert reg.json()["measured"] is None, "attached after the delivery: no tick yet"
+    assert reg.json()["measured_value"] is None, "attached after the delivery: no tick yet"
     heater1 = client.get(f"/api/devices/{drive.name}").json()["signals"][0]
     assert heater1["write"]["controller"] == target and heater1["write"]["at_limit"] == "low"
 
@@ -152,7 +152,7 @@ def test_controller_lifecycle_over_http(client, rig, daq, drive, clock):
     assert drive.inputs["heater1"] == 385.0
     after = client.get(f"/api/controllers/{target}").json()
     assert after["expected"] == 385.0
-    assert after["measured"] == {
+    assert after["measured_value"] == {
         "signal": source,
         "time_ns": 1_000_000_000,
         "value": 21.5,
@@ -366,7 +366,7 @@ def test_controllers_stream_sends_a_snapshot_then_each_tick(client, rig, daq, dr
     with client.websocket_connect("/ws/controllers") as ws:
         (first,) = ws.receive_json()["controllers"]
         assert first["name"] == heater1.address and first["mode"] == "manual"
-        assert first["default"] is True and first["measured_signal"] == zone1.address
+        assert first["is_default"] is True and first["measured_signal"] == zone1.address
         deliver(rig, daq)
         controller.regulate(60.0, transfer=Transfer.COLD)
         clock.advance(1.0)

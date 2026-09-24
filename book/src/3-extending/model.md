@@ -20,6 +20,14 @@ no separate reader or actuator class: a device is `Readable` (implements
 (implements `apply`/`commit`) if it has demands, both, or neither — what
 falls out of that is which access flags its signals carry.
 
+A device's name, and each namespace's and signal's a driver declares, is a
+[key](../7-reference/rig-file.md#names): `flyball.foundation.keys.check_key`
+refuses anything else when the device or the `SignalSpec`/`NodeSpec` is made,
+and keeps `-` as `_` (`SignalSpec(name="dry-bulb")` is the signal
+`dry_bulb`). A tag's axis and value are keys too. Two demands whose
+`set_<path>` would be one command (`flows.dry` beside `flows_dry`) are refused
+when the tree is bound.
+
 ```python
 from flyball.foundation import Quantity
 from flyball.foundation.quantities.si import Celsius

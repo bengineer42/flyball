@@ -42,7 +42,7 @@ class SetpointGeneratorConfig(BaseModel):
 
 
 class SetpointGenerator:
-    """A reference trajectory. Subclassing derives `config`; registering is explicit.
+    """A reference trajectory. Subclassing derives `config_type`; registering is explicit.
 
     A type is required when subclassed (`class Dwell(SetpointGenerator, type="dwell")`);
     a subclass that omits it raises at class creation. Nothing is written into
@@ -50,7 +50,10 @@ class SetpointGenerator:
     """
 
     type: ClassVar[str] = ""
+    config_type: ClassVar[Any] = None
+    """The config model: what builds this generator (`Dwell.config_type(value=...)`)."""
     config: ClassVar[Any] = None
+    """Through an instance, its own arguments as a `config_type`."""
     view_fields: ClassVar[tuple[str, ...]] = ()
     """Attributes beyond the constructor's that a running instance shows on the wire."""
     end_time: float | None = None
@@ -78,6 +81,7 @@ class SetpointGenerator:
             config_model.generator = cls  # pyright: ignore[reportAttributeAccessIssue]
             config_model.init_names = tuple(signature(cls).parameters)  # pyright: ignore[reportAttributeAccessIssue]
             cls.config = ModelOf(config_model, tuple(config_model.model_fields))
+        cls.config_type = cls.config
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:

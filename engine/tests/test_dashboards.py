@@ -165,7 +165,7 @@ def test_problems_for_flags_every_missing_binding_type(furnace_rig):
             {"id": "no-binding", "type": "health", "config": {}},
         ]
     }
-    problems = {p.widget_id: p.ref for p in problems_for(doc, furnace_rig)}
+    problems = {p.widget_id: p.address for p in problems_for(doc, furnace_rig)}
     assert problems == {
         "bad-readout": "zone.zone9",
         "bad-gauge": "zone9.zone1",
@@ -174,7 +174,7 @@ def test_problems_for_flags_every_missing_binding_type(furnace_rig):
         "bad-loop": "heaters.heater2",
         "bad-device": "ghost",
     }
-    reasons = {p.ref: p.reason for p in problems_for(doc, furnace_rig)}
+    reasons = {p.address: p.reason for p in problems_for(doc, furnace_rig)}
     assert reasons["ghost"] == "ghost is not on this rig"
 
 
@@ -251,7 +251,7 @@ def test_a_stored_version_1_document_is_migrated_on_read(client, furnace_rig):
     assert read["body"]["widgets"][0]["config"] == {"address": "zone.zone1"}
     assert read["body"]["widgets"][4]["type"] == "device"
     assert store.dashboard("old").body["schema_version"] == 1, "what is stored is as saved"
-    assert {p["widget_id"]: p["ref"] for p in read["problems"]} == {"l": "heater1"}, (
+    assert {p["widget_id"]: p["address"] for p in read["problems"]} == {"l": "heater1"}, (
         "a loop was named by its actuator; the controller is its target's address"
     )
     listed = c.get("/api/dashboards").json()
@@ -266,7 +266,7 @@ def test_save_and_read_report_problems(client):
     """
     c, _ = client
     saved = c.put("/api/dashboards/main", json={**DOC, "name": "main"})
-    expected = [{"widget_id": "a", "ref": "p.t", "reason": "p.t is not on this rig"}]
+    expected = [{"widget_id": "a", "address": "p.t", "reason": "p.t is not on this rig"}]
     assert saved.json()["problems"] == expected
     assert c.get("/api/dashboards/main").json()["problems"] == expected
     # Widget "b" (a chart with no `addresses` configured) has nothing to flag.

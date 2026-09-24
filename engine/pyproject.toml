@@ -30,7 +30,7 @@ classifiers = [
 [project.optional-dependencies]
 # FastAPI won: flyball.interfaces.server needs its WebSocket support for live telemetry
 # and pydantic for request validation. uvicorn is the ASGI server.
-# The runner also serves MCP at /mcp/<mode>, over the client pointed back at itself.
+# The runner also serves MCP at /mcp/<tier>, over the client pointed back at itself.
 # flyball-sim rides along too, so `flyball-runner` can serve examples/simulated
 # out of the box (Decision, extensions-restructure Phase 8): its sim_plant/
 # sim_daq/sim_drive tags register through the same flyball.configs entry

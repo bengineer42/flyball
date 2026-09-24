@@ -810,7 +810,7 @@ class TestReapply:
             (1.5, True),
             (2.0, False),  # the reading at 4 s wins the instant it shares with a re-apply
         ]
-        assert all(t.measured is None for t in ticks if t.reapplied)
+        assert all(t.measured_value is None for t in ticks if t.reapplied)
         store.close()
 
     def test_setpoint_period_s_is_a_controller_key(self):

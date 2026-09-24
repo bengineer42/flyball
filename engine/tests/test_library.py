@@ -34,23 +34,24 @@ def client(tmp_path):
 
 def test_save_verbatim_versions_and_history(client):
     r = client.put(
-        "/api/programs/library/dry", content=YAML, headers={"content-type": "application/yaml"}
+        "/api/programs/library/dry?notes=first cut",
+        content=YAML,
+        headers={"content-type": "application/yaml"},
     )
     assert r.status_code == 201
     first = r.json()
     assert first["format"] == "yaml" and first["body"] == YAML and "# a comment" in first["body"]
+    assert first["notes"] == "first cut" and "label" not in first, "a version's text is its notes"
 
     r = client.put(
-        "/api/programs/library/dry?label=v2",
+        "/api/programs/library/dry?notes=v2",
         json={
             "format": "json",
             "body": '{"name": "dry-then-hold", "steps": []}',
             "notes": {"why": "trim"},
         },
     )
-    assert (
-        r.status_code == 201 and r.json()["label"] == "v2" and r.json()["notes"] == {"why": "trim"}
-    )
+    assert r.status_code == 201 and r.json()["notes"] == {"why": "trim"}, "the envelope's own wins"
 
     newest = client.get("/api/programs/library/dry").json()
     assert newest["format"] == "json" and newest["id"] != first["id"]
@@ -68,15 +69,11 @@ def test_upload_needs_a_format_and_a_parseable_document(client):
         ).status_code
         == 415
     )
-    # the name's extension can say what it is
-    assert (
-        client.put(
-            "/api/programs/library/x.toml",
-            content="a = 1\n",
-            headers={"content-type": "text/plain"},
-        ).status_code
-        == 201
+    # the name's extension can say what it is; the name is the stem, a key
+    r = client.put(
+        "/api/programs/library/x.toml", content="a = 1\n", headers={"content-type": "text/plain"}
     )
+    assert r.status_code == 201 and r.json()["name"] == "x" and r.json()["format"] == "toml"
     r = client.put(
         "/api/programs/library/bad", content="a: [", headers={"content-type": "application/yaml"}
     )
@@ -166,3 +163,13 @@ def test_rename_moves_every_version(client):
     assert (
         client.post("/api/programs/library/nothing/rename", json={"name": "x"}).status_code == 404
     )
+
+
+def test_a_program_is_named_by_a_key_found_by_either_spelling(client):
+    """D-077/D-079: `dry-then-hold` is stored as `dry_then_hold`; a non-key name is 422."""
+    headers = {"content-type": "application/yaml"}
+    r = client.put("/api/programs/library/dry-then-hold", content=YAML, headers=headers)
+    assert r.status_code == 201 and r.json()["name"] == "dry_then_hold"
+    assert client.get("/api/programs/library/dry_then_hold").json()["id"] == r.json()["id"]
+    bad = client.put("/api/programs/library/Dry%20Then%20Hold", content=YAML, headers=headers)
+    assert bad.status_code == 422 and "'Dry Then Hold' is not a key" in bad.text

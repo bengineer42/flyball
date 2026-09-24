@@ -92,6 +92,18 @@ def _setter(cls: type[Device], leaf: _Leaf) -> CommandSpec:
     return CommandSpec(name, setter, {"value": param}, demand_of=leaf.path)
 
 
+def _refuse_setter_clash(owner: str, setters: list[CommandSpec]) -> None:
+    """Refuse two demands whose `set_<path>` is one name (`flows.dry` and `flows_dry`)."""
+    seen: dict[str, str | None] = {}
+    for setter in setters:
+        if setter.name in seen:
+            raise ValueError(
+                f"{owner}: demands {seen[setter.name]!r} and {setter.demand_of!r} both make"
+                f" the command {setter.name!r}; rename one"
+            )
+        seen[setter.name] = setter.demand_of
+
+
 def _last_of(cls: type[Device]) -> NodeSpec:
     """`last.<command>`: when each command last ran and with what, for the wire and the record."""
     return NodeSpec(

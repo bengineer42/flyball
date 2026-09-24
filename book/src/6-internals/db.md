@@ -15,7 +15,7 @@ another, and either can be replaced without the other noticing.
 
 | table | is |
 | --- | --- |
-| `session` | start, end, version, config, hardware, details |
+| `session` | start, end, flyball version, config, hardware, details |
 | `device`, `signal` | what was declared: a device's driver and config, a signal's quantity, unit, access and bands |
 | `write` | the signals whose writes this session records, with the driver behind them |
 | `sample` | every reading, by signal, under one node's instant: `reading.value` and its `flag` (below) |

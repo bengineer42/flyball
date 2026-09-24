@@ -47,7 +47,7 @@ the form opened it (prefilled with the signal's current value, or at its
 default) is left out, and the rig keeps it where it is -- so setting one
 line of a pair does not write the other.
 
-A command that changes what drives the device (it has a `mode`, `writes`,
+A command that changes what drives the device (it has a `sets_mode`, `writes`,
 or an argument that sets a demand) and does not interrupt is refused
 while a controller regulates one of the device's signals; its card says
 so ("refused while blender.humidity regulates: put it in manual first")

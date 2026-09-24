@@ -83,7 +83,7 @@ def test_session_becomes_start_descriptors_events_stop(rig, fresh, clock):
     tick = next(
         d for n, d in docs if n == "event" and d["descriptor"] == controller_descriptor["uid"]
     )
-    assert tick["data"][f"{stream}.setpoint"] == 10.0 and f"{stream}.measured" in tick["data"]
+    assert tick["data"][f"{stream}.setpoint"] == 10.0 and f"{stream}.measured_value" in tick["data"]
 
     stop = docs[-1][1]
     assert stop["exit_status"] == "success" and stop["run_start"] == start["uid"]

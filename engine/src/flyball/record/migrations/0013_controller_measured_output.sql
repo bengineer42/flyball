@@ -9,7 +9,7 @@
 -- is never loaded again, so it keeps the spelling it was written with.
 --
 -- The recorded columns follow the same words: a tick's `reading` and `demand`
--- are its `measured` and `output`, and a controller's `source` its `measured`.
+-- are its `measured_value` and `output_value`, and a controller's `source` its `measured`.
 
 UPDATE rig_version
 SET document = json_set(
@@ -32,6 +32,6 @@ SET document = json_set(
 )
 WHERE json_valid(document) AND json_type(document, '$.controllers') = 'object';
 
-ALTER TABLE tick RENAME COLUMN reading TO measured;
-ALTER TABLE tick RENAME COLUMN demand TO output;
+ALTER TABLE tick RENAME COLUMN reading TO measured_value;
+ALTER TABLE tick RENAME COLUMN demand TO output_value;
 ALTER TABLE controller RENAME COLUMN source TO measured;

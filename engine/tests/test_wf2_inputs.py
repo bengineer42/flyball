@@ -301,7 +301,7 @@ class TestPropagation:
         for level in (20.0, 30.0):
             clock.advance(1.0)
             _push(rig, source.signals["level"], level)
-            measured = controller.state.measured
+            measured = controller.state.measured_value
             assert measured is not None and measured.value == 2 * level, (
                 "stepped on the output this delivery computed, not the one before"
             )

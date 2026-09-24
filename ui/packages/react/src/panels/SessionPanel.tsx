@@ -392,7 +392,7 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
 
       {session.config != null && (
         <details className="fb-section">
-          <summary>rig config as recorded{session.version ? ` · version ${String(session.version)}` : ""}</summary>
+          <summary>rig config as recorded{session.flyball_version ? ` · flyball ${String(session.flyball_version)}` : ""}</summary>
           <ValueView value={session.config} />
         </details>
       )}

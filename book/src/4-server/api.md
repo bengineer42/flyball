@@ -65,7 +65,7 @@ has the rules.
 
 | | route | |
 | --- | --- | --- |
-| `GET` | `/api/auth` | **AuthInfo v2**: `{v: 2, shape, scheme, user, verbs, anonymous, login, exposure, rig?}`. `shape` is the door's: `local`, `password` or `proxy` at a front; `local` (no token) or `bare` at a bare runner. `scheme` is how this caller got in: `local`, `anonymous`, `session`, `token` or `proxy`. `user` is `{id, name, kind}` (`id` the principal's `sub`, `kind` `human`, `service` or `agent`), `null` when anonymous. `verbs` are the caller's verbs on this rig. `login` is `{password, token, passkey, sso}`: what the sign-in page may offer (`passkey` is always `false`, `sso` `null`, in this release). `exposure`, when there is anything to say, is `{requested, host, port, open, restricted, open_network, warning}`: where the door serves against where it was asked to, and why (`warning` carries a front's fallback reason; after a `password` or `proxy` front's fallback, `requested` answers `503` and `host`/`port` are the fresh loopback address the `local` shape is served on). `rig` is the rig this path routes to, at a front (absent at `flyballd`'s own root). A stale cookie here answers anonymous and clears it, rather than `401` |
+| `GET` | `/api/auth` | **AuthInfo v2**: `{v: 2, shape, scheme, user, verbs, anonymous, login, exposure, rig?}`. `shape` is the door's: `local`, `password` or `proxy` at a front; `local` (no token) or `bare` at a bare runner. `scheme` is how this caller got in: `local`, `anonymous`, `login` (a sign-in's cookie), `token` or `proxy`. `user` is `{id, name, kind}` (`id` the principal's `sub`, `kind` `human`, `service` or `agent`), `null` when anonymous. `verbs` are the caller's verbs on this rig. `login` is `{password, token, passkey, sso}`: what the sign-in page may offer (`passkey` is always `false`, `sso` `null`, in this release). `exposure`, when there is anything to say, is `{requested_host, host, port, open, restricted, open_network, warning}`: where the door serves against where it was asked to, and why (`warning` carries a front's fallback reason; after a `password` or `proxy` front's fallback, `requested_host` answers `503` and `host`/`port` are the fresh loopback address the `local` shape is served on). `rig` is the rig this path routes to, at a front (absent at `flyballd`'s own root). A stale cookie here answers anonymous and clears it, rather than `401` |
 | `POST` | `/api/auth/login` | a `password` front: `{"password": "…"}`; a bare runner with a token: `{"token": "…"}`. Sets the session cookie (`HttpOnly; SameSite=Lax`) and answers as `GET`. Wrong: `401` after half a second; ten wrong in a minute from one address: `429` with `Retry-After` (at a bare runner ten *different* wrong tokens, or a hundred wrong attempts; a wrong `Authorization: Bearer` counts too, and while they stand every bearer request from that address is `429` too); at a front also `429` with `Retry-After: 1` while two other passwords are being checked. A front without the password shape answers `404`. Needs a same-site `Origin` at a front |
 | `POST` | `/api/auth/logout` | ends the session (its open streams and sockets closed within a second) and clears the cookie |
 | `GET` | `/api/auth/tokens` | a front's named tokens, `[{id, name, scopes, kind, created, expires, last_used}]`, never a secret. The admin session or the `local` shape only: anonymous `401`, anyone else `403` |
@@ -73,7 +73,7 @@ has the rules.
 | `DELETE` | `/api/auth/tokens/{id}` | `204`; the token's open streams and sockets closed within a second; `404` no such token. The same callers. A revoke the front cannot record in its audit still happens (`503`, saying so) |
 | `GET` | `/api/auth/link?n=NONCE` | a bare runner with a token: a one-time sign-in link (printed at start; ten minutes). `302` to `<root>/` with a session cookie, `Referrer-Policy: no-referrer`; used, expired or wrong: `401` |
 | `POST` | `/api/auth/link` | a bare runner, with its token as a bearer: `{url, expires_in}`, a fresh link for a person |
-| `GET` | `/api/auth/front` | a fronted runner's readiness probe: `401` without a valid principal, `200` `{protocol: 1, aud, pid, flyball}` with one; `404` on a bare runner |
+| `GET` | `/api/auth/front` | a fronted runner's readiness probe: `401` without a valid principal, `200` `{protocol: 1, aud, pid, flyball_version}` with one; `404` on a bare runner |
 
 A bare runner's session cookie is `flyball-bare-<port>`, path `<root
 path>/`, in memory for 12 hours; a front's is `flyball-<port>`, or
@@ -144,6 +144,13 @@ of disk -- is 503 `StoreUnavailableError`. Both carry sqlite's message in
 so a 500 is not worth retrying. A 503 usually is, though sqlite files a
 transaction begun inside another under the same error; `detail` says which.
 
+A name in a path or a body -- a device, a link, an address's segments, a
+program, tuning or dashboard -- is a [key](../7-reference/rig-file.md#names),
+and `-` is read as `_`: `/api/programs/library/dry-then-hold` is the program
+`dry_then_hold`, and every name the API answers with is in that spelling. A
+name to be created that is not a key (`Dry Then Hold`) is 422, the message
+naming it; one that is looked up simply is not found.
+
 ## Rig
 
 | | | |
@@ -188,7 +195,7 @@ restore a version -- goes one way:
    from M`), starts again once, and holds an `edit_not_built` condition on
    the rig.
 
-Each answers 202 `RigEditOut`: `{version, previous, reason, saved, restarting,
+Each answers 202 `RigEditOut`: `{rig_version_id, previous, reason, saved, restarting,
 stop, message}` -- `saved` the overlay's path or `null`, `stop` the stop's
 report -- before the restart; the API answers again once the runner is back.
 Each takes `?base=<version>` (the head the edit was made on; `409` if it
@@ -302,9 +309,9 @@ set after limits, what was asked for when the clamp changed it, `low` /
 `high` when the value sits on a limit, and the controller driving the
 signal (it refuses manual demands; set its setpoint or detach it).
 
-A `CommandOut` is `{name, description, simulation, commit, mode,
+A `CommandOut` is `{name, description, simulation, commit, sets_mode,
 interrupts, writes, demand_of, links}`: `commit` whether the rig commits the
-device once the method returns, `mode` what the device's `mode` output
+device once the method returns, `sets_mode` what the device's `mode` output
 becomes when it runs (if it has one), `interrupts` whether it may run while
 a controller drives the device (the controller goes to manual once the
 method succeeds), `writes` the demand paths (or a private child's name) it
@@ -315,11 +322,11 @@ path}` for every argument that is a value for a demand.
 `GET /api/devices/{name}/schema` returns `{name, label, class_name, driver,
 description, readable, writable, config, signals, inputs, commands}`:
 `config` a JSON Schema for the driver's config, `signals` `{path: {address,
-access, role, tags, label, quantity, unit, dimension, dtype, value, range,
-precision, limits}}` by path relative to the device (`value` a JSON Schema
+access, role, tags, label, quantity, unit, dimension, dtype, value_schema, range,
+precision, limits}}` by path relative to the device (`value_schema` a JSON Schema
 for the signal's own type), `inputs` `{name: {label, quantity, unit,
 bound, constant}}`, and `commands` `{command: {description, arguments, simulation,
-commit, mode, interrupts, writes, demand_of}}` — `arguments` a JSON Schema whose
+commit, sets_mode, interrupts, writes, demand_of}}` — `arguments` a JSON Schema whose
 properties linked to a demand also carry `x-signal`, `unit` and
 `minimum`/`maximum` from that signal's limits now.
 
@@ -342,28 +349,28 @@ is named by its output's address.
 | `GET` | `/api/controllers/default` | `ControllerOut`; 503 when there is none |
 | `GET` | `/api/controllers/{address}` | `ControllerOut` |
 | `GET` | `/api/controllers/schema` | what a form needs to make a controller: `measured` and `outputs` (`[{address, device, label, unit, dimension, range, limits}]`: every published signal, every writable one), `laws`, `feedforwards` and `generators` (JSON Schema unions on `type`), `tunings` (`{name, law, config}`), `regulated` (`{measured: controller}`), `driven` (`{output: controller}`) |
-| `POST` | `/api/controllers` | `{output, measured, law?, feedforward?, default?, min_period_s?, setpoint_period_s?, on_fault?}` (the rig file's keys); 201 `ControllerOut`; 409 if the output is already driven or the measured signal already regulated, `feedforward: "setpoint"` across units, or `on_fault: stop` on an output whose stop is `keep`; 404 for an unknown address |
+| `POST` | `/api/controllers` | `{output, measured, law?, feedforward?, is_default?, min_period_s?, setpoint_period_s?, on_fault?}` (the rig file's keys); 201 `ControllerOut`; 409 if the output is already driven or the measured signal already regulated, `feedforward: "setpoint"` across units, or `on_fault: stop` on an output whose stop is `keep`; 404 for an unknown address |
 | `DELETE` | `/api/controllers/{address}` | 204; put in manual first, so the output holds its last value; manual demands may drive it again |
 | `POST` | `/api/controllers/{address}/regulate` | `{at, start?, tuning?, transfer?}`; `at` a value, `measured`/`setpoint`/`output`, or a generator spec (`{type, ...its own arguments}`, e.g. `{type: "linear_ramp_setpoint", pace, end}`, discriminated by `type` against the `generators` union); `start` says where a generator starts from -- a value, `setpoint` or `measured` (the last reading) -- and defaults to the controller's current setpoint, or its last reading if it has none yet; `output` is converted back to the measured unit through the feedforward's inverse, 422 if it has none; the handover's output is committed at once; 503 if a generator is given and there is neither a setpoint nor a reading to start it from; 409 while a latch holds the controller, its output or the rig -- except that a person's `regulate` clears the controller's own `on_fault: manual` latch first, which holds nothing else |
 | `POST` | `/api/controllers/{address}/manual` | stop regulating; the output keeps its last value |
 | `PUT` | `/api/controllers/{address}/setpoint` | `{at, start?}`; move the setpoint, or start following a generator spec (as `regulate` takes, with the same `start`), without touching the mode |
 
 A `ControllerOut` is `{name, label, output_signal, measured_signal,
-default, mode, law, feedforward, output_unit, reference, setpoint, arrived,
-correction, output, expected, delivered_correction, measured}`: `name` is
+is_default, mode, law, feedforward, output_unit, reference, setpoint, arrived,
+correction, output_value, expected, delivered_correction, measured_value}`: `name` is
 `output_signal`, the output's address, and `measured_signal` the measured
 signal's; `label` the output signal's; `reference` is a number or, mid-trajectory, `{type,
 ...the generator's own arguments, end_time?}` (`end_time` in seconds from
 the rig's start, once started and unless endless), `setpoint` the value it
 resolved to at the last tick (in the measured unit), `arrived` whether the
 reference has landed (a number has; a generator once it finishes, judged
-in rig time), and `output`, `expected` and `correction` are in
+in rig time), and `output_value`, `expected` and `correction` are in
 `output_unit` -- the output signal's unit, which the `feedforward` (`{type:
 setpoint | none | affine | table, ...}`, `affine`/`table` taking an
 optional `rate_gain` for a ramp's rate of change) maps the setpoint into;
-`measured` is the measured signal's reading at the last tick, `{signal,
+`measured_value` is the measured signal's reading at the last tick, `{signal,
 time_ns, value}`. The faceplate reads Measured / Setpoint / Output from
-`measured`, `setpoint` and `output`.
+`measured_value`, `setpoint` and `output_value`.
 
 The built-in generators, by `type` (a package's own, registered with
 `catalog.register_generator`, is offered in `generators` and accepted in `at`
@@ -399,7 +406,7 @@ The one place the rig and the store meet: opening a session needs both.
 | | | |
 | --- | --- | --- |
 | `GET` | `/api/recording` | the open *named* session as a `SessionRow`, or `null` -- `null` while only the [scratch record](../1-running/runner/index.md#the-scratch-record) runs |
-| `POST` | `/api/recording` | `{details?, version?, config?, hardware?, include_ns?}`; 201 `SessionRow`. `include_ns` starts the session that far back (clamped to what scratch holds) and backfills it from the scratch record it replaces. 409 if one is open |
+| `POST` | `/api/recording` | `{details?, flyball_version?, config?, hardware?, include_ns?}`; 201 `SessionRow`. `include_ns` starts the session that far back (clamped to what scratch holds) and backfills it from the scratch record it replaces. 409 if one is open |
 | `POST` | `/api/recording/end` | close it; `SessionRow`. The scratch record reopens |
 
 ## History
@@ -420,7 +427,7 @@ Reads the store, never the rig.
 | `GET` | `/api/history/sessions/{id}/controllers` | `[ControllerRow {name, measured, law, feedforward}]` |
 | `GET` | `/api/history/sessions/{id}/series/{address}` | `Series {signal: SignalRow, points, downsample}`, a point `{offset_ns, value, flag}`: `value` `null` where the reading had none, with `flag` its code (1 `invalid`, 2 `not_applicable`, 3 `stale`, 4 `stale` with the device offline), else `flag` the value's mark (16/17 `at_limit` low/high) or `null` ([no value](wire.md#a-reading-with-no-value)); query `start_ns`, `end_ns`, and one of `every` (every nth, and every reading with no value), `bucket_ns`, `max_points` (averaged: a bucket with any reading with no value is `null`, with the lowest code in it) |
 | `GET` | `/api/history/sessions/{id}/writes/{address}` | `[WriteStateRow {offset_ns, value, requested, at_limit, controller}]`; query `start_ns`, `end_ns` |
-| `GET` | `/api/history/sessions/{id}/ticks/{controller}` | `[Tick {controller, offset_ns, mode, correction, measured, setpoint, output, expected, delivered_correction, reapplied}]`; query `start_ns`, `end_ns`. A tick's `correction` is `null` when the law's output was not a number (a NaN integral); `reapplied` is true on a re-apply of a moving setpoint's feedforward between readings, which has no reading (`measured` null) and did not step the law |
+| `GET` | `/api/history/sessions/{id}/ticks/{controller}` | `[Tick {controller, offset_ns, mode, correction, measured_value, setpoint, output_value, expected, delivered_correction, reapplied}]`; query `start_ns`, `end_ns`. A tick's `correction` is `null` when the law's output was not a number (a NaN integral); `reapplied` is true on a re-apply of a moving setpoint's feedforward between readings, which has no reading (`measured_value` null) and did not step the law |
 | `GET` | `/api/history/sessions/{id}/events` | `[{offset_ns, code, subject, details, id, edge}]`, the events as recorded: `subject` what it is about, `details` `{severity, subject_kind, message, details}`; query `start_ns`, `end_ns`, `code` |
 | `GET` | `/api/history/sessions/{id}/spans` | `[Span]`, in start order; nest by `parent_id` |
 | `GET` | `/api/history/sessions/{id}/export?format=csv\|json\|zip&layout=wide\|long&step_s=` | the session as a file: `wide` one column per signal (each row holds every signal's last value; `step_s` resamples onto a grid), `long` one row per value (`device, signal, unit, value`), `zip` both (`signals-wide.csv`, `signals-long.csv`) plus each controller's ticks (`controller-{name}.csv`), each write's states (`write-{address}.csv`), `events.csv` and `session.json` (`devices`, `signals`, `controllers`) |
@@ -451,6 +458,7 @@ output's address (or none for the rig's default), a device by name.
 | `POST` | `/api/programs/command?cancel=` | one internally tagged command |
 | `GET` | `/api/programs/running` | `ProgrammerState` |
 | `POST` | `/api/programs/cancel` | cancel whatever is running: it ends `cancelled`, outputs kept |
+| `PUT` | `/api/programs/library/{name}` | add a version: the document itself (a YAML, TOML or JSON media type) or a JSON `{format, body, notes?}`; `?notes=` what the author says about this version (the envelope's own `notes` wins). 201 `ProgramRow {id, name, format, body, created_ns, sha256, notes}` -- `notes` text or any JSON, `null` when none |
 | `GET` | `/api/programs/library/{name}/check` | `ProgramCheck`, the same shape, for the newest stored version |
 
 `ProgramCheck` is `{ok, error?, normalised?, warnings}`: `warnings` maps a step
@@ -482,7 +490,7 @@ file itself takes); they are imported on start.
 | `DELETE` | `/api/dashboards/{name}` | 204; every version |
 
 A `DashboardRow` is `{id, name, rig, body, created_ns, sha256}`; a
-`DashboardWithProblems` is the same plus `problems: [{widget_id, ref,
+`DashboardWithProblems` is the same plus `problems: [{widget_id, address,
 reason}]` — every widget whose binding (a `readout`/`gauge`'s `address`, a
 `chart`'s `addresses`, a `loop`'s `controller`, a `device`'s `device`, all
 inside the widget's own `config`) names something this rig does not
@@ -552,7 +560,7 @@ message: one `raised` per outage, never one per poll or per step.
 | `signal` | `band_warning`, `band_alarm`, `band_unknown` ([Bands](../2-config/devices/index.md#bands)), `latched` (held by an `on_fault: stop`), a driver's own (the sim's `broken`) | `written_while_stopped` (a person's write under the rig stop: `{value, actor}`) |
 | `controller` | `step_failed` (a law that raised), `stale_input`, `limit_unknown`, `frozen` (its measured signal has no value: `info` for `not_applicable`, `warning` for a fault; cleared after 3 readings with a value), `not_permitted` (its output's permissive does not allow a write: held), `latched` (`error`: held by an `on_fault` action until its Reset) | `interrupted` (put in manual by a stop), `on_fault` (`{action, reason, accrued_s, was, stop}`), `reseeded` (a ramp resumed after a hold: `{end_was_s, end_s}`) |
 | `program` | | `started`, `step`, `step_timed_out`, `step_still_running` (a cancel or a stop gave up waiting for the step, which may still act), `step_failed`, `succeeded`, `failed`, `cancelled` (a person), `interrupted` (the engine, with `details.reason`), `run_from_library` |
-| `rig` | `stopped` (`warning`: latched by a software stop, `details: {actor, at_ns, reason}`; cleared by its Reset), `recording_failed` (cleared by the next recording), `edit_not_built` (`error`: the start after a rig edit could not build it and went back to the version before; `details: {version, previous, error}`; held until the next restart) | `delivery_failed`, `stop_applied` (what a stop, a shutdown or a restart's re-applied latch did: `{why, devices, kept}`, `kept` every output left energised with its value), `reset` (a latch let go: `{cause, actor, latch}`), `restored` (an in-place restore, before D-051; no longer raised) |
+| `rig` | `stopped` (`warning`: latched by a software stop, `details: {actor, at_ns, reason}`; cleared by its Reset), `recording_failed` (cleared by the next recording), `edit_not_built` (`error`: the start after a rig edit could not build it and went back to the version before; `details: {rig_version_id, previous, error}`; held until the next restart) | `delivery_failed`, `stop_applied` (what a stop, a shutdown or a restart's re-applied latch did: `{why, devices, kept}`, `kept` every output left energised with its value), `reset` (a latch let go: `{cause, actor, latch}`), `restored` (an in-place restore, before D-051; no longer raised) |
 
 There is no separate "recovered" code: `offline` cleared is what
 `restarted` was, and `write_failed`, `step_failed` and

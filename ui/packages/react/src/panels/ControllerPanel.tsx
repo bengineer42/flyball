@@ -517,13 +517,13 @@ export function ControllerPanel({
   const setpoint = setpointOf(controller) ?? (following ? latest(history.reference) : null);
   // PV: the measured signal's newest reading from the store, else what the controller saw at its last tick --
   // never an older value when the newest has none: that shows as "—" and why.
-  const measured = live ?? (controller.measured ? { t: controller.measured.time_ns / 1e9, value: controller.measured.value, quality: controller.measured.quality, reason: controller.measured.reason } : undefined);
+  const measured = live ?? (controller.measured_value ? { t: controller.measured_value.time_ns / 1e9, value: controller.measured_value.value, quality: controller.measured_value.quality, reason: controller.measured_value.reason } : undefined);
   const reading = typeof measured?.value === "number" ? measured.value : null;
   const none = noValue(measured, (v) => withUnit(fixed(v, precision), unit));
   // OP: the output signal's write state (after limits) from `/ws/writes`, else what the controller expects it to give.
-  const clamped = write ? write.at_limit !== null : controller.expected != null && differs(controller.output, controller.expected);
-  const output = write?.value ?? controller.expected ?? controller.output;
-  const requested = write?.requested ?? controller.output;
+  const clamped = write ? write.at_limit !== null : controller.expected != null && differs(controller.output_value, controller.expected);
+  const output = write?.value ?? controller.expected ?? controller.output_value;
+  const requested = write?.requested ?? controller.output_value;
   const deviation = reading != null && setpoint != null ? reading - setpoint : null;
   const deviationWarn = alarmLevel(reading, source, measuredBand) !== "ok";
 
@@ -534,7 +534,7 @@ export function ControllerPanel({
   const outputRange = target?.limits ?? null;
   const opFraction = fractionOf(output, outputRange);
   // Which rail the output is pinned to, for the OP bar's highlighted end when clamped.
-  const limitEdge: "hi" | "lo" | null = !clamped ? null : write?.at_limit ? (write.at_limit === "high" ? "hi" : "lo") : (controller.output ?? 0) > controller.expected! ? "hi" : "lo";
+  const limitEdge: "hi" | "lo" | null = !clamped ? null : write?.at_limit ? (write.at_limit === "high" ? "hi" : "lo") : (controller.output_value ?? 0) > controller.expected! ? "hi" : "lo";
 
   // The measured signal's device run says whether anything is arriving at all; the rig's own `stale`
   // reading catches a device that is nominally running but has gone quiet, and its `frozen` condition a
@@ -572,7 +572,7 @@ export function ControllerPanel({
           <h3><Ref kind="controller" name={controller.name}>{controller.label ? describeController(controller) : target ? describeSignal(target) : controller.name}</Ref></h3>
           <span className="fb-muted" title={`${controller.name} regulates ${controller.measured_signal}`}>
             regulates <Ref kind="signal" name={controller.measured_signal}>{describeSignal(source)}</Ref>
-            {controller.default && " · default"}
+            {controller.is_default && " · default"}
           </span>
           <span className={`fb-badge fb-mode fb-mode-${controller.mode}`}>{controller.mode}</span>
           {/* In the header, not its own row: a row that appears/disappears as `banner` flips

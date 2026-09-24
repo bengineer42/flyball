@@ -22,6 +22,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
 from ..errors import NotFoundError, NotReadyError, UnachievableError
+from ..keys import canonical, check_key
 from ..quantities import Unit
 from ..quantities.quantity import Quantity
 from ..time.clock import Rate
@@ -286,7 +287,8 @@ class SignalSpec:
     de-energising. None (default): a stop leaves the output as it is (`keep`)."""
 
     def __post_init__(self) -> None:
-        _check_segment(self.name)
+        object.__setattr__(self, "name", _check_segment(self.name, "signal"))
+        object.__setattr__(self, "tags", check_tags(self.tags))
         if self.off is not None and not math.isfinite(self.off):
             raise ValueError(f"signal {self.name!r}: off {self.off!r} is not finite")
         Access.check(self.access)
@@ -325,12 +327,24 @@ class NodeSpec:
     """Applied to every signal under it at bind; a signal's own win."""
 
     def __post_init__(self) -> None:
-        _check_segment(self.name)
+        object.__setattr__(self, "name", _check_segment(self.name, "namespace"))
+        object.__setattr__(self, "tags", check_tags(self.tags))
 
 
-def _check_segment(name: str) -> None:
-    if not name or "." in name:
-        raise ValueError(f"{name!r} is not an address segment: non-empty, no dots")
+def _check_segment(name: str, what: str = "address segment") -> str:
+    """The canonical form of one segment of an address: a key (`check_key`)."""
+    return check_key(name, what)
+
+
+def check_tags(tags: Mapping[str, str]) -> dict[str, str]:
+    """Tags with every axis and value a key, canonical; a ValueError naming the one that is not."""
+    out: dict[str, str] = {}
+    for axis, value in tags.items():
+        key = check_key(axis, "tag axis")
+        if key in out:
+            raise ValueError(f"tag axis {axis!r} is given twice: `-` and `_` are one")
+        out[key] = check_key(value, f"tag {key!r} value")
+    return out
 
 
 class Path(tuple[str, ...]):
@@ -354,14 +368,13 @@ class Path(tuple[str, ...]):
         """
         if not text:
             return cls()
-        segments = text.split(".")
+        segments = canonical(text).split(".")
         if "" in segments:
             raise ValueError(f"{text!r} is not a path: an empty segment")
         return cls(segments)
 
     def __truediv__(self, segment: str) -> Path:
-        _check_segment(segment)
-        return Path((*self, segment))
+        return Path((*self, _check_segment(segment)))
 
     @property
     def parent(self) -> Path:

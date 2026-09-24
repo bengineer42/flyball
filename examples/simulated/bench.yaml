@@ -41,4 +41,4 @@ controllers:
   psu.set_voltage:
     measured: dmm.voltage
     law: { type: pi, kp: 0.5, ki: 0.1 }
-    default: true
+    is_default: true

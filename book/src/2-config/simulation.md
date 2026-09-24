@@ -142,7 +142,7 @@ controllers:
   heater.drive:
     measured: thermocouple.temperature
     law: { type: pi, kp: 0.02, ki: 0.0005 }
-    default: true
+    is_default: true
 ```
 
 `sim_plant`'s own field for which model it is (`lag`, `integrator`, `fopdt`)

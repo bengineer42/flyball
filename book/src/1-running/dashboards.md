@@ -64,7 +64,7 @@ a widget.
 Server side, a dashboard is versioned per name like a program: `PUT
 /api/dashboards/{name}` writes a new version, `GET` returns the newest, `GET
 .../history` every version. `GET`/`PUT` also return `problems: [{widget_id,
-ref, reason}]` — every widget naming an address, controller or device the
+address, reason}]` — every widget naming an address, controller or device the
 rig does not currently have. The document is never refused for this: the
 widget shows the "unbound" state instead (a dashed border and the reason) so
 a renamed sensor does not cost you the rest of a twenty-widget dashboard. In

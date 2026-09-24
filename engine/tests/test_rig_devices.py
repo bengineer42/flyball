@@ -753,7 +753,7 @@ class TestControllers:
         zone1, zone2 = furnace.signals["zone1"], furnace.signals["zone2"]
         controller = rig.attach_controller(heater1, zone1, law=P(kp=100.0), feedforward="none")
         assert rig.controllers[heater1.address] is controller
-        assert rig.controllers.default == controller.name
+        assert rig.controllers.default_controller == controller.name
         assert isinstance(controller.feedforward, NoFeedforward)
         with pytest.raises(SignalClaimedError, match=f"{heater1.address} is already driven by"):
             rig.attach_controller(heater1, zone2)
@@ -794,15 +794,15 @@ class TestControllers:
         controller.regulate(50.0, transfer=Transfer.COLD)
         with rig.controller_states.watch(), rig.write_states.watch():
             rig.on_samples([Sample(furnace.root, 1_000_000_000, {zone1: 40.0})])
-        assert controller.output == 10_000.0 and controller.expected == 2500.0, "clamped"
+        assert controller.output_value == 10_000.0 and controller.expected == 2500.0, "clamped"
         assert rig.write_states.changed_since(0)[1] == {
             heater1.address: WriteState(
                 value=2500.0, requested=10_000.0, at_limit="high", controller=controller.name
             )
         }
         state = rig.controller_states.changed_since(0)[1][controller.name]
-        assert state.expected == 2500.0 and state.measured is not None
-        assert state.measured.value == 40.0
+        assert state.expected == 2500.0 and state.measured_value is not None
+        assert state.measured_value.value == 40.0
 
 
 class TestBoundInputs:

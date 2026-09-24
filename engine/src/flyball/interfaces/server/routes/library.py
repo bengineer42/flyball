@@ -19,6 +19,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from flyball.foundation.files import SUFFIXES, loads
+from flyball.foundation.keys import is_key
 from flyball.interfaces.server.deps import (
     DialectDep,
     ProgrammerDep,
@@ -45,8 +46,8 @@ class SaveProgram(BaseModel):
 
     format: ProgramFormat
     body: str
-    label: str | None = None
     notes: Any = None
+    """What the author says about this version: free text, or any JSON."""
 
 
 def _check(row: ProgramRow, dialect: Any, rig: Rig) -> ProgramCheck:
@@ -82,15 +83,16 @@ def load_tunings(rig: Rig, directory: Path) -> list[str]:
 def import_directory(store: Store, directory: Path, now_ns: int) -> list[ProgramRow]:
     """Bring every program file in `directory` into the library.
 
-    The file's stem is the name. A file whose text matches the newest stored
-    version is left alone; a changed file becomes a new version, so editing on
-    disk and in the UI share one history. Files that are not YAML, TOML or
-    JSON are ignored; one that does not parse is skipped, not fatal.
+    The file's stem is the name (`dry-then-hold.yaml` is `dry_then_hold`, D-079). A
+    file whose text matches the newest stored version is left alone; a changed file
+    becomes a new version, so editing on disk and in the UI share one history. Files
+    that are not YAML, TOML or JSON are ignored; one that does not parse, or whose
+    stem is not a key, is skipped, not fatal.
     """
     imported: list[ProgramRow] = []
     for path in sorted(directory.iterdir()):
         fmt = detect(None, path.name)
-        if fmt is None or not path.is_file():
+        if fmt is None or not path.is_file() or not is_key(path.stem):
             continue
         text = path.read_text(encoding="utf-8")
         try:
@@ -177,7 +179,9 @@ async def save_program(
     rig: RigDep,
     name: str,
     content_type: Annotated[str | None, Header()] = None,
-    label: Annotated[str | None, Query()] = None,
+    notes: Annotated[
+        str | None, Query(description="what the author says about this version")
+    ] = None,
 ) -> ProgramRow:
     """Add a version: the document itself (YAML/TOML/JSON media type) or a JSON ``SaveProgram``.
 
@@ -188,7 +192,9 @@ async def save_program(
     """
     raw = (await request.body()).decode()
     fmt = detect(content_type, name)
-    notes: Any = None
+    if detect(None, name) is not None:  # `x.toml` is the program `x`, written in TOML
+        name = name.rsplit(".", 1)[0]
+    said: Any = notes
     if content_type and content_type.split(";")[0].strip() == "application/json":
         # Either a SaveProgram envelope or a bare JSON program: the envelope has `body`.
         try:
@@ -196,8 +202,8 @@ async def save_program(
         except ValidationError:
             envelope = None
         if envelope is not None:
-            fmt, raw, notes = envelope.format, envelope.body, envelope.notes
-            label = envelope.label or label
+            fmt, raw = envelope.format, envelope.body
+            said = envelope.notes if envelope.notes is not None else notes
     if fmt is None:
         raise HTTPException(
             status_code=415,
@@ -209,7 +215,7 @@ async def save_program(
     except FormatError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     # Async to read the body; the store call goes to a thread, never on the loop.
-    save = partial(store.save_program, name, fmt, raw, rig.clock.now_ns(), label=label, notes=notes)
+    save = partial(store.save_program, name, fmt, raw, rig.clock.now_ns(), notes=said)
     return await to_thread.run_sync(save)
 
 

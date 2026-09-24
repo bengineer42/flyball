@@ -297,7 +297,7 @@ export interface CommandOut {
   /** The method only records; the rig commits the device after it. */
   commit: boolean;
   /** What the device's `mode` output becomes when this runs, if it has one. */
-  mode: Value;
+  sets_mode: Value;
   /** Runs while a controller drives the device and puts it into manual once the method has succeeded (the response's `interrupted` names it); without it the command is refused while one is active. */
   interrupts: boolean;
   /** What it moves that no linked argument says: demand paths (gpio `on`/`off` move `on`), or a private child's name (a dosing pump's `pump`). A command with any is refused while a controller drives the device, unless it `interrupts`. */
@@ -436,7 +436,8 @@ export interface CommandSchema {
   arguments: JsonSchema;
   simulation: boolean;
   commit: boolean;
-  mode: Value;
+  /** As `CommandOut.sets_mode`. */
+  sets_mode: Value;
   interrupts: boolean;
   /** As `CommandOut.writes`. */
   writes: string[];
@@ -455,7 +456,7 @@ export interface SignalSchema {
   dimension: string | null;
   dtype: Dtype;
   /** The JSON schema of one value: a number, an enum's members, a structure. */
-  value: JsonSchema;
+  value_schema: JsonSchema;
   range: Bounds | null;
   precision: number | null;
   limits: Bounds | null;
@@ -597,12 +598,12 @@ export interface ControllerOut {
   label: string | null;
   output_signal: Address;
   measured_signal: Address;
-  default: boolean;
+  is_default: boolean;
   mode: ControllerMode;
   /** The law's config and state flattened, `type` first; null when there is no law. */
   law: Record<string, unknown> | null;
   feedforward: FeedforwardConfig;
-  /** The unit `output`, `expected` and `correction` are in: the output signal's. */
+  /** The unit `output_value`, `expected` and `correction` are in: the output signal's. */
   output_unit: string;
   /** A fixed setpoint, or the trajectory being followed (a ramp, a dwell, a profile). */
   reference: number | GeneratorOut | null;
@@ -612,11 +613,11 @@ export interface ControllerOut {
   arrived?: boolean;
   correction: number;
   /** The last value asked of the output signal. */
-  output: number | null;
+  output_value: number | null;
   expected: number | null;
   delivered_correction: number | null;
   /** The measured signal's reading at the last tick. */
-  measured: ReadingOut | null;
+  measured_value: ReadingOut | null;
   /** What it does once its source has been faulty for its wait (the rig file's `on_fault`). */
   on_fault?: OnFault;
   /**
@@ -685,7 +686,7 @@ export interface NewController {
    * units agree, else `none`. `"identity"` across differing units is refused (409).
    */
   feedforward?: FeedforwardConfig | string | null;
-  default?: boolean;
+  is_default?: boolean;
   min_period_s?: number | null;
   /** While following a moving setpoint, re-apply its feedforward this often between readings; omitted: `max(0.1 s, poll_s / 4)`. */
   setpoint_period_s?: number | null;
@@ -861,7 +862,7 @@ export interface RigVersion {
  */
 export interface RigEditOut {
   /** The edit's rig version, now the head. */
-  version: number;
+  rig_version_id: number;
   /** The head before it: what a start that cannot build the edit goes back to. */
   previous: number | null;
   /** The version's reason: `edited: added device probe`, `restored from 3`. */
@@ -930,7 +931,7 @@ export interface AuthInfo {
   /** How this rig's door is set up. */
   shape: "local" | "password" | "proxy" | "bare";
   /** How this caller got in. */
-  scheme: "local" | "anonymous" | "session" | "token" | "proxy";
+  scheme: "local" | "anonymous" | "login" | "token" | "proxy";
   user: { id: string; name: string; kind: "human" | "service" | "agent" } | null;
   /** This caller's verbs on this rig, sorted; the UI decides from these, never from `scheme` or `shape` alone. */
   verbs: string[];
@@ -1057,7 +1058,7 @@ export interface PasskeyListOut {
  * with `--insecure-open` it is served where asked, and `open_network` says anyone who reaches it may operate.
  */
 export interface Exposure {
-  requested: string;
+  requested_host: string;
   host: string;
   port: number;
   open: boolean;
@@ -1131,7 +1132,7 @@ export interface SessionRow {
   id: number;
   start_ns: Nanoseconds;
   end_ns: Nanoseconds | null;
-  version: string | null;
+  flyball_version: string | null;
   config: unknown;
   hardware: unknown;
   details: unknown;
@@ -1245,15 +1246,15 @@ export interface Tick {
   mode: string;
   /** The law's share of the output, in the output's unit; null when it was not a number (a NaN integral). */
   correction: number | null;
-  measured: number | null;
+  measured_value: number | null;
   /** The setpoint resolved at this tick, in the measured unit (a ramp's value, not its name). */
   setpoint: number | null;
-  output: number | null;
+  output_value: number | null;
   expected: number | null;
   delivered_correction: number | null;
   /**
    * A re-apply between readings (a moving setpoint's feedforward, on the rig clock): no reading,
-   * so `measured` is null and the law did not step. Always sent; optional for older servers.
+   * so `measured_value` is null and the law did not step. Always sent; optional for older servers.
    */
   reapplied?: boolean;
 }
@@ -1288,7 +1289,7 @@ export interface Span {
 /** Body for `POST /api/recording`. */
 export interface StartRecording {
   details?: unknown;
-  version?: string;
+  flyball_version?: string;
   config?: unknown;
   hardware?: unknown;
   /** Backfill the new session with this much of the scratch record, in the rig's clock, so what was just watched is kept. */
@@ -1309,7 +1310,7 @@ export interface ProgramRow {
   body: string;
   created_ns: Nanoseconds;
   sha256: string;
-  label: string | null;
+  /** What the author said about this version: text, or any JSON. */
   notes: unknown;
 }
 

@@ -113,7 +113,7 @@ runner:
 | `proxy` | table | none | `auth: proxy`: the identity proxy in front -- `{preset: authelia}` and the like |
 | `uv` | bool | `false` | run `flyball-runner` via `uv run --project <the rig file's directory>`, for an application with its own venv; `flyball run --uv` does the same |
 
-`session`, `trusted_proxies`, `tokens` (lifetimes) and every `proxy` key
+`login`, `trusted_proxies`, `tokens` (lifetimes) and every `proxy` key
 are reference material: [The front](../7-reference/rig-file.md#the-front).
 A wrong value in this block never stops the rig: the front falls back to
 the `local` shape on loopback and says why; when a `password` or `proxy`
@@ -138,7 +138,7 @@ runner:
   port: 8001
   root_path: /humidity
   allow_shutdown: true
-  store_dir: stores          # stores/humidity-sim.sqlite
+  store_dir: stores          # stores/humidity_sim.sqlite: the rig name, `-` as `_`
   auth:
     anonymous: read          # anyone may watch
     token: …                 # or FLYBALL_TOKEN; needed to drive

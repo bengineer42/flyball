@@ -22,7 +22,7 @@ controllers:
     measured: furnace.zone2                                 # what is regulated
     law: { type: pi, kp: 100, ki: 0.15, tt_s: 30 }
     feedforward: { type: table, rate_gain: 3000, points: [[20, 0], [200, 289.4]] }
-    default: true
+    is_default: true
     on_fault: { freeze_s: 30, then: stop }                  # frozen 30 s of fault time, then its stop
 ```
 
@@ -31,7 +31,7 @@ controllers:
 | `measured` | address | the measured signal: a published signal, what is regulated (ISA's PV). Under `open_loop` it only sets the units and clocks the step |
 | `law` | `{type, …}` | `open_loop`; `P {kp}`; `PI {kp, ki, tt_s, b}`; `PID {kp, ki, kd, tt_s, b, n}` (`tt_s`: anti-windup tracking time, omitted or 0 disables it; `b`: setpoint weight; `n`: derivative filter, omitted leaves the derivative unfiltered); `IMC {gain, tau_s, dead_time_s, lam_s, derivative, n}`; `on_off {high, low, hysteresis}`; `smith {kp, ki, tt_s, gain, tau_s, dead_time_s, feedforward}`; `scheduled {points: [[setpoint, kp, ki, kd], …], tt_s, n}`; `sliding {k, lam, boundary}` — each in [Control laws](../3-extending/laws.md). Omit for none |
 | `feedforward` | `{type, …}` | `identity` (the setpoint passed through, in the measured unit); `none`; `affine {gain, bias, rate_gain}`; `table {points, rate_gain}`. Omit: `identity` when the units agree, else `none` |
-| `default` | bool | the controller a command means when it names none; at most one |
+| `is_default` | bool | the controller a command means when it names none; at most one |
 | `min_period_s` | number | update the law at most this often |
 | `on_fault` | `freeze` \| `manual` \| `stop` \| `stop_device` \| `{freeze_s, then}` | what the controller does once its measured signal has been faulty long enough; default `freeze`. [Below](#on_fault-what-a-controller-does-about-a-faulty-source) |
 | `setpoint_period_s` | number | while following a moving setpoint (a ramp, a profile), re-apply its feedforward this often between readings, [below](#a-setpoint-that-moves-faster-than-its-sensor). Above zero; unset: `max(0.1 s, poll_s / 4)` from the measured signal's `poll_s` (1 s for a pushed one) |

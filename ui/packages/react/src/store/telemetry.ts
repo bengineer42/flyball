@@ -705,7 +705,7 @@ export class TelemetryStore {
     const held = this.playbackControllers.get(name);
     if (held && held.live === live && held.t === point?.t && held.v === v) return held.out;
     const measured = point ? { signal: live.measured_signal, time_ns: Math.round(point.t * 1e9), value: point.value, quality: point.quality, ...(point.reason ? { reason: point.reason } : {}) } : null;
-    const out: ControllerOut = { ...live, measured };
+    const out: ControllerOut = { ...live, measured_value: measured };
     this.playbackControllers.set(name, { live, t: point?.t, v, out });
     return out;
   }
@@ -738,10 +738,10 @@ export class TelemetryStore {
     const row = new Array<number>(CONTROLLER_COLS);
     for (const c of controllers) {
       next[c.name] = c;
-      const time = c.measured ? c.measured.time_ns / 1e9 : Date.now() / 1000;
+      const time = c.measured_value ? c.measured_value.time_ns / 1e9 : Date.now() / 1000;
       row[0] = nan(setpointOf(c));
-      row[1] = nan(c.measured && typeof c.measured.value === "number" ? c.measured.value : null);
-      row[2] = nan(c.output);
+      row[1] = nan(c.measured_value && typeof c.measured_value.value === "number" ? c.measured_value.value : null);
+      row[2] = nan(c.output_value);
       row[3] = nan(c.expected);
       row[4] = nan(c.correction);
       row[5] = 0;
@@ -824,8 +824,8 @@ export class TelemetryStore {
         for (const k of ticks) {
           view.t.push(startS + k.offset_ns / 1e9);
           view.reference.push(k.setpoint);
-          view.measured.push(k.reapplied ? undefined : k.measured);
-          view.output.push(k.output);
+          view.measured.push(k.reapplied ? undefined : k.measured_value);
+          view.output.push(k.output_value);
           view.expected.push(k.expected ?? null);
           view.correction.push(k.correction ?? null);
         }
@@ -1241,7 +1241,7 @@ export class TelemetryStore {
         if (controllers.has(name)) {
           const ticks = await this.rig.ticks(session.id, name, { start_ns, end_ns }).catch(() => []);
           if (gen !== this.playbackGen) return;
-          for (const k of ticks) ring.push(session.startS + k.offset_ns / 1e9, [nan(k.setpoint), nan(k.measured), nan(k.output), nan(k.expected), nan(k.correction), k.reapplied ? 1 : 0]);
+          for (const k of ticks) ring.push(session.startS + k.offset_ns / 1e9, [nan(k.setpoint), nan(k.measured_value), nan(k.output_value), nan(k.expected), nan(k.correction), k.reapplied ? 1 : 0]);
         }
         if (gen !== this.playbackGen) return;
         this.playbackTicks.set(name, ring);

@@ -554,7 +554,7 @@ controllers:
     measured: furnace.zone6
     law: { type: pi, kp: 100, ki: 0.15, tt_s: 30 }
     feedforward: { type: table, points: [[20, 0], [200, 289], [400, 660], [600, 1200], [800, 2000], [1000, 2800]] }
-    default: true
+    is_default: true
   heaters.heater7:
     measured: furnace.zone7
     law: { type: p, kp: 120 }

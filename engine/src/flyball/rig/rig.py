@@ -54,6 +54,7 @@ from flyball.foundation.device import (
 )
 from flyball.foundation.device.values import Values
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
+from flyball.foundation.keys import Keyed, canonical
 from flyball.foundation.router import RECENT_READINGS, Latest, Router, Topic
 from flyball.foundation.time import Timer, Timers
 from flyball.foundation.typing import OrderedSet
@@ -286,13 +287,13 @@ class Rig:
 
     def __init__(self, name: str | None = None) -> None:
         self.name = name
-        self.links = {}
+        self.links = Keyed()
         self._clock = Clock()
         self._timers: Timers | None = None
         self._timers_lock = Lock()
         self._closed = False
-        self.devices = {}
-        self._claims = {}
+        self.devices = Keyed()
+        self._claims = Keyed()
         self._writers = {}
         self.lock = RLock()
         self.triggers = Triggers(lambda: self.clock)
@@ -334,8 +335,8 @@ class Rig:
         self._retries = {}
         self._staged_ns = {}
         self._reapplying = {}
-        self.entries = {}
-        self.link_entries = {}
+        self.entries = Keyed()
+        self.link_entries = Keyed()
         self.files = []
         self.header = {}
         self.loaded = None
@@ -859,7 +860,7 @@ class Rig:
             AddressNotFoundError: Naming the segment that failed and what
                 it was looked for under.
         """
-        name, dot, relative = address.partition(".")
+        name, dot, relative = canonical(address).partition(".")
         if (device := self.devices.get(name)) is None:
             raise AddressNotFoundError(address, name, None)
         if dot and not relative:  # "hum." names nothing; "hum" is the root
@@ -2077,7 +2078,7 @@ class Rig:
                     feedforward=None
                     if c.feedforward.config.type == "identity"
                     else c.feedforward.config,
-                    default=self.controllers.default == name,
+                    is_default=self.controllers.default_controller == name,
                     min_period_s=c.min_period_s,
                     setpoint_period_s=c.setpoint_period_s,
                     on_fault=c.on_fault.document(),  # type: ignore[arg-type]  validated as the file is
@@ -2223,7 +2224,7 @@ class Rig:
         if spec.stops or spec.simulation or not self.stopping.latches.any():
             return False
         drives = (
-            spec.mode is not None
+            spec.sets_mode is not None
             or spec.long  # a dose, a move: it drives hardware whatever it names
             or bool(spec.writes)
             or any(
@@ -2277,7 +2278,7 @@ class Rig:
             elif isinstance(given[name], (int, float)):
                 given[name] = signal.clamp(float(given[name]))
         drives = (
-            spec.mode is not None
+            spec.sets_mode is not None
             or bool(spec.writes)
             or any(s.role is Role.DEMAND for s in linked.values())
         )
@@ -2358,8 +2359,8 @@ class Rig:
         outer: dict[Device, None] | None,
     ) -> None:
         """After the method: `mode`, the linked readings, `last.<command>`, and the commit."""
-        if spec.mode is not None and (mode := device.signals.get("mode")) is not None:
-            mode.push(spec.mode, time_ns)
+        if spec.sets_mode is not None and (mode := device.signals.get("mode")) is not None:
+            mode.push(spec.sets_mode, time_ns)
         for name, signal in linked.items():
             if self.router.seq.get(signal, 0) == before.get(signal, 0):  # no readback
                 signal.push(given[name], time_ns)
@@ -2384,7 +2385,7 @@ class Rig:
         *,
         law: ControlLawLike | str | None = None,
         feedforward: FeedforwardLike | str | None = None,
-        default: bool = False,
+        is_default: bool = False,
         min_period_s: float | None = None,
         setpoint_period_s: float | None = None,
         on_fault: OnFault | None = None,
@@ -2398,7 +2399,7 @@ class Rig:
             feedforward: What maps the setpoint to a value in the output's
                 unit: an instance, a config, or a type. Default: the setpoint
                 itself when the units agree, else none.
-            default: Make this the controller commands address when they name none.
+            is_default: Make this the controller commands address when they name none.
             min_period_s: Step the law at most this often.
             setpoint_period_s: Re-apply a moving setpoint's feedforward this often between
                 readings; default `max(0.1 s, poll_s / 4)` from `measured`'s `poll_s`.
@@ -2449,7 +2450,7 @@ class Rig:
             controller.on_reference = lambda: self._reference_changed(controller)
             controller.guard = lambda: self.stopping.regulate_refusal(controller)
             controller.on_reseed = lambda was, now: self._reseeded(controller, was, now)
-            self.controllers.add(controller, default=default)
+            self.controllers.add(controller, is_default=is_default)
             self._changed(f"attached controller {controller.name}")
             return controller
 

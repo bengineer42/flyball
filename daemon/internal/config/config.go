@@ -21,6 +21,7 @@ import (
 	"flyballd/internal/endpoint"
 	"flyballd/internal/front"
 	"flyballd/internal/frontwire"
+	"flyballd/internal/names"
 
 	"gopkg.in/yaml.v3"
 )
@@ -192,7 +193,7 @@ func (m Manifest) IsEnabled() bool {
 }
 
 var (
-	namePattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+	namePattern     = names.Pattern // the engine's key grammar; `-` is `_` (D-079)
 	rootPathPattern = regexp.MustCompile(`^(/[a-z0-9][a-z0-9_-]*)+$`)
 )
 
@@ -201,7 +202,7 @@ var (
 // path a proxy prefix and a line of HTML.
 func (m Manifest) Validate() error {
 	if !namePattern.MatchString(m.Name) {
-		return fmt.Errorf("runner name %q: lower-case letters, digits, - and _ only, up to 64", m.Name)
+		return fmt.Errorf("runner name %q: %s", m.Name, names.Grammar)
 	}
 	if m.RemovedAnonymous != nil {
 		return fmt.Errorf("runner %s: anonymous: is not a manifest key: what a caller with no credential may do is set once for every rig, by anonymous: in flyballd.yaml", m.Name)

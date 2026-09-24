@@ -45,7 +45,7 @@ router = APIRouter(prefix="/api/controllers", tags=["controllers"])
 # is its JSON schema with those others listed too.
 _FEEDFORWARDS = (Identity, NoFeedforward, Affine, Table)
 FeedforwardConfig = discriminated_union(
-    {ff.type: ff for ff in _FEEDFORWARDS}, "type", lambda ff: ff.config
+    {ff.type: ff for ff in _FEEDFORWARDS}, "type", lambda ff: ff.config_type
 )
 
 
@@ -59,7 +59,7 @@ class NewController(BaseModel):
     law: LawConfig | str | None = None  # type: ignore[valid-type]
     feedforward: FeedforwardConfig | str | None = None  # type: ignore[valid-type]
     """A config or a type. Omitted: ``identity`` when the units agree, else ``none``."""
-    default: bool = False
+    is_default: bool = False
     min_period_s: Positive | None = None
     setpoint_period_s: Positive | None = None
     """Re-apply a moving setpoint's feedforward this often between readings; omitted:
@@ -152,7 +152,7 @@ def _out(rig: Rig, name: str | None = None) -> ControllerOut:
     controller = rig.controllers.resolve(name)
     return ControllerOut.of(
         controller,
-        controller.name == rig.controllers.default,
+        controller.name == rig.controllers.default_controller,
         latched=[latch.cause for latch in rig.stopping.latches.of_controller(controller)],
     )
 
@@ -196,7 +196,7 @@ def _generator_start(controller: Controller) -> float:
 
 @router.get("")
 async def read_controllers(rig: RigDep) -> list[ControllerOut]:
-    default = rig.controllers.default
+    default = rig.controllers.default_controller
     latches = rig.stopping.latches
     return [
         ControllerOut.of(c, name == default, latched=[x.cause for x in latches.of_controller(c)])
@@ -247,7 +247,7 @@ def make_controller(rig: RigDep, body: NewController) -> ControllerOut:
             measured,
             law=law,
             feedforward=body.feedforward,
-            default=body.default,
+            is_default=body.is_default,
             min_period_s=body.min_period_s,
             setpoint_period_s=body.setpoint_period_s,
             on_fault=ControllerEntry(measured=body.measured, on_fault=body.on_fault).fault_policy(),

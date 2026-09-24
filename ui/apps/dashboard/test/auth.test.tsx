@@ -38,7 +38,7 @@ const OPEN: AuthInfo = {
 const READ_ONLY_SESSION: AuthInfo = {
   v: 2,
   shape: "password",
-  scheme: "session",
+  scheme: "login",
   user: { id: "local:viewer", name: "viewer", kind: "human" },
   verbs: ["read"],
   anonymous: "read",
@@ -48,7 +48,7 @@ const READ_ONLY_SESSION: AuthInfo = {
 const OPERATOR_SESSION: AuthInfo = {
   v: 2,
   shape: "password",
-  scheme: "session",
+  scheme: "login",
   user: { id: "local:admin", name: "admin", kind: "human" },
   verbs: ["operate", "read"],
   anonymous: "none",
@@ -167,7 +167,7 @@ describe("login posts the credential this door's info.login offers", () => {
     const { transport, asked } = await renderWith(BARE_ANONYMOUS);
     transport.request = async (request: Request) => {
       asked.push(request);
-      if (request.method === "POST" && request.path === "/api/auth/login") return { status: 200, json: { ...BARE_ANONYMOUS, scheme: "session", user: { id: "local:console", name: "", kind: "human" }, verbs: ["operate", "read"] } };
+      if (request.method === "POST" && request.path === "/api/auth/login") return { status: 200, json: { ...BARE_ANONYMOUS, scheme: "login", user: { id: "local:console", name: "", kind: "human" }, verbs: ["operate", "read"] } };
       return { status: 404, json: undefined };
     };
     await act(async () => {

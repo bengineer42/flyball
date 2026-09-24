@@ -80,7 +80,7 @@ func (er *echoRunner) serve(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"protocol": 1, "aud": er.aud, "pid": os.Getpid(), "flyball": "test"})
+		json.NewEncoder(w).Encode(map[string]any{"protocol": 1, "aud": er.aud, "pid": os.Getpid(), "flyball_version": "test"})
 		return
 	}
 	tok := r.Header.Get(principal.Header)

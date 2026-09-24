@@ -36,6 +36,7 @@ from flyball.foundation.device import (
     WriteState,
 )
 from flyball.foundation.errors import ConflictError, NotFoundError
+from flyball.foundation.keys import canonical, check_key
 
 from .errors import (
     ConstraintError,
@@ -216,7 +217,6 @@ def _program_row(row: sqlite3.Row) -> ProgramRow:
         body=row["body"],
         created_ns=row["created_ns"],
         sha256=row["sha256"],
-        label=row["label"],
         notes=_loads(row["notes"]),
     )
 
@@ -239,7 +239,7 @@ def _session_row(row: sqlite3.Row) -> SessionRow:
         id=row["id"],
         start_ns=row["start_ns"],
         end_ns=row["end_ns"],
-        version=row["version"],
+        flyball_version=row["flyball_version"],
         config=_loads(row["config"]),
         hardware=_loads(row["hardware"]),
         details=_loads(row["details"]),
@@ -521,10 +521,10 @@ class SqliteSessionWriter:
                 tick.controller,
                 tick.offset_ns,
                 tick.mode,
-                tick.measured,
+                tick.measured_value,
                 tick.setpoint,
                 tick.correction,
-                tick.output,
+                tick.output_value,
                 tick.expected,
                 tick.delivered_correction,
                 int(tick.reapplied),
@@ -532,8 +532,8 @@ class SqliteSessionWriter:
         if not rows and not reapplied:
             return
         insert = (
-            " INTO tick (session_id, controller, offset_ns, mode, measured, setpoint,"
-            " correction, output, expected, delivered_correction, reapplied)"
+            " INTO tick (session_id, controller, offset_ns, mode, measured_value, setpoint,"
+            " correction, output_value, expected, delivered_correction, reapplied)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         with self._store._transaction() as connection:
@@ -658,7 +658,7 @@ class SqliteStore:
     def open_session(
         self,
         start_ns: int,
-        version: str | None = None,
+        flyball_version: str | None = None,
         config: Any = None,
         hardware: Any = None,
         details: Any = None,
@@ -670,7 +670,7 @@ class SqliteStore:
             session_id = self._insert_session(
                 connection,
                 start_ns,
-                version,
+                flyball_version,
                 config,
                 hardware,
                 details,
@@ -684,7 +684,7 @@ class SqliteStore:
         self,
         connection: sqlite3.Connection,
         start_ns: int,
-        version: str | None,
+        flyball_version: str | None,
         config: Any,
         hardware: Any,
         details: Any,
@@ -695,13 +695,13 @@ class SqliteStore:
     ) -> int:
         """Within the caller's transaction."""
         cursor = connection.execute(
-            "INSERT INTO session (start_ns, origin_ns, end_ns, version, config, hardware,"
+            "INSERT INTO session (start_ns, origin_ns, end_ns, flyball_version, config, hardware,"
             " details, rig_version_id, kind, continues) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 start_ns,
                 start_ns,
                 end_ns,
-                version,
+                flyball_version,
                 _dumps(config),
                 _dumps(hardware),
                 _dumps(details),
@@ -904,7 +904,7 @@ class SqliteStore:
             target = self._insert_session(
                 connection,
                 start_ns,
-                source.version,
+                source.flyball_version,
                 source.config,
                 source.hardware,
                 details,
@@ -1025,10 +1025,10 @@ class SqliteStore:
             " JOIN controller tc ON tc.session_id = ? AND tc.name = t.controller" if mapped else ""
         )
         connection.execute(
-            "INSERT OR REPLACE INTO tick (session_id, controller, offset_ns, mode, measured,"
-            " setpoint, correction, output, expected, delivered_correction, reapplied)"
-            " SELECT ?, t.controller, t.offset_ns + ?, t.mode, t.measured, t.setpoint,"
-            " t.correction, t.output, t.expected, t.delivered_correction, t.reapplied"
+            "INSERT OR REPLACE INTO tick (session_id, controller, offset_ns, mode, measured_value,"
+            " setpoint, correction, output_value, expected, delivered_correction, reapplied)"
+            " SELECT ?, t.controller, t.offset_ns + ?, t.mode, t.measured_value, t.setpoint,"
+            " t.correction, t.output_value, t.expected, t.delivered_correction, t.reapplied"
             f" FROM tick t{controller_map}"
             " WHERE t.session_id = ? AND t.offset_ns >= ? AND t.offset_ns < ?",
             (target_id, delta, *([target_id] if mapped else []), source.id, lo, hi),
@@ -1258,9 +1258,9 @@ class SqliteStore:
                 offset_ns=r["offset_ns"] - shift,
                 mode=r["mode"],
                 correction=r["correction"],
-                measured=r["measured"],
+                measured_value=r["measured_value"],
                 setpoint=r["setpoint"],
-                output=r["output"],
+                output_value=r["output_value"],
                 expected=r["expected"],
                 delivered_correction=r["delivered_correction"],
                 reapplied=bool(r["reapplied"]),
@@ -1453,6 +1453,7 @@ class SqliteStore:
         controller: str | None = None,
         notes: Any = None,
     ) -> TuningRow:
+        name = check_key(name, "tuning name")
         with self._transaction() as connection:
             cursor = connection.execute(
                 "INSERT INTO tuning (name, law, config, created_ns, session_id, controller, notes)"
@@ -1463,6 +1464,7 @@ class SqliteStore:
         return _tuning_row(self._query("SELECT * FROM tuning WHERE id = ?", (tuning_id,))[0])
 
     def tuning(self, name: str) -> TuningRow:
+        name = canonical(name)
         rows = self._query(
             "SELECT * FROM tuning WHERE name = ? ORDER BY created_ns DESC, id DESC LIMIT 1", (name,)
         )
@@ -1482,6 +1484,7 @@ class SqliteStore:
         ]
 
     def tuning_history(self, name: str) -> list[TuningRow]:
+        name = canonical(name)
         return [
             _tuning_row(r)
             for r in self._query(
@@ -1490,6 +1493,7 @@ class SqliteStore:
         ]
 
     def delete_tuning(self, name: str) -> None:
+        name = canonical(name)
         with self._transaction() as connection:
             if connection.execute("DELETE FROM tuning WHERE name = ?", (name,)).rowcount == 0:
                 raise TuningNotFoundError(name)
@@ -1504,20 +1508,21 @@ class SqliteStore:
         format: ProgramFormat,
         body: str,
         created_ns: int,
-        label: str | None = None,
         notes: Any = None,
     ) -> ProgramRow:
+        name = check_key(name, "program name")
         digest = hashlib.sha256(body.encode()).hexdigest()
         with self._transaction() as connection:
             cursor = connection.execute(
-                "INSERT INTO program (name, format, body, created_ns, label, notes, sha256)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (name, format, body, created_ns, label, _dumps(notes), digest),
+                "INSERT INTO program (name, format, body, created_ns, notes, sha256)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (name, format, body, created_ns, _dumps(notes), digest),
             )
             program_id = int(cursor.lastrowid or 0)
         return self.program_version(program_id)
 
     def program(self, name: str) -> ProgramRow:
+        name = canonical(name)
         rows = self._query(
             "SELECT * FROM program WHERE name = ? ORDER BY created_ns DESC, id DESC LIMIT 1",
             (name,),
@@ -1543,6 +1548,7 @@ class SqliteStore:
         ]
 
     def program_history(self, name: str) -> list[ProgramRow]:
+        name = canonical(name)
         return [
             _program_row(r)
             for r in self._query(
@@ -1551,11 +1557,13 @@ class SqliteStore:
         ]
 
     def delete_program(self, name: str) -> None:
+        name = canonical(name)
         with self._transaction() as connection:
             if connection.execute("DELETE FROM program WHERE name = ?", (name,)).rowcount == 0:
                 raise ProgramNotFoundError(name)
 
     def rename_program(self, name: str, new_name: str) -> list[ProgramRow]:
+        name, new_name = canonical(name), check_key(new_name, "program name")
         if name == new_name:
             return self.program_history(name)
         with self._transaction() as connection:
@@ -1576,6 +1584,7 @@ class SqliteStore:
     # region Dashboards
 
     def save_dashboard(self, name: str, rig: str, body: Any, created_ns: int) -> DashboardRow:
+        name = check_key(name, "dashboard name")
         text = json.dumps(body, separators=(",", ":"))  # a null body is still a document
         digest = hashlib.sha256(text.encode()).hexdigest()
         with self._transaction() as connection:
@@ -1587,6 +1596,7 @@ class SqliteStore:
             return self.dashboard_version(cursor.lastrowid)  # type: ignore[arg-type]
 
     def dashboard(self, name: str) -> DashboardRow:
+        name = canonical(name)
         rows = self._query(
             "SELECT * FROM dashboard WHERE name = ? ORDER BY created_ns DESC, id DESC LIMIT 1",
             (name,),
@@ -1615,6 +1625,7 @@ class SqliteStore:
         return [_dashboard_row(r) for r in rows]
 
     def dashboard_history(self, name: str) -> list[DashboardRow]:
+        name = canonical(name)
         return [
             _dashboard_row(r)
             for r in self._query(
@@ -1623,11 +1634,13 @@ class SqliteStore:
         ]
 
     def delete_dashboard(self, name: str) -> None:
+        name = canonical(name)
         with self._transaction() as connection:
             if connection.execute("DELETE FROM dashboard WHERE name = ?", (name,)).rowcount == 0:
                 raise DashboardNotFoundError(name)
 
     def rename_dashboard(self, name: str, new_name: str) -> list[DashboardRow]:
+        name, new_name = canonical(name), check_key(new_name, "dashboard name")
         if name == new_name:
             return self.dashboard_history(name)
         with self._transaction() as connection:

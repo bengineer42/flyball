@@ -687,10 +687,9 @@ export class RigClient {
     return this.get(`/api/programs/library/${enc(name)}/check`);
   }
 
-  /** Save a version, verbatim in `format`. */
-  saveProgram(name: string, format: ProgramFormat, body: string, label?: string, notes?: unknown): Promise<ProgramRow> {
+  /** Save a version, verbatim in `format`, with what the author says about it (`notes`: text or any JSON). */
+  saveProgram(name: string, format: ProgramFormat, body: string, notes?: unknown): Promise<ProgramRow> {
     const payload: Record<string, unknown> = { format, body };
-    if (label !== undefined) payload.label = label;
     if (notes !== undefined) payload.notes = notes;
     return this.call({ method: "PUT", path: `/api/programs/library/${enc(name)}`, body: payload });
   }

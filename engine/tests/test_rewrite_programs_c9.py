@@ -76,7 +76,7 @@ def test_old_programs_get_a_new_version_and_keep_the_old(script, store_path):
             history = store.program_history(name)
             assert len(history) == 2, "the old version stays"
             newest = history[0]
-            assert newest.label == "c9 rewrite" and newest.created_ns > history[1].created_ns
+            assert newest.notes == "c9 rewrite" and newest.created_ns > history[1].created_ns
             assert newest.sha256 == hashlib.sha256(newest.body.encode()).hexdigest()
             assert store.program(name).id == newest.id
             program_from_document(parse(newest.body, newest.format), dialect)

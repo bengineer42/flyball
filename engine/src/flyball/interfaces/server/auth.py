@@ -72,7 +72,7 @@ from flyball.interfaces.server.principal import (
 )
 from flyball.runtime.config import AuthConfig
 
-Scheme = Literal["local", "anonymous", "session", "token", "proxy"]
+Scheme = Literal["local", "anonymous", "login", "token", "proxy"]
 """How a caller got in: AuthInfo v2's `scheme`."""
 
 log = logging.getLogger(__name__)
@@ -428,7 +428,7 @@ class Door:
         cookie = SimpleCookie()
         cookie.load(headers.get(b"cookie", b"").decode(errors="replace"))
         if self.cookie in cookie and (found := self.session(cookie[self.cookie].value)):
-            return self.claims(scope, "token:bare", found.sid, everything, "human"), "session"
+            return self.claims(scope, "token:bare", found.sid, everything, "human"), "login"
         scp = frozenset({verbs.READ}) if self.config.anonymous == "read" else frozenset()
         return self.claims(scope, ANONYMOUS, secrets.token_urlsafe(12), scp, "human"), "anonymous"
 
@@ -560,7 +560,7 @@ class Door:
             await _refuse(scope, receive, send, 403, detail, needed=None, accept=accept)
             return
         if verbs.allows(claims.scp, scope):
-            if scheme == "session" and scope["type"] == "websocket":
+            if scheme == "login" and scope["type"] == "websocket":
                 await self._held(scope, receive, send, claims.sid)
             else:
                 await self.app(scope, receive, send)

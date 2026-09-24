@@ -32,7 +32,7 @@ export interface CommandFormProps {
   /**
    * The device's signals by path (`DeviceSchema.signals`): tells a linked
    * argument that sets a demand from one that sets a setting, for the
-   * "refused while a controller regulates" check. Omitted, only `mode` and
+   * "refused while a controller regulates" check. Omitted, only `sets_mode` and
    * `writes` count.
    */
   signals?: Record<string, SignalSchema>;
@@ -42,14 +42,14 @@ export interface CommandFormProps {
 export const errorText = (error: unknown): string => (error instanceof RigError ? error.detail : error instanceof Error ? error.message : String(error));
 
 /**
- * Whether running the command changes what drives the device -- a `mode`,
+ * Whether running the command changes what drives the device -- a `sets_mode`,
  * a `writes`, or an argument linked to a demand -- and so is refused while a
  * controller regulates one of the device's signals, unless it `interrupts`
  * (the rig then puts that controller in manual). A setting's command (a
  * blend flow) is not what a controller drives.
  */
 export function commandDrives(command: CommandSchema, device?: string, signals?: Record<string, SignalSchema>): boolean {
-  if (command.mode !== null && command.mode !== undefined) return true;
+  if (command.sets_mode !== null && command.sets_mode !== undefined) return true;
   if ((command.writes ?? []).length > 0) return true; // `?? []`: a runner from before `writes`
   if (!device || !signals) return false;
   return linkedArguments(command.arguments).some(({ address }) => signals[address.slice(device.length + 1)]?.role === "demand");
@@ -150,7 +150,7 @@ function LastRan({ device, name, label, schema }: { device: string; name: string
 /**
  * One command: a heading (its description on a hover hint, not as body
  * text -- every command on every device shares this, sim commands
- * included), what it does to the device (its `mode`, whether it interrupts
+ * included), what it does to the device (its `sets_mode`, whether it interrupts
  * a driving controller), a form for its arguments (or just a button), when
  * it last ran, and the last outcome. A single-argument command (`demand`'s
  * `demand`, say) would otherwise repeat its name three times -- the
@@ -184,8 +184,8 @@ export function CommandForm({ name, command, onRun, busy, result, form, device, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [linked, store],
   );
-  const hasMode = command.mode !== null && command.mode !== undefined;
-  const active = hasMode && currentMode !== undefined && command.mode === currentMode;
+  const hasMode = command.sets_mode !== null && command.sets_mode !== undefined;
+  const active = hasMode && currentMode !== undefined && command.sets_mode === currentMode;
   // Refused while a controller regulates the device, unless it interrupts: said up front, and the button held.
   const regulating = useRegulating(device);
   const refusedBy = !command.interrupts && regulating.length > 0 && commandDrives(command, device, signals) ? regulating : [];
@@ -209,7 +209,7 @@ export function CommandForm({ name, command, onRun, busy, result, form, device, 
         )}
         {(hasMode || command.interrupts) && (
           <p className="fb-muted fb-command-effect">
-            {hasMode && <>→ mode {formatValue(command.mode)}</>}
+            {hasMode && <>→ mode {formatValue(command.sets_mode)}</>}
             {hasMode && command.interrupts && " · "}
             {command.interrupts && "interrupts a driving controller"}
           </p>

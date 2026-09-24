@@ -8,7 +8,7 @@ function recording(): { transport: Transport; asked: Request[] } {
     base: "",
     async request(r: Request): Promise<Response> {
       asked.push(r);
-      return { status: 202, json: { version: 7, previous: 6, reason: "edited", saved: null, restarting: true, stop: null, message: "" } };
+      return { status: 202, json: { rig_version_id: 7, previous: 6, reason: "edited", saved: null, restarting: true, stop: null, message: "" } };
     },
     stream: () => ({ close: () => undefined }),
   };
@@ -19,7 +19,7 @@ describe("rig edits", () => {
   it("send base and force only when given, and answer the edit", async () => {
     const { transport, asked } = recording();
     const rig = new RigClient(transport);
-    expect((await rig.removeDevice("probe")).version).toBe(7);
+    expect((await rig.removeDevice("probe")).rig_version_id).toBe(7);
     await rig.addLink({ name: "t1", type: "sim_plant" }, { base: 6, force: true });
     await rig.restoreVersion(3, { force: true });
     await rig.resetRig("on_fault:heaters.heater1");

@@ -430,14 +430,14 @@ def test_sigusr1_stops_without_exit(tmp_path):
         assert running["running"] is True and running["type"] == "prompt"
         controller = _call(port, "GET", "/api/controllers/heater.drive")
         assert controller["mode"] == "regulating"
-        demand = controller["output"]
+        demand = controller["output_value"]
 
         proc.send_signal(signal.SIGUSR1)
         _until(lambda: _call(port, "GET", "/api/programs/running")["running"] is False)
         _until(lambda: bool(err.matching("stop report")))
         after = _call(port, "GET", "/api/controllers/heater.drive")
         assert after["mode"] == "manual"
-        assert after["output"] == demand  # held, not driven
+        assert after["output_value"] == demand  # held, not driven
         (line,) = err.matching("stop report")
         report = json.loads(line.split("stop report: ", 1)[1])
         assert report["actor"]["via"] == "signal" and report["actor"]["principal"] == "local:signal"

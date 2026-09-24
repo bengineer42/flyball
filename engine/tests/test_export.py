@@ -78,9 +78,9 @@ def client(tmp_path, fresh):
             2_000_000_000,
             "regulating",
             5.0,
-            measured=21.0,
+            measured_value=21.0,
             setpoint=25.0,
-            output=5.0,
+            output_value=5.0,
         )
     )
     writer.write_states(
@@ -175,7 +175,7 @@ def test_signal_controller_write_and_events(client):
     assert series[0][2] == f"{probe}.temperature (°C)" and series[1][2] == "20.5"
 
     ticks = rows(c.get(f"/api/history/sessions/{sid}/ticks/{heater}.power/export").text)
-    assert ticks[0][2:5] == ["mode", "setpoint", "measured"]
+    assert ticks[0][2:5] == ["mode", "setpoint", "measured_value"]
     assert ticks[1][:5] == ["2.0", "2023-11-14T22:13:22.000Z", "regulating", "25.0", "21.0"]
 
     writes = c.get(f"/api/history/sessions/{sid}/writes/{heater}.power/export?format=json").json()

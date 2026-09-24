@@ -432,7 +432,9 @@ class TestDeviceEntry:
         sensors = entry.build("hum")
         assert sensors.signals["dry.humidity"].tags == {"line": "dry"}
         assert sensors.signals["wet.humidity"].tags == {"line": "wet"}
-        assert sensors.signals["wet.temperature"].tags == {"line": "wet-probe", "kind": "t"}
+        assert sensors.signals["wet.temperature"].tags == {"line": "wet_probe", "kind": "t"}, (
+            "a tag value is a key: `-` is `_`"
+        )
         assert sensors.signals["chamber.humidity"].tags == {}, "untouched"
 
     def test_unknown_names_error_with_the_address(self, furnace_tag, sensors_tag):

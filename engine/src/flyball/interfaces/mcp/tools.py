@@ -1,8 +1,8 @@
 """The tools, each a tier and one call on the client.
 
 A tool's schema is what the model sees; a device command's comes from the
-rig's own `/api/schema`, so its limits and units are this instance's. The
-mode chooses a tier and every tool at or below it is listed.
+rig's own `/api/schema`, so its limits and units are this instance's. A
+server is given a tier and every tool at or below it is listed.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from urllib.parse import quote
 from flyball.interfaces.client import Rig, RigError, SchemaError, segment
 from flyball.scaffold import render
 
-__all__ = ["GUIDES", "MODES", "Tier", "Tool", "tools_for"]
+__all__ = ["GUIDES", "TIERS", "Tier", "Tool", "tools_for"]
 
 
 class Tier(IntEnum):
@@ -32,7 +32,7 @@ class Tier(IntEnum):
     """The running rig: commands, demands, controllers, programs, recording."""
 
 
-MODES = {"read": Tier.READ, "author": Tier.AUTHOR, "operate": Tier.DRIVE}
+TIERS = {"read": Tier.READ, "author": Tier.AUTHOR, "operate": Tier.DRIVE}
 
 Run = Callable[[Rig, dict[str, Any]], Any]
 
@@ -442,7 +442,7 @@ def _save_program(rig: Rig, a: dict[str, Any]) -> Any:
         fmt, body = a.get("format", "yaml"), a["text"]
     else:
         raise SchemaError("save_program: give `document` (JSON) or `text` (with `format`)")
-    envelope = {"format": fmt, "body": body, "label": a.get("label"), "notes": a.get("notes")}
+    envelope = {"format": fmt, "body": body, "notes": a.get("notes")}
     return rig.put(f"/api/programs/library/{segment(a['name'])}", envelope)
 
 
@@ -531,8 +531,7 @@ AUTHOR: tuple[Tool, ...] = (
                 "document": DOCUMENT,
                 "text": _str("The program as written, when not giving `document`."),
                 "format": _str("What `text` is written in.", enum=["yaml", "toml", "json"]),
-                "label": _str("A label for this version."),
-                "notes": _any("Free-form notes on this version."),
+                "notes": _any("What you say about this version: text, or any JSON."),
             },
             "name",
         ),
@@ -877,14 +876,14 @@ def _device_tools(rig: Rig, simulated: bool) -> list[Tool]:
             if spec.get("simulation") and not simulated:
                 continue
             notes = []
-            if spec.get("mode") is not None:
-                notes.append(f"Puts the device in mode `{spec['mode']}`.")
+            if spec.get("sets_mode") is not None:
+                notes.append(f"Puts the device in mode `{spec['sets_mode']}`.")
             if spec.get("interrupts"):
                 notes.append(
                     "A controller driving this device goes to manual once the command"
                     " succeeds; the result's `interrupted` names it."
                 )
-            elif spec.get("mode") is not None or spec.get("writes"):
+            elif spec.get("sets_mode") is not None or spec.get("writes"):
                 notes.append("Refused while a controller drives this device.")
             if spec.get("simulation"):
                 notes.append("A simulation-only command.")
@@ -1012,7 +1011,7 @@ def _search_drivers(rig: Rig, a: dict[str, Any]) -> Any:
         "type",
         "category",
         "interface",
-        "tier",
+        "support",
         "status",
         "manufacturer",
         "domain",
@@ -1086,7 +1085,7 @@ DRIVERS: tuple[Tool, ...] = (
                 "type": _str("Substring match on the driver type."),
                 "category": _str("Exact match, e.g. humidity, gas, liquid, weight, actuator."),
                 "interface": _str("Exact match, e.g. i2c_bespoke, uart, analog_adc, gpio."),
-                "tier": _str("config_only, generic_link, or bespoke_driver."),
+                "support": _str("config_only, generic_link, or bespoke_driver."),
                 "status": _str("done, in_progress, or planned."),
                 "manufacturer": _str("Substring match."),
                 "domain": _str("Which rig lead this serves, e.g. mushroom, aging, dosing_skids."),
@@ -1305,27 +1304,27 @@ def _served(rig: Rig) -> set[tuple[str, str]]:
 # endregion
 
 
-def tools_for(rig: Rig, mode: str, *, host_code: bool = True) -> list[Tool]:
-    """Every tool the mode allows, fixed ones first, then the rig's own commands.
+def tools_for(rig: Rig, tier: str, *, host_code: bool = True) -> list[Tool]:
+    """Every tool the tier allows, fixed ones first, then the rig's own commands.
 
     `host_code=False` leaves out the tools that run code on this server's machine
     (`Tool.host_code`): the runner's HTTP MCP, where that machine is the rig's host.
 
     A name defined at more than one tier -- `read`, `read_many` and `probe_hardware`
     each have a plain form at `read` and a full-power form, with `fresh`/`scan`, at
-    `operate` -- keeps only its highest tier the mode allows: later entries win, so
+    `operate` -- keeps only its highest tier `tier` allows: later entries win, so
     the concatenation order below (read tier to drive tier) doubles as precedence.
     """
-    tier = MODES[mode]
+    level = TIERS[tier]
     served = _served(rig)
     by_name: dict[str, Tool] = {}
     for t in (*READ, *AUTHOR, *DRIVE, *DRIVERS):
         if t.host_code and not host_code:
             continue
-        if t.tier <= tier and (t.route is None or t.route in served):
+        if t.tier <= level and (t.route is None or t.route in served):
             by_name[t.name] = t
     tools = list(by_name.values())
-    if tier >= Tier.DRIVE:
+    if level >= Tier.DRIVE:
         simulated = bool(rig.sim().get("simulated"))
         tools.extend(_device_tools(rig, simulated))
         if simulated:

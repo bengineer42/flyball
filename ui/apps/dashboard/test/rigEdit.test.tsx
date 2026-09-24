@@ -9,7 +9,7 @@ import { Confirm } from "../src/Confirm.js";
 
 afterEach(cleanup);
 
-const EDIT = { version: 8, previous: 7, reason: "edited: removed device probe", saved: null, restarting: true, stop: null, message: "" };
+const EDIT = { rig_version_id: 8, previous: 7, reason: "edited: removed device probe", saved: null, restarting: true, stop: null, message: "" };
 
 /** A runner that answers the old clock until `restarted()` is called, then a new one; a device DELETE per `edit`. */
 function runner(edit: (r: Request) => Response) {
@@ -43,7 +43,7 @@ function Remover({ transport }: { transport: Transport }) {
   return createElement(
     "div",
     null,
-    createElement("button", { onClick: () => void edits.apply((o) => new RigClient(transport).removeDevice("probe", o)).then((e) => setDone(e ? `v${e.version}` : "declined"), (e: Error) => setDone(`error ${e.message}`)) }, "remove"),
+    createElement("button", { onClick: () => void edits.apply((o) => new RigClient(transport).removeDevice("probe", o)).then((e) => setDone(e ? `v${e.rig_version_id}` : "declined"), (e: Error) => setDone(`error ${e.message}`)) }, "remove"),
     createElement("span", { "data-testid": "done" }, done),
     edits.dialog,
   );

@@ -239,7 +239,7 @@ export const AddControllerDialog = memo(function AddControllerDialog({
         measured: draft.measured,
         law,
         feedforward,
-        default: draft.isDefault,
+        is_default: draft.isDefault,
         ...(onFault !== undefined && { on_fault: onFault }),
         ...(period !== null && { setpoint_period_s: period }),
       });

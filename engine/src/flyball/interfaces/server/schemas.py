@@ -56,7 +56,9 @@ from flyball.rig.bands import on_no_value
 # extension's own import chain -- see `runtime/config.py`'s equivalent
 # comment on `LawConfig`/`FeedforwardConfig` there.
 _LAWS = (OpenLoop, P, PI, PID, IMC, OnOff, SmithPredictor, Scheduled, SlidingMode)
-LawConfig = discriminated_union({law.type: law for law in _LAWS}, "type", lambda law: law.config)
+LawConfig = discriminated_union(
+    {law.type: law for law in _LAWS}, "type", lambda law: law.config_type
+)
 LawsSchema = TypeAdapter(LawConfig).json_schema()
 
 ANY = TypeAdapter(Any)
@@ -446,7 +448,7 @@ class CommandOut(BaseModel):
     description: str | None = None
     simulation: bool = False
     commit: bool = False
-    mode: Any = None
+    sets_mode: Any = None
     """What the device's `mode` becomes when this runs, if it has one."""
     interrupts: bool = False
     writes: list[str] = []
@@ -464,7 +466,7 @@ class CommandOut(BaseModel):
             description=spec.doc,
             simulation=spec.simulation,
             commit=spec.commit,
-            mode=spec.mode,
+            sets_mode=spec.sets_mode,
             interrupts=spec.interrupts,
             writes=list(spec.writes),
             demand_of=spec.demand_of,
@@ -735,7 +737,7 @@ class ControllerOut(BaseModel):
     """The output signal's display name; None: show `name`."""
     output_signal: str
     measured_signal: str
-    default: bool
+    is_default: bool
     mode: str
     law: SerializeAsAny[ControlLawView] | None
     feedforward: SerializeAsAny[FeedforwardConfig]
@@ -747,10 +749,10 @@ class ControllerOut(BaseModel):
     arrived: bool
     """Whether the reference has landed: a number has; a trajectory once it finishes."""
     correction: float
-    output: float | None
+    output_value: float | None
     expected: float | None
     delivered_correction: float | None
-    measured: ReadingOut | None
+    measured_value: ReadingOut | None
     on_fault: str | dict[str, Any] = "freeze"
     """What it does once its source has been faulty for its wait: `freeze`, `manual`, `stop`,
     `stop_device`, or `{freeze_s, then}`."""
@@ -770,7 +772,7 @@ class ControllerOut(BaseModel):
     def of(
         cls,
         controller: Controller,
-        default: bool,
+        is_default: bool,
         state: ControllerState | None = None,
         latched: list[str] | None = None,
     ) -> ControllerOut:
@@ -786,7 +788,7 @@ class ControllerOut(BaseModel):
             label=controller.output_signal.label or None,
             output_signal=controller.output_signal.address,
             measured_signal=controller.measured_signal.address,
-            default=default,
+            is_default=is_default,
             mode=view.mode.value,
             law=view.law,
             feedforward=view.feedforward,
@@ -797,10 +799,12 @@ class ControllerOut(BaseModel):
             setpoint=view.setpoint,
             arrived=view.arrived,
             correction=view.correction,
-            output=view.output,
+            output_value=view.output_value,
             expected=view.expected,
             delivered_correction=view.delivered_correction,
-            measured=None if view.measured is None else ReadingOut.of(view.measured),
+            measured_value=None
+            if view.measured_value is None
+            else ReadingOut.of(view.measured_value),
             on_fault=controller.on_fault.document(),
             latched=list(latched or []),
         )

@@ -84,7 +84,9 @@ Three pydantic models, from the class itself, so a law is described once:
 - `state` — one field per name in `_state_fields`, merged up the MRO.
 - `view` — both flattened, round-tripping through `build()`.
 
-`MyLaw.config` is the model class; `law.config` is that law's values. A new
+`MyLaw.config_type` is the config model class (`MyLaw.config_type(gain=2.0)`
+builds one); `law.config` is that law's values; `MyLaw.state` and `MyLaw.view`
+are the other two models. A new
 law gains a wire schema this way, and `catalog.register_law(MyLaw)` in your
 package's `register(catalog)` (the same `flyball.configs` entry point a
 device or link registers through, see [Packaging](packaging.md)) adds it to
