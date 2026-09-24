@@ -14,12 +14,13 @@ drives, a signal that is not writable.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Request
 from pydantic import TypeAdapter, create_model
 
-from flyball.foundation.device import CommandSpec, Device, Node, Signal
+from flyball.foundation.device import CommandSpec, Device, InputBinding, Node, Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.interfaces.server.deps import RigDep
 from flyball.interfaces.server.routes.stop import actor
@@ -27,7 +28,9 @@ from flyball.interfaces.server.schemas import (
     CommandRunOut,
     DeviceOut,
     InterruptedOut,
+    Lineage,
     WriteOut,
+    lineage,
     writes_out,
 )
 from flyball.interfaces.server.wire import ArgumentsBase, wire_fields
@@ -69,8 +72,12 @@ def command_for(device: Device, command: str) -> CommandSpec:
         raise NotFoundError(f"{device.name!r} has no command {command!r}") from e
 
 
-def _signal_schema(signal: Signal) -> dict[str, Any]:
-    """A signal for a gauge, an axis or a target entry: unit, dimension, range, limits, type."""
+def _signal_schema(signal: Signal, lineage: Lineage) -> dict[str, Any]:
+    """A signal for a gauge, an axis or a target entry: unit, dimension, range, limits, type.
+
+    `raw` / `raw_for` as on `SignalOut`, only on a signal that has them.
+    """
+    raw, raw_for = lineage(signal)
     return {
         "address": signal.address,
         "access": str(signal.access),
@@ -85,12 +92,22 @@ def _signal_schema(signal: Signal) -> dict[str, Any]:
         "range": signal.range,
         "precision": signal.spec.precision,
         "limits": signal.limits,
+        **({} if raw is None else {"raw": raw}),
+        **({"raw_for": raw_for} if raw_for else {}),
     }
 
 
-def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
-    """Config, every signal, every input and every command's request as JSON schema."""
+def device_schema(
+    device: Device,
+    consumers: Callable[[Signal], list[InputBinding]] | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Config, every signal, every input and every command's request as JSON schema.
+
+    `consumers` (the rig's) lets a raw signal name the engineering signals computed from it.
+    """
     cls = type(device)
+    paired = lineage(consumers)
     return {
         "name": device.name,
         "label": device.label,
@@ -101,7 +118,7 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
         "writable": cls.writable,
         **extra,
         "config": TypeAdapter(cls.config_type).json_schema(mode="validation"),
-        "signals": {path: _signal_schema(s) for path, s in device.signals.items()},
+        "signals": {path: _signal_schema(s, paired) for path, s in device.signals.items()},
         "inputs": {
             name: {
                 "label": "" if (spec := binding.declared) is None else spec.label,
@@ -256,7 +273,7 @@ def read_device(rig: RigDep, name: str) -> DeviceOut:
 
 @router.get("/devices/{name}/schema")
 def read_device_schema(rig: RigDep, name: str) -> dict[str, Any]:
-    return device_schema(device_of(rig, name))
+    return device_schema(device_of(rig, name), rig.consumers)
 
 
 @router.post("/devices/{name}/restart")

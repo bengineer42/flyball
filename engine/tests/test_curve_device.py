@@ -14,6 +14,7 @@ import pytest
 from flyball_sim import SteppedClock
 from pydantic import ValidationError
 
+from conftest import TestClient
 from flyball.control.laws import P
 from flyball.foundation.device import (
     Committable,
@@ -33,6 +34,7 @@ from flyball.foundation.device.derived import Curve, CurveConfig
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.curves import Linear, Table
 from flyball.foundation.quantities.si import Volt, Watt
+from flyball.interfaces.server import create_app, set_rig
 from flyball.model.catalog import get_catalog
 from flyball.model.law import Transfer
 from flyball.record.sqlite import SqliteStore
@@ -233,6 +235,49 @@ class TestStopAndRecording:
         assert "adc" not in {d.address for d in store.devices(session)}, "nothing of it stored"
         assert rig.latest[raw].value == 3.5, "record: false is store-only: still live"
         store.close()
+
+
+class TestRawOnTheWire:
+    def test_the_engineering_signal_names_its_raw_one_and_the_raw_one_its_engineering(
+        self, adc_tag
+    ):
+        rig = RigConfig.model_validate({
+            "devices": {
+                "adc": {"driver": adc_tag},
+                "turbidity": {"driver": "curve", "inputs": {"x": "adc.raw_v"}, "curve": TABLE},
+                "scaled": {
+                    "driver": "curve",
+                    "inputs": {"x": "adc.raw_v"},
+                    "curve": {"type": "linear", "scale": 2.0},
+                },
+                "fixed": {"driver": "curve", "inputs": {"x": 3.0}, "curve": TABLE},
+            }
+        }).build(start=False)
+        set_rig(rig)
+        with TestClient(create_app()) as client:
+            adc = client.get("/api/devices/adc").json()
+            turbidity = client.get("/api/devices/turbidity").json()
+            fixed = client.get("/api/devices/fixed").json()
+            schema = client.get("/api/schema").json()["devices"]
+            one = client.get("/api/devices/adc/schema").json()
+        (raw_v,) = adc["signals"]
+        assert raw_v["raw_for"] == ["turbidity.value", "scaled.value"] and "raw" not in raw_v
+        assert adc["consumers"] == {"raw_v": ["turbidity.inputs.x", "scaled.inputs.x"]}
+        (value,) = turbidity["signals"]
+        assert value["raw"] == "adc.raw_v" and "raw_for" not in value
+        (value,) = fixed["signals"]
+        assert "raw" not in value and "raw_for" not in value, "a number is not a raw signal"
+        assert schema["adc"]["signals"]["raw_v"]["raw_for"] == ["turbidity.value", "scaled.value"]
+        assert schema["scaled"]["signals"]["value"]["raw"] == "adc.raw_v"
+        assert "raw" not in schema["fixed"]["signals"]["value"]
+        assert one["signals"]["raw_v"]["raw_for"] == ["turbidity.value", "scaled.value"]
+
+    def test_a_signal_nothing_derives_from_carries_neither(self, adc_tag):
+        rig = RigConfig.model_validate({"devices": {"adc": {"driver": adc_tag}}}).build(start=False)
+        set_rig(rig)
+        with TestClient(create_app()) as client:
+            (raw_v,) = client.get("/api/devices/adc").json()["signals"]
+        assert "raw" not in raw_v and "raw_for" not in raw_v
 
 
 def test_built_in_code_describes_itself():

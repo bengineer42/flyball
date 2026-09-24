@@ -17,4 +17,4 @@ router = APIRouter(prefix="/api/schema", tags=["schema"])
 def read_schema(rig: RigDep) -> dict[str, Any]:
     """Every device's schema, by name. A CLI or a client builds from this."""
     devices = list(rig.devices.items())  # a snapshot: a device may be added meanwhile
-    return {"devices": {name: device_schema(device) for name, device in devices}}
+    return {"devices": {name: device_schema(device, rig.consumers) for name, device in devices}}
