@@ -140,9 +140,10 @@ Beside the chips, for anyone allowed to operate the rig, is **Software
 stop**: after a confirmation it latches the rig, cancels running device
 commands, interrupts any running program, puts every controller in manual
 and writes each device's stop, for everyone ([the software
-stop](../runner/access.md#stopping-the-rig)). The button's tooltip and
-confirmation still describe the earlier stop, which wrote nothing; what
-the stop does is on that page. The app has no Reset button and no banner
+stop](../runner/access.md#stopping-the-rig)). Afterwards a message says
+how many devices stopped, were left unchanged or failed (naming each
+failure), and that the rig is latched; one with a failure stays until
+closed. The app has no Reset button and no banner
 for a latched rig yet: the rig's `stopped` condition is among its
 conditions (`GET /api/health`), and a person resets it with `POST /api/rig/reset`
 ([Reset](../runner/access.md#reset)). A caller without `operate` does not

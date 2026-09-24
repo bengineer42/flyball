@@ -1,15 +1,27 @@
 import { useState } from "react";
 import { Button, Snackbar, Alert, Tooltip } from "@mui/material";
 import StopCircleOutlinedIcon from "@mui/icons-material/StopCircleOutlined";
-import { RigError } from "@flyball/client";
+import { RigError, type StopReport } from "@flyball/client";
 import { useRig } from "@flyball/react";
 import { Confirm } from "./Confirm.js";
 import { useAuth } from "./auth.js";
 
+/** What the stop did, in a sentence: how many devices stopped, kept or failed, and whether the rig is latched. */
+export function stopSummary(report: StopReport): { severity: "success" | "warning"; message: string } {
+  const devices = Object.entries(report.devices ?? {});
+  if (report.interim) return { severity: "warning", message: "Software stop: controllers to manual; nothing written (this runner's stop is the interim one)" };
+  const count = (state: string) => devices.filter(([, d]) => d.state === state).length;
+  const failed = devices.filter(([, d]) => d.state === "failed");
+  const parts = [`${count("stopped")} stopped`, `${count("unchanged")} unchanged`];
+  if (failed.length) parts.push(`${failed.length} failed (${failed.map(([name, d]) => (d.detail ? `${name}: ${d.detail}` : name)).join("; ")})`);
+  const latch = report.latched ? " The rig is latched until a person resets it." : "";
+  return { severity: failed.length ? "warning" : "success", message: `Software stop: ${parts.join(", ")}.${latch}` };
+}
+
 /**
- * Stops the rig for everyone: interrupts any running program and puts every controller in manual
- * (`POST <root>/api/rig/stop`, answering a `StopReport`). Nothing is written to a device: outputs are
- * left as they were, and the report's `interim` says so. Stop needs `OPERATE`: a caller without it
+ * Stops the rig for everyone: latches it, interrupts any running program, puts every controller in
+ * manual and writes each device's stop (`POST <root>/api/rig/stop`, answering a `StopReport` whose
+ * devices say stopped, unchanged or failed). Stop needs `OPERATE`: a caller without it
  * never sees this button at all, so nothing here has to gate rendering a second time the way a
  * disabled control would. A refusal or failure is shown as one, in the server's own words, never as
  * a stop that happened.
@@ -19,17 +31,16 @@ export function StopButton() {
   const rig = useRig();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [result, setResult] = useState<{ severity: "success" | "warning" | "error"; message: string } | null>(null);
 
   if (!canOperate) return null;
 
   const stop = async () => {
     setBusy(true);
     try {
-      const report = await rig.stopRig();
-      setResult({ ok: true, message: report.interim ? "Software stop: controllers to manual; nothing written — outputs left as they were" : "Software stop done" });
+      setResult(stopSummary(await rig.stopRig()));
     } catch (e) {
-      setResult({ ok: false, message: e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e) });
+      setResult({ severity: "error", message: e instanceof RigError ? e.detail : e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(false);
       setConfirming(false);
@@ -38,7 +49,7 @@ export function StopButton() {
 
   return (
     <>
-      <Tooltip title="Software stop: interrupt the program and put every controller in manual. Nothing is written -- outputs are left as they were.">
+      <Tooltip title="Software stop: interrupt the program, put every controller in manual and write each device's stop. The rig stays latched until a person resets it.">
         <span>
           <Button
             variant="outlined"
@@ -56,15 +67,15 @@ export function StopButton() {
       <Confirm
         open={confirming}
         title="Software stop?"
-        text="This interrupts any running program and puts every controller in manual. It writes nothing: outputs are left as they were."
+        text="This interrupts any running program, puts every controller in manual and writes each device's stop (its stop command, else its stop values, else off; a device set to keep is left as it is). The rig stays latched until a person resets it."
         action="Software stop"
         busy={busy}
         onClose={() => setConfirming(false)}
         onConfirm={() => void stop()}
       />
-      <Snackbar open={result !== null} autoHideDuration={6000} onClose={() => setResult(null)}>
+      <Snackbar open={result !== null} autoHideDuration={result?.severity === "success" ? 6000 : null} onClose={() => setResult(null)}>
         {result ? (
-          <Alert severity={result.ok ? "success" : "error"} onClose={() => setResult(null)} data-testid="stop-result">
+          <Alert severity={result.severity} onClose={() => setResult(null)} data-testid="stop-result">
             {result.message}
           </Alert>
         ) : undefined}

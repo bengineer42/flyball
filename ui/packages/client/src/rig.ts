@@ -327,9 +327,9 @@ export class RigClient {
 
   /**
    * Stop the rig for everyone: interrupt any running program, put every controller in manual and
-   * hold every writable device (`POST <root>/api/rig/stop`). Needs `OPERATE`; never rate-limited.
-   * Answers 501 until package A8 wires the real stopper -- callers must surface that honestly
-   * rather than treating the call as having stopped anything.
+   * write each device's stop (`POST <root>/api/rig/stop`); the rig stays latched until
+   * `POST /api/rig/reset`. Needs `OPERATE`; never rate-limited. A refusal must be surfaced as one,
+   * never treated as a stop.
    */
   stopRig(reason?: string): Promise<StopReport> {
     return this.call({ method: "POST", path: "/api/rig/stop", body: reason === undefined ? {} : { reason } });
