@@ -29,12 +29,12 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import StopIcon from "@mui/icons-material/Stop";
+import PanToolOutlinedIcon from "@mui/icons-material/PanToolOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import { Form as MuiForm } from "@rjsf/mui";
 import { ControllerPanel, SchemaForm, WritePanel, useControllers, useQuery, useRig, type ControllerTrace } from "@flyball/react";
-import { signalTitle, signalsOf, writable, type ControllerOut, type ControllerSchema, type DeviceOut, type FeedforwardConfig, type JsonSchema, type LawConfig, type SetpointSpec, type SignalChoice, type StartSpec, type SignalOut } from "@flyball/client";
+import { signalTitle, signalsOf, writable, type ControllerOut, type ControllerSchema, type DeviceOut, type FaultAction, type FeedforwardConfig, type JsonSchema, type OnFault, type LawConfig, type SetpointSpec, type SignalChoice, type StartSpec, type SignalOut } from "@flyball/client";
 import { Confirm } from "../Confirm.js";
 import { useAuth } from "../auth.js";
 import { useRecordingExports } from "../model.js";
@@ -63,9 +63,43 @@ interface Draft {
   /** Null until an output and a measured signal are chosen (the default depends on their units). */
   feedforward: FeedforwardConfig | null;
   isDefault: boolean;
+  /** `on_fault`'s action; `freeze` (the rig's default) is not sent. */
+  faultAction: FaultAction;
+  /** Seconds of fault time to stay frozen before `faultAction` (`{freeze_s, then}`); blank: the rig's own wait. */
+  freezeS: string;
+  /** `setpoint_period_s`; blank: the rig's `max(0.1 s, poll_s / 4)`. */
+  setpointPeriodS: string;
 }
 
-const EMPTY_DRAFT: Draft = { output: null, measured: null, lawChoice: "none", tuning: "", config: null, feedforward: null, isDefault: false };
+const EMPTY_DRAFT: Draft = { output: null, measured: null, lawChoice: "none", tuning: "", config: null, feedforward: null, isDefault: false, faultAction: "freeze", freezeS: "", setpointPeriodS: "" };
+
+/** What each `on_fault` action does once the source has been faulty for its wait, for the picker. */
+const FAULT_ACTIONS: Array<{ value: FaultAction; label: string; hint: string }> = [
+  { value: "freeze", label: "freeze (default)", hint: "the law stays frozen and the output where it was; it resumes by itself after 3 readings with a value" },
+  { value: "manual", label: "manual", hint: "the controller goes to manual; the output keeps its last value; latched until a Reset" },
+  { value: "stop", label: "stop", hint: "manual, then the output's stop is written; the controller and output are latched until a Reset" },
+  { value: "stop_device", label: "stop device", hint: "manual, then the output's whole device is stopped; latched until a Reset" },
+];
+
+/** An `on_fault` as the step's summary reads it: `freeze`, `stop`, `freeze 30 s, then stop`. */
+export function describeOnFault(onFault: OnFault | undefined): string {
+  if (onFault === undefined) return "freeze";
+  if (typeof onFault === "string") return onFault.replace("_", " ");
+  return `freeze ${onFault.freeze_s} s, then ${onFault.then.replace("_", " ")}`;
+}
+
+/** A positive number from a text box, else null (blank or not a number). */
+const positive = (text: string): number | null => {
+  const n = Number(text);
+  return text.trim() !== "" && Number.isFinite(n) && n > 0 ? n : null;
+};
+
+/** The draft's `on_fault`: omitted for `freeze`; `{freeze_s, then}` when a freeze time is given. */
+export function draftOnFault(action: FaultAction, freezeS: string): OnFault | undefined {
+  if (action === "freeze") return undefined;
+  const wait = positive(freezeS);
+  return wait === null ? action : { freeze_s: wait, then: action };
+}
 
 /**
  * What the rig would pick when no feedforward is given: `identity` when the
@@ -104,11 +138,12 @@ function withoutIdentity(schema: JsonSchema): JsonSchema {
 }
 
 /**
- * Make a controller in four steps: the demand to drive (its output,
+ * Make a controller in five steps: the demand to drive (its output,
  * labelled "Output"), a published signal to regulate (labelled
- * "Measured"), the law, and the feedforward that maps the
+ * "Measured"), the law, the feedforward that maps the
  * setpoint into the output's unit (defaulted from the units, as the rig
- * would). Signals another controller already regulates and outputs already
+ * would), and what it does on a fault (`on_fault`, with the
+ * `setpoint_period_s` beside it; blank fields take the rig's defaults). Signals another controller already regulates and outputs already
  * driven are disabled; measured signals in the output's own unit that nothing
  * regulates yet are listed first as "Suggested". Opened either from the
  * page bar (any output) or from an undriven signal's own card, which
@@ -185,14 +220,28 @@ export const AddControllerDialog = memo(function AddControllerDialog({
   );
 
   const lawReady = draft.lawChoice === "none" || (draft.lawChoice === "stored" ? draft.tuning !== "" : draft.config !== null);
-  const canCreate = Boolean(draft.output && draft.measured && lawReady && feedforward);
+  // A blank box takes the rig's default; anything else must be a positive number.
+  const freezeOk = draft.freezeS.trim() === "" || positive(draft.freezeS) !== null;
+  const periodOk = draft.setpointPeriodS.trim() === "" || positive(draft.setpointPeriodS) !== null;
+  const canCreate = Boolean(draft.output && draft.measured && lawReady && feedforward && freezeOk && periodOk);
+  const onFault = draftOnFault(draft.faultAction, draft.freezeS);
 
   const create = async () => {
     if (!draft.output || !draft.measured) return;
     setBusy(true);
     try {
       const law = draft.lawChoice === "none" ? null : draft.lawChoice === "stored" ? draft.tuning : draft.config;
-      const controller = await rig.createController({ output: draft.output.address, measured: draft.measured, law, feedforward, default: draft.isDefault });
+      const onFault = draftOnFault(draft.faultAction, draft.freezeS);
+      const period = positive(draft.setpointPeriodS);
+      const controller = await rig.createController({
+        output: draft.output.address,
+        measured: draft.measured,
+        law,
+        feedforward,
+        default: draft.isDefault,
+        ...(onFault !== undefined && { on_fault: onFault }),
+        ...(period !== null && { setpoint_period_s: period }),
+      });
       setError(null);
       onCreated(controller);
     } catch (e) {
@@ -391,6 +440,52 @@ export const AddControllerDialog = memo(function AddControllerDialog({
                 </Stack>
               </StepContent>
             </Step>
+            <Step completed={draft.measured !== null}>
+              <StepLabel onClick={() => draft.measured && setActive(4)} sx={{ cursor: draft.measured ? "pointer" : "default" }}>
+                On fault{active !== 4 ? `: ${describeOnFault(onFault)}` : ""}
+                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  what it does once its measured signal has had no value for a while
+                </Typography>
+              </StepLabel>
+              <StepContent>
+                <Stack spacing={1.5}>
+                  <FormControl size="small" sx={{ maxWidth: 260 }}>
+                    <Select value={draft.faultAction} onChange={(e) => patch({ faultAction: e.target.value as FaultAction })} inputProps={{ "aria-label": "on fault", "data-testid": "on-fault" }}>
+                      {FAULT_ACTIONS.map((a) => (
+                        <MenuItem key={a.value} value={a.value}>
+                          {a.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Typography variant="body2" color="text.secondary">
+                    {FAULT_ACTIONS.find((a) => a.value === draft.faultAction)!.hint}
+                  </Typography>
+                  {draft.faultAction !== "freeze" && (
+                    <TextField
+                      size="small"
+                      label="freeze first for (s, optional)"
+                      value={draft.freezeS}
+                      onChange={(e) => patch({ freezeS: e.target.value })}
+                      error={!freezeOk}
+                      helperText={freezeOk ? "seconds of fault time to stay frozen before acting; blank: the rig's own wait (about two poll periods)" : "a number of seconds above zero"}
+                      inputProps={{ inputMode: "decimal", "data-testid": "freeze-s" }}
+                      sx={{ maxWidth: 360 }}
+                    />
+                  )}
+                  <TextField
+                    size="small"
+                    label="setpoint period (s, optional)"
+                    value={draft.setpointPeriodS}
+                    onChange={(e) => patch({ setpointPeriodS: e.target.value })}
+                    error={!periodOk}
+                    helperText={periodOk ? "while following a moving setpoint, re-apply the feedforward this often between readings; blank: max(0.1 s, poll period / 4)" : "a number of seconds above zero"}
+                    inputProps={{ inputMode: "decimal", "data-testid": "setpoint-period" }}
+                    sx={{ maxWidth: 360 }}
+                  />
+                </Stack>
+              </StepContent>
+            </Step>
           </Stepper>
         )}
         {error && (
@@ -428,7 +523,7 @@ type From = "setpoint" | "measured" | "value";
  * regulating. Takes primitives and a stable callback so it does not re-render
  * on every tick (its text field is a MUI form control, which sets state in an
  * effect whenever it renders in development). Split from the stop/remove
- * control below so Tab reaches this field and its button before Stop, which
+ * control below so Tab reaches this field and its button before Manual, which
  * the faceplate places in the header regardless of where it sits in the DOM.
  */
 const SetpointControl = memo(function SetpointControl({ name, unit, mode, law, hasSetpoint, generators, onEvent }: { name: string; unit: string; mode: ControllerOut["mode"]; law: string | null; hasSetpoint: boolean; generators: JsonSchema | undefined; onEvent(name: string, kind: "changed" | "removed"): void }) {
@@ -584,9 +679,10 @@ const SetpointControl = memo(function SetpointControl({ name, unit, mode, law, h
 });
 
 /**
- * Stop and remove, rendered in the faceplate's header (DESIGN-SPEC §3.4)
+ * Manual and remove, rendered in the faceplate's header (DESIGN-SPEC §3.4)
  * even though the panel places them after the Setpoint row in the DOM, so Tab
- * reaches target -> Move -> Stop in that order.
+ * reaches target -> Move -> Manual in that order. Manual stops regulating; it
+ * is not the rig stop, and writes nothing.
  */
 const StopControl = memo(function StopControl({ name, mode, onEvent }: { name: string; mode: ControllerOut["mode"]; onEvent(name: string, kind: "changed" | "removed"): void }) {
   const rig = useRig();
@@ -611,17 +707,16 @@ const StopControl = memo(function StopControl({ name, mode, onEvent }: { name: s
 
   return (
     <Stack component="span" direction="row" spacing={0.5} alignItems="center" sx={{ display: "inline-flex" }}>
-      <Tooltip title="Stop regulating: the target holds its last demand and takes demands directly">
+      <Tooltip title="Put in manual: stop regulating; the output holds its last demand and takes demands directly">
         <span>
           <Button
             variant="outlined"
-            color="error"
-            startIcon={<StopIcon />}
+            startIcon={<PanToolOutlinedIcon />}
             disabled={mode === "manual" || busy}
             onClick={() => void act(() => rig.manual(name)).then((ok) => ok && onEvent(name, "changed"))}
             data-testid={`manual-${name}`}
           >
-            Stop
+            Manual
           </Button>
         </span>
       </Tooltip>
@@ -634,13 +729,13 @@ const StopControl = memo(function StopControl({ name, mode, onEvent }: { name: s
       </Tooltip>
       <Confirm
         open={confirmRemove}
-        title={regulating ? `${name} is regulating — stop it and remove?` : `Remove controller ${name}?`}
+        title={regulating ? `${name} is regulating — put it in manual and remove?` : `Remove controller ${name}?`}
         text={
           regulating
-            ? `Removing ${name} stops it first: the target keeps its last demand and takes demands directly. Its source is then free for another controller.`
+            ? `Removing ${name} puts it in manual first: the target keeps its last demand and takes demands directly. Its source is then free for another controller.`
             : `Its source is then free for another controller; the target keeps its last demand.`
         }
-        action={regulating ? "Stop and remove" : "Remove"}
+        action={regulating ? "Manual and remove" : "Remove"}
         onClose={() => setConfirmRemove(false)}
         onConfirm={() => {
           void act(() => rig.detachController(name)).then((ok) => {
@@ -765,11 +860,9 @@ export function Controllers({ devices, name = null, ...charts }: ControllersProp
     const source = c ? signals.get(c.measured_signal) : undefined;
     return c && source ? [{ target, c, source }] : [];
   });
-  // For now, a device with a driven demand hides its other demands: a composite (the humidity blender)
-  // owns its outputs through the driven one and ignores direct writes to the rest, so their Set did nothing.
-  // Drop this once composite inner demands are guarded or declared readbacks (TODO § Backend, ENG-25).
-  const drivenDevices = new Set(driven.map((d) => d.target.address.split(".")[0]));
-  const undriven = shown.filter((target) => !driven.some((d) => d.target === target) && !drivenDevices.has(target.address.split(".")[0]));
+  // Every demand nothing drives, including the others on a device one of whose demands is driven (a
+  // furnace's other zones): a composite's inner demands are readbacks now, not writable, so not listed.
+  const undriven = shown.filter((target) => !driven.some((d) => d.target === target));
   const toolbar = (
     <PageBar end={<ChartControls {...charts} unit={only ? signals.get(only.measured_signal)?.unit : undefined} />}>
       {name !== null && <Crumbs items={[{ label: "controllers", href: hashFor("controllers") }, { label: name }]} />}
