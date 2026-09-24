@@ -191,9 +191,13 @@ class Stepper(Readable, Committable):
         finally:
             self._enable(False)
 
-    @command
+    @command(stops=True)
     def stop(self) -> None:
-        """End a move in progress and release the enable line; direction and position stay."""
+        """End a move in progress and release the enable line; direction and position stay.
+
+        The device's stop: a rig stop runs it. Without an `enable_line` it only ends the
+        move -- the coils stay as they were.
+        """
         self.cancel()
         self._enable(False)
 

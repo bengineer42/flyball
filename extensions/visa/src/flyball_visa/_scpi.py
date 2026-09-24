@@ -28,6 +28,7 @@ from flyball.foundation.device import (
     command,
     invalid,
 )
+from flyball.foundation.errors import ConflictError
 from flyball.foundation.quantities import Quantity
 from flyball.hardware.links import TextLink
 from flyball.hardware.scan import Scan
@@ -132,9 +133,11 @@ class Scpi(Readable, Committable):
         channels: Mapping[str, ScpiSignal],
         parse: Parser = parse_float,
         label: str | None = None,
+        stop_command: str | None = None,
     ) -> None:
         super().__init__(name, label)
         self.link = link
+        self.stop_text = stop_command
         self.parse = parse
         self.channels = dict(channels)
         # Device.blocking is a ClassVar; this driver's real bus or fake is only known
@@ -181,6 +184,17 @@ class Scpi(Readable, Committable):
         assert channel.write is not None
         self.link.write(channel.write.format(value=value / channel.scale))
 
+    def stops_by(self) -> str | None:
+        """`stop` when a `stop_command` is configured; else none, and a stop keeps its outputs."""
+        return "stop" if self.stop_text else None
+
+    @command(stops=True)
+    def stop(self) -> None:
+        """Send the configured `stop_command` (`OUTP OFF`): the instrument's own stop."""
+        if not self.stop_text:
+            raise ConflictError(f"{self.name}: no stop_command is configured")
+        self.link.write(self.stop_text)
+
     @command
     def write(self, text: str) -> None:
         """Send any command. For bring-up, not programs."""
@@ -202,11 +216,19 @@ class ScpiConfig(DriverConfig[Scpi], type="scpi"):
 
     link: TextLinkConfig | str  # type: ignore[valid-type]
     channels: dict[str, ScpiSignal]
+    stop_command: str | None = Field(
+        default=None,
+        description="What a stop sends (`OUTP OFF`, `INP OFF`): the instrument's own stop."
+        " Omitted: a stop leaves its outputs as they are -- the right string differs by"
+        " instrument, so none is assumed.",
+    )
 
     def build(self, name: str, label: str | None = None) -> Scpi:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a link before building")
-        return Scpi(name, resolve(self.link), self.channels, label=label)
+        return Scpi(
+            name, resolve(self.link), self.channels, label=label, stop_command=self.stop_command
+        )
 
 
 __all__ = ["Parser", "Scpi", "ScpiConfig", "ScpiSignal", "parse_float"]

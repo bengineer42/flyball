@@ -225,3 +225,27 @@ class TestDs18b20:
         (sample,) = probe.read(3)
         assert sample.by_name() == {"temperature": pytest.approx(21.875)}
         assert probe.config.device == "28-1"
+
+
+class TestDeclaredOff:
+    """What a stop writes: `off` only where the driver cannot be wrong."""
+
+    def test_a_pwm_channel_declares_zero_duty_unless_inverted_or_across_zero(self):
+        assert PwmChannel("a", FakePwm(), 0).signals["drive"].spec.off == 0.0
+        spanned = PwmChannel("b", FakePwm(), 1, unit="°C", quantity="temperature", span=(10, 40))
+        assert spanned.signals["drive"].spec.off == 10.0, "span[0] is 0 % duty"
+        assert PwmChannel("c", FakePwm(), 2, invert=True).signals["drive"].spec.off is None
+        bridge = PwmChannel("d", FakePwm(), 3, unit="W", quantity="power", span=(-50, 50))
+        assert bridge.signals["drive"].spec.off is None, "span[0] is full reverse"
+
+    def test_a_gpio_output_declares_zero_unless_inverted(self):
+        assert GpioLine("fan", FakeGpio(), 4).signals["on"].spec.off == 0.0
+        assert GpioLine("relay", FakeGpio(), 18, invert=True).signals["on"].spec.off is None
+
+    def test_a_stepper_and_a_dosing_pump_are_stopped_by_their_stop_command(self):
+        from flyball_linux.devices.dosing_pump import DosingPump
+        from flyball_linux.devices.stepper import Stepper
+
+        assert Stepper.stop_command == "stop"
+        assert DosingPump.stop_command == "stop"
+        assert PwmChannel.stop_command is None, "off disables the channel: not the stop"

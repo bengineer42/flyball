@@ -130,10 +130,24 @@ class TestScpi:
     def test_write_and_query_commands_are_a_raw_passthrough(self):
         link = FakeTextLink({"*IDN?": "Keysight,34465A,MY123,1.0"})
         dmm = Scpi("dmm", link, {"v": ScpiSignal(query="V?", unit="V")})
-        assert set(type(dmm).commands) == {"write", "query"}
+        assert set(type(dmm).commands) == {"write", "query", "stop"}
         assert dmm.query("*IDN?") == "Keysight,34465A,MY123,1.0"
         dmm.write("SYST:BEEP")
         assert link.written == ["SYST:BEEP"]
+
+    def test_the_stop_is_the_configured_string_or_none(self):
+        link = FakeTextLink({})
+        psu = Scpi(
+            "psu",
+            link,
+            {"v": ScpiSignal(write="VOLT {value}", unit="V")},
+            stop_command="OUTP OFF",
+        )
+        assert psu.stops_by() == "stop"
+        psu.stop()
+        assert link.written == ["OUTP OFF"]
+        plain = Scpi("dmm", FakeTextLink({}), {"v": ScpiSignal(query="V?", unit="V")})
+        assert plain.stops_by() is None, "no string assumed: a stop keeps its outputs"
 
     def test_blocking_is_true_for_a_real_bus_false_for_a_fake(self):
         fake = Scpi("d", FakeTextLink({}), {"v": ScpiSignal(query="V?", unit="V")})

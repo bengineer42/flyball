@@ -152,9 +152,12 @@ class DosingPump(Committable):
         dosed = volume_ml * ran_s / duration_s
         self.signals["dispensed_ml"].push(self.signals["dispensed_ml"].value + dosed)
 
-    @command
+    @command(stops=True)
     def stop(self) -> None:
-        """Stop the pump immediately, whatever it is doing: a dose in progress ends now."""
+        """Stop the pump immediately, whatever it is doing: a dose in progress ends now.
+
+        The device's stop: a rig stop runs it.
+        """
         self.cancel()
         self._run(False)
 

@@ -41,6 +41,11 @@ class GpioLine(Readable, Committable):
 
     `invert` is for an active-low relay board or a pulled-up switch: the
     logical level the rig sees is the electrical one flipped.
+
+    An output's `on` declares `off` at 0, what a stop writes -- except with `invert:
+    true`, where whether logical 0 is the load's off depends on why it was inverted,
+    so it declares none and a stop leaves it as it is. A direction or select line
+    that must hold through a stop says `stop: {on: keep}`.
     """
 
     def __init__(
@@ -70,6 +75,7 @@ class GpioLine(Readable, Committable):
                     role=Role.DEMAND,
                     limits=(0.0, 1.0),
                     initial=float(initial),
+                    off=None if invert else 0.0,
                 ),
             ))
             link.claim_output(line, initial != invert)
