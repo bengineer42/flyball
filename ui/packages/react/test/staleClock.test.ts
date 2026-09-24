@@ -1,20 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RigClient, StreamHandlers, Subscription } from "@flyball/client";
-import { alarmLevel, staleThresholdS } from "@flyball/client";
 import { TelemetryStore } from "../src/store/telemetry.js";
 
 afterEach(() => vi.useRealTimers());
 
-describe("staleness", () => {
-  it("a signal not read on a period is never stale by age; an unknown period keeps the 5 s floor", () => {
-    expect(staleThresholdS(null)).toBeNull();
-    expect(staleThresholdS(undefined)).toBe(5);
-    expect(staleThresholdS(2)).toBe(6);
-    const signal = { poll_s: null };
-    expect(alarmLevel(1, signal, { periodS: null, lastSampleS: 0, nowS: 10_000 })).toBe("ok");
-    expect(alarmLevel(1, signal, { periodS: 1, lastSampleS: 0, nowS: 10 })).toBe("stale");
-  });
-
+describe("the rig's clock", () => {
   it("the store's clock keeps running from /api/clock when samples stop (the only poller died)", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     const open = new Map<string, StreamHandlers>();

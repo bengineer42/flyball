@@ -1,24 +1,24 @@
-import { alarmLevel, describeUnit, staleAfterS, withUnit, type AlarmLevel, type Freshness, type SignalOut, fixed } from "@flyball/client";
+import { alarmLevel, describeUnit, withUnit, type AlarmLevel, type SignalOut, fixed } from "@flyball/client";
+import { CaveatMark, QualityBadge, noValue, type ReadingLike } from "./quality.js";
 
 export type GaugeKind = "thermometer" | "tank" | "dial" | "bar";
 
 export interface GaugeProps {
-  signal: Bands & Pick<SignalOut, "unit" | "precision"> & Partial<Pick<SignalOut, "poll_s">>;
-  /** The current reading; undefined draws an empty gauge. */
-  value: number | undefined;
+  signal: Bands & Pick<SignalOut, "unit" | "precision">;
+  /** The current value; undefined or null draws an empty gauge. */
+  value: number | null | undefined;
+  /**
+   * The newest reading with its quality (`useReading`): with no value the number reads "—" (or
+   * "…" pending) and why, the last usable value on hover; a `stale` one makes the gauge stale.
+   * Omitted, `value` alone is shown.
+   */
+  reading?: ReadingLike;
   /** Default by unit: temperatures a thermometer, percentages a tank, else a dial. */
   kind?: GaugeKind;
   /** Pixel height of the drawing (bars: of the strip). */
   height?: number;
-  /**
-   * Rig-time freshness for stale detection (DESIGN-SPEC.md §2/B-3), same
-   * shape as `Readout`'s. A gauge is always embedded in another panel's
-   * chrome, so stale only adds a dashed border and a footer line, not a
-   * full title row.
-   */
-  fresh?: Freshness;
-  /** The rig's band alarm on this signal (`useBandLevel`); without it the value is checked against the bands here. */
-  band?: "ok" | "warn" | "alarm";
+  /** The rig's band condition on this signal (`useBandLevel`); without it the value is checked against the bands here. */
+  band?: "ok" | "warn" | "alarm" | "unknown";
 }
 
 /** Zone and fill colours; an embedding page sets the variables. */
@@ -26,6 +26,7 @@ const COLOUR: Record<AlarmLevel, string> = {
   ok: "var(--fb-ok, #2e8b57)",
   warn: "var(--fb-warn, #e0a100)",
   alarm: "var(--fb-alarm, #b3261e)",
+  unknown: "var(--fb-unknown, #6d5bb3)",
   stale: "var(--fb-stale, #8a93a2)",
 };
 const NEUTRAL = "var(--fb-border, #d8d8d8)";
@@ -89,34 +90,36 @@ export function numberWidth(range: [number, number] | null, precision: number): 
 const zoneColour = (zone: GaugeZone) => (zone.level === null ? NEUTRAL : COLOUR[zone.level]);
 
 /** One signal as a picture: its range with the warning/alarm zones, the value as a fill or needle, the number under it. */
-export function Gauge({ signal, value, kind = gaugeKindFor(signal.unit), height, fresh, band }: GaugeProps) {
+export function Gauge({ signal, value: given, kind = gaugeKindFor(signal.unit), height, reading, band }: GaugeProps) {
   const range = gaugeRange(signal);
   const zones = gaugeZones(signal);
-  const level = alarmLevel(value, signal, fresh, band);
-  const stale = level === "stale";
-  const ageS = fresh?.lastSampleS != null && fresh?.nowS != null ? Math.round(fresh.nowS - fresh.lastSampleS) : null;
+  const precision = signal.precision ?? 2;
+  const none = noValue(reading, (v) => withUnit(fixed(v, precision), signal.unit));
+  // Never the value before a reading with none.
+  const value = none ? null : given;
+  const level = alarmLevel(value, signal, band, reading?.quality);
   const hasBands = !!(signal.warning || signal.alarm);
   const fill = hasBands ? COLOUR[level] : ACCENT;
-  const fraction = value === undefined ? null : Math.min(1, Math.max(0, (value - range[0]) / (range[1] - range[0])));
-  const precision = signal.precision ?? 2;
+  const fraction = value === undefined || value === null ? null : Math.min(1, Math.max(0, (value - range[0]) / (range[1] - range[0])));
   const drawing = { range, zones, fraction, fill, height };
   return (
     <div
       className={`fb-gauge fb-gauge-${kind} fb-alarm-${level}`}
-      title={stale ? `stale — last sample ${ageS} s ago (over ${staleAfterS(signal.poll_s ?? fresh?.periodS)} s)` : withUnit(`${range[0]} – ${range[1]}`, signal.unit)}
+      title={none ? `${none.label} · ${none.hint}` : withUnit(`${range[0]} – ${range[1]}`, signal.unit)}
     >
       {kind === "thermometer" && <Thermometer {...drawing} />}
       {kind === "tank" && <Tank {...drawing} />}
       {kind === "dial" && <Dial {...drawing} />}
       {kind === "bar" && <Bar {...drawing} />}
-      <div className="fb-gauge-value" style={{ color: hasBands && level !== "ok" && level !== "stale" ? COLOUR[level] : undefined }}>
-        <span className="fb-gauge-number" style={{ minWidth: `${numberWidth(range, precision)}ch` }}>
-          {fixed(value, precision)}
+      <div className="fb-gauge-value" style={{ color: (hasBands && level !== "ok" && level !== "stale") || level === "unknown" ? COLOUR[level] : undefined }}>
+        {!none && <CaveatMark caveats={reading?.caveats} />}
+        <span className="fb-gauge-number" style={{ minWidth: `${numberWidth(range, precision)}ch` }} title={none?.hint}>
+          {none ? none.glyph : fixed(value, precision)}
         </span>
         <span className="fb-gauge-unit">{describeUnit(signal.unit)}</span>
       </div>
-      {/* Always rendered, even blank: an appearing/disappearing footer would resize the tile every time freshness flips. */}
-      <div className="fb-gauge-footer">{stale ? `last sample ${ageS} s ago` : " "}</div>
+      {/* Always rendered, even blank: an appearing/disappearing footer would resize the tile every time the quality flips. */}
+      <div className="fb-gauge-footer">{none ? <QualityBadge state={none} /> : " "}</div>
     </div>
   );
 }

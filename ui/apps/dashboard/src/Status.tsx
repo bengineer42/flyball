@@ -4,7 +4,7 @@ import PauseIcon from "@mui/icons-material/Pause";
 import { useHealth, type PlaybackHook, type StreamStatus, type SocketStream } from "@flyball/react";
 import { atLeast } from "@flyball/client";
 import { sessionName, stepOf, type Programmer, type Recording } from "./model.js";
-import { PAGE_ICONS, WarnIcon, ErrorIcon, OkIcon, type IconComponent } from "./icons.js";
+import { PAGE_ICONS, WarnIcon, ErrorIcon, OkIcon, UnknownIcon, type IconComponent } from "./icons.js";
 import { hashFor, hrefFor } from "./router.js";
 import { hms } from "./PlaybackBar.js";
 
@@ -25,7 +25,7 @@ interface Line {
  * pass the widest of its own possible labels so it holds one size across its states and doesn't
  * reflow its neighbours every time it changes -- chips should be a single size
  * "within reason" (a genuinely unbounded value, like a session name, is out of scope for this). */
-export function StatusChip({ icon: Icon, full, short, colour, lines, href, minWidth, testId }: { icon: IconComponent; full: string; short: string; colour: Colour; lines: Line[]; href?: string; minWidth?: string; testId?: string }) {
+export function StatusChip({ icon: Icon, full, short, colour, tone, lines, href, minWidth, testId }: { icon: IconComponent; full: string; short: string; colour: Colour; tone?: string; lines: Line[]; href?: string; minWidth?: string; testId?: string }) {
   const theme = useTheme();
   const narrow = useMediaQuery(theme.breakpoints.down("md"));
   const title = lines.length ? (
@@ -61,6 +61,8 @@ export function StatusChip({ icon: Icon, full, short, colour, lines, href, minWi
           maxWidth: narrow ? 180 : 360,
           minWidth: narrow ? undefined : minWidth,
           justifyContent: minWidth ? "flex-start" : undefined,
+          // A state with no MUI palette colour of its own (band unknown): its CSS colour on the border, icon and text.
+          ...(tone ? { color: tone, borderColor: tone, "& .MuiChip-icon": { color: tone } } : {}),
           "& .MuiChip-label": { fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
         }}
       />
@@ -170,9 +172,13 @@ export function Status({ recording, programmer, streams, byStream, eventsUnread 
 
   // Every condition the rig holds at warning or above, on any scope: device faults, and the band
   // alarms the rig raises on signals (`band_warning`/`band_alarm`). The rig decides; the chip counts.
+  // `band_unknown` (a banded signal with no value because of a fault) is counted but never colours the
+  // chip red: an indication, not an alarm (the rig's `max_level` ignores it too). Alone, it takes its own colour and icon.
   const active = (h?.conditions ?? []).filter((c) => atLeast(c.severity, "warning"));
   const conditionCount = active.length;
-  const alarmColour: Colour = active.some((c) => atLeast(c.severity, "error")) ? "error" : active.length > 0 ? "warning" : "default";
+  const judged = active.filter((c) => c.code !== "band_unknown");
+  const onlyUnknown = active.length > 0 && judged.length === 0;
+  const alarmColour: Colour = judged.some((c) => atLeast(c.severity, "error")) ? "error" : judged.length > 0 ? "warning" : "default";
 
   // Two states, not three: a mid-outage "reconnecting" reads as less serious than it is.
   // Anything not fully open is red -- no amber middle ground.
@@ -188,13 +194,14 @@ export function Status({ recording, programmer, streams, byStream, eventsUnread 
   const open = recording.data;
   const conditions = (
     <StatusChip
-      icon={WarnIcon}
+      icon={onlyUnknown ? UnknownIcon : WarnIcon}
       full={`${conditionCount} condition${conditionCount === 1 ? "" : "s"}`}
       short={`${conditionCount}`}
       colour={alarmColour}
+      tone={onlyUnknown ? "var(--fb-unknown)" : undefined}
       minWidth="7rem"
       lines={[
-        ...active.map((c) => ({ name: `${c.subject} ${c.code}`, href: conditionHref(c), state: c.message })),
+        ...active.map((c) => ({ name: `${c.subject} ${c.code === "band_unknown" ? "band unknown" : c.code}`, href: conditionHref(c), state: c.message })),
       ]}
       href={hashFor("events")}
       testId="conditions-chip"

@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
-import { describeDevice, describeSignal, formatValue, humanise, isNamespace, isNumeric, publishes, readable, signalsOf, type Address, type DeviceOut, type NamespaceOut, type SignalOut, type TreeNode, isHousekeeping } from "@flyball/client";
+import { describeDevice, describeQuality, describeSignal, describeUnit, formatValue, humanise, isNamespace, isNumeric, publishes, readable, signalsOf, type Address, type DeviceOut, type InputOut, type NamespaceOut, type SignalOut, type TreeNode, isHousekeeping } from "@flyball/client";
 import { Ref } from "../links.js";
-import { useDeviceRun, useLatestValue, useTraceRef } from "../store/hooks.js";
+import { useDeviceRun, useLatestValue, useReading, useTraceRef } from "../store/hooks.js";
+import { CaveatMark, QualityBadge, noValue, type ReadingLike } from "./quality.js";
 import { Readout } from "./Readout.js";
 import { ValueView } from "./ValueView.js";
 import { WritePanel } from "./WritePanel.js";
@@ -50,7 +51,8 @@ function specialSignals(device: DeviceOut): { mode?: SignalOut; excluded: Set<Ad
 /** The device's `mode` output, live, as a prominent chip. */
 function ModeChip({ signal }: { signal: SignalOut }) {
   const live = useLatestValue(signal.address);
-  const value = live?.value ?? signal.latest?.value ?? signal.initial;
+  // A reading with no value hides the chip rather than showing the mode before it.
+  const value = live ? live.value : (signal.latest?.value ?? signal.initial);
   if (value === null || value === undefined) return null;
   return (
     <span className="fb-badge fb-mode" title={`${describeSignal(signal)} · ${signal.address}`}>
@@ -59,36 +61,101 @@ function ModeChip({ signal }: { signal: SignalOut }) {
   );
 }
 
-/** What the device follows, one line per bound input: `dry ← hum_sensors.dry.humidity`. */
+/** An input's quality when it is not `ok`, as a badge: `pending`, `stale: device silent`. */
+function InputQuality({ input }: { input: InputOut }) {
+  if (input.quality === "ok") return null;
+  const label = describeQuality(input.quality, input.reason);
+  const age = input.age_s !== undefined ? ` · last value ${Math.round(input.age_s)} s ago` : "";
+  return (
+    <>
+      {" "}
+      <span className={`fb-quality fb-quality-${input.quality}`} title={`${label}${age}`}>
+        {label}
+      </span>
+    </>
+  );
+}
+
+/**
+ * What the device follows, one line per input bound to something: a signal (`dry ←
+ * hum_sensors.dry.humidity`) or a number (`dry = 36.5 %RH`), with its quality when not `ok`.
+ */
 function InputsLine({ device }: { device: DeviceOut }) {
-  const bound = Object.values(device.inputs).filter((i) => i.bound);
-  if (!bound.length) return null;
+  const shown = Object.values(device.inputs).filter((i) => i.bound || i.constant !== undefined);
+  if (!shown.length) return null;
   return (
     <div className="fb-device-inputs">
-      {bound.map((i) => (
-        <span key={i.name} className="fb-muted" title={`${i.label || humanise(i.name)} follows ${i.bound}`}>
-          {i.label || humanise(i.name)} ← <Ref kind="signal" name={i.bound!}>{i.bound}</Ref>
-        </span>
-      ))}
+      {shown.map((i) => {
+        const name = i.label || humanise(i.name);
+        return i.bound ? (
+          <span key={i.name} className="fb-muted" title={`${name} follows ${i.bound}`}>
+            {name} ← <Ref kind="signal" name={i.bound}>{i.bound}</Ref>
+            <InputQuality input={i} />
+          </span>
+        ) : (
+          <span key={i.name} className="fb-muted" title={`${name} is held at a number the rig file gives`} data-testid="input-constant">
+            {name} = {String(i.constant)}
+            {i.unit && ` ${describeUnit(i.unit)}`}
+          </span>
+        );
+      })}
     </div>
   );
 }
 
 /**
+ * A signal's hover line: its address, and what the rig says of it beyond its value -- a demand's
+ * `readback` (`echo`: its reading is what was committed; `sensed`: read back), a banded signal's
+ * `on_no_value` (`fire`: a fault with no value raises `band_unknown`).
+ */
+export function signalHint(signal: Pick<SignalOut, "address" | "readback" | "on_no_value">): string {
+  const parts = [signal.address];
+  if (signal.readback) parts.push(signal.readback === "echo" ? "readback: echo (the value committed)" : "readback: sensed (read back from the device)");
+  if (signal.on_no_value) parts.push(signal.on_no_value === "fire" ? "no value on a fault: raises band unknown" : "no value on a fault: ignored");
+  return parts.join(" · ");
+}
+
+/**
+ * The reading a row shows: the live one from the store, else the device's snapshot (its latest,
+ * and its last usable value while that has none), else the signal's quality alone (`pending`).
+ */
+function rowReading(signal: SignalOut, live: ReadingLike | undefined): ReadingLike | undefined {
+  if (live) return live;
+  const last = signal.last_usable;
+  if (signal.latest) return { ...signal.latest, lastUsable: last ? { t: last.time_ns / 1e9, value: last.value } : null };
+  return signal.quality && signal.quality !== "ok" ? { value: null, quality: signal.quality } : undefined;
+}
+
+/**
  * A signal's value as one row: its live value (published) or its latest
- * known one (a config, fixed at build) formatted by dtype -- a chip for a
- * bool/enum/str, a compact block for json, a number with its unit
- * otherwise. Config rows are muted.
+ * known one, formatted by dtype -- a chip for a bool/enum/str, a compact
+ * block for json, a number with its unit otherwise. With no value, "—" and
+ * why (`invalid: sensor open`), the last usable value on hover.
  */
 function ValueRow({ signal }: { signal: SignalOut }) {
-  const live = useLatestValue(publishes(signal) ? signal.address : undefined);
-  const value = live?.value ?? signal.latest?.value ?? signal.initial ?? null;
+  const live = useReading(publishes(signal) ? signal.address : undefined);
+  const reading = rowReading(signal, live);
+  const none = noValue(reading, (v) => formatValue(v, signal));
+  const value = reading?.value ?? (reading ? null : signal.initial ?? null);
   return (
     <div className="fb-state-row">
-      <dt title={signal.address}>
+      <dt title={signalHint(signal)}>
         <Ref kind="signal" name={signal.address}>{describeSignal(signal)}</Ref>
       </dt>
-      <dd className={signal.role === "config" ? "fb-muted" : undefined}>{signal.dtype === "json" ? <ValueView value={value} /> : formatValue(value, signal)}</dd>
+      <dd title={none?.hint}>
+        {none ? (
+          <>
+            {none.glyph} <QualityBadge state={none} />
+          </>
+        ) : signal.dtype === "json" ? (
+          <ValueView value={value} />
+        ) : (
+          <>
+            <CaveatMark caveats={reading?.caveats} />
+            {formatValue(value, signal)}
+          </>
+        )}
+      </dd>
     </div>
   );
 }
@@ -97,7 +164,7 @@ function ValueRow({ signal }: { signal: SignalOut }) {
 function DemandRow({ signal }: { signal: SignalOut }) {
   return (
     <div className="fb-state-row">
-      <dt title={signal.address}>
+      <dt title={signalHint(signal)}>
         <Ref kind="signal" name={signal.address}>{describeSignal(signal)}</Ref>
       </dt>
       <dd className="fb-write-cell">
@@ -110,15 +177,15 @@ function DemandRow({ signal }: { signal: SignalOut }) {
 /**
  * One level of a device's tree: numeric published signals (`output`/
  * `setting`) as readout tiles; a non-numeric one as a chip row; a `demand`
- * as a write row; a `config` muted; then each namespace as a group. `last`
+ * as a write row; one read but not published as a plain row; then each namespace as a group. `last`
  * (one json signal per command) is shown beside its command, not here.
  */
 function Level({ nodes, common }: { nodes: TreeNode[]; common: Common }) {
   const signals = nodes.filter((n): n is SignalOut => !isNamespace(n));
   const namespaces = nodes.filter(isNamespace).filter((n) => n.name !== "last");
   const demands = signals.filter((s) => s.role === "demand");
-  const muted = signals.filter((s) => s.role === "config" || (s.role !== "demand" && !publishes(s) && readable(s)));
-  const values = signals.filter((s) => s.role !== "demand" && s.role !== "config" && publishes(s));
+  const muted = signals.filter((s) => s.role !== "demand" && !publishes(s) && readable(s));
+  const values = signals.filter((s) => s.role !== "demand" && publishes(s));
   const numericValues = values.filter((s) => isNumeric(s.dtype));
   const chipValues = values.filter((s) => !isNumeric(s.dtype));
   return (
@@ -196,7 +263,7 @@ function TagPivot({ device, axis, excluded, common }: { device: DeviceOut; axis:
 
 /**
  * One device's signals, live: numeric readouts, value chips for anything
- * else, a write row per demand, config muted -- grouped by namespace, or,
+ * else, a write row per demand -- grouped by namespace, or,
  * when the device has a second grouping (`tags`), pivotable onto that axis
  * instead. The header carries the device, its driver, its `mode` and the
  * runtime's conditions on polling it. Store-fed through `useTraceRef`, so

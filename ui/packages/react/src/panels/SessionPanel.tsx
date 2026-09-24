@@ -25,9 +25,9 @@ function asDtype(dtype: string): Dtype {
 }
 
 /** The last point of a trace, formatted -- a generator-based controller write can record a non-numeric value (a ramp's `regulate` object, say), so this guards the same way `ControllerPanel.tsx`'s `value()`/`describeReference` do. */
-function latest(v: number[], precision: number): string {
+function latest(v: (number | null)[], precision: number): string {
   const last = v[v.length - 1];
-  return typeof last === "number" ? fixed(last, precision) : "?";
+  return typeof last === "number" ? fixed(last, precision) : last === null ? "—" : "?";
 }
 
 /** A recorded signal as the charts take one: the row's metadata, no role or tags (not recorded) and no live values. */

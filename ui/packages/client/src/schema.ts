@@ -665,91 +665,73 @@ export function describeSimParam(key: string): { label: string; unit?: string; h
   return { label: humanise(key), hint: key };
 }
 
-export type AlarmLevel = "ok" | "warn" | "alarm" | "stale";
-
-/** How long a signal may go without a sample before it reads "stale" — DESIGN-SPEC.md §2: `max(3 × period_s, 5s)`. */
-export function staleAfterS(periodS: number | null | undefined): number {
-  return Math.max(3 * (periodS ?? 0), 5);
-}
-
 /**
- * Seconds without a sample before a signal counts as stale, or null when it is not read on a
- * period at all (`null`: a pushed or written-only signal, which holds its value between writes and
- * is never stale by age). `undefined` -- the period not known yet -- keeps the 5 s floor.
+ * A tile's level: the rig's band (`ok`, `warn`, `alarm`), `unknown` while the rig holds
+ * `band_unknown` on it (a banded signal with no value because of a fault: never an alarm), or
+ * `stale` while its newest reading is the rig's `stale` (the rig judges staleness, not the page).
  */
-export function staleThresholdS(periodS: number | null | undefined): number | null {
-  return periodS === null ? null : staleAfterS(periodS);
-}
+export type AlarmLevel = "ok" | "warn" | "alarm" | "unknown" | "stale";
+
+/** The rig's band conditions on a signal and the level each means on a tile. */
+export const BAND_LEVELS: Readonly<Record<string, "warn" | "alarm" | "unknown">> = { band_warning: "warn", band_alarm: "alarm", band_unknown: "unknown" };
 
 /**
- * Freshness for one signal, in RIG time (a simulated rig's clock runs
- * faster than the wall clock, so `nowS` must come from `/api/clock` or the
- * newest sample across the rig, never `Date.now()`).
- */
-export interface Freshness {
-  /**
-   * The device's poll period (`DeviceOut.run.period_s`), used only as a
-   * fallback for a signal that carries no `poll_s` of its own -- a device
-   * with signals polled at different rates (a multi-sensor rig reading one
-   * signal every 1 s and another every 5 s) is under-read by its fastest
-   * signal here, which is why `alarmLevel` prefers `signal.poll_s` when the
-   * signal passed to it has one. Unknown treated as 0 (only the 5s floor
-   * applies).
-   */
-  periodS?: number | null;
-  /** The last sample's time, in rig seconds; null/undefined skips the stale check. */
-  lastSampleS?: number | null;
-  /** The rig's current time, in rig seconds; null/undefined skips the stale check. */
-  nowS?: number | null;
-}
-
-/**
- * The freshest of a set of traces' last points, in seconds — a live proxy
- * for the rig's current time when nothing is polling `/api/clock`
- * continuously (DESIGN-SPEC.md §2: "the newest sample time across the
- * rig"). At least one signal elsewhere on the rig must still be sampling
- * for this to track real time; a rig gone completely silent freezes it,
- * same as every signal on it going stale together.
- */
-export function latestSampleS(traces: Iterable<{ t: number[] }>): number | null {
-  let latest: number | null = null;
-  for (const trace of traces) {
-    const last = trace.t.length ? trace.t[trace.t.length - 1] : undefined;
-    if (last !== undefined && (latest === null || last > latest)) latest = last;
-  }
-  return latest;
-}
-
-/**
- * Where `value` sits against a signal's bands: outside `alarm` is "alarm",
- * outside `warning` is "warn", else "ok" — unless `fresh` says no sample has
- * arrived recently enough, in which case the level is "stale" regardless of
- * the last value (a stuck reading is not a healthy one). A signal with no
- * bands, or no value, is "ok" unless stale.
- *
- * The stale threshold uses `signal.poll_s` (`SignalOut.poll_s`, `wire.ts`)
- * when the signal carries one, `fresh.periodS` (the device's poll period)
- * otherwise -- a device whose signals poll at different rates (the humidity
- * rig's chamber sensor at 1 s, dry/wet at 5 s) would otherwise judge every
- * signal against the device's fastest one and call its slow signals stale
- * while they are still well within their own period.
+ * Where a signal stands, for a tile: `stale` when its newest reading's `quality` is `stale` (the
+ * rig pushed it: nothing arrived within the signal's `stale_after_s`, or its device is offline,
+ * hung or failing its writes); else the rig's band condition on it (`band`, from its
+ * conditions); else -- only for a caller with no rig feed, a standalone panel -- the value
+ * judged against the bands here. A reading with no value is `ok` unless the rig says otherwise:
+ * its badge (`describeQuality`) says why there is none.
  */
 export function alarmLevel(
   value: number | null | undefined,
-  signal: { warning?: [number, number] | null; alarm?: [number, number] | null; poll_s?: number | null },
-  fresh?: Freshness | null,
-  band?: "ok" | "warn" | "alarm",
+  signal: { warning?: [number, number] | null; alarm?: [number, number] | null },
+  band?: "ok" | "warn" | "alarm" | "unknown",
+  quality?: Quality,
 ): AlarmLevel {
-  const limit = fresh ? staleThresholdS(signal.poll_s ?? fresh.periodS) : null;
-  if (fresh && limit !== null && fresh.lastSampleS != null && fresh.nowS != null && fresh.nowS - fresh.lastSampleS > limit) return "stale";
-  // The rig raises band alarms (a `band_warning`/`band_alarm` condition on the signal) and the UI
-  // shows its word for it. Only a caller with no rig feed (a standalone panel) leaves `band` out and
-  // gets the value checked against the bands here instead.
+  if (quality === "stale") return "stale";
   if (band !== undefined) return band;
   if (value === null || value === undefined || Number.isNaN(value)) return "ok";
-  const outside = (band: [number, number] | null | undefined) =>
-    !!band && (value < Math.min(band[0], band[1]) || value > Math.max(band[0], band[1]));
+  const outside = (b: [number, number] | null | undefined) => !!b && (value < Math.min(b[0], b[1]) || value > Math.max(b[0], b[1]));
   if (outside(signal.alarm)) return "alarm";
   if (outside(signal.warning)) return "warn";
   return "ok";
+}
+
+/**
+ * A stored reading's `flag` (`Point.flag`) as the quality and caveats it stands for: 1 invalid,
+ * 2 not_applicable, 3 stale, 4 stale (device offline); 16/17 at the low/high limit. Null or
+ * absent: a plain value.
+ */
+export function qualityOfFlag(flag: number | null | undefined): { quality: Quality; reason?: string; caveats?: Caveats } {
+  switch (flag) {
+    case 1:
+      return { quality: "invalid" };
+    case 2:
+      return { quality: "not_applicable" };
+    case 3:
+      return { quality: "stale" };
+    case 4:
+      return { quality: "stale", reason: "device_offline" };
+    case 16:
+      return { quality: "ok", caveats: { at_limit: "low" } };
+    case 17:
+      return { quality: "ok", caveats: { at_limit: "high" } };
+    default:
+      return { quality: "ok" };
+  }
+}
+
+/** A reading's quality and caveats as a stored `flag` (`qualityOfFlag`'s inverse); 0 for a plain value. */
+export function flagOfQuality(quality: Quality | undefined, reason?: string | null, caveats?: Caveats | null): number {
+  switch (quality) {
+    case "invalid":
+      return 1;
+    case "not_applicable":
+      return 2;
+    case "stale":
+      return reason === "device_offline" ? 4 : 3;
+    default:
+      return caveats?.at_limit === "low" ? 16 : caveats?.at_limit === "high" ? 17 : 0;
+  }
 }

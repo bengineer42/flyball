@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Alert, Box, Button, IconButton, Link, Paper, Stack, Tooltip, Typography } from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import { DeviceSignals, Gauge, useBandLevel, Readout, TimeSeries, UnitCharts, WritePanel, useControllers, useLatestValue, useRig, useSignal, useTraceRef } from "@flyball/react";
+import { DeviceSignals, Gauge, useBandLevel, Readout, TimeSeries, UnitCharts, WritePanel, useControllers, useLatestValue, useReading, useRig, useTraceRef } from "@flyball/react";
 import { describeController, deviceOf, formatValue, isHousekeeping, publishes, RigError, signalTitle, signalsOf, writable, type DeviceOut, type SignalOut } from "@flyball/client";
 import { useRecordingExports } from "../model.js";
 import { StateBlock } from "../cards.js";
@@ -230,7 +230,7 @@ export function SignalDetail({ devices, address, ...charts }: { devices: DeviceO
   const live = useTraceRef(useMemo(() => (chartable ? [address] : []), [chartable, address]));
   const { controllers } = useControllers();
   // The gauge is this page's only prop-fed live element: the page re-renders on its signal alone, at most four times a second.
-  const last = useSignal(chartable ? address : undefined)?.v;
+  const reading = useReading(chartable ? address : undefined);
   const value = useValueReadout(streams && !numeric ? signal : undefined);
   if (!signal) return <Alert severity="warning">No signal at {address}.</Alert>;
   const device = deviceOf(address);
@@ -245,7 +245,7 @@ export function SignalDetail({ devices, address, ...charts }: { devices: DeviceO
       <Stack direction={{ xs: "column", sm: "row" }} spacing="16px" alignItems="stretch" sx={{ mb: "16px" }}>
         {chartable && (
           <Paper sx={{ p: 3, display: "flex", alignItems: "center", justifyContent: "center", minWidth: 200 }}>
-            <Gauge signal={signal} value={last} height={180} band={band} />
+            <Gauge signal={signal} value={typeof reading?.value === "number" ? reading.value : null} reading={reading} height={180} band={band} />
           </Paper>
         )}
         <Box sx={{ flexGrow: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "16px" }}>

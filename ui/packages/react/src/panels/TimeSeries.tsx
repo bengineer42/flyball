@@ -9,11 +9,12 @@ import { ChartToolbar } from "./ChartToolbar.js";
 import { ChartOverlay, plotHeight } from "./ChartOverlay.js";
 import { saveTable, seriesTable } from "./download.js";
 import { useChartLifecycle } from "./useChartLifecycle.js";
-import { pageSyncKey } from "./MultiSeries.js";
+import { pageSyncKey, toBreaks } from "./MultiSeries.js";
 import type { TraceRef } from "../store/hooks.js";
 import { emptyTrace } from "../store/telemetry.js";
 
 const EMPTY: number[] = [];
+const EMPTY_V: (number | null)[] = [];
 
 /** Canvas cannot resolve CSS variables, so read the palette off the element and pass real colours. */
 export function chartPalette(el: Element): { accent: string; fg: string; muted: string; border: string } {
@@ -38,11 +39,24 @@ export function useThemeVersion(): number {
   return version;
 }
 
+/**
+ * The widest gap between two readings a chart draws across, in seconds: past it the line breaks
+ * even with no reading saying so. The rig's `stale_after_s` (it pushes `stale` there, so a wider
+ * gap is dead time it never saw: a restart, or data recorded before it did); null from the rig
+ * (not judged: a push, a setting) never breaks; an older server with no `stale_after_s` gets
+ * three poll periods, or nothing without one.
+ */
+export function fallbackGapS(signal: Pick<SignalOut, "poll_s" | "stale_after_s">): number | undefined {
+  if (signal.stale_after_s !== undefined) return signal.stale_after_s ?? undefined;
+  return signal.poll_s ? signal.poll_s * 3 : undefined;
+}
+
 export interface TimeSeriesProps {
   signal: SignalOut;
   /** Seconds since the epoch, ascending. Omitted when the chart draws from a `source`. */
   t?: number[];
-  v?: number[];
+  /** The values; `null` (or `NaN`) where a reading had none: the line breaks there. */
+  v?: (number | null)[];
   /**
    * Draw the signal straight from the telemetry store (`useTraceRef`): the
    * chart subscribes itself, redraws at most ten times a second (twice for a
@@ -141,7 +155,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
   const chart = useRef<uPlot | null>(null);
   const theme = useThemeVersion();
   const t = tProp ?? EMPTY;
-  const v = vProp ?? EMPTY;
+  const v = vProp ?? EMPTY_V;
   const label = describeSignal(signal);
 
   useEffect(() => {
@@ -195,7 +209,7 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
     };
     chart.current = new uPlot(options, [[], []], el);
     (el as HTMLDivElement & { uplot?: uPlot }).uplot = chart.current; // for tests and devtools
-    chart.current.setData([latest.current.t, latest.current.v]);
+    chart.current.setData([latest.current.t, toBreaks(latest.current.v)] as uPlot.AlignedData);
     // Follow the host's laid-out width (the host is `contain: inline-size`, so it never follows the canvas):
     // window resizes, the drawer opening, a grid reflowing. The first callback fires on observe.
     const resize = new ResizeObserver(([entry]) => {
@@ -215,17 +229,19 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signal, height, yKey, compact, windowS, theme, interactive, open, syncKey]);
 
-  const latest = useRef({ t: thin(t, every), v: thin(v, every) });
+  const latest = useRef<{ t: number[]; v: (number | null)[] }>({ t: thin(t, every), v: thin(v, every) });
   if (!source) latest.current = { t: thin(t, every), v: thin(v, every) };
   // Store-fed: one view reused between draws.
   const view = useRef(emptyTrace());
   const everyRef = useRef(every);
   everyRef.current = every;
   const key = signal.address;
-  // A few multiples of the signal's own poll period: normal jitter between samples never counts
-  // as a gap, only real dead time (a restart, an offline reader). No known period: nothing to
-  // compare a gap against, so no gap is ever drawn -- better silent than a false break.
-  const maxGapS = signal.poll_s ? signal.poll_s * 3 : undefined;
+  // The rig breaks the line itself: a reading with no value (a fault, or the `stale` it pushes once
+  // nothing has arrived within the signal's `stale_after_s`) is a real gap. What is left here is a
+  // fallback for data recorded before it did, and for dead time with no reading at all (a restart):
+  // a gap wider than the rig's own threshold (null: it does not judge this signal -- a push -- so no
+  // gap), or three poll periods from a server that sends none.
+  const maxGapS = fallbackGapS(signal);
   const { redraw } = useChartLifecycle({
     host,
     source,
@@ -243,10 +259,10 @@ export function TimeSeries({ signal, t: tProp, v: vProp, source, paused, syncKey
         const maxPoints = pointCap(u?.width ?? host.current?.clientWidth ?? 400);
         source.store.read(key, view.current, { every: everyRef.current, maxPoints, maxGapS, spanS: windowS });
         latest.current = view.current;
-        u?.setData([latest.current.t, latest.current.v]);
+        u?.setData([latest.current.t, toBreaks(latest.current.v)] as uPlot.AlignedData);
       } else {
         const [gt, gv] = breakGaps(latest.current.t, latest.current.v, maxGapS);
-        u?.setData([gt as number[], gv as number[]]);
+        u?.setData([gt as number[], toBreaks(gv as (number | null)[])] as uPlot.AlignedData);
       }
       if (u && !compact) showLatestInLegend(u);
     },

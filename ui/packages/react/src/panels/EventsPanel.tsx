@@ -158,8 +158,9 @@ export function EventsPanel({ events, severities: initialSeverities, onSelect, c
                     {relative(date.getTime(), now)}
                   </td>
                   <td>
-                    <span className={`fb-badge fb-event-severity fb-event-${e.severity}`} title={e.severity}>
-                      <span aria-hidden="true">{SEVERITY_ICON[e.severity]}</span> {e.severity}
+                    {/* `band_unknown`: its severity as the rig gave it, but its own colour and glyph -- a band that cannot be judged is not an alarm. */}
+                    <span className={`fb-badge fb-event-severity ${e.code === "band_unknown" ? "fb-event-unknown" : `fb-event-${e.severity}`}`} title={e.code === "band_unknown" ? `${e.severity}: band unknown, no value because of a fault` : e.severity}>
+                      <span aria-hidden="true">{e.code === "band_unknown" ? "?" : SEVERITY_ICON[e.severity]}</span> {e.severity}
                     </span>
                   </td>
                   <td className="fb-event-scope" onClick={(ev) => ev.stopPropagation()}>

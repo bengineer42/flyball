@@ -3,12 +3,12 @@ import type { Address, ControllerRow, DeviceRow, RigClient, SessionEvent, Sessio
 import { useRig } from "../provider.js";
 import { useQuery, type QueryState } from "./useQuery.js";
 
-/** One signal's series over a session, in seconds since the epoch. */
+/** One signal's series over a session, in seconds since the epoch; `v` null where a reading had none (the chart breaks there). */
 export interface SessionTrace {
   signal: SignalRow;
   unit: string;
   t: number[];
-  v: number[];
+  v: (number | null)[];
 }
 
 /**
