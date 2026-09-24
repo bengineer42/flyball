@@ -276,10 +276,10 @@ Tailscale Serve is the same with `preset: tailscale` and
 tailnet here). A tagged device and a Funnel visitor carry no Tailscale
 identity, so they are anonymous.
 
-`grants` says who may do what: a role, `all` (every verb) or `viewer`
+`grants` says who may do what: each grant, named by its key -- `all` (every verb) or `viewer`
 (read), mapped to user names and `group:<name>`s as the proxy sends them.
 Anyone the proxy vouches for who matches nothing gets `read` on every rig.
-The role names are pending D-034 with the verbs. A user is known by the
+The grant names are pending D-034 with the verbs. A user is known by the
 proxy's own stable id, never by its e-mail address, which grants
 nothing. Named tokens work under the proxy shape too, so a proxy never
 needs to wave some paths through unauthenticated for machines.

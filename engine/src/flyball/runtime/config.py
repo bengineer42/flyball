@@ -336,7 +336,7 @@ class ProxyConfig(BaseModel):
     audience: str | None = None
     grants: dict[str, list[str]] = Field(
         default_factory=dict,
-        description="A role (names pending D-034) -> subjects and `group:<id>`s.",
+        description="A grant (names pending D-034) -> subjects and `group:<id>`s.",
     )
     user_header: str | None = None
     groups_header: str | None = None

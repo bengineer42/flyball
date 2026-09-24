@@ -48,7 +48,7 @@ func TestAutheliaGrantsAndEmail(t *testing.T) {
 		Preset: "authelia",
 		Grants: map[string][]string{"all": {"group:lab", "boss@lab.org"}},
 	}}, Options{})
-	// A matched group gets the role's verbs.
+	// A matched group gets the grant's verbs.
 	e := rg.mustSub(h("Remote-User", "ben", "Remote-Groups", "staff, lab", "Remote-Name", "Ben", "Remote-Email", "ben@lab.org"), "proxy:authelia#ben")
 	if !hasScope(e, "operate") || !hasScope(e, "read") {
 		t.Errorf("group lab grants all: %v", e.Claims.Scp)
