@@ -125,12 +125,15 @@ Every tool call is recorded like any other request that needs more than
   can reach a route other than the tool's own. The Python client does the
   same (`flyball.interfaces.client.segment`).
 - `describe_device` is the schema; `widget_schema` every dashboard widget
-  kind with its `config`; `program_schema` the program dialect. Together
+  type with its `config`; `program_schema` the program dialect. Together
   they are what a model needs to write a program or a dashboard that names
   real signals, and `check_program` / `save_dashboard` say what it named
   that the rig lacks.
 - `update_dashboard` changes a dashboard by its parts (add, remove, move,
-  reconfigure a widget) rather than by rewriting the document. Programs are
+  reconfigure or relabel a widget; `set_label` the dashboard's own label,
+  `set_description` its description) rather than by rewriting the document.
+  `rename_dashboard` moves one to a new name, its key; what a person sees
+  is its label. Programs are
   text and are saved whole.
 - `activities` lists what a running program is waiting on; `fire_activity`
   answers one (the operator pressed the button, or wants a timer skipped)
@@ -190,4 +193,4 @@ Three routes exist for this and the CLI: `GET /api/rig/schema`, `GET
 /api/rig/config` and `POST /api/rig/check`, so a rig file can be checked
 against the drivers the runner has without installing them where the model
 runs. `GET /api/dashboards/widgets` is the widget catalogue -- a copy of the
-UI's registry kept beside the server, since the kinds are the UI's.
+UI's registry kept beside the server, since the widget types are the UI's.
