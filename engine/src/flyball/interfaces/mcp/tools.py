@@ -1046,7 +1046,7 @@ DRIVERS: tuple[Tool, ...] = (
         "Read before writing one; most instruments need only a config entry, which it says.",
         _object(),
         Tier.READ,
-        lambda rig, a: (GUIDES / "driver.md").read_text(),
+        lambda rig, a: (GUIDES / "driver.md").read_text(encoding="utf-8"),
     ),
     Tool(
         "driver_scaffold",

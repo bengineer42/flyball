@@ -120,7 +120,7 @@ def load_document(path: str | Path) -> Any:
     path = Path(path)
     if path.suffix.lower() not in SUFFIXES:  # say so before touching the file
         raise ValueError(f"{path}: unknown format; use one of {', '.join(SUFFIXES)}")
-    return loads(path.read_text(), path.suffix)
+    return loads(path.read_text(encoding="utf-8"), path.suffix)
 
 
 def atomic_write_text(path: str | Path, text: str) -> Path:

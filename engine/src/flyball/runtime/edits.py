@@ -140,7 +140,7 @@ def write(plan: Plan) -> None:
         return
     path.parent.mkdir(exist_ok=True)
     partial = path.with_name(path.name + ".tmp")
-    partial.write_text(dumps_without_none(plan.overlay, path.suffix))
+    partial.write_text(dumps_without_none(plan.overlay, path.suffix), encoding="utf-8")
     os.replace(partial, path)
 
 

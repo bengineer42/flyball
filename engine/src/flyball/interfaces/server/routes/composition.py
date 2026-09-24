@@ -547,7 +547,7 @@ def save(rig: RigDep, body: SaveIn | None = None) -> dict[str, Any]:
         document = rig.document()
     text = dumps_without_none({**document, **_runner_section(target)}, target.suffix)
     partial = target.with_name(target.name + ".tmp")
-    partial.write_text(text)
+    partial.write_text(text, encoding="utf-8")
     os.replace(partial, target)
     if (
         body.path is not None

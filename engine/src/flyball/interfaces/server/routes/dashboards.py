@@ -336,7 +336,7 @@ async def read_widget_catalogue() -> dict[str, Any]:
     of its registry with the rig-dependent pickers reduced to `x-binding`.
     """
     path = Path(__file__).parent.parent / "widgets.json"
-    return json.loads(path.read_text())  # type: ignore[no-any-return]
+    return json.loads(path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
 
 
 @router.get("")

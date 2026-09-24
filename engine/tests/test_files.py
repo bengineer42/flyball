@@ -102,3 +102,31 @@ def test_atomic_write_replaces_where_a_descriptor_cannot_be_chmodded(tmp_path, m
     target.write_text("old\n", encoding="utf-8")
     atomic_write_text(target, "new\n")
     assert target.read_text(encoding="utf-8") == "new\n"
+
+
+def test_a_document_is_read_as_utf8_whatever_the_locale(tmp_path):
+    """A rig file's `°C` is read as written under a non-UTF-8 locale (Windows' cp1252, or C).
+
+    Played in a child with the C locale and no UTF-8 mode, so the default encoding is ASCII.
+    """
+    import os
+    import subprocess
+    import sys
+
+    rig = tmp_path / "rig.yaml"
+    rig.write_text("name: oven\nunit: °C\n", encoding="utf-8")
+    env = {**os.environ, "LC_ALL": "C", "LANG": "C", "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0"}
+    code = (
+        "import locale, sys\n"
+        "from flyball.foundation.files import load_document\n"
+        "print(locale.getpreferredencoding(False))\n"
+        "print(ascii(load_document(sys.argv[1])['unit']))\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", code, str(rig)], env=env, capture_output=True, text=True
+    )
+    assert done.returncode == 0, done.stderr
+    encoding, unit = done.stdout.split()
+    if encoding.lower().replace("-", "") == "utf8":
+        pytest.skip("this platform's C locale is UTF-8 already")
+    assert unit == ascii("°C")

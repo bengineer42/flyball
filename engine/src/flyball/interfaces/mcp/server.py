@@ -201,7 +201,7 @@ def build(
                 types.Resource(
                     name=path.stem,
                     uri=f"flyball://guide/{path.stem}",
-                    description=path.read_text().splitlines()[0].lstrip("# "),
+                    description=path.read_text(encoding="utf-8").splitlines()[0].lstrip("# "),
                     mime_type="text/markdown",
                 )
                 for path in sorted(GUIDES.glob("*.md"))
@@ -216,7 +216,7 @@ def build(
         return types.ReadResourceResult(
             contents=[
                 types.TextResourceContents(
-                    uri=uri, mime_type="text/markdown", text=path.read_text()
+                    uri=uri, mime_type="text/markdown", text=path.read_text(encoding="utf-8")
                 )
             ]
         )

@@ -73,7 +73,7 @@ def load_tunings(rig: Rig, directory: Path) -> list[str]:
     for path in sorted(directory.iterdir()):
         if not path.is_file() or path.suffix.lower() not in SUFFIXES:
             continue
-        config = adapter.validate_python(loads(path.read_text(), path.suffix))
+        config = adapter.validate_python(loads(path.read_text(encoding="utf-8"), path.suffix))
         rig.tunings.add(Tuning(name=path.stem, config=config))
         loaded.append(path.stem)
     return loaded
@@ -92,7 +92,7 @@ def import_directory(store: Store, directory: Path, now_ns: int) -> list[Program
         fmt = detect(None, path.name)
         if fmt is None or not path.is_file():
             continue
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         try:
             parse(text, fmt)
         except FormatError:

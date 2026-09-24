@@ -186,7 +186,7 @@ def write_jsonl(store: Store, session_id: int, path: str | Path) -> int:
         How many were written.
     """
     count = 0
-    with Path(path).open("w") as out:
+    with Path(path).open("w", encoding="utf-8") as out:
         for name, doc in documents(store, session_id):
             out.write(json.dumps({"name": name, "doc": doc}) + "\n")
             count += 1

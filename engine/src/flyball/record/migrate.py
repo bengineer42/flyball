@@ -56,7 +56,7 @@ def migrate(connection: sqlite3.Connection) -> int:
         )
     pending = sorted(v for v in available() if v > applied)
     for version in pending:
-        sql = available()[version].read_text()
+        sql = available()[version].read_text(encoding="utf-8")
         try:
             with connection:
                 # The version write is part of the script, so a failure in

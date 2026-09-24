@@ -76,5 +76,5 @@ def write(name: str, directory: str | Path = ".") -> Path:
     path = Path(directory) / f"{_identifier(name)}.py"
     if path.exists():
         raise FileExistsError(path)
-    path.write_text(render(name))
+    path.write_text(render(name), encoding="utf-8")
     return path
