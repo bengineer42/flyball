@@ -244,6 +244,17 @@ def test_a_chip_requires_its_family_s_links_real_and_fake(_catalog):
         assert describe(_catalog.links[f"fake_{tag}"], _catalog)["family"] == tag
 
 
+def test_a_composite_requires_what_its_nested_driver_does(_catalog):
+    """`current_loop` and `dosing_pump` take no link: theirs sits in `adc:` / `pump:`."""
+    from flyball.runtime.drivers import describe
+
+    loop = describe(_catalog.devices["current_loop"], _catalog)["requires"]
+    assert loop["nested"] == "adc" and loop["family"] is None  # ads1115 (i2c) or mcp3008 (spi)
+    assert {"i2c", "fake_i2c", "spi", "fake_spi"} <= set(loop["link"])
+    pump = describe(_catalog.devices["dosing_pump"], _catalog)["requires"]
+    assert pump["nested"] == "pump" and {"pwm", "gpio"} <= set(pump["link"])
+
+
 def test_the_schema_describes_every_driver():
     by_driver = rig_schema()["properties"]["devices"]["additionalProperties"]
     tags = {

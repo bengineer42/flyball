@@ -158,18 +158,33 @@ def requires(driver: type[DriverConfig[Any]], catalogs: Catalogs) -> dict[str, A
     any other its `link` field names; empty for a driver that takes no link. `inputs` are its
     device's declared inputs, each `{role, label, kind, quantity, unit}`: `role` is the name
     under `inputs:`, and `kind` is `signal` (an address to follow, or a number held as a
-    constant).
+    constant). A composite with no `link` of its own takes its nested driver's: `link` is
+    theirs combined, `family` theirs when they agree, and `nested` names the field.
     """
     field = driver.model_fields.get("link")
     named = [] if field is None else _configs_in(field.annotation)
-    families = {config.family for config in named if config.family is not None}
-    family = driver.family or (families.pop() if len(families) == 1 else None)
-    tags = {config.type_name for config in named}
-    link = sorted(
-        tag
-        for tag, config in catalogs.links.items()
-        if tag in tags or (family is not None and config.family == family)
-    )
+    nested: str | None = None
+    if not named and driver.family is None:
+        # A composite names no link itself: its link sits in a nested driver's config
+        # (`current_loop`'s `adc:`, `dosing_pump`'s `pump:`), so it needs what they need.
+        for name, candidate in driver.model_fields.items():
+            inner = [c for c in _configs_in(candidate.annotation) if issubclass(c, DriverConfig)]
+            if inner:
+                nested = name
+                parts = [requires(config, catalogs) for config in inner]
+                link = sorted({tag for part in parts for tag in part["link"]})
+                families = {part["family"] for part in parts}
+                family = driver.family or (families.pop() if len(families) == 1 else None)
+                break
+    if nested is None:
+        families = {config.family for config in named if config.family is not None}
+        family = driver.family or (families.pop() if len(families) == 1 else None)
+        tags = {config.type_name for config in named}
+        link = sorted(
+            tag
+            for tag, config in catalogs.links.items()
+            if tag in tags or (family is not None and config.family == family)
+        )
     device = driver.device_class()
     inputs = [
         {
@@ -181,7 +196,10 @@ def requires(driver: type[DriverConfig[Any]], catalogs: Catalogs) -> dict[str, A
         }
         for role, declared in ({} if device is None else device.INPUTS).items()
     ]
-    return {"link": link, "family": family, "inputs": inputs}
+    found: dict[str, Any] = {"link": link, "family": family, "inputs": inputs}
+    if nested is not None:
+        found["nested"] = nested
+    return found
 
 
 def _configs_in(annotation: Any) -> list[type[Config[Any]]]:
