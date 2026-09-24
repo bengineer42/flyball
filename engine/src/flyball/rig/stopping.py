@@ -139,9 +139,14 @@ class StopReport:
 
 
 class Stopper(Protocol):
-    """Stops the rig. Thread-safe; one device failing is reported, never raised."""
+    """Stops the rig. Thread-safe; one device failing is reported, never raised.
 
-    def stop(self, actor: Actor, reason: str) -> StopReport: ...
+    `latch=False` is a planned stop (a rig edit before its restart, D-051): the same
+    outputs written, the same controllers to manual, but nothing latched -- the rig
+    comes back passive, not stopped.
+    """
+
+    def stop(self, actor: Actor, reason: str, *, latch: bool = True) -> StopReport: ...
 
 
 class _Running(Protocol):
@@ -206,7 +211,7 @@ class InterimStopper:
         self.program = program
         self._lock = Lock()
 
-    def stop(self, actor: Actor, reason: str) -> StopReport:
+    def stop(self, actor: Actor, reason: str, *, latch: bool = True) -> StopReport:
         at_ns = time.time_ns()
         with self._lock:
             interrupted = _interrupt(self.program, "the rig was stopped")
@@ -621,20 +626,31 @@ class RigStopper:
         self.program = program
         self._lock = Lock()
 
-    def stop(self, actor: Actor, reason: str) -> StopReport:
+    def stop(self, actor: Actor, reason: str, *, latch: bool = True) -> StopReport:
+        """The software stop: latched unless `latch` is False (a planned stop, D-051).
+
+        A planned stop writes and reports the same, and puts every controller in manual,
+        but sets no latch: what follows it (a restart from a rig edit) comes up passive.
+        What was staged is replaced all the same.
+        """
         at_ns = time.time_ns()
         rig = self.rig
         with self._lock:
-            rig.stopping.latch(
-                Latch(
-                    cause=RIG_STOP,
-                    subjects=subjects([("rig", rig.name or "rig")]),
-                    by=actor.sub,
-                    at_ns=at_ns,
-                    reason=reason,
+            if latch:
+                rig.stopping.latch(
+                    Latch(
+                        cause=RIG_STOP,
+                        subjects=subjects([("rig", rig.name or "rig")]),
+                        by=actor.sub,
+                        at_ns=at_ns,
+                        reason=reason,
+                    )
                 )
+            else:
+                rig.replace_staged([d for d in list(rig.devices.values()) if stoppable(d)])
+            report = self._run(
+                actor, reason, at_ns, devices=None, why="stop" if latch else "planned stop"
             )
-            report = self._run(actor, reason, at_ns, devices=None, why="stop")
         log.warning(
             "software stop by %s via %s (%s): program %s, %d controller(s) manual; %s",
             actor.sub,

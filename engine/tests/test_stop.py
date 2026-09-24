@@ -174,7 +174,7 @@ class Counting:
     def __init__(self) -> None:
         self.actors: list[Actor] = []
 
-    def stop(self, actor: Actor, reason: str) -> StopReport:
+    def stop(self, actor: Actor, reason: str, *, latch: bool = True) -> StopReport:
         self.actors.append(actor)
         return StopReport(
             at_ns=1,

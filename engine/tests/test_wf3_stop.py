@@ -787,3 +787,16 @@ def test_a_device_with_no_demands_is_stopped_by_its_command(fresh: Any):
     with pytest.raises(ConflictError, match="stopped by ben"):
         rig.run_command(motor, "move", {"steps": 0.0})  # automatic: refused
     rig.run_command(motor, "move", {"steps": 0.0}, actor=BEN)  # a person: through
+
+
+def test_a_planned_stop_writes_the_same_and_latches_nothing(rig: Rig, oven: Oven):
+    controller = rig.attach_controller(oven.signals["h1"], oven.signals["zone1"], law=P(kp=1.0))
+    controller.regulate(25.0)
+    _set(rig, oven, h2=40.0)
+    oven.writes.clear()
+    report = RigStopper(rig).stop(BEN, "rig edit: added a device", latch=False)
+    assert report.latched is False
+    assert sorted(oven.writes) == [("h1", 0.0), ("h2", 0.0)]
+    assert controller.mode is ControllerMode.MANUAL
+    assert rig.stopping.latches.all() == []
+    rig.write(oven.root, {"h3": 1.0}, writer="program")  # nothing refuses
