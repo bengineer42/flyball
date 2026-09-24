@@ -164,6 +164,8 @@ def requires(driver: type[DriverConfig[Any]], catalogs: Catalogs) -> dict[str, A
     field = driver.model_fields.get("link")
     named = [] if field is None else _configs_in(field.annotation)
     nested: str | None = None
+    link: list[str] = []
+    family: str | None = None
     if not named and driver.family is None:
         # A composite names no link itself: its link sits in a nested driver's config
         # (`current_loop`'s `adc:`, `dosing_pump`'s `pump:`), so it needs what they need.
