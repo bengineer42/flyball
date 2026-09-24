@@ -141,7 +141,7 @@ devices:
 controllers:
   heater.drive:
     measured: thermocouple.temperature
-    law: { type: PI, kp: 0.02, ki: 0.0005 }
+    law: { type: pi, kp: 0.02, ki: 0.0005 }
     default: true
 ```
 

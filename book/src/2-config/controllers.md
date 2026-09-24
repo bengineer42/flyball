@@ -20,7 +20,7 @@ entry a demand unless the entry says `role: setting`
 controllers:
   heaters.heater2:
     measured: furnace.zone2                                 # what is regulated
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: pi, kp: 100, ki: 0.15, tt: 30 }
     feedforward: { type: table, rate_gain: 3000, points: [[20, 0], [200, 289.4]] }
     default: true
     on_fault: { freeze_s: 30, then: stop }                  # frozen 30 s of fault time, then its stop

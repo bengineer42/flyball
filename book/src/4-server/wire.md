@@ -125,7 +125,7 @@ Kelvin against a °C signal converts before it reports.
 
 | type | JSON |
 | --- | --- |
-| a law config | `{"type": "PI", "kp": 0.5, "ki": 0.05, "tt": 0.0}`; the union discriminates on `type` |
+| a law config | `{"type": "pi", "kp": 0.5, "ki": 0.05, "tt": 0.0}`; the union discriminates on `type` |
 | a law view | the config plus the law's state fields (`integral`, `last_raw`, …) |
 | `Tuning` | `{"name": name, "config": law config}` |
 | `ControllerOut` | `{name, label, output_signal, measured_signal, default, mode, law, feedforward, output_unit, reference, setpoint, arrived, correction, output, expected, delivered_correction, measured, on_fault, latched}` — `name` is `output_signal`; `measured` is a `ReadingOut`; `on_fault` the rig file's form (`"freeze"`, `"manual"`, `"stop"`, `"stop_device"` or `{freeze_s, then}`); `latched` the causes of every latch that refuses its `regulate` now (`["stop"]`, `["on_fault:heaters.heater2"]`), `[]` when none; see [Controllers](api.md#controllers) |

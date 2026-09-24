@@ -363,7 +363,7 @@ an address: `line: dry` on `flows.dry` and `efforts.dry`.
 **tuning** — a named law config.
 
 **type** — the discriminator, written `type:`: which implementation a link,
-a law, a feedforward or a setpoint generator entry is (`type: PI`,
+a law, a feedforward or a setpoint generator entry is (`type: pi`,
 `type: sim_plant`). A device names its implementation with `driver:`
 instead; a program step has no discriminator (its key is the step).
 

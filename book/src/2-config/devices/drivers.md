@@ -29,7 +29,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`sht31`](#sht31), [`htu21d`](#htu21d) | more Sensirion / TE humidity + temperature | `i2c` | `flyball-chips` | datasheet-checked |
 | [`ms5611`](#ms5611) | TE barometric pressure | `i2c` | `flyball-chips` | known issue |
 | [`bme280`](#bme280) | Bosch temperature / pressure / humidity | `i2c` | `flyball-chips` | partial |
-| [`scd30`](#scd30), [`scd40`](#scd40) | Sensirion CO₂ + temperature + humidity | `i2c` | `flyball-chips` | partial |
+| [`scd30`](#scd30), [`scd4x`](#scd4x) | Sensirion CO₂ + temperature + humidity | `i2c` | `flyball-chips` | partial |
 | [`sgp30`](#sgp30), [`sgp40`](#sgp40) | Sensirion eCO₂ / TVOC / VOC index | `i2c` | `flyball-chips` | partial |
 | [`ccs811`](#ccs811) | ams eCO₂ / TVOC | `i2c` | `flyball-chips` | partial |
 | [`mhz19`](#mhz19) | Winsen CO₂ | `uart` | `flyball-chips` | datasheet-checked |
@@ -84,7 +84,7 @@ driver here follows it:
 | `sim_daq` | `fail(signal)` → `invalid("sensor_failed")` on that channel | `fail(signal, raises=true)`: every read of it |
 | `sim_drive`, `pwm_channel`, `mcp4725`, `dosing_pump`, `stepper` | n/a: write-only, or internal state | the bus |
 | `i2c_table`, `ads1115`, `mcp3008`, `gpio_line`, `pulse_counter`, `hx711` | none: every read is a number | the bus; `hx711` a conversion not ready |
-| `sht4x`, `sht4x_set`, `sht31`, `htu21d`, `scd30`, `scd40`, `sgp40`, `mhz19`, `ms5611` | none (humidity is cropped to 0-100 %, as the datasheets say) | a CRC failure, a short frame, a sensor not ready in time; in an `sht4x_set` one sensor's failure fails that read of the set |
+| `sht4x`, `sht4x_set`, `sht31`, `htu21d`, `scd30`, `scd4x`, `sgp40`, `mhz19`, `ms5611` | none (humidity is cropped to 0-100 %, as the datasheets say) | a CRC failure, a short frame, a sensor not ready in time; in an `sht4x_set` one sensor's failure fails that read of the set |
 | `bme280` | a BMP280 has no `humidity` signal at all | the bus |
 | `ezo_*` | none | a `*` status reply, a malformed one |
 | `ccs811` | no new result yet (`DATA_READY` clear) → nothing read | an error status, not in app mode |
@@ -461,7 +461,7 @@ mode isn't wired up.
 The chip runs in continuous mode at its own 2 s period; there is no
 `interval_s` here -- pace it with the device's `poll_s`.
 
-### `scd40`
+### `scd4x`
 
 Sensirion SCD40/SCD41: `co2` (ppm), `humidity`, `temperature`, all `[RP]`.
 Same three-value CRC family as `scd30`, a different command set.

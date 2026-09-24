@@ -192,7 +192,7 @@ a setting, or an `RP` demand, is refused when the rig is built.
 | key | type | |
 | --- | --- | --- |
 | `measured` | address | the measured signal: a published (`P`) signal, what is regulated |
-| `law` | `{type, ...gains}` | e.g. `{type: PI, kp: 0.2, ki: 0.05}`; omit for none |
+| `law` | `{type, ...gains}` | e.g. `{type: pi, kp: 0.2, ki: 0.05}`; omit for none |
 | `feedforward` | `{type, ...}` | maps the measured signal's unit to the output's: `identity`, `none`, `affine {gain, bias, rate_gain?}`, `table {points, rate_gain?}`; omit for `identity` when the units agree, else `none` |
 | `default` | bool | the controller a command means when it names none; at most one per file |
 | `min_period_s` | number, optional | update the law at most this often |
@@ -201,10 +201,10 @@ a setting, or an `RP` demand, is refused when the rig is built.
 
 ```yaml
 controllers:
-  heaters.heater1: { measured: furnace.zone1, law: { type: PI, kp: 100, ki: 0.15, tt: 30 } }
+  heaters.heater1: { measured: furnace.zone1, law: { type: pi, kp: 100, ki: 0.15, tt: 30 } }
   heaters.heater2:
     measured: furnace.zone2
-    law: { type: PI, kp: 100, ki: 0.15, tt: 30 }
+    law: { type: pi, kp: 100, ki: 0.15, tt: 30 }
     feedforward: { type: table, rate_gain: 3000, points: [[20, 0], [200, 289.4], [400, 659.8]] }
     default: true
 ```
