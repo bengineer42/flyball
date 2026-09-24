@@ -176,7 +176,7 @@ class TestTools:
         from flyball.interfaces.client import SchemaError
 
         tool = self.tool(client, "heaters-set_duty")
-        assert tool.run(client, {"duty": 0.4}) == 0.4
+        assert tool.run(client, {"duty": 0.4}) == {"result": 0.4, "interrupted": []}
         with pytest.raises(SchemaError, match="missing"):
             tool.run(client, {})
 

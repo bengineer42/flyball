@@ -71,7 +71,12 @@ class Device:
         return self._rig.get(f"/api/devices/{segment(self.name)}")
 
     def run(self, command: str, **arguments: Any) -> Any:
-        """Run a command, checking the arguments against its schema first."""
+        """Run a command, checking the arguments against its schema first.
+
+        Returns the response: `{"result": <what the method returned>,
+        "interrupted": [{"controller", "was"}, ...]}`, the controllers an
+        `interrupts` command put into manual.
+        """
         try:
             spec = self.commands[command]
         except KeyError:

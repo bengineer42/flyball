@@ -875,7 +875,12 @@ def _device_tools(rig: Rig, simulated: bool) -> list[Tool]:
             if spec.get("mode") is not None:
                 notes.append(f"Puts the device in mode `{spec['mode']}`.")
             if spec.get("interrupts"):
-                notes.append("A controller driving this device goes to manual first.")
+                notes.append(
+                    "A controller driving this device goes to manual once the command"
+                    " succeeds; the result's `interrupted` names it."
+                )
+            elif spec.get("mode") is not None or spec.get("writes"):
+                notes.append("Refused while a controller drives this device.")
             if spec.get("simulation"):
                 notes.append("A simulation-only command.")
             description = " ".join([spec.get("description") or f"{name}.{command}", *notes])

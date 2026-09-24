@@ -22,9 +22,15 @@ from pydantic import TypeAdapter, create_model
 from flyball.foundation.device import CommandSpec, Device, Node, Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.interfaces.server.deps import RigDep
-from flyball.interfaces.server.schemas import DeviceOut, WriteOut, writes_out
+from flyball.interfaces.server.schemas import (
+    CommandRunOut,
+    DeviceOut,
+    InterruptedOut,
+    WriteOut,
+    writes_out,
+)
 from flyball.interfaces.server.wire import ArgumentsBase, wire_fields
-from flyball.rig import DeviceRun, Rig
+from flyball.rig import CommandRun, DeviceRun, Rig
 
 _ARGUMENTS: dict[tuple[type[Device], str], type[ArgumentsBase]] = {}
 
@@ -118,6 +124,7 @@ def device_schema(device: Device, **extra: Any) -> dict[str, Any]:
                 "commit": spec.commit,
                 "mode": spec.mode,
                 "interrupts": spec.interrupts,
+                "writes": list(spec.writes),
                 "demand_of": spec.demand_of,
             }
             for command, spec in device.commands.items()
@@ -176,14 +183,14 @@ def _naming_signals(arguments: dict[str, Any], device: Device) -> dict[str, Any]
     }
 
 
-def run(rig: Rig, device: Device, command: str, body: dict[str, Any] | None) -> Any:
-    """Run the command with the validated body, through the rig; return whatever it returns."""
+def run(rig: Rig, device: Device, command: str, body: dict[str, Any] | None) -> CommandRun:
+    """Run the command with the validated body, through the rig: its `CommandRun`."""
     spec = command_for(device, command)
     arguments = arguments_for(type(device), spec).model_validate(body or {}).arguments()
     left_out = [n for n, p in spec.params.items() if p.link is not None and arguments[n] is None]
     for name in left_out:
         del arguments[name]  # the rig fills it from the demand's current value
-    return rig.run_command(device, command, arguments)
+    return rig.invoke(device, command, arguments)
 
 
 def device_of(rig: Rig, name: str) -> Device:
@@ -277,14 +284,20 @@ def set_signal(rig: RigDep, address: str, body: Annotated[float, Body()]) -> dic
 @router.post("/devices/{name}/commands/{command}")
 def run_command(
     rig: RigDep, name: str, command: str, body: Annotated[dict[str, Any] | None, Body()] = None
-) -> Any:
-    """Call the marked method with the validated body; respond with whatever it returns.
+) -> CommandRunOut:
+    """Call the marked method with the validated body: `{result, interrupted}`.
 
-    A command that succeeds on an offline device is taken as the fix
-    (`restore`, a reset, a reconnect): polling starts again, and a device
-    still broken simply goes offline again with a fresh event.
+    `result` is whatever the method returned; `interrupted` lists each
+    controller an `interrupts` command put into manual (`{controller, was}`),
+    which happens only once the method has succeeded. A command that succeeds
+    on an offline device is taken as the fix (`restore`, a reset, a
+    reconnect): polling starts again, and a device still broken simply goes
+    offline again with a fresh event.
     """
     device = device_of(rig, name)
-    result = run(rig, device, command, body)
+    ran = run(rig, device, command, body)
     rig.polling.revive(name)
-    return result
+    return CommandRunOut(
+        result=ran.result,
+        interrupted=[InterruptedOut(controller=i.controller, was=i.was) for i in ran.interrupted],
+    )

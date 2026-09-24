@@ -158,7 +158,7 @@ def run_device_command(
 ) -> Any:
     """Run the command with the validated body; respond with whatever it returns."""
     assert isinstance(device, Device)
-    return run(rig, device, command, body)
+    return run(rig, device, command, body).result
 
 
 # endregion

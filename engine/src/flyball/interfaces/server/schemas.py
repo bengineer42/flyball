@@ -451,6 +451,9 @@ class CommandOut(BaseModel):
     mode: Any = None
     """What the device's `mode` becomes when this runs, if it has one."""
     interrupts: bool = False
+    writes: list[str] = []
+    """What it moves that no linked argument says (`CommandSpec.writes`): demand paths, or a
+    private child's name."""
     demand_of: str | None = None
     """A synthesised `set_<name>`: the demand's path."""
     links: dict[str, str] = {}
@@ -465,9 +468,27 @@ class CommandOut(BaseModel):
             commit=spec.commit,
             mode=spec.mode,
             interrupts=spec.interrupts,
+            writes=list(spec.writes),
             demand_of=spec.demand_of,
             links={n: p.link for n, p in spec.params.items() if p.link is not None},
         )
+
+
+class InterruptedOut(BaseModel):
+    """A controller a command put into manual once it had succeeded."""
+
+    controller: str
+    was: str
+    """Its mode before: `regulating`."""
+
+
+class CommandRunOut(BaseModel):
+    """A command's response: what the method returned, and the controllers it put in manual."""
+
+    result: Any = None
+    """Whatever the command's method returned (null for most)."""
+    interrupted: list[InterruptedOut] = []
+    """Each controller an `interrupts` command put into manual; empty when it displaced none."""
 
 
 class InputOut(BaseModel):

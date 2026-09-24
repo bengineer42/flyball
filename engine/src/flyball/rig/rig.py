@@ -15,7 +15,7 @@ import math
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import suppress
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import Lock, RLock
 from typing import TYPE_CHECKING, Any, overload
@@ -96,6 +96,51 @@ another fresh read) before it is refused."""
 def _held(lock: RLock) -> bool:
     """Whether the calling thread holds `lock` (an `RLock`, or a test's wrapper of one)."""
     return lock._is_owned()  # type: ignore[attr-defined]  # CPython's RLock has no public form
+
+
+@dataclass(frozen=True, slots=True)
+class Interrupted:
+    """A controller a command put into manual: its name, and the mode it was in."""
+
+    controller: str
+    was: str
+
+
+@dataclass(frozen=True, slots=True)
+class CommandRun:
+    """What a command returned, and the controllers it put into manual (`interrupts`)."""
+
+    result: Any
+    interrupted: tuple[Interrupted, ...] = ()
+
+
+def _not_writable(signal: Signal) -> str:
+    """Why a write to `signal` is refused, naming the command that moves it if one does.
+
+    A demand that is only a readback (`[RP]`: a blender's `flows.dry`) is moved
+    by the command whose argument is linked to it, or that declares it in
+    `writes=`; the message names that command, and says when it displaces a
+    regulating controller.
+    """
+    refused = f"'{signal.address}' [{signal.access}] is not writable"
+    if signal.role is not Role.DEMAND:
+        return refused
+    path = str(signal.path)
+    movers = [
+        spec
+        for spec in signal.node.device.commands.values()
+        if spec.demand_of is None
+        and (path in spec.writes or any(p.link == path for p in spec.params.values()))
+    ]
+    if not movers:
+        return refused
+    named = " or ".join(repr(spec.name) for spec in movers)
+    note = (
+        " (it puts a regulating controller in manual)"
+        if all(spec.interrupts for spec in movers)
+        else ""
+    )
+    return f"{refused}: it is a readback, moved by the command {named}{note}"
 
 
 class _Retry:
@@ -790,7 +835,7 @@ class Rig:
         now_ns = self.clock.now_ns()
         for signal, value in resolved.items():
             if Access.W not in signal.access:
-                raise ConflictError(f"'{signal.address}' [{signal.access}] is not writable")
+                raise ConflictError(_not_writable(signal))
             holder = self.controllers.driving(signal)
             if holder is not None and holder is not by and holder.mode.active():
                 # As a command: refused while the controller drives it; in
@@ -1632,23 +1677,35 @@ class Rig:
     def run_command(
         self, device: Device, command: str, args: Mapping[str, Any] | None = None
     ) -> Any:
+        """Run `device`'s `command` with `args`: what the method returned.
+
+        [invoke][flyball.rig.rig.Rig.invoke] without the controllers it put into manual.
+        """
+        return self.invoke(device, command, args).result
+
+    def invoke(
+        self, device: Device, command: str, args: Mapping[str, Any] | None = None
+    ) -> CommandRun:
         """Run `device`'s `command` with `args`, as the rig: linked, clamped, owned, recorded.
 
         An argument that is a value for a demand (`Annotated[..., d]`) is filled from
         that demand's current value when left out, and clamped to the
         signal's effective limits. A synthesised `set_<name>` goes through
         [demand][flyball.rig.rig.Rig.write]. A command that changes
-        what drives the device -- one with a `mode`, or a linked argument --
-        is refused while a controller drives one of the device's demands,
-        unless it `interrupts`: then the controller is put into manual first,
-        with an event. The method runs under the rig lock -- unless it is
+        what drives the device -- one with a `mode`, a linked demand, or
+        `writes=` -- is refused while a controller drives one of the device's
+        demands, unless it `interrupts`: the refusal is checked before the
+        method runs, and each such controller is put into manual (with an
+        event) only once the method has succeeded, so a command that raises
+        leaves them regulating. The method runs under the rig lock -- unless it is
         `long` (a dose, a move): then only the checks do, the method runs off
         the lock, so polling, deliveries and the device's `stop` carry on, and
         the rig re-enters the lock after it. Afterwards the
         device's `mode` output (if it has one) becomes the command's, a
         `commit=True` command commits the device, each linked demand the
         driver did not push gets its argument as its reading, and
-        `last.<command>` records what ran. Returns what the method returned.
+        `last.<command>` records what ran. Returns what the method returned
+        and the controllers it put into manual.
 
         Raises:
             NotFoundError: No such command.
@@ -1669,15 +1726,15 @@ class Rig:
         given = dict(args or {})
         if spec.demand_of is not None:
             signal = device.signals[spec.demand_of]
-            return self.write(signal.node, {signal: given["value"]})
+            return CommandRun(self.write(signal.node, {signal: given["value"]}))
         if spec.long and _held(self.lock):
             raise ConflictError(
                 f"{device.name}.{command} waits: it cannot run while the rig lock is held"
             )
         with self.lock:
-            linked = self._command_checks(device, spec, command, given)
+            linked, displaced = self._command_checks(device, spec, command, given)
             if not spec.long:
-                return self._run_locked(device, spec, command, given, linked)
+                return self._run_locked(device, spec, command, given, linked, displaced)
             if (running := self._running.get(device)) is not None:
                 raise ConflictError(
                     f"'{device.name}' is running {running!r}: stop it, or wait for it to end"
@@ -1692,7 +1749,8 @@ class Rig:
                 self._running.pop(device, None)
         with self.lock:
             if self.devices.get(device.name) is not device:
-                return result  # removed while it ran: nothing of it is the rig's any more
+                return CommandRun(result)  # removed while it ran: nothing of it is the rig's
+            interrupted = self._displace(displaced, device, command)
             self._touched = {}
             try:
                 self._command_ran(
@@ -1701,14 +1759,16 @@ class Rig:
             finally:
                 self._touched = None
                 self._flush_pushed()
-        return result
+        return CommandRun(result, interrupted)
 
     def _command_checks(
         self, device: Device, spec: CommandSpec, command: str, given: dict[str, Any]
-    ) -> dict[str, Signal]:
-        """Fill and clamp the linked arguments; refuse, or take over from, a driving controller.
+    ) -> tuple[dict[str, Signal], list[Controller]]:
+        """Fill and clamp the linked arguments; refuse, or list to displace, a driving controller.
 
-        Under the lock. Returns the linked arguments' signals, by argument.
+        Under the lock, before the method runs. Returns the linked arguments'
+        signals, by argument, and the controllers an `interrupts` command puts
+        into manual once it has succeeded.
         """
         linked: dict[str, Signal] = {}
         for name, param in spec.params.items():
@@ -1719,30 +1779,49 @@ class Rig:
                 given[name] = self.router.value(signal)
             elif isinstance(given[name], (int, float)):
                 given[name] = signal.clamp(float(given[name]))
-        drives = spec.mode is not None or any(s.role is Role.DEMAND for s in linked.values())
+        drives = (
+            spec.mode is not None
+            or bool(spec.writes)
+            or any(s.role is Role.DEMAND for s in linked.values())
+        )
+        displaced: list[Controller] = []
         if drives:
             # It changes what drives the device: not while a controller does.
             # A setting (a blend flow) is not what a controller drives.
             for signal in device.signals.values():
                 holder = self.controllers.driving(signal)
-                if holder is None or not holder.mode.active():
+                if holder is None or not holder.mode.active() or holder in displaced:
                     continue
                 if not spec.interrupts:
                     raise ConflictError(
                         f"'{signal.address}' is driven by controller {holder.name!r}:"
                         f" {command!r} would fight it; put it in manual, or detach it"
                     )
-                holder.manual()
-                self.event(
-                    Severity.INFO,
-                    Scope.CONTROLLER,
-                    holder.name,
-                    Code.INTERRUPTED,
-                    f"put in manual by {device.name}.{command}",
-                )
-                if self.controller_states.watched:
-                    self.controller_states.set(holder.name, holder.state)
-        return linked
+                displaced.append(holder)
+        return linked, displaced
+
+    def _displace(
+        self, displaced: Sequence[Controller], device: Device, command: str
+    ) -> tuple[Interrupted, ...]:
+        """Under the lock, once the command has succeeded: each displaced controller to manual."""
+        interrupted: list[Interrupted] = []
+        for holder in displaced:
+            if not holder.mode.active():
+                continue  # put in manual meanwhile (a long command's wait)
+            was = holder.mode.value
+            holder.manual()
+            interrupted.append(Interrupted(holder.name, was))
+            self.event(
+                Severity.INFO,
+                Scope.CONTROLLER,
+                holder.name,
+                Code.INTERRUPTED,
+                f"put in manual by {device.name}.{command}",
+                {"was": was, "by": f"{device.name}.{command}"},
+            )
+            if self.controller_states.watched:
+                self.controller_states.set(holder.name, holder.state)
+        return tuple(interrupted)
 
     def _run_locked(
         self,
@@ -1751,7 +1830,8 @@ class Rig:
         command: str,
         given: dict[str, Any],
         linked: Mapping[str, Signal],
-    ) -> Any:
+        displaced: Sequence[Controller],
+    ) -> CommandRun:
         """A command that does not wait: the method and what follows it, under the lock."""
         outer = self._touched
         if outer is None:
@@ -1760,12 +1840,13 @@ class Rig:
         before = dict(self.router.seq)
         try:
             result = spec.method(device, **given)
+            interrupted = self._displace(displaced, device, command)
             self._command_ran(device, spec, command, given, linked, before, time_ns, outer=outer)
         finally:
             if outer is None:
                 self._touched = None
                 self._flush_pushed()  # a failed commit's stale demands are delivered too
-        return result
+        return CommandRun(result, interrupted)
 
     def _command_ran(
         self,
