@@ -30,8 +30,8 @@ import (
 // any one runner. See config-layers.md's Layer 1 table.
 //
 // The front's keys (listen, auth, url, tls, password, anonymous, proxy,
-// session, trusted_proxies: front.Config, the same block as a rig file's
-// runner.front) sit at the top level beside the daemon's own. Management
+// tokens, login, trusted_proxies: front.Config, the same block as a rig
+// file's runner.front) sit at the top level beside the daemon's own. Management
 // (listing, starting, stopping, restarting runners, their logs) needs a
 // bearer token with the management scope, made by `flyball token create`;
 // --insecure-open is a flag of the run, never a file key.

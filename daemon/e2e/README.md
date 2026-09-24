@@ -35,7 +35,7 @@ about 15 s; each test runs in parallel with its own world.
 | `TestFrontDirWithoutKeyExits4` | `flyball-runner --front-dir` on a dir with no key, and with a short one |
 | `TestRunLocal` | `flyball run`, local shape |
 | `TestRunPassword` | `flyball run`, password shape with `anonymous: read`; named tokens over HTTP and by `flyball token create`; MCP |
-| `TestRunSessionExpiry` | `flyball run`, password shape with `session: 2s` |
+| `TestRunSessionExpiry` | `flyball run`, password shape with `login: 2s` |
 | `TestRunTLS` | `flyball run`, password shape with `tls:` from a generated certificate |
 | `TestRunProxy` | `flyball run`, proxy shape (`authelia`) on a unix socket behind a stand-in proxy; the same preset on TCP with an unvouched peer |
 | `TestRunFallbacks` | `flyball run` with each front misconfiguration, and with the runner's removed flags |
