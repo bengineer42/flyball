@@ -1,6 +1,6 @@
 """The program file dialect: how a person writes steps, and its schema.
 
-A program file is YAML. Each step is *externally tagged* -- the command's tag
+A program file is YAML. Each step is *externally tagged* -- the command's type
 is the key, its arguments the value:
 
     - ramp: {to: 60, pace: {seconds: 600}}
@@ -8,7 +8,7 @@ is the key, its arguments the value:
     - setpoint: 50
       until: {within: 0.5}                   # a modifier alongside the command
 
-The HTTP API speaks the *internally tagged* form (`{"command": "ramp", ...}`).
+The HTTP API speaks the *internally tagged* form (`{"type": "ramp", ...}`).
 This module bridges them: a normaliser rewrites a file step into that form
 before validation, and a schema emitter describes the file form from the same
 command registry, so the two cannot disagree.
@@ -90,7 +90,7 @@ def _time_fields(command: type[Step]) -> list[tuple[str, dict[str, Any]]]:
         _TIME_FIELDS[command] = [
             (name, keys)
             for name, annotation in get_type_hints(command).items()
-            if name not in {"tag", TIMEOUT} and (keys := _time_keys(annotation)) is not None
+            if name not in {"type", TIMEOUT} and (keys := _time_keys(annotation)) is not None
         ]
     return _TIME_FIELDS[command]
 
@@ -126,7 +126,7 @@ def _unfold(command: type[Step], arguments: dict[str, Any], where: str) -> dict[
             flat = sorted(key for key in arguments if key in DURATION_KEYS)
             if flat:
                 raise StepError(
-                    f"{where}: `{command.tag}`: write the timeout inside it: "
+                    f"{where}: `{command.type}`: write the timeout inside it: "
                     "`timeout: {minutes: 10}`"
                 )
         if len(fields) > 1:
@@ -180,7 +180,7 @@ def check_renamed(tag: Any, body: Any, where: str, commands: Mapping[str, type[S
     an operator prompt -- a bare message, a `name`, or a `message` with flat
     time keys that would otherwise silently parse as a timer -- is refused
     rather than run as one. Applies to a file step's key and body, or to an
-    internally tagged command's `command` and the rest of it.
+    internally tagged command's `type` and the rest of it.
 
     Raises:
         StepError: The step uses an old name.
@@ -212,7 +212,7 @@ def check_renamed(tag: Any, body: Any, where: str, commands: Mapping[str, type[S
 
 
 def normalise_step(raw: Any, dialect: Dialect, index: int | None = None) -> dict[str, Any]:
-    """One file step -> `{"command": {...internally tagged...}, <modifier field>: ...}`.
+    """One file step -> `{"command": {"type": <tag>, ...}, <modifier field>: ...}`.
 
     A step is a mapping with one command key plus any modifier keys; any other
     key is an error. A scalar or list under the command key means its
@@ -242,10 +242,10 @@ def normalise_step(raw: Any, dialect: Dialect, index: int | None = None) -> dict
         arguments = {command.primary: body}
     else:
         raise StepError(f"{where}: {tag!r} takes a mapping of arguments, not {body!r}")
-    if "command" in arguments:
-        raise StepError(f"{where}: 'command' is not an argument of {tag!r}")
+    if "type" in arguments:
+        raise StepError(f"{where}: 'type' is not an argument of {tag!r}")
     arguments = _unfold(command, arguments, where)
-    step: dict[str, Any] = {"command": {"command": tag, **arguments}}
+    step: dict[str, Any] = {"command": {"type": tag, **arguments}}
     for key in raw:
         if key != tag:
             step[modifiers[key].field] = raw[key]
@@ -286,7 +286,7 @@ def step_schema(dialect: Dialect) -> dict[str, Any]:
     """JSON schema for one file step, from the command registry.
 
     One `oneOf` branch per command, requiring its key. The value is the
-    request schema without `command`, or the bare `primary` field's schema as
+    request schema without `type`, or the bare `primary` field's schema as
     an alternative. Modifier keys are allowed on every branch.
     """
     modifiers = {
@@ -298,8 +298,8 @@ def step_schema(dialect: Dialect) -> dict[str, Any]:
     for tag, command in dialect.steps.items():
         request = TypeAdapter(request_for(command)).json_schema(ref_template="#/$defs/{model}")
         defs.update(request.pop("$defs", {}))
-        request["properties"].pop("command", None)
-        request["required"] = [r for r in request.get("required", []) if r != "command"] or None
+        request["properties"].pop("type", None)
+        request["required"] = [r for r in request.get("required", []) if r != "type"] or None
         if request["required"] is None:
             del request["required"]
         request["additionalProperties"] = False

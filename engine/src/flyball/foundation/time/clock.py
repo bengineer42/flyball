@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from contextlib import suppress
 from dataclasses import dataclass
 from threading import Event
 from typing import Any, Self, TypeGuard, overload
@@ -289,9 +288,8 @@ class Clock:
 
     start_mono_ns: int
     offset_ns: int
-    tags_ns: dict[str | None, int]
     start_time_ns: int
-    __slots__ = ("offset_ns", "start_mono_ns", "start_time_ns", "tags_ns")
+    __slots__ = ("offset_ns", "start_mono_ns", "start_time_ns")
 
     @overload
     def __init__(self, seconds: int | None = None, nanoseconds: int | None = None) -> None: ...
@@ -306,7 +304,6 @@ class Clock:
             self.start_time_ns = time.time_ns()
         self.start_mono_ns = self.monotonic_ns()
         self.offset_ns = self.start_time_ns - self.start_mono_ns
-        self.tags_ns = {}
 
     # region The timebase: what subclasses replace
 
@@ -336,35 +333,14 @@ class Clock:
     def start_time(self) -> Time:
         return Time.from_nanoseconds(self.start_time_ns)
 
-    def tag(self, label: str) -> None:
-        self.tags_ns[label] = self.monotonic_ns()
+    def elapsed_ns(self) -> int:
+        return self.monotonic_ns() - self.start_mono_ns
 
-    def elapsed_ns(self, label: str | None = None) -> int:
-        mono = self.monotonic_ns()
-        if label is None:
-            return mono - self.start_mono_ns
-        return mono - self.tags_ns[label]
+    def elapsed(self) -> Duration:
+        return Duration.from_nanoseconds(self.elapsed_ns())
 
-    def elapsed(self, label: str | None = None) -> Duration:
-        return Duration.from_nanoseconds(self.elapsed_ns(label))
-
-    def elapsed_s(self, label: str | None = None) -> float:
-        return self.elapsed_ns(label) / 1e9
-
-    def get_elapsed_ns(self, label: str | None = None) -> int | None:
-        with suppress(KeyError):
-            return self.elapsed_ns(label)
-        return None
-
-    def get_elapsed_s(self, label: str | None = None) -> float | None:
-        with suppress(KeyError):
-            return self.elapsed_s(label)
-        return None
-
-    def get_elapsed(self, label: str | None = None) -> Duration | None:
-        with suppress(KeyError):
-            return self.elapsed(label)
-        return None
+    def elapsed_s(self) -> float:
+        return self.elapsed_ns() / 1e9
 
     def from_start_ns(self, time_ns: int) -> int:
         return time_ns - self.start_time_ns
@@ -372,30 +348,6 @@ class Clock:
     def from_start_s(self, time_ns: int) -> float:
         """Seconds from this clock's origin to `time_ns`. Integer subtraction first."""
         return (time_ns - self.start_time_ns) / 1e9
-
-    def tag_time_ns(self, label: str) -> int:
-        return self.tags_ns[label] + self.offset_ns
-
-    def tag_time_s(self, label: str) -> float:
-        return self.tag_time_ns(label) / 1e9
-
-    def tag_time(self, label: str) -> Time:
-        return Time.from_nanoseconds(self.tag_time_ns(label))
-
-    def get_tag_time_ns(self, label: str) -> int | None:
-        with suppress(KeyError):
-            return self.tag_time_ns(label)
-        return None
-
-    def get_tag_time_s(self, label: str) -> float | None:
-        with suppress(KeyError):
-            return self.tag_time_s(label)
-        return None
-
-    def get_tag_time(self, label: str) -> Time | None:
-        with suppress(KeyError):
-            return self.tag_time(label)
-        return None
 
     def now_ns(self) -> int:
         return self.monotonic_ns() + self.offset_ns
@@ -410,7 +362,6 @@ class Clock:
         cls = type(self)
         clock = cls.__new__(cls)
         clock.offset_ns = self.offset_ns
-        clock.tags_ns = {}
         mono = clock.monotonic_ns()
         clock.start_mono_ns = mono
         clock.start_time_ns = mono + self.offset_ns
@@ -421,7 +372,6 @@ class Clock:
         mono = self.monotonic_ns()
         self.start_mono_ns = mono
         self.start_time_ns = mono + self.offset_ns
-        self.tags_ns.clear()
 
 
 class TimeUnit(Labelled):

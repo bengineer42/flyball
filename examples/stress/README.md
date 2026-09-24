@@ -40,7 +40,7 @@ flyball rig check ../examples/stress/chaos.yaml
 
 Every stress rig has at least one program in `programs/`, except `sparse.yaml`
 and `bare.yaml`, which deliberately have none. `chaos.yaml`'s mid-run
-disturbance (failing a thermocouple, kicking a heater) is a `command` step
+disturbance (failing a thermocouple, kicking a heater) is a `run` step
 in `chaos-run.yaml` on the `furnace` and `heaters` devices (`fail`/`restore`
 with a `signal`, `disturb` with a `signal` and an `offset`), plus a `wait`
 whose own `timeout` gives up before its `duration` -- see
@@ -51,6 +51,6 @@ for both. Run it on its own:
 flyball program run ../examples/stress/programs/chaos-run.yaml
 ```
 
-`scripts/chaos-disturb.sh` predates the `command` step and drives the same
+`scripts/chaos-disturb.sh` predates the `run` step and drives the same
 routes from outside the program instead; kept for reference, but
 `chaos-run.yaml` no longer needs it run alongside.

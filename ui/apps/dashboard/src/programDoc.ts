@@ -17,12 +17,12 @@ export interface ProgramTree extends Tree {
 }
 
 export interface CommandInfo {
-  tag: string;
+  type: string;
   title: string;
   /** The command's docstring; `short` is its first paragraph on one line. */
   description?: string;
   short?: string;
-  /** The argument object: the dialect's request schema without `command`, flat time keys included. */
+  /** The argument object: the dialect's request schema without `type`, flat time keys included. */
   args: JsonSchema;
   /** The field a bare scalar / list under the command key stands for (`prompt: "msg"` → `message`). */
   primary?: string;
@@ -110,9 +110,9 @@ export function commandsOf(programSchema: JsonSchema | undefined): CommandInfo[]
   if (!programSchema) return [];
   const out: CommandInfo[] = [];
   for (const branch of stepBranches(programSchema)) {
-    const tag = branch.required?.[0] ?? Object.keys(branch.properties ?? {})[0];
-    const value = tag ? branch.properties?.[tag] : undefined;
-    if (!tag || !value) continue;
+    const type = branch.required?.[0] ?? Object.keys(branch.properties ?? {})[0];
+    const value = type ? branch.properties?.[type] : undefined;
+    if (!type || !value) continue;
     const alternatives = (value.anyOf ?? value.oneOf ?? [value]).map((a) => deref(a, programSchema));
     const args = alternatives.find((a) => a.properties) ?? { type: "object", properties: {} };
     const shorthand = alternatives.find((a) => a !== args);
@@ -121,8 +121,8 @@ export function commandsOf(programSchema: JsonSchema | undefined): CommandInfo[]
     const time = timeFieldOf(args, programSchema);
     const description = branch.description ?? value.description;
     const short = description?.split(/\n\s*\n/)[0]?.replace(/\s+/g, " ");
-    const title = args.title && !/Request$|Config$/.test(args.title) ? args.title : humanise(tag);
-    out.push({ tag, title, description, short, args, primary, time });
+    const title = args.title && !/Request$|Config$/.test(args.title) ? args.title : humanise(type);
+    out.push({ type, title, description, short, args, primary, time });
   }
   return out;
 }
@@ -130,16 +130,16 @@ export function commandsOf(programSchema: JsonSchema | undefined): CommandInfo[]
 /** The modifier keys a step may carry beside its command (none in a dialect without modifiers). */
 export function modifiersOf(programSchema: JsonSchema | undefined): Record<string, JsonSchema> {
   const branch = programSchema ? stepBranches(programSchema)[0] : undefined;
-  const tag = branch?.required?.[0];
-  return Object.fromEntries(Object.entries(branch?.properties ?? {}).filter(([k]) => k !== tag));
+  const type = branch?.required?.[0];
+  return Object.fromEntries(Object.entries(branch?.properties ?? {}).filter(([k]) => k !== type));
 }
 
 /** Which command a step names, and what else it carries. */
-export function splitStep(step: Step, commands: CommandInfo[]): { tag: string | undefined; value: unknown; modifiers: Record<string, unknown> } {
-  const tags = new Set(commands.map((c) => c.tag));
-  const tag = Object.keys(step).find((k) => tags.has(k)) ?? (commands.length === 0 ? Object.keys(step)[0] : undefined);
-  const modifiers = Object.fromEntries(Object.entries(step).filter(([k]) => k !== tag));
-  return { tag, value: tag === undefined ? undefined : step[tag], modifiers };
+export function splitStep(step: Step, commands: CommandInfo[]): { type: string | undefined; value: unknown; modifiers: Record<string, unknown> } {
+  const types = new Set(commands.map((c) => c.type));
+  const type = Object.keys(step).find((k) => types.has(k)) ?? (commands.length === 0 ? Object.keys(step)[0] : undefined);
+  const modifiers = Object.fromEntries(Object.entries(step).filter(([k]) => k !== type));
+  return { type, value: type === undefined ? undefined : step[type], modifiers };
 }
 
 /** A step's value as a plain argument object: the shorthand expanded to its field. */
@@ -258,7 +258,7 @@ export function inOrder(args: Record<string, unknown>, original: Record<string, 
 
 /** A fresh step for `command`: the tree spelling with nothing filled in. */
 export function newStep(command: CommandInfo): Step {
-  return { [command.tag]: {} };
+  return { [command.type]: {} };
 }
 
 /** The JSON types `schema` admits, through `$ref`s and alternatives. */
@@ -289,7 +289,7 @@ export function retarget(step: Step, from: CommandInfo | undefined, to: CommandI
   const { value, modifiers } = splitStep(step, commands);
   const args = argsOf(value, from);
   const keep = Object.fromEntries(Object.entries(args).filter(([k, v]) => to.args.properties?.[k] && valueFits(v, to.args.properties[k]!, root)));
-  return { [to.tag]: keep, ...modifiers };
+  return { [to.type]: keep, ...modifiers };
 }
 
 /**
@@ -314,9 +314,9 @@ export interface FormShape {
 }
 
 /**
- * What the rig has for a `command` or `set` step's picks (`GET /api/schema`):
+ * What the rig has for a `run` or `set` step's picks (`GET /api/schema`):
  * each device's commands and its writable signals by path relative to the
- * device, for the `device` / `device_command` / `args` / `values` fields.
+ * device, for the `device` / `command` / `args` / `values` fields.
  */
 export interface DevicePicks {
   /** Every device on the rig, so a saved name can be told apart from one the rig lacks. */
@@ -329,10 +329,10 @@ export interface DevicePicks {
 
 const signalTitle = (path: string, signal: SignalSchema) => signal.label || humanise(path.split(".").pop() ?? path);
 
-/** The device command a `command` step names, when `devices` knows it. */
+/** The device command a `run` step names, when `devices` knows it. */
 function deviceCommandOf(args: Record<string, unknown>, devices: DevicePicks | undefined): CommandSchema | undefined {
   const device = typeof args.device === "string" ? devices?.commands[args.device] : undefined;
-  return typeof args.device_command === "string" ? device?.[args.device_command] : undefined;
+  return typeof args.command === "string" ? device?.[args.command] : undefined;
 }
 
 /** The commands of `device` the builder offers: its own, not the simulation-only ones (those live on the Simulation page). */
@@ -392,7 +392,7 @@ function valueField(path: string, signal: SignalSchema): JsonSchema {
 
 /**
  * The argument schema shaped for the form: `controllers` as a pick from the rig's
- * controllers, a `command` step's `device` and `device_command` as picks
+ * controllers, a `run` step's `device` and `command` as picks
  * from the rig's devices and its `args` as that command's own arguments
  * (from `current`, what the step says now, with a linked (`x-signal`)
  * argument optional), a `set` step's `device` as a pick from the devices
@@ -411,21 +411,21 @@ function valueField(path: string, signal: SignalSchema): JsonSchema {
 export function formShape(command: CommandInfo, root: JsonSchema, controllers: string[] | undefined, devices?: DevicePicks, current: Record<string, unknown> = {}, warning?: string): FormShape {
   const properties: Record<string, JsonSchema> = {};
   const ui: Record<string, unknown> = {};
-  const deviceCommand = command.tag === "command" ? deviceCommandOf(current, devices) : undefined;
+  const deviceCommand = command.type === "run" ? deviceCommandOf(current, devices) : undefined;
   const has = (name: string) => Boolean(devices?.names.includes(name));
   let defs = root.$defs;
   for (const [name, raw] of Object.entries(command.args.properties ?? {})) {
     if (command.time?.keys.includes(name)) continue; // one control of its own
     let field = withoutDefaults(deref(raw, root));
     if (name === "wait" && field.type === "boolean" && !field.description) field = { ...field, description: `wait for the ${command.title.toLowerCase()} to finish before the next step` };
-    if (command.tag === "command") {
+    if (command.type === "run") {
       if (name === "device" && devices) {
         const names = Object.keys(devices.commands).filter((d) => offeredCommands(devices, d).length > 0);
         field = pickField(field, names, current.device, has, "only simulation commands");
-        ui[name] = { "ui:widget": "select" }; // a dropdown, not a segmented button, even with few options -- it belongs at the top with `device_command`, not buried mid-form
-      } else if (name === "device_command" && devices) {
+        ui[name] = { "ui:widget": "select" }; // a dropdown, not a segmented button, even with few options -- it belongs at the top with `command`, not buried mid-form
+      } else if (name === "command" && devices) {
         const known = (name: string) => typeof current.device === "string" && name in (devices.commands[current.device] ?? {});
-        field = pickField(field, offeredCommands(devices, current.device), current.device_command, known, "simulation");
+        field = pickField(field, offeredCommands(devices, current.device), current.command, known, "simulation");
       } else if (name === "args") {
         if (deviceCommand && !isEmpty(deviceCommand.arguments)) {
           const { $defs, ...args } = withoutDefaults(deviceCommand.arguments);
@@ -434,11 +434,11 @@ export function formShape(command: CommandInfo, root: JsonSchema, controllers: s
         } else if (isObject(current.args) && Object.keys(current.args).length > 0) {
           // the rig cannot say what the arguments are (not known yet, or no such device or command): the saved ones, as they are
           const saved = current.args;
-          field = { type: "object", title: field.title ?? "Arguments", description: devices && typeof current.device_command === "string" ? warningFor(warning, current.device_command) : undefined, properties: Object.fromEntries(Object.keys(saved).map((k) => [k, savedField(k, saved[k])])) };
+          field = { type: "object", title: field.title ?? "Arguments", description: devices && typeof current.command === "string" ? warningFor(warning, current.command) : undefined, properties: Object.fromEntries(Object.keys(saved).map((k) => [k, savedField(k, saved[k])])) };
         } else continue; // nothing to fill until the command is known, and nothing when it takes no arguments
       }
     }
-    if (command.tag === "set" && devices) {
+    if (command.type === "set" && devices) {
       if (name === "device") {
         field = pickField(field, Object.keys(devices.demands), current.device, has, "no demands");
         ui[name] = { "ui:widget": "select" };
@@ -467,27 +467,27 @@ export function formShape(command: CommandInfo, root: JsonSchema, controllers: s
     properties[name] = field;
   }
   const schema: JsonSchema = { type: "object", title: command.title, properties, ...(command.args.required ? { required: command.args.required.filter((r) => r in properties) } : {}), ...(defs ? { $defs: withoutDefaults({ $defs: defs }).$defs } : {}) };
-  // `device`/`device_command` first -- everything else (`args`, `values`, ...) picks up
+  // `device`/`command` first -- everything else (`args`, `values`, ...) picks up
   // after them, in whatever order they were declared.
-  const front = ["device", "device_command"].filter((k) => k in properties);
+  const front = ["device", "command"].filter((k) => k in properties);
   if (front.length > 0) ui["ui:order"] = [...front, "*"];
   return { schema, uiSchema: ui };
 }
 
 /**
- * A `command` or `set` step's arguments with what no longer applies dropped:
+ * A `run` or `set` step's arguments with what no longer applies dropped:
  * a new device clears the command, its args and the values; a new command
  * its args.
  */
 export function onDeviceChange(args: Record<string, unknown>, before: Record<string, unknown>): { args: Record<string, unknown>; changed: boolean } {
   if (args.device !== before.device) {
-    const { device_command: _c, args: _a, values: _v, ...rest } = args;
+    const { command: _c, args: _a, values: _v, ...rest } = args;
     void _c;
     void _a;
     void _v;
     return { args: rest, changed: true };
   }
-  if (args.device_command !== before.device_command) {
+  if (args.command !== before.command) {
     const { args: _a, ...rest } = args;
     void _a;
     return { args: rest, changed: true };

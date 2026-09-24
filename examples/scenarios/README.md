@@ -36,7 +36,7 @@ flyball-runner rig.yaml              # the real skid/room
   continuous PI loop, so there's no `controllers:` entry to drive from a
   `regulate`/`ramp` program the way the other two scenarios do. A real
   demo program would need threshold logic (`wait` on a reading, then a
-  `command: { device: doser, device_command: dispense, args: { volume_ml: … } }`)
+  `run: { device: doser, command: dispense, args: { volume_ml: … } }`)
   — not written here.
 - **`dosing-skid/sim.yaml`'s probe readings are constant**, not scripted
   drift — `fake_uart`'s `replies` is a fixed script, and a single reply

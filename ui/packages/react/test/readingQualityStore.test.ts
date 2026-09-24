@@ -19,7 +19,7 @@ function fakeRig(overrides: Record<string, unknown> = {}) {
       return { close: () => undefined };
     },
     sessions: async () => [],
-    clock: async () => ({ now_ns: 0, start_time_ns: 0, elapsed_ns: 0, tags: {}, speed: 1 }),
+    clock: async () => ({ now_ns: 0, start_time_ns: 0, elapsed_ns: 0, speed: 1 }),
     recording: async () => null,
     controllers: async () => [],
     events: async () => [],

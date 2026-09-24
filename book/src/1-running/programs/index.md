@@ -6,13 +6,13 @@ answer to "what is running".
 
 ## Steps
 
-A step is a `Step`: a frozen dataclass with a `run(rig)` method, `tag`-named on the
+A step is a `Step`: a frozen dataclass with a `run(rig)` method, `type`-named on the
 class and registered explicitly with `catalog.register_step` (see
 [Packaging](../../3-extending/packaging.md)) so a program file can use it; its
 wire model — the request a client sends, the step a program file holds — is
 derived from its constructor. The vocabulary shipped with the library:
 
-| tag | does |
+| type | does |
 | --- | --- |
 | `regulate` | aim a controller at a setpoint and hand control to the law |
 | `ramp` | walk a controller's setpoint to a target at a pace, and wait until it arrives |
@@ -20,17 +20,17 @@ derived from its constructor. The vocabulary shipped with the library:
 | `settle` | wait until named controllers have settled within a band of their setpoints |
 | `manual` | stop a controller regulating; its target keeps its last demand |
 | `set` | put values on one device's writable signals, as one demand |
-| `command` | call one of a device's own commands |
+| `run` | call one of a device's own commands |
 | `prompt` | pause until someone fires a named signal |
 
 `regulate`/`ramp`/`wait`/`settle`/`manual` name a **controller** by the
 address of the signal it drives (or a list, or none for the rig's default) --
 not the device itself, since a writable signal has at most one controller.
-Device commands (`@command` methods on a device) are reachable as `command`
+Device commands (`@command` methods on a device) are reachable as `run`
 steps; a humidity rig's `set_blend` is one. Its `blend` is a `Setting`
 signal — shown on the wire, `RP` — but a setting is re-set by a command,
-not a demand, so it stays a `command` step; only a `Demand` signal (`RPW`)
-can be reached as a `set` step. As over HTTP, a `command` step that succeeds
+not a demand, so it stays a `run` step; only a `Demand` signal (`RPW`)
+can be reached as a `set` step. As over HTTP, a `run` step that succeeds
 on an offline device (`restore`, a reset) restarts its polling, read one
 period later rather than at the end of its backoff; one still broken stays
 offline and backs off again.
@@ -54,7 +54,7 @@ controller's latching `on_fault`, with the reason `fault:<controller>`
 whatever the program names), with the reason. Ending a program leaves the
 outputs where they are; a software stop then writes each device's own stop.
 
-A `command` step on a long device command (a `dispense`, a `move`) runs
+A `run` step on a long device command (a `dispense`, a `move`) runs
 until the command returns. Ending the program -- a cancel or an interrupt
 -- cancels that command, so a dose or a move ends at once and the program
 unwinds. A cancel or a stop waits at most 5 s for the step to return and
@@ -94,7 +94,7 @@ can be run twice, or twice at once on two rigs.
 ## Program files
 
 A person writes a program as YAML: a name and a list of steps, each step the
-command's tag as the key and its arguments as the value:
+command's type as the key and its arguments as the value:
 
 ```yaml
 name: bake

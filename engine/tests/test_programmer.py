@@ -36,10 +36,10 @@ class Heater(Committable):
 @pytest.fixture
 def note(fresh):
     seen = []
-    tag = fresh("note")
+    type_ = fresh("note")
 
     @dataclass(frozen=True)
-    class Note(Step, tag=tag, primary="text"):
+    class Note(Step, type=type_, primary="text"):
         """Append to a list."""
 
         text: str
@@ -84,7 +84,7 @@ def test_steps_after_a_prompt_run_on_the_worker_and_a_failure_there_is_an_event(
     programmer.start(
         Program([Note("a"), Prompt("go", name="go"), Note("b"), Note("boom")], name="p")
     )
-    assert seen == ["a"] and programmer.state.step == 1 and programmer.state.command == "prompt"
+    assert seen == ["a"] and programmer.state.step == 1 and programmer.state.type == "prompt"
     assert "go" in rig.triggers.states()
     assert rig.triggers.states()["go"].prompt is True, "a prompt is answered by a person"
     rig.triggers.fire("go")
@@ -206,7 +206,7 @@ def test_an_interrupt_while_a_step_applies_cancels_the_activity_it_returns(rig, 
     returned: list[Activity] = []
 
     @dataclass(frozen=True)
-    class Slow(Step, tag=fresh("slow")):
+    class Slow(Step, type=fresh("slow")):
         """Applies only once the interrupt has been asked for, then returns a wait."""
 
         def run(self, rig, operator=None):
@@ -277,7 +277,7 @@ def test_arrive_waits_for_a_subset_of_controllers_and_ramp_can_be_non_blocking()
         name="settle-test",
     )
     programmer.start(program)
-    assert programmer.running and programmer.state.command == "settle"  # the ramp did not block
+    assert programmer.running and programmer.state.type == "settle"  # the ramp did not block
     assert "settle:" + ca.name in rig.triggers.states()
     deliver(b, 50.0)  # hb settling is irrelevant to a settle on ha's controller
     deliver(b, 50.0)
@@ -370,14 +370,14 @@ def test_a_command_step_calls_a_device_s_own_command(rig, fresh):
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
-    RunCommand(device_command="set_duty", device=heater.name, args={"duty": 0.5}).run(rig)
+    RunCommand(command="set_duty", device=heater.name, args={"duty": 0.5}).run(rig)
     assert heater.duty == 0.5
 
     with pytest.raises(NotFoundError, match="nowhere"):
-        RunCommand(device_command="set_duty", device="nowhere", args={"duty": 1.0}).run(rig)
+        RunCommand(command="set_duty", device="nowhere", args={"duty": 1.0}).run(rig)
 
     with pytest.raises(NotFoundError, match="nope"):
-        RunCommand(device_command="nope", device=heater.name).run(rig)
+        RunCommand(command="nope", device=heater.name).run(rig)
 
 
 def test_missing_names_a_controller_the_rig_lacks_or_has_no_default(rig, fresh):
@@ -433,11 +433,11 @@ def test_run_command_missing_names_an_unknown_device_or_command(rig, fresh):
 
     heater = Heater(fresh("heater"))
     rig.add_device(heater)
-    assert RunCommand(device_command="set_duty", device=heater.name).missing(rig) == []
-    assert RunCommand(device_command="set_duty", device="ghost").missing(rig) == [
+    assert RunCommand(command="set_duty", device=heater.name).missing(rig) == []
+    assert RunCommand(command="set_duty", device="ghost").missing(rig) == [
         "device 'ghost' is not on the rig"
     ]
-    assert RunCommand(device_command="nope", device=heater.name).missing(rig) == [
+    assert RunCommand(command="nope", device=heater.name).missing(rig) == [
         f"{heater.name!r} has no command 'nope'"
     ]
 
@@ -467,8 +467,8 @@ def test_program_missing_collects_gaps_by_step_index(rig, fresh):
     rig.add_device(heater)
     program = Program([
         Regulate(setpoint=1.0),  # step 0: no default controller
-        RunCommand(device_command="set_duty", device=heater.name),  # step 1: fine
-        RunCommand(device_command="nope", device="ghost"),  # step 2: unknown device
+        RunCommand(command="set_duty", device=heater.name),  # step 1: fine
+        RunCommand(command="nope", device="ghost"),  # step 2: unknown device
     ])
     assert program.missing(rig) == {
         0: "the rig has no default controller",

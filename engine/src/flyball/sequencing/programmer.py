@@ -63,15 +63,15 @@ class ProgrammerState:
     """Index of the step being run, zero when idle."""
     steps: int
     """Steps in the running program, zero when idle."""
-    command: str | None
-    """Tag of the step being run, `None` when idle."""
+    type: str | None
+    """Type of the step being run, `None` when idle."""
     failed: bool = False
     """The last program ended with a step that raised, rather than succeeding or being ended."""
     error: str | None = None
     """What the failing step raised, while `failed`; cleared by the next `start`/`run`."""
 
 
-IDLE = ProgrammerState(running=False, step=0, steps=0, command=None)
+IDLE = ProgrammerState(running=False, step=0, steps=0, type=None)
 
 
 class Programmer:
@@ -129,7 +129,7 @@ class Programmer:
                     running=False,
                     step=0,
                     steps=0,
-                    command=None,
+                    type=None,
                     failed=True,
                     error=str(self._error),
                 )
@@ -137,7 +137,7 @@ class Programmer:
                 running=True,
                 step=self._step,
                 steps=len(program),
-                command=program[self._step].tag,
+                type=program[self._step].type,
             )
 
     # endregion
@@ -167,7 +167,7 @@ class Programmer:
             program.name or "program",
             Code.STARTED,
             f"{program.name or 'program'}: {len(program)} step{'s' if len(program) != 1 else ''}",
-            {"steps": len(program), "commands": [c.tag for c in program]},
+            {"steps": len(program), "types": [c.type for c in program]},
         )
         try:
             activity = self._apply_atomics(program)
@@ -261,15 +261,18 @@ class Programmer:
         if not thread.is_alive():
             return True
         name = program.name if program is not None and program.name else "program"
-        tag = program[step].tag if program is not None and step < len(program) else "?"
-        log.warning("%s[%s]: %s had not returned %.1f s after the end", name, step, tag, END_JOIN_S)
+        step_type = program[step].type if program is not None and step < len(program) else "?"
+        log.warning(
+            "%s[%s]: %s had not returned %.1f s after the end", name, step, step_type, END_JOIN_S
+        )
         self.rig.event(
             Severity.WARNING,
             Scope.PROGRAM,
             f"{name}[{step}]",
             Code.STEP_STILL_RUNNING,
-            f"{tag} had not returned {END_JOIN_S:g} s after the program ended: it may still act",
-            {"step": step, "command": tag, "waited_s": END_JOIN_S},
+            f"{step_type} had not returned {END_JOIN_S:g} s after the program ended: "
+            "it may still act",
+            {"index": step, "step": step_type, "waited_s": END_JOIN_S},
         )
         return False
 
@@ -333,7 +336,7 @@ class Programmer:
             Exception: Whatever the activity failed with, so `_work` ends the
                 program rather than treating the step as done.
         """
-        name = activity.name or command.tag
+        name = activity.name or command.type
         self.rig.triggers.register(
             name,
             activity,
@@ -358,8 +361,8 @@ class Programmer:
                 f"{program.name if program is not None and program.name else 'program'}"
                 f"[{self._step}]",
                 Code.STEP_TIMED_OUT,
-                f"{command.tag} gave up after {activity.timeout_s} s: {activity.message}",
-                {"command": command.tag, "timeout_s": activity.timeout_s},
+                f"{command.type} gave up after {activity.timeout_s} s: {activity.message}",
+                {"step": command.type, "timeout_s": activity.timeout_s},
             )
         return activity.fired
 
@@ -395,8 +398,8 @@ class Programmer:
             Scope.PROGRAM,
             f"{program.name if program is not None and program.name else 'program'}[{step}]",
             Code.STEP,
-            f"step {step + 1}/{len(program) if program is not None else '?'}: {command.tag}",
-            {"step": step, "command": command.tag},
+            f"step {step + 1}/{len(program) if program is not None else '?'}: {command.type}",
+            {"index": step, "step": command.type},
         )
         if command.locked:
             with self.rig.lock:
@@ -427,7 +430,7 @@ class Programmer:
             f"{program.name or 'program'}[{step}]",
             Code.STEP_FAILED,
             str(failure),
-            {"command": program[step].tag, "error": f"{type(error).__name__}: {error}"},
+            {"step": program[step].type, "error": f"{type(error).__name__}: {error}"},
         )
 
     def _finish(self, program: Program) -> None:

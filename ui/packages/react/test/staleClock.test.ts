@@ -13,7 +13,7 @@ describe("the rig's clock", () => {
         open.set(path, h);
         return { close: () => undefined };
       },
-      clock: async () => ({ now_ns: 100e9, start_time_ns: 0, elapsed_ns: 100e9, tags: {}, speed: 60 }),
+      clock: async () => ({ now_ns: 100e9, start_time_ns: 0, elapsed_ns: 100e9, speed: 60 }),
       sessions: async () => [],
       events: async () => [],
     } as unknown as RigClient;

@@ -19,7 +19,7 @@ class Prompted(Activity):
 
 
 @dataclass(frozen=True)
-class Prompt(Step, tag="prompt", primary="message"):
+class Prompt(Step, type="prompt", primary="message"):
     """Pause the program until a person (or an external trigger) fires the named prompt.
 
     `name` is what it is fired by (`POST /api/activities/{name}/fire`), default

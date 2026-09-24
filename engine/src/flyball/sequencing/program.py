@@ -86,13 +86,13 @@ class Program(Sequence["Step"]):
         return hash(self._commands)
 
     @property
-    def tags(self) -> tuple[str, ...]:
-        """The steps by tag, for display."""
-        return tuple(command.tag for command in self._commands)
+    def types(self) -> tuple[str, ...]:
+        """The steps by type, for display."""
+        return tuple(command.type for command in self._commands)
 
     def __repr__(self) -> str:
         name = f"{self.name!r}, " if self.name is not None else ""
-        return f"Program({name}{len(self)} steps: {' -> '.join(self.tags)})"
+        return f"Program({name}{len(self)} steps: {' -> '.join(self.types)})"
 
 
 # A slice of an empty program is impossible: `Program` cannot be empty, and

@@ -7,7 +7,7 @@ import { deref, type JsonSchema, type ProgramCheck } from "@flyball/client";
 
 /** One step of `ProgramCheck.normalised`: the command with its arguments, and any modifiers beside it. */
 export interface NormalisedStep {
-  command: { command: string; [arg: string]: unknown };
+  command: { type: string; [arg: string]: unknown };
   [modifier: string]: unknown;
 }
 
@@ -21,17 +21,17 @@ export interface NormalisedProgram {
 export function normalisedOf(check: ProgramCheck | undefined): NormalisedProgram | null {
   const n = check?.normalised as Partial<NormalisedProgram> | null | undefined;
   if (!n || !Array.isArray(n.steps)) return null;
-  const steps = n.steps.filter((s): s is NormalisedStep => Boolean(s && typeof s === "object" && s.command && typeof s.command === "object" && typeof (s.command as { command?: unknown }).command === "string"));
+  const steps = n.steps.filter((s): s is NormalisedStep => Boolean(s && typeof s === "object" && s.command && typeof s.command === "object" && typeof (s.command as { type?: unknown }).type === "string"));
   return { name: typeof n.name === "string" ? n.name : undefined, description: typeof n.description === "string" ? n.description : undefined, steps };
 }
 
-/** The argument schema of `tag` from `GET /api/programs/commands`: the discriminator's mapping, else the variant whose `command` is that const. */
+/** The argument schema of `tag` from `GET /api/programs/commands`: the discriminator's mapping, else the variant whose `type` is that const. */
 export function commandSchemaFor(commands: JsonSchema | undefined, tag: string): JsonSchema | undefined {
   if (!commands) return undefined;
   const ref = commands.discriminator?.mapping?.[tag];
   if (ref) return deref({ $ref: ref }, commands);
   const variants = [...(commands.oneOf ?? []), ...(commands.anyOf ?? []), ...Object.values(commands.$defs ?? {})];
-  return variants.map((v) => deref(v, commands)).find((v) => v.properties?.command?.const === tag);
+  return variants.map((v) => deref(v, commands)).find((v) => v.properties?.type?.const === tag);
 }
 
 /** What the file-dialect schema (`GET /api/programs/schema`) says a command does: the step variant keyed by `tag`. */
@@ -126,7 +126,7 @@ export function enumTitle(schema: JsonSchema | undefined, value: unknown): strin
 /** "3 steps: wait, ramp, settle" for a list row; the first few commands, then "…". */
 export function stepsSummary(program: NormalisedProgram, max = 5): string {
   const n = program.steps.length;
-  const tags = program.steps.map((s) => s.command.command);
+  const tags = program.steps.map((s) => s.command.type);
   const shown = tags.slice(0, max).join(", ");
   return `${n} step${n === 1 ? "" : "s"}${n ? `: ${shown}${tags.length > max ? "…" : ""}` : ""}`;
 }

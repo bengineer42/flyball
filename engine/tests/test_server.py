@@ -565,12 +565,10 @@ def test_the_old_waits_route_is_gone_so_it_cannot_skip_a_timer(client, rig):
 
 def test_clock_reports_the_rig_s_timebase(client, rig, clock):
     clock.advance(2.5)
-    rig.clock.tag("run")
-    clock.advance(0.5)
     body = client.get("/api/clock").json()
     assert body["start_time_ns"] == rig.clock.start_time_ns
     assert body["now_ns"] == rig.clock.now_ns()
-    assert body["elapsed_ns"] >= 0 and "run" in body["tags"]
+    assert body["elapsed_ns"] >= 0
 
 
 def test_health_is_one_look_at_the_rig(client, rig, daq):
@@ -793,8 +791,8 @@ def test_program_check_warns_of_what_the_rig_lacks(client, programmer, drive):
         "steps": [
             {"regulate": {"setpoint": 30, "tuning": "brisk"}},  # no default controller, no tuning
             {"manual": "no_such_controller"},
-            {"command": {"device_command": "nope", "device": drive.name}},
-            {"command": {"device_command": "off", "device": "ghost"}},
+            {"run": {"command": "nope", "device": drive.name}},
+            {"run": {"command": "off", "device": "ghost"}},
             {"prompt": "fine"},
         ]
     }
@@ -816,7 +814,7 @@ def test_program_check_normalises_without_running(client, programmer):
     checked = client.post("/api/programs/check", json=body).json()
     assert checked["ok"] is True and checked["warnings"] == {}
     normalised = checked["normalised"]
-    assert normalised["steps"][0] == {"command": {"command": "prompt", "message": "press go"}}
+    assert normalised["steps"][0] == {"command": {"type": "prompt", "message": "press go"}}
     assert normalised["steps"][1]["command"]["name"] == "n"
     assert client.get("/api/programs/running").json()["running"] is False
     bad = client.post("/api/programs/check", json={"steps": [{"nope": 1}]})
@@ -843,11 +841,11 @@ def test_program_runs_step_by_step_as_prompts_are_answered(client, programmer, r
         "running": True,
         "step": 0,
         "steps": 2,
-        "command": "prompt",
+        "type": "prompt",
         "failed": False,
         "error": None,
     }
-    assert list(client.get("/api/activities").json()) == ["prompt"], "named by its tag"
+    assert list(client.get("/api/activities").json()) == ["prompt"], "named by its type"
     assert client.post("/api/activities/prompt/fire").json()["fired"] is True
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline and "two" not in rig.triggers.states():
@@ -865,10 +863,10 @@ def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig,
     from flyball.sequencing import Step
 
     seen = []
-    tag = fresh("note")
+    type_ = fresh("note")
 
     @dataclass(frozen=True)
-    class Note(Step, tag=tag, primary="text"):
+    class Note(Step, type=type_, primary="text"):
         """Append to a list."""
 
         text: str
@@ -879,7 +877,7 @@ def test_program_that_needs_no_waiting_finishes_at_once(client, programmer, rig,
 
     get_catalog().register_step(Note)
 
-    state = client.post("/api/programs/run", json={"steps": [{tag: "a"}, {tag: "b"}]}).json()
+    state = client.post("/api/programs/run", json={"steps": [{type_: "a"}, {type_: "b"}]}).json()
     assert state["running"] is False and seen == ["a", "b"]
 
 
@@ -914,7 +912,7 @@ def test_an_old_step_name_gets_a_targeted_error(client, programmer, step, messag
         assert r.status_code == 422 and message in r.json()["detail"], (route, r.text)
     ((tag, body),) = step.items()
     rest = body if isinstance(body, dict) else {"message": body}
-    r = client.post("/api/programs/command", json={"command": tag, **rest})
+    r = client.post("/api/programs/command", json={"type": tag, **rest})
     assert r.status_code == 422 and message in r.json()["detail"], r.text
 
 
@@ -923,7 +921,7 @@ def test_a_timed_wait_with_a_message_and_a_duration_is_not_a_prompt(client, prog
     checked = client.post("/api/programs/check", json=body).json()
     assert checked["ok"] is True, checked
     command = checked["normalised"]["steps"][0]["command"]
-    assert command["command"] == "wait" and command["timeout"] == 900
+    assert command["type"] == "wait" and command["timeout"] == 900
     flat = client.post("/api/programs/check", json={"steps": [{"wait": {"minutes": 5}}]}).json()
     assert flat["ok"] is True and flat["normalised"]["steps"][0]["command"]["duration"] == {
         "minutes": 5
@@ -1032,7 +1030,7 @@ def test_a_program_command_step_on_an_offline_device_restarts_it_too(rig, daq):
         rig.polling._read(daq)  # one poll, as the loop would: it fails, and the budget is 1
         assert rig.polling.run(daq.name).running is False
 
-        RunCommand(device_command="restore", device=daq.name).run(rig)
+        RunCommand(command="restore", device=daq.name).run(rig)
         assert rig.polling.run(daq.name).running is True, "the step is a fix, as the route is"
         assert [c.code for c in rig.conditions.of(daq)] == ["offline"], "until a good read"
         rig.polling._read(daq)

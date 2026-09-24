@@ -169,7 +169,7 @@ class TestLongCommands:
         programmer = Programmer(rig)
         thread, _ = _in_thread(
             programmer.run,
-            RunCommand(device_command="dose", device=doser.name, args={"seconds": 30}),
+            RunCommand(command="dose", device=doser.name, args={"seconds": 30}),
         )
         assert doser.started.wait(2.0)
         assert rig.lock.acquire(timeout=0.5), "the step does not hold the rig lock across the dose"
@@ -341,7 +341,7 @@ class TestNothingOnTheLoop:
 # region 4. The programmer's lock against the rig's; a bounded end
 
 
-class Gated(Step, tag="gated_for_wf2"):
+class Gated(Step, type="gated_for_wf2"):
     """A step that does nothing, under the rig's lock, as most steps run."""
 
     def __init__(self) -> None:
@@ -393,7 +393,7 @@ class TestProgrammerLocks:
         doser = Doser(fresh("doser"))
         rig.add_device(doser)
         programmer = Programmer(rig)
-        dose = RunCommand(device_command="dose", device=doser.name, args={"seconds": 30.0})
+        dose = RunCommand(command="dose", device=doser.name, args={"seconds": 30.0})
         programmer.start(Program([Wait(Duration(0.01)), dose]))
         assert doser.started.wait(2.0)
         began = time.monotonic()
@@ -411,14 +411,14 @@ class TestProgrammerLocks:
         rig.add_device(doser)
         monkeypatch.setattr(doser, "cancel", lambda: None)  # a driver that does not listen
         programmer = Programmer(rig)
-        dose = RunCommand(device_command="dose", device=doser.name, args={"seconds": 3.0})
+        dose = RunCommand(command="dose", device=doser.name, args={"seconds": 3.0})
         programmer.start(Program([Wait(Duration(0.01)), dose]))
         assert doser.started.wait(2.0)
         began = time.monotonic()
         assert programmer.cancel() is False
         assert time.monotonic() - began < 1.0, "the cancel returned, not after the 3 s dose"
         still = [e for e in rig.recent if e.code == "step_still_running"]
-        assert len(still) == 1 and still[0].details["command"] == "command"
+        assert len(still) == 1 and still[0].details["step"] == "run"
         doser.cancelling.set()
         programmer.join(2.0)
         assert not programmer.running

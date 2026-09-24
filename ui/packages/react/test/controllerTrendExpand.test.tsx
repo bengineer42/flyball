@@ -35,7 +35,7 @@ function fakeTransport(): Transport {
     async request({ path }: Request): Promise<Response> {
       if (path === "/api/devices") return { status: 200, json: [] };
       if (path === "/api/controllers") return { status: 200, json: [] };
-      if (path === "/api/clock") return { status: 200, json: { start_time_ns: 0, now_ns: 0, elapsed_ns: 0, tags: {}, speed: 1 } };
+      if (path === "/api/clock") return { status: 200, json: { start_time_ns: 0, now_ns: 0, elapsed_ns: 0, speed: 1 } };
       if (path === "/api/history/sessions") return { status: 200, json: [] };
       if (path === "/api/recording") return { status: 200, json: null };
       return { status: 404, json: undefined };

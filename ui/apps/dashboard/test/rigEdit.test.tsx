@@ -20,7 +20,7 @@ function runner(edit: (r: Request) => Response) {
     base: "",
     async request(r: Request): Promise<Response> {
       asked.push(r);
-      if (r.path === "/api/clock") return { status: 200, json: { start_time_ns: start, now_ns: 0, elapsed_ns: 0, tags: {}, speed: 1 } };
+      if (r.path === "/api/clock") return { status: 200, json: { start_time_ns: start, now_ns: 0, elapsed_ns: 0, speed: 1 } };
       if (r.path === "/api/health") return { status: 200, json: { ok: true, conditions } };
       if (r.method === "DELETE") return edit(r);
       return { status: 404, json: { detail: "no" } };

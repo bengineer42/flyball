@@ -145,7 +145,7 @@ export function ProgramStatus({ programmer, events, name, onCancel }: { programm
   const explanation = !p
     ? "…"
     : p.running
-      ? `running: step ${stepOf(p)}${p.command ? ` · ${p.command}` : ""}`
+      ? `running: step ${stepOf(p)}${p.type ? ` · ${p.type}` : ""}`
       : failed
         ? (p.error ?? "failed")
         : "idle — nothing is running";
@@ -356,14 +356,14 @@ export function Programs({ programmer, events, onOpen }: ProgramsProps) {
         </Tooltip>
         {runningStep && (
           <Suspense fallback={null}>
-            <RunStepDialog open={runningStep} busyProgram={running ? (programmer.data?.command ?? "a program") : null} onClose={() => setRunningStep(false)} onRan={() => programmer.refresh()} />
+            <RunStepDialog open={runningStep} busyProgram={running ? (programmer.data?.type ?? "a program") : null} onClose={() => setRunningStep(false)} onRan={() => programmer.refresh()} />
           </Suspense>
         )}
         {imported && imported.length > 0 && <Chip label={`imported ${imported.join(", ")}`} color="info" variant="outlined" onDelete={() => setImported(null)} />}
         <Box sx={{ flexGrow: 1 }} />
         <Tooltip title={failed ? (programmer.data?.error ?? "") : ""}>
           <Chip
-            label={running ? `running: ${programmer.data?.command ?? ""} step ${stepOf(programmer.data!)}` : failed ? "failed — see below" : "programmer idle"}
+            label={running ? `running: ${programmer.data?.type ?? ""} step ${stepOf(programmer.data!)}` : failed ? "failed — see below" : "programmer idle"}
             color={running ? "success" : failed ? "error" : "default"}
             variant="outlined"
           />

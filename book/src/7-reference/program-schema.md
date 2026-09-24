@@ -6,7 +6,7 @@ A program file is a mapping with `name` and `steps`. Loaded from `.yaml`,
 ```yaml
 name: string            # required
 steps:                  # required, at least one
-  - <tag>: <arguments>
+  - <type>: <arguments>
     <modifier>: <value> # optional, application-defined
 ```
 
@@ -39,7 +39,7 @@ Every rig has these; `controllers` is one address, a list of addresses, or
 omitted for the rig's default controller. Source:
 `flyball.sequencing.{loops,devices,activities}`.
 
-| tag | field | type | default |
+| type | field | type | default |
 | --- | --- | --- | --- |
 | `regulate` | `setpoint` (primary) | number | — |
 | | `controllers` | address, list, or omitted | rig default |
@@ -59,7 +59,7 @@ omitted for the rig's default controller. Source:
 | `manual` | `controllers` (primary) | address, list, or omitted | rig default |
 | `set` | `device` | name | — |
 | | `values` | `{name: value}` | — |
-| `command` | `device_command` | string | — |
+| `run` | `command` | string | — |
 | | `device` | name | — |
 | | `args` | `{name: value}` | none |
 | `prompt` | `message` (primary) | string | — |
@@ -67,11 +67,11 @@ omitted for the rig's default controller. Source:
 | | `timeout` | `Duration` | none |
 
 `regulate`/`ramp`/`wait`/`settle`/`manual` are steps on a **controller**
-(named by its target's address); `set` and `command` reach a **device**
+(named by its target's address); `set` and `run` reach a **device**
 directly — `set` is one demand (`rig.write`) on its writable signals,
-`command` calls one of its `@command` methods, `device_command` naming the
-device command rather than `command` because a step's own wire form reserves
-`command` for its own key. See [Programs](../1-running/programs/index.md) for
+`run` calls one of its `@command` methods, named by its own `command`
+field since a step's own wire form reserves `type` for the step's own key.
+See [Programs](../1-running/programs/index.md) for
 the concepts and [Writing programs](../1-running/programs/writing.md) for the full
 worked example.
 
@@ -80,7 +80,7 @@ worked example.
 `program_schema(dialect)` (`flyball.interfaces.server.dialect`) emits the JSON Schema
 for the whole file from the command registry: one `oneOf` branch per
 command, each requiring its key; the value is the command's request schema
-without `command`, or the bare `primary` field's schema as an alternative;
+without `type`, or the bare `primary` field's schema as an alternative;
 foldable time fields gain their flat keys; modifier keys are allowed on
 every branch. Point an editor at it with
 

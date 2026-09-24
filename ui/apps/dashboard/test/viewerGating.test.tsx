@@ -21,7 +21,7 @@ function open(hash: string, verbs: string[]): Request[] {
       if (r.path === "/api/auth") return { status: 200, json: who(verbs) };
       if (r.path === "/api/devices" || r.path === "/api/programs/library" || r.path === "/api/controllers" || r.path === "/api/sessions") return { status: 200, json: [] };
       if (r.path === "/api/programs/library/import") return { status: 200, json: [] };
-      if (r.path === "/api/programs/running") return { status: 200, json: { running: false, failed: false, step: 0, steps: 0, command: null, error: null } };
+      if (r.path === "/api/programs/running") return { status: 200, json: { running: false, failed: false, step: 0, steps: 0, type: null, error: null } };
       return { status: 404, json: { detail: "not in this stub" } };
     },
     stream: () => ({ close: () => undefined }),

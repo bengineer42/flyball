@@ -12,7 +12,7 @@ function fakeRig(overrides: Partial<Record<string, unknown>> = {}) {
       return { close: () => closed.push(path) };
     },
     sessions: async () => [],
-    clock: async () => ({ now_ns: 0, start_time_ns: 0, elapsed_ns: 0, tags: {}, speed: 1 }),
+    clock: async () => ({ now_ns: 0, start_time_ns: 0, elapsed_ns: 0, speed: 1 }),
     recording: async () => null,
     controllers: async () => [],
     events: async () => [],
@@ -191,7 +191,7 @@ describe("TelemetryStore", () => {
     }));
     const { rig, send } = fakeRig({
       sessions: async () => [{ id: 7, start_ns: 100e9, end_ns: null }],
-      clock: async () => ({ now_ns: 105e9, start_time_ns: 100e9, elapsed_ns: 5e9, tags: {}, speed: 1 }),
+      clock: async () => ({ now_ns: 105e9, start_time_ns: 100e9, elapsed_ns: 5e9, speed: 1 }),
       recording: async () => ({ id: 7, start_ns: 100e9, end_ns: null }),
       sessionSignals: async () => [{ address: "furnace.zone1" }],
       series,
@@ -312,7 +312,7 @@ describe("TelemetryStore", () => {
     );
     const { rig } = fakeRig({
       sessions: async () => [{ id: 3, start_ns: 100e9, end_ns: null }],
-      clock: async () => ({ now_ns: 110e9, start_time_ns: 100e9, elapsed_ns: 10e9, tags: {}, speed: 1 }),
+      clock: async () => ({ now_ns: 110e9, start_time_ns: 100e9, elapsed_ns: 10e9, speed: 1 }),
       recording: async () => ({ id: 3, start_ns: 100e9, end_ns: null }),
       controllers: async () => [controller(110, 7)],
       sessionControllers: async () => [

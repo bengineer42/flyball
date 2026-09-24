@@ -19,7 +19,7 @@ steps:
 
 ## A step
 
-Each step is a mapping with **one command key** — the command's tag — and
+Each step is a mapping with **one command key** — the command's type — and
 optionally modifier keys beside it. Any other key is an error: unknown keys
 are how typos hide.
 
@@ -129,7 +129,7 @@ same as it always has for a step that cannot even be applied.
 
 ## The commands every rig has
 
-| tag | arguments | does |
+| type | arguments | does |
 | --- | --- | --- |
 | `regulate` | `setpoint` (primary), `controllers?`, `tuning?` | aim a controller at `setpoint` and let its law drive; returns at once |
 | `ramp` | `to` (primary), `pace` as `per_minute: 5` or `minutes: 20` flat, `controllers?`, `wait=True` | walk the setpoint to `to`; waits for arrival unless `wait: false` |
@@ -137,7 +137,7 @@ same as it always has for a step that cannot even be applied.
 | `settle` | `controllers?` (primary), `within=1.0`, `count=3`, `timeout?`, `message?` | wait until the named controllers settle within `within` of their setpoints for `count` consecutive readings |
 | `manual` | `controllers?` (primary) | stop a controller regulating; its target keeps its last demand |
 | `set` | `device`, `values: {name: value}` | put `values` on `device`'s writable signals, as one demand |
-| `command` | `device_command`, `device`, `args?` | call one of `device`'s own commands, exactly as `POST /api/devices/{name}/commands/{command}` would |
+| `run` | `command`, `device`, `args?` | call one of `device`'s own commands, exactly as `POST /api/devices/{name}/commands/{command}` would |
 | `prompt` | `message` (primary), `name?`, `timeout?` | pause until `POST /api/activities/{name}/fire`; a timeout ends the program |
 
 `controllers` names a controller -- the address of the signal it drives -- a
@@ -163,12 +163,13 @@ folding stops the moment `message` is set: see [Time](#time) above.
 `rig.write` in a step, and fails the same way a demand does -- 409 for a
 signal a controller drives, or a signal that is not writable.
 
-`command`'s `device` names any device on the rig, readable or writable,
+`run`'s `device` names any device on the rig, readable or writable,
 since names are unique rig-wide. This is also how a program reaches a
 simulated device's own commands (`fail`, `restore`, `disturb`,
 `set_limits`) -- ordinary commands on the device, just as the Simulation tab
-calls them by hand. `device_command`, not `command`: every step's wire form
-reserves `command` for the step's own tag.
+calls them by hand. Its own `command` field names the device command to
+run: every step's wire form reserves `type` for the step's own key, so
+`command` is free for this.
 
 ## A worked example
 
