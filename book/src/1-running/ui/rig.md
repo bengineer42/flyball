@@ -20,8 +20,8 @@ What each box shows:
   from; **restore** (`POST /api/rig/versions/{id}/restore`) saves that
   version again as a new one on top and restarts the rig with it.
 - **Save** (`POST /api/rig/save`) — with no path, just what changed since
-  start and was not saved yet (a controller: every other change saved
-  itself), written to the overlay beside the file the rig was loaded from; a
+  start and was not saved yet (a controller attached or detached: every
+  other change saved itself), written to the overlay beside the file the rig was loaded from; a
   path writes the whole rig there instead, with a checkbox to overwrite a
   loaded file. The path field only appears on a runner that allows it
   (`allow_save`); otherwise the box says so and saves the overlay alone.
@@ -37,6 +37,14 @@ What each box shows:
   back on the new version, passive, within a few seconds. Nothing is added
   or removed in place. See
   [Building a rig while it runs](../runner/building.md).
+  In the app, each one asks first and says what applying does. Adding asks
+  once; removing a link or device, and restoring a version, also asks you to
+  type its name (or the version's number). With a program running, the edit
+  is refused and the app offers to cancel the program and apply it anyway.
+  While the runner restarts, a banner at the top of the page says so; once
+  it is back the app reconnects, every page reads the new rig, and the
+  banner says which version it is on. If the new version could not be built,
+  the rig goes back to the one before and the banner says why.
 - **Devices, links and controllers** — Config is the only place in the app to add or remove
   any of the three (Readings, a device's own page and Controllers show them but no longer offer
   add/remove for anything but a controller's own detach). Each section lists what exists as

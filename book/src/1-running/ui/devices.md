@@ -38,5 +38,7 @@ file's `links:` takes — from the rig's schema (`GET /api/rig/schema`): a kind 
 driver picker, that driver's config as a `SchemaForm` (a `link` field the schema names becomes
 a select of the rig's current links once there are any, else a free-form box), a label, a poll
 period, and any **Inputs** (`input -> address`) the driver takes. Removing a device or a link
-takes everything built on it down too, after a confirmation naming what that is; a link still
-carrying a device refuses (409) until the device is removed first.
+takes everything built on it down too, after a confirmation you complete by typing its name; a
+link still carrying a device refuses (409) until the device is removed first. Every add or
+remove is a rig edit, so the rig restarts on the new version: see
+[The rig file](rig.md).

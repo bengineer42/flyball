@@ -6,6 +6,8 @@ import { describeController, deviceOf, formatValue, isHousekeeping, publishes, R
 import { useRecordingExports } from "../model.js";
 import { StateBlock } from "../cards.js";
 import { Confirm } from "../Confirm.js";
+import { confirmLevel } from "../confirmLevels.js";
+import { RESTART_TEXT, useRigEdit } from "../rigEdit.js";
 import { ChartControls, type ChartSettings } from "../YScaleSelect.js";
 import { hashFor, hrefFor } from "../router.js";
 import { signalIcon } from "../icons.js";
@@ -49,18 +51,17 @@ export function Readings({ devices: fromRig, ...charts }: ReadingsProps) {
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // `fromRig` is fetched once by the app, so a device this page just removed is
-  // reflected here immediately rather than waiting for the app to refetch it.
-  const [removed, setRemoved] = useState<Set<string>>(new Set());
-  const devices = useMemo(() => fromRig.filter((d) => !removed.has(d.name)), [fromRig, removed]);
+  // A removal restarts the rig, and the app reads it afresh once it is back.
+  const edits = useRigEdit();
+  const devices = fromRig;
 
   const removeDevice = async () => {
     if (!removing) return;
     setBusy(true);
     try {
-      await rig.removeDevice(removing);
+      const target = removing;
+      await edits.apply((options) => rig.removeDevice(target, options));
       setError(null);
-      setRemoved((r) => new Set(r).add(removing));
       setRemoving(null);
     } catch (e) {
       setError(detail(e));
@@ -86,15 +87,20 @@ export function Readings({ devices: fromRig, ...charts }: ReadingsProps) {
     </PageBar>
   );
   const dialogs = (
-    <Confirm
-      open={removing !== null}
-      title={`Remove device ${removing}?`}
-      text="Takes it off the rig with everything that hung off it."
-      action="Remove"
-      busy={busy}
-      onClose={() => setRemoving(null)}
-      onConfirm={() => void removeDevice()}
-    />
+    <>
+      <Confirm
+        open={removing !== null}
+        title={`Remove device ${removing}?`}
+        text={`Takes it off the rig file with everything that hung off it. ${RESTART_TEXT}`}
+        action="Remove and restart"
+        level={confirmLevel("rig.edit.remove")}
+        phrase={removing ?? undefined}
+        busy={busy}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => void removeDevice()}
+      />
+      {edits.dialog}
+    </>
   );
   const shown = devices.filter((d) => d.kind !== "simulation");
   if (shown.length === 0)

@@ -11,6 +11,8 @@ import { useDevices, useQuery, useRig, useRigChanges, useRigDocument, useRigFile
 import { RigError, pageBase, type ControllerSchema, type DeviceOut, type JsonSchema, type RigDocument, type RunnerInfo, type RigVersion } from "@flyball/client";
 import { dumpYaml } from "../programText.js";
 import { Confirm } from "../Confirm.js";
+import { confirmLevel } from "../confirmLevels.js";
+import { RESTART_TEXT, useRigEdit } from "../rigEdit.js";
 import { SectionHead, StateBlock } from "../cards.js";
 import { PAGE_ICONS } from "../icons.js";
 import { when } from "../time.js";
@@ -59,7 +61,7 @@ function VersionRow({ version, onRestore, busy }: { version: RigVersion; onResto
     <ListItem
       divider
       secondaryAction={
-        <Tooltip title={head ? "The running rig is at this version" : "Rebuild the running rig to match this version"}>
+        <Tooltip title={head ? "The running rig is at this version" : "Save this version again as the newest and restart the rig on it"}>
           <span>
             <IconButton edge="end" aria-label={`restore version ${version.id}`} onClick={() => onRestore(version)} disabled={busy || head || !canOperate} data-testid={`restore-${version.id}`}>
               <RestoreIcon fontSize="small" />
@@ -113,8 +115,8 @@ function SaveBox({ allowPath }: { allowPath: boolean }) {
       <Stack spacing={1.5}>
         <Typography variant="body2" color="text.secondary">
           {allowPath
-            ? "With no path, only what changed since the runner started is written, to an overlay beside the rig file it was loaded from. A path writes the whole rig there instead."
-            : "What changed since the runner started is written to an overlay beside the rig file it was loaded from. (Writing the whole rig to a path of your choosing needs the runner started with allow_save.)"}
+            ? "Adding or removing a link or device is saved as it is applied. With no path, Save writes what is left: controllers attached or detached since the runner started, to the overlay beside the rig file. A path writes the whole rig there instead."
+            : "Adding or removing a link or device is saved as it is applied. Save writes what is left: controllers attached or detached since the runner started, to the overlay beside the rig file. (Writing the whole rig to a path of your choosing needs the runner started with allow_save.)"}
         </Typography>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "flex-start", sm: "center" }}>
           {allowPath && (
@@ -275,13 +277,14 @@ function RunnerControls({ runner, busy, onAsk }: { runner: RunnerInfo; busy: boo
 }
 
 /** The rig's devices, name and driver, each with a remove button; "Add device" opens the same dialog `#/devices` used before this moved here. */
-function DevicesSection({ document, schema, devices, onChanged }: { document: QueryState<RigDocument>; schema: QueryState<JsonSchema>; devices: DeviceOut[]; onChanged(): void }) {
+function DevicesSection({ document, schema, devices }: { document: QueryState<RigDocument>; schema: QueryState<JsonSchema>; devices: DeviceOut[] }) {
   const { canOperate } = useAuth();
   const rig = useRig();
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const edits = useRigEdit();
   const names = Object.entries(document.data?.devices ?? {});
   const linkNames = Object.keys(document.data?.links ?? {});
 
@@ -289,10 +292,10 @@ function DevicesSection({ document, schema, devices, onChanged }: { document: Qu
     if (!removing) return;
     setBusy(true);
     try {
-      await rig.removeDevice(removing);
+      const target = removing;
+      await edits.apply((options) => rig.removeDevice(target, options));
       setError(null);
       setRemoving(null);
-      onChanged();
     } catch (e) {
       setError(detail(e));
     } finally {
@@ -333,20 +336,20 @@ function DevicesSection({ document, schema, devices, onChanged }: { document: Qu
         schema={schema.data}
         linkNames={linkNames}
         onClose={() => setAdding(false)}
-        onCreated={() => {
-          setAdding(false);
-          onChanged();
-        }}
+        onCreated={() => setAdding(false)}
       />
       <Confirm
         open={removing !== null}
         title={`Remove device ${removing}?`}
-        text="Takes it off the rig with everything that hung off it."
-        action="Remove"
+        text={`Takes it off the rig file with everything that hung off it. ${RESTART_TEXT}`}
+        action="Remove and restart"
+        level={confirmLevel("rig.edit.remove")}
+        phrase={removing ?? undefined}
         busy={busy}
         onClose={() => setRemoving(null)}
         onConfirm={() => void remove()}
       />
+      {edits.dialog}
     </Paper>
   );
 }
@@ -469,17 +472,16 @@ export function RigPage({ part = "file" }: { part?: "file" | "runner" }) {
   };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const edits = useRigEdit();
 
   const restore = async () => {
     if (!restoring) return;
     setBusy(true);
     try {
-      await rig.restoreVersion(restoring.id);
+      const id = restoring.id;
+      await edits.apply((options) => rig.restoreVersion(id, options));
       setError(null);
       setRestoring(null);
-      document.refresh();
-      changes.refresh();
-      versions.refresh();
     } catch (e) {
       setError(detail(e));
     } finally {
@@ -495,7 +497,7 @@ export function RigPage({ part = "file" }: { part?: "file" | "runner" }) {
       <>
       <SectionHead icon={PAGE_ICONS.options} title="Rig file" />
       <div className="grid">
-        <DevicesSection document={document} schema={rigSchema} devices={devices.data ?? []} onChanged={composed} />
+        <DevicesSection document={document} schema={rigSchema} devices={devices.data ?? []} />
         <div className="c12 xl6">
           <LinksSection document={document} schema={rigSchema} />
         </div>
@@ -559,13 +561,16 @@ export function RigPage({ part = "file" }: { part?: "file" | "runner" }) {
       <Confirm
         open={restoring !== null}
         title={restoring ? `Restore version #${restoring.id}?` : ""}
-        text="Rebuilds the running rig to match this version: what it lacks is added, what it has that this version does not is removed, and a changed device is rebuilt. Recorded as a new version of its own."
-        action="Restore"
+        text={`Saves a new version with this one's rig and restarts the rig on it. ${RESTART_TEXT}`}
+        action="Restore and restart"
+        level={confirmLevel("rig.restore")}
+        phrase={restoring ? String(restoring.id) : undefined}
         busy={busy}
         danger={false}
         onClose={() => setRestoring(null)}
         onConfirm={() => void restore()}
       />
+      {edits.dialog}
     </>
   );
 }

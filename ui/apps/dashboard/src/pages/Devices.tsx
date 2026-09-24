@@ -31,6 +31,8 @@ import { PAGE_ICONS } from "../icons.js";
 import { hashFor, hrefFor } from "../router.js";
 import { useRecordingExports } from "../model.js";
 import { Confirm } from "../Confirm.js";
+import { confirmLevel } from "../confirmLevels.js";
+import { RESTART_TEXT, useRigEdit } from "../rigEdit.js";
 import { Crumbs } from "./Readings.js";
 import { PageBar } from "../PageBar.js";
 import { deviceDrivers, linkKinds, withLinkSelect, TYPE_HIDDEN } from "../rigForms.js";
@@ -78,6 +80,8 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
   const [inputs, setInputs] = useState<InputRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const edits = useRigEdit();
 
   const drivers = useMemo(() => (schema ? deviceDrivers(schema) : []), [schema]);
   const chosen = drivers.find((d) => d.type === driver);
@@ -105,15 +109,19 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
       if (pollS.trim() && Number.isFinite(Number(pollS))) body.poll_s = Number(pollS);
       const inputEntries = inputs.filter((r) => r.input.trim() && r.address.trim());
       if (inputEntries.length) body.inputs = Object.fromEntries(inputEntries.map((r) => [r.input.trim(), r.address.trim()]));
-      const edit = await rig.addDevice(body);
-      reset();
-      onCreated(edit);
+      const edit = await edits.apply((options) => rig.addDevice(body, options));
+      if (edit) {
+        reset();
+        onCreated(edit);
+      }
     } catch (e) {
       setError(detail(e));
     } finally {
       setBusy(false);
+      setConfirming(false);
     }
   };
+  const ask = () => (confirmLevel("rig.edit.add") === 0 ? void create() : setConfirming(true));
 
   const canCreate = name.trim() !== "" && driver !== "" && !busy;
 
@@ -160,10 +168,23 @@ export function AddDeviceDialog({ open, schema, linkNames, onClose, onCreated }:
         <Button onClick={() => (busy ? undefined : (reset(), onClose()))} disabled={busy}>
           Cancel
         </Button>
-        <Button variant="contained" onClick={() => void create()} disabled={!canCreate} data-testid="create-device">
+        <Button variant="contained" onClick={ask} disabled={!canCreate} data-testid="create-device">
           Add
         </Button>
       </DialogActions>
+      <Confirm
+        open={confirming}
+        title={`Add device ${name.trim()}?`}
+        text={RESTART_TEXT}
+        action="Add and restart"
+        danger={false}
+        level={confirmLevel("rig.edit.add")}
+        phrase={name.trim()}
+        busy={busy}
+        onClose={() => setConfirming(false)}
+        onConfirm={() => void create()}
+      />
+      {edits.dialog}
     </Dialog>
   );
 }
@@ -176,6 +197,8 @@ function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; sc
   const [config, setConfig] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const edits = useRigEdit();
 
   const kinds = useMemo(() => (schema ? linkKinds(schema) : []), [schema]);
   const chosen = kinds.find((k) => k.type === type);
@@ -192,15 +215,20 @@ function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; sc
     setBusy(true);
     setError(null);
     try {
-      const edit = await rig.addLink({ ...config, name: name.trim(), type });
-      reset();
-      onCreated(edit);
+      const body = { ...config, name: name.trim(), type };
+      const edit = await edits.apply((options) => rig.addLink(body, options));
+      if (edit) {
+        reset();
+        onCreated(edit);
+      }
     } catch (e) {
       setError(detail(e));
     } finally {
       setBusy(false);
+      setConfirming(false);
     }
   };
+  const ask = () => (confirmLevel("rig.edit.add") === 0 ? void create() : setConfirming(true));
 
   const canCreate = name.trim() !== "" && type !== "" && !busy;
 
@@ -242,10 +270,23 @@ function AddLinkDialog({ open, schema, onClose, onCreated }: { open: boolean; sc
         <Button onClick={() => (busy ? undefined : (reset(), onClose()))} disabled={busy}>
           Cancel
         </Button>
-        <Button variant="contained" onClick={() => void create()} disabled={!canCreate} data-testid="create-link">
+        <Button variant="contained" onClick={ask} disabled={!canCreate} data-testid="create-link">
           Add
         </Button>
       </DialogActions>
+      <Confirm
+        open={confirming}
+        title={`Add link ${name.trim()}?`}
+        text={RESTART_TEXT}
+        action="Add and restart"
+        danger={false}
+        level={confirmLevel("rig.edit.add")}
+        phrase={name.trim()}
+        busy={busy}
+        onClose={() => setConfirming(false)}
+        onConfirm={() => void create()}
+      />
+      {edits.dialog}
     </Dialog>
   );
 }
@@ -258,16 +299,17 @@ export function LinksSection({ document, schema, showAdd = true }: { document: Q
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const edits = useRigEdit();
   const links = Object.entries(document.data?.links ?? {});
 
   const remove = async () => {
     if (!removing) return;
     setBusy(true);
     try {
-      await rig.removeLink(removing);
+      const target = removing;
+      await edits.apply((options) => rig.removeLink(target, options));
       setError(null);
       setRemoving(null);
-      document.refresh();
     } catch (e) {
       setError(detail(e));
     } finally {
@@ -315,20 +357,20 @@ export function LinksSection({ document, schema, showAdd = true }: { document: Q
         open={adding}
         schema={schema.data}
         onClose={() => setAdding(false)}
-        onCreated={() => {
-          setAdding(false);
-          document.refresh();
-        }}
+        onCreated={() => setAdding(false)}
       />
       <Confirm
         open={removing !== null}
         title={`Remove link ${removing}?`}
-        text="Refused while a device is still built on it."
-        action="Remove"
+        text={`Refused while a device is still built on it. ${RESTART_TEXT}`}
+        action="Remove and restart"
+        level={confirmLevel("rig.edit.remove")}
+        phrase={removing ?? undefined}
         busy={busy}
         onClose={() => setRemoving(null)}
         onConfirm={() => void remove()}
       />
+      {edits.dialog}
     </Paper>
   );
 }
@@ -343,19 +385,18 @@ export function Devices({ devices }: { devices: DeviceOut[] }) {
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // `devices` is fetched once by the app, so a device this page just removed is
-  // reflected here immediately rather than waiting for the app to refetch it.
-  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  // A removal restarts the rig, and the app reads it afresh once it is back: no local bookkeeping.
+  const edits = useRigEdit();
 
-  const shown = devices.filter((d) => d.kind !== "simulation" && !removed.has(d.name));
+  const shown = devices.filter((d) => d.kind !== "simulation");
 
   const remove = async () => {
     if (!removing) return;
     setBusy(true);
     try {
-      await rig.removeDevice(removing);
+      const target = removing;
+      await edits.apply((options) => rig.removeDevice(target, options));
       setError(null);
-      setRemoved((r) => new Set(r).add(removing));
       setRemoving(null);
     } catch (e) {
       setError(detail(e));
@@ -399,12 +440,15 @@ export function Devices({ devices }: { devices: DeviceOut[] }) {
       <Confirm
         open={removing !== null}
         title={`Remove device ${removing}?`}
-        text="Takes it off the rig with everything that hung off it."
-        action="Remove"
+        text={`Takes it off the rig file with everything that hung off it. ${RESTART_TEXT}`}
+        action="Remove and restart"
+        level={confirmLevel("rig.edit.remove")}
+        phrase={removing ?? undefined}
         busy={busy}
         onClose={() => setRemoving(null)}
         onConfirm={() => void remove()}
       />
+      {edits.dialog}
     </>
   );
 }
