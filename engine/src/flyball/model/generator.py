@@ -14,7 +14,6 @@ from inspect import signature
 from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict
-from pydantic.alias_generators import to_snake
 from pydantic_core import core_schema
 
 from flyball.model.model import ModelOf, creation_model
@@ -45,9 +44,9 @@ class SetpointGeneratorConfig(BaseModel):
 class SetpointGenerator:
     """A reference trajectory. Subclassing derives `config`; registering is explicit.
 
-    A type is assigned when subclassed (`class Dwell(SetpointGenerator, type="dwell")`),
-    but nothing is written into a shared registry any more -- see
-    [Catalogs][flyball.model.catalog.Catalogs].
+    A type is required when subclassed (`class Dwell(SetpointGenerator, type="dwell")`);
+    a subclass that omits it raises at class creation. Nothing is written into
+    a shared registry any more -- see [Catalogs][flyball.model.catalog.Catalogs].
     """
 
     type: ClassVar[str] = ""
@@ -59,7 +58,13 @@ class SetpointGenerator:
 
     def __init_subclass__(cls, type: str | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        cls.type = type or cls.__dict__.get("type") or to_snake(cls.__name__)
+        resolved = type or cls.__dict__.get("type")
+        if not resolved:
+            raise TypeError(
+                f"{cls.__name__} must declare a type, e.g. "
+                f"class {cls.__name__}(SetpointGenerator, type=...)"
+            )
+        cls.type = resolved
 
         # Every generator gets its own config, derived from `__init__`: the
         # field list a form needs to build one, plus the type that names it.

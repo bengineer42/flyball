@@ -3,8 +3,6 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Any, ClassVar
 
-from pydantic.alias_generators import to_snake
-
 from flyball.foundation import Operator, Trigger
 from flyball.foundation.time import Clock
 from flyball.rig import Rig
@@ -54,8 +52,9 @@ class Step:
 
     `primary` names the field a bare scalar means in a program file, so
     `- flag: "loaded"` stands for `- flag: {flag: "loaded"}`; None means no
-    shorthand. Subclassing sets `tag`/`primary`; registering it so a program
-    file can use it is a separate, explicit step -- see
+    shorthand. Subclassing sets `tag`/`primary`; `tag` is required and a
+    subclass that omits it raises at class creation. Registering it so a
+    program file can use it is a separate, explicit step -- see
     [Catalogs.register_step][flyball.model.catalog.Catalogs.register_step].
     """
 
@@ -73,7 +72,12 @@ class Step:
         **kwargs: Any,
     ) -> None:
         super().__init_subclass__(**kwargs)
-        cls.tag = tag or cls.__dict__.get("tag") or to_snake(cls.__name__)
+        resolved = tag or cls.__dict__.get("tag")
+        if not resolved:
+            raise TypeError(
+                f"{cls.__name__} must declare a tag, e.g. class {cls.__name__}(Step, tag=...)"
+            )
+        cls.tag = resolved
         if primary is not None:
             cls.primary = primary
 

@@ -125,7 +125,8 @@ class ControlLaw:
     Each is a [ModelOf][flyball.model.model.ModelOf]: `Law.config` is the model
     class, `law.config` that law's values. A law that declares one itself keeps
     it. The wire name is the class keyword `type`
-    (`class PI(ControlLaw, type="PI")`), defaulting to the class name.
+    (`class PI(ControlLaw, type="pi")`), required -- a subclass that omits it
+    raises at class creation.
     """
 
     type: ClassVar[str] = None  # pyright: ignore[reportAssignmentType]
@@ -136,7 +137,13 @@ class ControlLaw:
 
     def __init_subclass__(cls, type: str | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        cls.type = type or cls.__dict__.get("type") or cls.__name__
+        resolved = type or cls.__dict__.get("type")
+        if not resolved:
+            raise TypeError(
+                f"{cls.__name__} must declare a type, e.g. "
+                f"class {cls.__name__}(ControlLaw, type=...)"
+            )
+        cls.type = resolved
 
         # Every law gets its own config and state, even one that adds neither:
         # the models carry `law`, so an inherited pair would rebuild the base.
