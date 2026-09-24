@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import threading
-from typing import Any, Literal
+from typing import Any
 
 from flyball.foundation.config import Config
-from flyball.hardware.links import RegisterLink
+from flyball.hardware.links import RegisterKind, RegisterLink
 from pydantic import Field
 
-Kind = Literal["holding", "input", "coil", "discrete"]
+Kind = RegisterKind
 """Which Modbus table a register lives in, and so which function code reads/writes it:
 `holding` (FC03/FC16), `input` (FC04, read-only), `coil` (FC01/FC05) and `discrete`
 (FC02, read-only). Coils and discrete inputs are booleans (0/1)."""

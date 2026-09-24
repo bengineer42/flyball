@@ -11,7 +11,7 @@ implementation it gets is the rig's business.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -23,13 +23,25 @@ class TextLink(Protocol):
     def query(self, command: str) -> str: ...
 
 
+RegisterKind = Literal["holding", "input", "coil", "discrete"]
+"""Which register table: `input` and `discrete` are read-only; `coil` and `discrete` are 0/1."""
+
+
 @runtime_checkable
 class RegisterLink(Protocol):
-    """A register map: read and write 16-bit holding registers."""
+    """A register map: read and write 16-bit registers, or coils and discrete inputs as 0/1.
 
-    def read_registers(self, address: int, count: int = 1, unit: int = 1) -> list[int]: ...
+    `kind` is the register table: `holding` (the default), `input` and `discrete` are
+    read-only, `coil` is read and written. Modbus picks the function code by it.
+    """
 
-    def write_registers(self, address: int, values: list[int], unit: int = 1) -> None: ...
+    def read_registers(
+        self, address: int, count: int = 1, unit: int = 1, kind: RegisterKind = "holding"
+    ) -> list[int]: ...
+
+    def write_registers(
+        self, address: int, values: list[int], unit: int = 1, kind: RegisterKind = "holding"
+    ) -> None: ...
 
 
-__all__ = ["RegisterLink", "TextLink"]
+__all__ = ["RegisterKind", "RegisterLink", "TextLink"]

@@ -156,9 +156,9 @@ class Max31856(Readable):
     ) -> None:
         super().__init__(name, label)
         self.link = link
-        self.thermocouple_type = thermocouple_type
-        self.averaging = averaging
-        self.filter_hz = filter_hz
+        self.thermocouple_type: ThermocoupleType = thermocouple_type
+        self.averaging: Averaging = averaging
+        self.filter_hz: FilterHz = filter_hz
         self.mode: Mode = mode
         self.sleep = sleep
         """Whether to wait the conversion time in one-shot mode; off in a test against a fake."""
