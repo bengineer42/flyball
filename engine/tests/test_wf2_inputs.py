@@ -467,10 +467,10 @@ class TestValuesDevice:
         assert again.latest[dry].value == 40.0
         assert again.latest[again.devices["d"].signals["out"]].value == 80.0
         source = again.values.source(dry)
-        assert (source.origin, source.actor, source.written_ns) == (
+        assert (source.origin, source.actor, source.written_utc_ns) == (
             "restored",
             BEN,
-            row.written_ns,
+            row.written_utc_ns,
         )
         assert [e.code for e in again.recent if e.code == Code.VALUE_RESTORED] == ["value_restored"]
 

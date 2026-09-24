@@ -60,7 +60,7 @@ def outcome(status: int) -> Outcome:
 class Action:
     """One audited action, as the caller knows it; the auditor numbers it."""
 
-    time_ns: int
+    time_utc_ns: int
     """Wall-clock time it was asked for, ns since the epoch (not the rig's clock)."""
     actor: Actor
     """Who: `via` is `http`, `mcp` (a tool's own call) or `signal` (the break-glass)."""
@@ -100,7 +100,7 @@ class AuditRow(Action):
 
 
 _COLUMNS: Final = (
-    "time_ns",
+    "time_utc_ns",
     "boot",
     "seq",
     "principal",
@@ -140,7 +140,7 @@ def append(store: Store, actions: Sequence[tuple[str, int, Action]]) -> None:
         raise TypeError(f"no audit table in a {type(store).__name__}")
     rows = [
         (
-            a.time_ns,
+            a.time_utc_ns,
             boot,
             seq,
             a.actor.principal,

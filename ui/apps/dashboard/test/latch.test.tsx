@@ -38,7 +38,7 @@ const HEALTH = {
   alarms: { warn: 0, alarm: 0, unknown: 0, max_level: 0 },
   activities: [],
   recording: false,
-  stopped: { actor: { principal: "local:console", kind: "human", via: "http", sid: "s", message: "" }, at_ns: 1_790_000_000_000_000_000, reason: "operator" },
+  stopped: { actor: { principal: "local:console", kind: "human", via: "http", sid: "s", message: "" }, at_utc_ns: 1_790_000_000_000_000_000, reason: "operator" },
   latches: [
     { subject_kind: "rig", subject: "furnace", cause: "stop" },
     { subject_kind: "controller", subject: "heaters.heater1", cause: "on_fault:heaters.heater1" },
@@ -78,7 +78,7 @@ describe("the software stop", () => {
       ],
     };
     const report = {
-      at_ns: 1,
+      at_utc_ns: 1,
       actor: { principal: "local:console", kind: "human", via: "http", sid: "s", message: "" },
       reason: "",
       devices: { heaters: { state: "stopped", message: "", written: { "heaters.heater1": 0 } }, fan: { state: "unchanged", message: "keep", kept: { "fan.speed": 40 } } },

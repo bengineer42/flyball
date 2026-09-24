@@ -277,7 +277,7 @@ func postStop(ctx context.Context, t client.Target, reason string) (refused bool
 		return true, fmt.Errorf("stop: %s: %s", resp.Status, strings.TrimSpace(string(out)))
 	}
 	var r stopReport
-	if err := json.Unmarshal(out, &r); err != nil || r.AtNS == 0 {
+	if err := json.Unmarshal(out, &r); err != nil || r.AtUTCNS == 0 {
 		return true, fmt.Errorf("stop: %s, but the answer is not a stop report, so the stop is not known to have happened: %.200s", resp.Status, strings.TrimSpace(string(out)))
 	}
 	printStopReport(r)
@@ -285,12 +285,12 @@ func postStop(ctx context.Context, t client.Target, reason string) (refused bool
 }
 
 // stopReport mirrors A8's StopReport JSON (§WP0-9, "A8 as built"):
-// {at_ns, actor{principal,kind,via,sid,message}, reason, devices{name:
+// {at_utc_ns, actor{principal,kind,via,sid,message}, reason, devices{name:
 // {state,message,written,kept}}, program_interrupted, controllers_manual, interim,
 // latched}.
 type stopReport struct {
-	AtNS  int64 `json:"at_ns"`
-	Actor struct {
+	AtUTCNS int64 `json:"at_utc_ns"`
+	Actor   struct {
 		Principal string `json:"principal"`
 		Kind      string `json:"kind"`
 		Via       string `json:"via"`

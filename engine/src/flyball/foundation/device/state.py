@@ -127,10 +127,10 @@ class Code(StrEnum):
     # Stops and latches.
     STOPPED = "stopped"
     """A condition on the rig while its stop's latch holds: raised by the software stop,
-    cleared by its Reset. `details`: `{actor, at_ns, reason}`."""
+    cleared by its Reset. `details`: `{actor, at_utc_ns, reason}`."""
     LATCHED = "latched"
     """A condition on each controller, signal and device a fault action latched; cleared by
-    its Reset. `details`: `{cause, action, actor, at_ns, reason}`."""
+    its Reset. `details`: `{cause, action, actor, at_utc_ns, reason}`."""
     STOP_APPLIED = "stop_applied"
     """An event on the rig: what a stop, a shutdown or a re-applied latch did, device by device,
     and every output it left energised (kept) with its value. `details`: `{why, devices,
@@ -145,7 +145,7 @@ class Code(StrEnum):
     """An event on the signal: an operator wrote a value. `details`: `{value, was, actor}`."""
     VALUE_RESTORED = "value_restored"
     """An event on the signal, at start: the value last written was restored from the store,
-    the rig file's `initial` being unchanged. `details`: `{value, actor, written_ns}`."""
+    the rig file's `initial` being unchanged. `details`: `{value, actor, written_utc_ns}`."""
     VALUE_NOT_RESTORED = "value_not_restored"
     """A condition on the signal, at start: the value last written was not restored because
     its unit changed in the rig file; the file's `initial` is in force. Cleared by the next

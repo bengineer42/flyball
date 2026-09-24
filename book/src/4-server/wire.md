@@ -17,11 +17,20 @@ never a bare `NaN` that `JSON.parse` refuses.
 | `Time` | `{"seconds": int, "nanoseconds": int}` | — |
 | `Duration` | `{"seconds": int, "nanoseconds": int}` | unit keys that add (`{"minutes": 1, "seconds": 30}`), or a bare number of seconds |
 | `Rate` | `{"value": float, "per": "second"}` | one `per_<unit>` key: `{"per_minute": 2}` |
-| a timestamp field (`time_ns`, `start_ns`, …) | integer nanoseconds | — |
+| a timestamp field (`time_ns`, `start_ns`, `at_utc_ns`, …) | integer nanoseconds since the epoch, or an offset | — |
 
 Nanoseconds are integers because a difference of two wall-clock floats
 carries ~240 ns of error regardless of the interval. Integer subtraction
 first; convert the small result second.
+
+The name says the clock (D-084). A bare `_ns` is a time on the rig's clock,
+absolute (`time_ns`, `start_ns`) or an offset (`offset_ns`): what readings,
+sessions and events are stamped with. A `_utc_ns` is wall-clock time: when a
+stop began or a latch was set (`at_utc_ns`), when a value was written
+(`written_utc_ns`), when the audit recorded an action (`time_utc_ns`). On
+hardware the two clocks read the same; a simulated rig's clock runs scaled
+or stepped, so there they differ, and comparing a `_utc_ns` with a bare
+`_ns` compares two time axes.
 
 ## Signals and quantities
 
@@ -112,7 +121,7 @@ Kelvin against a °C signal converts before it reports.
 | --- | --- |
 | `DeviceOut` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, consumers, sources, readable, writable, conditions, run}` — see [Devices](api.md#devices) |
 | `InputOut` | `{name, label, quantity, unit, bound, constant?, quality, reason?, age_s?}`: what an input follows (an address, or a number) and its quality now |
-| `ValueSourceOut` | `{origin: rig_file \| restored \| written, initial, actor, written_ns}`: where a `values` device's value in force came from; `actor` who wrote it (`null`: not known) |
+| `ValueSourceOut` | `{origin: rig_file \| restored \| written, initial, actor, written_utc_ns}`: where a `values` device's value in force came from; `actor` who wrote it (`null`: not known) |
 | `Actor` | `{principal, kind, via, sid, message}` -- who acted, on every record of an action (a stop, a latch, a write, an event's `details.actor`): `principal` the caller's id (`local:console`, `token:<name>`) or the rig's own (`program`, a controller's name, `stop`); `kind` `human`, `service`, `agent`, or `program`, `controller`, `rule`; `via` `http`, `mcp`, `signal` (the break-glass, the runner's shutdown) or `rig` (the rig's own); `sid` the login, `""` for none; `message` anything more (`from 127.0.0.1`) |
 | `CommandOut` | `{name, description, simulation, commit, mode, interrupts, writes, demand_of, links}` |
 | `CommandRunOut` (`POST .../commands/{command}`) | `{"result": any, "interrupted": [{"controller": str, "was": "regulating"}]}` — `result` what the method returned; `interrupted` the controllers an `interrupts` command put in manual once it had succeeded |
@@ -147,11 +156,11 @@ config or the name of a stored tuning instead.
 
 | type | JSON |
 | --- | --- |
-| `StopReport` (`POST /api/rig/stop`) | `{at_ns, actor, reason, devices, program_interrupted, controllers_manual, interim, latched}` -- `at_ns` wall-clock ns; `actor` an `Actor` (`via` `http`, `mcp` or `signal`); `devices` `{name: DeviceStop}`; `interim` `false` (`true` only from the earlier stop that wrote nothing); `latched` whether the rig is latched stopped now |
+| `StopReport` (`POST /api/rig/stop`) | `{at_utc_ns, actor, reason, devices, program_interrupted, controllers_manual, interim, latched}` -- `at_utc_ns` wall-clock ns; `actor` an `Actor` (`via` `http`, `mcp` or `signal`); `devices` `{name: DeviceStop}`; `interim` `false` (`true` only from the earlier stop that wrote nothing); `latched` whether the rig is latched stopped now |
 | `DeviceStop` | `{state, message, written, kept}` -- `state` `stopped`, `unchanged` or `failed`; `message` what it did, or why it failed; `written` `{address: value}` what it wrote (a driver's readback where it gave one); `kept` `{address: value \| null}` what it left as it was, with the value it holds (`null`: not known) |
-| `LatchOut` (`GET /api/rig/latches`, `POST /api/rig/reset`) | `{cause, subjects, actor, at_ns, reason, action}` -- `cause` `stop` or `on_fault:<controller>`; `subjects` `[{subject_kind, subject}]` (`subject_kind` `rig`, `device`, `signal` or `controller`); `actor` the `Actor` who set it: the person or agent for a stop, the controller (`kind: controller`, `via: rig`) for a fault; `action` the fault's `manual`, `stop` or `stop_device`, `""` for a stop |
+| `LatchOut` (`GET /api/rig/latches`, `POST /api/rig/reset`) | `{cause, subjects, actor, at_utc_ns, reason, action}` -- `cause` `stop` or `on_fault:<controller>`; `subjects` `[{subject_kind, subject}]` (`subject_kind` `rig`, `device`, `signal` or `controller`); `actor` the `Actor` who set it: the person or agent for a stop, the controller (`kind: controller`, `via: rig`) for a fault; `action` the fault's `manual`, `stop` or `stop_device`, `""` for a stop |
 | `StopPlan` (`GET /api/rig/stop`) | `{stopped, outputs}` -- `stopped` the rig stop's `LatchOut` or `null`; `outputs` `[{address, device, stop, origin, command, controller, covered_if_flyball_dies, warnings}]`: `stop` a number, `"keep"`, or `null` when `command` runs; `origin` `off`, `you_said`, `nobody_said` or `command`; `covered_if_flyball_dies` always `false`; `warnings` `[str]` |
-| `Health.stopped`, `Health.latches` (`GET /api/health`) | `stopped` `{actor, at_ns, reason}` or `null`; `latches` `[{subject_kind, subject, cause}]`, one row per subject a latch holds |
+| `Health.stopped`, `Health.latches` (`GET /api/health`) | `stopped` `{actor, at_utc_ns, reason}` or `null`; `latches` `[{subject_kind, subject, cause}]`, one row per subject a latch holds |
 
 ## Sessions
 

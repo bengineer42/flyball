@@ -128,7 +128,7 @@ class LatchRow:
     subjects: list[dict[str, str]]
     actor: Actor
     """Who set it: a stop's person or agent, a fault action's controller."""
-    at_ns: int
+    at_utc_ns: int
     """When it was set, wall time in ns since the epoch."""
     reason: str = ""
     action: str = ""
@@ -153,7 +153,7 @@ class LiveValueRow:
     """The rig file's value in force when it was written."""
     actor: Actor | None
     """Who wrote it; None when not known."""
-    written_ns: int
+    written_utc_ns: int
     """When, wall time in ns since the epoch."""
     config_field: str | None = None
     """A setting's driver config field; None for a value."""

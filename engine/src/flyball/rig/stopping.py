@@ -104,7 +104,7 @@ class DeviceStop(TypedDict):
 class StopReport:
     """What one stop did, device by device."""
 
-    at_ns: int
+    at_utc_ns: int
     """Wall-clock time the stop began, ns since the epoch (not the rig's clock)."""
     actor: Actor
     reason: str
@@ -199,7 +199,7 @@ class InterimStopper:
         self._lock = Lock()
 
     def stop(self, actor: Actor, reason: str, *, latch: bool = True) -> StopReport:
-        at_ns = time.time_ns()
+        at_utc_ns = time.time_ns()
         with self._lock:
             interrupted = _interrupt(self.program, "the rig was stopped")
             failed = _manual(self.rig, None)
@@ -217,7 +217,7 @@ class InterimStopper:
                 }
             )
         return StopReport(
-            at_ns=at_ns,
+            at_utc_ns=at_utc_ns,
             actor=actor,
             reason=reason,
             devices=devices,
@@ -281,7 +281,7 @@ class Stopping:
             "cause": latch.cause,
             "action": latch.action,
             "actor": latch.actor.as_dict(),
-            "at_ns": latch.at_ns,
+            "at_utc_ns": latch.at_utc_ns,
             "reason": latch.reason,
         }
         if latch.cause == RIG_STOP:
@@ -291,7 +291,11 @@ class Stopping:
                 Severity.WARNING,
                 f"stopped by {latch.actor.principal}"
                 + (f": {latch.reason}" if latch.reason else ""),
-                {"actor": latch.actor.as_dict(), "at_ns": latch.at_ns, "reason": latch.reason},
+                {
+                    "actor": latch.actor.as_dict(),
+                    "at_utc_ns": latch.at_utc_ns,
+                    "reason": latch.reason,
+                },
             )
         else:
             for owner in self._owners(latch):
@@ -405,7 +409,7 @@ class Stopping:
             cause=fault_cause(controller.name),
             subjects=subjects(held),
             actor=Actor(principal=controller.name, kind="controller", via="rig"),
-            at_ns=time.time_ns(),
+            at_utc_ns=time.time_ns(),
             reason=outage.reason,
             action=action.value,
         )
@@ -621,7 +625,7 @@ class RigStopper:
         but sets no latch: what follows it (a restart from a rig edit) comes up passive.
         What was staged is replaced all the same.
         """
-        at_ns = time.time_ns()
+        at_utc_ns = time.time_ns()
         rig = self.rig
         with self._lock:
             if latch:
@@ -630,14 +634,14 @@ class RigStopper:
                         cause=RIG_STOP,
                         subjects=subjects([("rig", rig.name or "rig")]),
                         actor=actor,
-                        at_ns=at_ns,
+                        at_utc_ns=at_utc_ns,
                         reason=reason,
                     )
                 )
             else:
                 rig.replace_staged([d for d in list(rig.devices.values()) if stoppable(d)])
             report = self._run(
-                actor, reason, at_ns, devices=None, why="stop" if latch else "planned stop"
+                actor, reason, at_utc_ns, devices=None, why="stop" if latch else "planned stop"
             )
         log.warning(
             "software stop by %s via %s (%s): program %s, %d controller(s) manual; %s",
@@ -668,7 +672,7 @@ class RigStopper:
             return self._run(actor, "shutdown", time.time_ns(), devices=chosen, why="shutdown")
 
     def _run(
-        self, actor: Actor, reason: str, at_ns: int, *, devices: list[Device] | None, why: str
+        self, actor: Actor, reason: str, at_utc_ns: int, *, devices: list[Device] | None, why: str
     ) -> StopReport:
         rig = self.rig
         for device in rig.running_commands():
@@ -686,7 +690,7 @@ class RigStopper:
         if stops:
             _applied(rig, f"{why} by {actor.principal}" + (f": {reason}" if reason else ""), stops)
         return StopReport(
-            at_ns=at_ns,
+            at_utc_ns=at_utc_ns,
             actor=actor,
             reason=reason,
             devices=stops,

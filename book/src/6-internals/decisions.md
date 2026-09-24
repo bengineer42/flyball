@@ -61,6 +61,7 @@ are in `DECISIONS.md` at the repository root; this is the index.
 | **D-078** | Auth drops the word "role": the front's grant sets are named by their key under `grants:` (`viewer`, `all`); auth keeps `scope` (the OAuth word), so what an event or a condition is about is its `subject` and that subject's kind its `subject_kind` | decided; built |
 | **D-079** | `-` and `_` are one character in a name: input and lookups may use either, `_` is what is stored and compared (`name: wet-pump` is found by `device: wet_pump`), and two names that differ only by `-`/`_` are refused as one. A system that allows only one of them gets that one at its edge (none today) | decided; built |
 | **D-081** | One `actor` `{principal, kind, via}` (plus `sid` and a `message`) on every record of an action -- a stop, a latch, a write, the audit -- in place of `by`, `writer` and `sub`; `user` names only auth's account record | decided; built |
+| **D-084** | A timestamp field's name says its clock: a bare `_ns` is a time on the rig's clock, absolute (`time_ns`) or an offset (`offset_ns`); a field holding wall-clock time is `_utc_ns` (the audit's `time_utc_ns`, a stop's or a latch's `at_utc_ns`, a value's `written_utc_ns`). The two read the same on hardware and differ in a simulation, whose clock runs scaled or stepped | decided; built |
 
 Nothing in this book is settled unless `DECISIONS.md` says so. Where a
 chapter describes intent rather than fact, it says which.

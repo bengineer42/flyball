@@ -220,7 +220,7 @@ behind a config field, is reserved for live settings, C11), `value` and
 `initial` as JSON (a later setting may be a string, a bool or an enum
 member), `unit` (the symbol when it was written), `config_field` (a
 setting's; NULL for a value), `actor` (who wrote it, JSON `{principal, kind, via, sid, message}`),
-`written_ns` (wall time) and `head_version` (the rig version in force). It
+`written_utc_ns` (wall time) and `head_version` (the rig version in force). It
 does not depend on recording: the runner always opens the store. At start,
 `Rig.values.attach` restores a row while the rig file's `initial` still
 equals the row's and the unit is the same; a changed `initial` means the
@@ -239,7 +239,7 @@ Migration 0025 added `latch`: one row per latch cause held -- the rig
 stop (`stop`) or a controller's `on_fault` action (`on_fault:<controller>`)
 -- with `subjects` as JSON `[{subject_kind, subject}]` (`rig`, `device`, `signal`,
 `controller`), `actor` (who set it, JSON `{principal, kind, via, sid, message}`: a stop's person or
-agent, a fault's controller), `at_ns` (wall
+agent, a fault's controller), `at_utc_ns` (wall
 time), `reason` and `action` (a fault's). A row is written when the latch
 is set and deleted by its Reset. At start, before serving,
 `Stopping.attach` restores every row and re-applies the stop it implies: a
@@ -267,7 +267,7 @@ the `SIGUSR1` break-glass included. A row is its actor, the verified principal
 `outcome` (`done`, `denied` by the door, `refused` by the rig, `failed`), the
 `request_id` (the front's `X-Request-Id`, or one the runner makes), and as
 JSON a demand's `writes` (`{address: {old, requested, applied}}`) and a
-stop's `details` (its reason). It is in wall time (`time_ns`), not the rig's
+stop's `details` (its reason). It is in wall time (`time_utc_ns`), not the rig's
 clock; it names no session, so retention and deleting a session never reach
 it; and triggers refuse any `UPDATE` or `DELETE` on it. `boot` is one runner
 process and `seq` counts its actions from 1.

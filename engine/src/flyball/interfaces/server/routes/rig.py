@@ -91,7 +91,7 @@ async def read_health() -> dict[str, Any]:
 
     `ok` is false with any fault condition at `error`; a band alarm is not a
     fault, and is counted in `alarms` instead. `stopped` is the rig stop's latch
-    (`{by, at_ns, reason}`, null when not stopped); `latches` every latch cause held,
+    (`{by, at_utc_ns, reason}`, null when not stopped); `latches` every latch cause held,
     one row per subject (`{subject_kind, subject, cause}`).
 
     Lock-free: on the event loop, a watchdog must be answered while a delivery holds the
@@ -125,7 +125,11 @@ async def read_health() -> dict[str, Any]:
         "recording": rig.recording is not None,
         "stopped": None
         if stopped is None
-        else {"actor": stopped.actor.as_dict(), "at_ns": stopped.at_ns, "reason": stopped.reason},
+        else {
+            "actor": stopped.actor.as_dict(),
+            "at_utc_ns": stopped.at_utc_ns,
+            "reason": stopped.reason,
+        },
         "latches": rig.stopping.latches.rows(),
         "exposure": current_exposure(),  # served on loopback though asked for more, or open
     }

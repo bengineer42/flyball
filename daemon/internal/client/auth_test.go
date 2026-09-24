@@ -97,9 +97,9 @@ func (er *echoRunner) serve(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/api/rig/stop" {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"at_ns":  time.Now().UnixNano(),
-			"actor":  map[string]string{"sub": claims.Sub, "sid": claims.Sid, "kind": claims.Kind, "via": "http"},
-			"reason": "flyball stop", "devices": map[string]any{}, "program_interrupted": false,
+			"at_utc_ns": time.Now().UnixNano(),
+			"actor":     map[string]string{"sub": claims.Sub, "sid": claims.Sid, "kind": claims.Kind, "via": "http"},
+			"reason":    "flyball stop", "devices": map[string]any{}, "program_interrupted": false,
 			"controllers_manual": []string{}, "interim": true,
 		})
 		return
