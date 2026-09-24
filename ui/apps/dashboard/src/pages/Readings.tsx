@@ -43,6 +43,7 @@ function LatestValue({ signal }: { signal: SignalOut }) {
  */
 /** Readings (was Inputs, and the Devices list): every device and every published signal, its value, trend and commands -- the plain fall-back view, reached from Options › Pages. */
 export function Readings({ devices: fromRig, ...charts }: ReadingsProps) {
+  const { canOperate } = useAuth();
   const { windowS, yScale } = charts;
   const rig = useRig();
   const [removing, setRemoving] = useState<string | null>(null);
@@ -162,9 +163,11 @@ export function Readings({ devices: fromRig, ...charts }: ReadingsProps) {
                 exportHref={(s) => stored.series(s.address)}
                 controls={
                   <Tooltip title="Remove this device from the rig">
-                    <IconButton aria-label={`remove device ${device.name}`} size="small" onClick={() => setRemoving(device.name)} data-testid={`remove-${device.name}`}>
-                      <DeleteOutlineIcon fontSize="small" />
-                    </IconButton>
+                    <span>
+                      <IconButton aria-label={`remove device ${device.name}`} size="small" disabled={!canOperate} onClick={() => setRemoving(device.name)} data-testid={`remove-${device.name}`}>
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </span>
                   </Tooltip>
                 }
               />

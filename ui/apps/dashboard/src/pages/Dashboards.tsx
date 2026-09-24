@@ -482,7 +482,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
           <Chip label={`${problems.length} widget${problems.length === 1 ? "" : "s"} need${problems.length === 1 ? "s" : ""} attention`} color="warning" variant="outlined" data-testid="problems" />
         </Tooltip>
       )}
-      <Button variant={editing ? "contained" : "outlined"} startIcon={editing ? <CheckIcon /> : <EditOutlinedIcon />} onClick={() => setEditing((e) => !e)} data-testid="edit-toggle" disabled={!doc}>
+      <Button variant={editing ? "contained" : "outlined"} startIcon={editing ? <CheckIcon /> : <EditOutlinedIcon />} onClick={() => setEditing((e) => !e)} data-testid="edit-toggle" disabled={!doc || !canOperate}>
         {editing ? "Done" : "Edit"}
       </Button>
       {editing && (
@@ -508,7 +508,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
       )}
       <Tooltip title={isGenerated ? "Save as a named dashboard" : "Save a new version"}>
         <span>
-          <Button variant="contained" startIcon={<SaveOutlinedIcon />} disabled={busy || !doc || (!dirty && !isGenerated)} onClick={() => (isGenerated ? setSaveAs(true) : void save(wanted))} data-testid="save">
+          <Button variant="contained" startIcon={<SaveOutlinedIcon />} disabled={busy || !doc || !canOperate || (!dirty && !isGenerated)} onClick={() => (isGenerated ? setSaveAs(true) : void save(wanted))} data-testid="save">
             Save
           </Button>
         </span>
@@ -523,7 +523,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
             setMenu(null);
             setSaveAs(true);
           }}
-          disabled={!doc}
+          disabled={!doc || !canOperate}
         >
           <ListItemIcon>
             <SaveAsIcon fontSize="small" />
@@ -536,7 +536,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
             setMenu(null);
             setRenaming(true);
           }}
-          disabled={isGenerated || !baseline}
+          disabled={isGenerated || !baseline || !canOperate}
         >
           <ListItemIcon>
             <DriveFileRenameOutlineIcon fontSize="small" />
@@ -549,7 +549,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
             setMenu(null);
             setDeleting(true);
           }}
-          disabled={isGenerated || !baseline}
+          disabled={isGenerated || !baseline || !canOperate}
           sx={{ color: "error.main" }}
         >
           <ListItemIcon>
@@ -589,6 +589,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
             setMenu(null);
             fileInput.current?.click();
           }}
+          disabled={!canOperate}
         >
           <ListItemIcon>
             <UploadFileIcon fontSize="small" />
@@ -596,7 +597,7 @@ export function Dashboards({ name, generated, devices, events, recording: record
           <ListItemText>Import JSON…</ListItemText>
         </MenuItem>
         <Divider />
-        <MenuItem data-testid="menu-readonly" onClick={toggleReadonly} disabled={!doc}>
+        <MenuItem data-testid="menu-readonly" onClick={toggleReadonly} disabled={!doc || !canOperate}>
           <ListItemIcon>{readonly ? <LockOpenOutlinedIcon fontSize="small" /> : <LockOutlinedIcon fontSize="small" />}</ListItemIcon>
           <ListItemText>{readonly ? "Make writable" : "Make read-only"}</ListItemText>
         </MenuItem>

@@ -212,6 +212,9 @@ export class TelemetryStore {
   private pendingSeed: Address[] = [];
   private seeding: Promise<void> | null = null;
   private newestS = Number.NEGATIVE_INFINITY;
+  /** `/api/clock` as last read: the rig's time then, the wall time it arrived, and the rig clock's speed. */
+  private clockAnchor: { rigS: number; wallMs: number; speed: number } | null = null;
+  private clockAskedAt = 0;
   private seededControllers = new Set<string>();
 
   /** Where playback is reading from, in rig seconds; null while live. */
@@ -341,9 +344,33 @@ export class TelemetryStore {
     return out;
   }
 
-  /** The rig's clock as far as the samples say: the newest sample time across every signal, or null before any. Live even in playback. */
+  /**
+   * The rig's clock now: the newest sample time, or -- when that has stopped moving (every polled
+   * device down, or none polled) -- the rig's own clock carried forward from `/api/clock` at its speed,
+   * whichever is later. Without the second, a rig whose only poller dies freezes the clock the UI
+   * ages samples against, and nothing ever shows stale. Null before either is known. Live even in playback.
+   */
   nowS(): number | null {
-    return Number.isFinite(this.newestS) ? this.newestS : null;
+    this.refreshClock();
+    const fromSamples = Number.isFinite(this.newestS) ? this.newestS : null;
+    const a = this.clockAnchor;
+    const fromClock = a ? a.rigS + ((Date.now() - a.wallMs) / 1000) * a.speed : null;
+    if (fromSamples === null) return fromClock;
+    if (fromClock === null) return fromSamples;
+    return Math.max(fromSamples, fromClock);
+  }
+
+  /** Read `/api/clock` again at most every ten seconds (a speed change, drift); a rig without it leaves the samples' clock. */
+  private refreshClock(): void {
+    const now = Date.now();
+    if (now - this.clockAskedAt < 10_000 || typeof (this.rig as { clock?: unknown }).clock !== "function") return;
+    this.clockAskedAt = now;
+    this.rig
+      .clock()
+      .then((c) => {
+        if (typeof c?.now_ns === "number") this.clockAnchor = { rigS: c.now_ns / 1e9, wallMs: Date.now(), speed: typeof c.speed === "number" ? c.speed : 1 };
+      })
+      .catch(() => undefined);
   }
 
   /** The clock a sample is aged against: `atS` in playback (a point just before it is fresh), `nowS()` otherwise. */

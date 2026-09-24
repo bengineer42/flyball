@@ -25,15 +25,17 @@ def merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     """`overlay` layered onto `base`: mappings deep-merge, everything else replaces.
 
     A key whose overlay value is `None` is removed from the result -- the
-    only way to delete something an earlier layer set. Neither argument is
+    only way to delete something an earlier layer set -- at any depth, so a
+    mapping the base lacks arrives without its `None`s. Neither argument is
     mutated.
     """
     result = dict(base)
     for key, value in overlay.items():
         if value is None:
             result.pop(key, None)
-        elif isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = merge(result[key], value)
+        elif isinstance(value, dict):
+            below = result.get(key)
+            result[key] = merge(below if isinstance(below, dict) else {}, value)
         else:
             result[key] = value
     return result

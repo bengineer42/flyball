@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { useAuth } from "../auth.js";
 import {
   Alert,
   Box,
@@ -108,6 +109,7 @@ const bytes = (n: number): string => (n >= 1e9 ? `${(n / 1e9).toFixed(n >= 1e10 
  * older one already stopped at its own `end_ns` and never grows again.
  */
 function BufferRow({ buffer, current, nowS, runner, onKeep, onForget, onSelect }: { buffer: SessionRow; current: boolean; nowS: number; runner: RunnerInfo | undefined; onKeep(): void; onForget?(): void; onSelect(): void }) {
+  const { canOperate } = useAuth();
   const asOfS = current ? nowS : buffer.end_ns! / 1e9;
   const heldS = Math.max(0, asOfS - buffer.start_ns / 1e9);
   const keep = runner?.keep_ns;
@@ -139,14 +141,16 @@ function BufferRow({ buffer, current, nowS, runner, onKeep, onForget, onSelect }
       <TableCell>{fmtDuration(heldS)}</TableCell>
       <TableCell padding="checkbox" colSpan={2} onClick={(e) => e.stopPropagation()}>
         <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="wrap" useFlexGap>
-          <Button size="small" variant="outlined" onClick={onKeep} disabled={current ? heldS < 60 : !hasData} data-testid="keep-button" sx={{ whiteSpace: "nowrap" }}>
+          <Button size="small" variant="outlined" onClick={onKeep} disabled={!canOperate || (current ? heldS < 60 : !hasData)} data-testid="keep-button" sx={{ whiteSpace: "nowrap" }}>
             Keep
           </Button>
           {!current && onForget && (
             <Tooltip title="Forget: gone for good, nothing is kept">
-              <Button size="small" variant="outlined" color="error" onClick={onForget} data-testid="forget-button" sx={{ whiteSpace: "nowrap" }}>
-                Forget
-              </Button>
+              <span>
+                <Button size="small" variant="outlined" color="error" onClick={onForget} disabled={!canOperate} data-testid="forget-button" sx={{ whiteSpace: "nowrap" }}>
+                  Forget
+                </Button>
+              </span>
             </Tooltip>
           )}
         </Stack>
@@ -254,6 +258,7 @@ function KeepDialog({ scratch, nowS, onClose, onKept }: { scratch: SessionRow; n
 }
 
 function RecordingControl({ recording, scratch, onChange }: { recording: Recording; scratch?: SessionRow; onChange(): void }) {
+  const { canOperate } = useAuth();
   const nowS = useNowS();
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
@@ -307,7 +312,7 @@ function RecordingControl({ recording, scratch, onChange }: { recording: Recordi
           <Typography variant="body2" color="text.secondary">
             started {when(open.start_ns)} · {fmtDuration(sessionSeconds(open, nowS))}
           </Typography>
-          <Button variant="outlined" color="error" startIcon={<StopCircleOutlinedIcon />} onClick={() => setConfirmEnd(true)} disabled={busy} sx={{ ml: "auto" }}>
+          <Button variant="outlined" color="error" startIcon={<StopCircleOutlinedIcon />} onClick={() => setConfirmEnd(true)} disabled={busy || !canOperate} sx={{ ml: "auto" }}>
             End recording
           </Button>
           <Confirm
@@ -338,7 +343,7 @@ function RecordingControl({ recording, scratch, onChange }: { recording: Recordi
               </Select>
             </FormControl>
           )}
-          <Button type="submit" variant="contained" disabled={busy}>
+          <Button type="submit" variant="contained" disabled={busy || !canOperate}>
             Start recording
           </Button>
         </Stack>
@@ -450,6 +455,7 @@ function DownloadMenu({ id }: { id: number }) {
 
 /** One session top to bottom, from the library's `SessionPanel`; back link and delete above it. */
 function SessionDrillIn({ id, onBack, onDelete, onSelect }: { id: number; onBack(): void; onDelete(id: number): void; onSelect(id: number | null): void }) {
+  const { canOperate } = useAuth();
   const rig = useRig();
   const detail = useSession(id);
   const nowS = useNowS();
@@ -469,7 +475,7 @@ function SessionDrillIn({ id, onBack, onDelete, onSelect }: { id: number; onBack
             <DownloadMenu id={id} />
             <Tooltip title={open ? "Still recording" : "Delete session"}>
               <span>
-                <IconButton aria-label={`delete session ${id}`} disabled={open} onClick={() => onDelete(id)}>
+                <IconButton aria-label={`delete session ${id}`} disabled={open || !canOperate} onClick={() => onDelete(id)}>
                   <DeleteOutlineIcon fontSize="small" />
                 </IconButton>
               </span>
@@ -520,6 +526,7 @@ export interface SessionsProps {
 
 /** Recording control, recorded sessions newest first, and one session in full when selected. */
 export function Sessions({ recording, selected, onSelect }: SessionsProps) {
+  const { canOperate } = useAuth();
   const rig = useRig();
   const nowS = useNowS();
   const sessions = useQuery(() => rig.sessions(50), [rig]);
@@ -712,7 +719,7 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
           <Typography variant="body2" fontWeight={600}>
             {checked.size} selected
           </Typography>
-          <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => setBulkOpen(true)}>
+          <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => setBulkOpen(true)} disabled={!canOperate}>
             Delete
           </Button>
           <Button size="small" onClick={() => setChecked(new Set())}>
@@ -851,7 +858,7 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
                         {runner.data?.retain_ns != null && runner.data.retain_ns > 0 && (
                           <Tooltip title={s.pinned ? "Pinned: never aged out. Unpin?" : `Pin: keep past the ${span(runner.data.retain_ns / 1e9)} retention`}>
                             <span>
-                              <IconButton aria-label={`${s.pinned ? "unpin" : "pin"} session ${id}`} disabled={pinBusy === id} onClick={() => void pin(s)}>
+                              <IconButton aria-label={`${s.pinned ? "unpin" : "pin"} session ${id}`} disabled={pinBusy === id || !canOperate} onClick={() => void pin(s)}>
                                 {s.pinned ? <PushPinIcon fontSize="small" color="primary" /> : <PushPinOutlinedIcon fontSize="small" />}
                               </IconButton>
                             </span>
@@ -876,7 +883,7 @@ export function Sessions({ recording, selected, onSelect }: SessionsProps) {
                               variant="outlined"
                               color="error"
                               startIcon={<DeleteOutlineIcon fontSize="small" />}
-                              disabled={!end_ns}
+                              disabled={!end_ns || !canOperate}
                               onClick={() => setPending(id)}
                               aria-label={`delete session ${id}`}
                               sx={{ whiteSpace: "nowrap" }}

@@ -41,10 +41,12 @@ history is a tree of what was actually built on, never a copy of a copy.
 What was added does not survive a restart by itself -- the runner starts
 from what its command line says -- unless you keep it:
 
-- `POST /api/rig/save` with no body writes what changed since this start
-  to `<rig>.d/added.yaml` beside the first rig file, and the runner loads
-  that directory as one more overlay next time. Your own files are never
-  rewritten; delete the overlay to undo.
+- `POST /api/rig/save` with no body writes to `<rig>.d/added.yaml` beside
+  the first rig file everything that differs from your own files: what an
+  earlier save kept, with this run's changes on top (a removal included).
+  The runner loads that directory as one more overlay next time. A save
+  with nothing new leaves the file alone and says so (`written: false`).
+  Your own files are never rewritten; delete the overlay to undo.
 - `POST /api/rig/save {"path": "lab.yaml"}` writes the whole running rig,
   flattened, to a file of your choosing: how a rig built up from nothing
   becomes a rig file. It refuses a file the rig was loaded from unless

@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 from flyball.foundation.config import Config
 from flyball.foundation.device import Code, DeviceEntry, Scope, Severity
 from flyball.foundation.errors import ConflictError
-from flyball.foundation.files import SUFFIXES, dumps_without_none
+from flyball.foundation.files import SUFFIXES, dumps_without_none, load_document
 from flyball.interfaces.server.deps import (
     RigDep,
     compose_allowed,
@@ -34,7 +34,13 @@ from flyball.interfaces.server.routes.devices import device_out
 from flyball.interfaces.server.schemas import DeviceOut
 from flyball.record import RigVersionRow
 from flyball.rig import Rig
-from flyball.runtime.config import RigConfig, canonical, is_simulated, registered
+from flyball.runtime.config import (
+    RigConfig,
+    canonical,
+    is_simulated,
+    registered,
+    saved_overlay_path,
+)
 from flyball.runtime.overlay import resolve_layers
 
 router = APIRouter(prefix="/api", tags=["composition"])
@@ -339,16 +345,24 @@ class SaveIn(BaseModel):
 
 @router.post("/rig/save")
 def save(rig: RigDep, body: SaveIn | None = None) -> dict[str, Any]:
-    """Write the running rig out; see `SaveIn`. Returns the path and what was written."""
+    """Write the running rig out; see `SaveIn`.
+
+    Returns the path, the document and whether it was written: the default overlay is left
+    alone when it already says the same.
+    """
     body = body or SaveIn()
     if body.path is None:
         if not rig.files:
             raise HTTPException(
                 status_code=409, detail="The rig was not started from a file: say where to save"
             )
-        first = rig.files[0]
-        target = first.with_name(first.name + ".d") / f"added{first.suffix}"
-        document = _changes(rig)
+        target = saved_overlay_path(rig.files[0])
+        # The overlay this run loaded is already in `rig.loaded`, so `_changes` holds only this
+        # run's changes: the file gets both, or a second run's save would drop the first's.
+        document = merge_overlays(rig.saved_overlay, _changes(rig))
+        existing = load_document(target) if target.exists() else None
+        if document == (existing or {}):
+            return {"path": str(target), "document": document, "written": False}
         target.parent.mkdir(exist_ok=True)
     else:
         if not save_allowed():
@@ -372,7 +386,22 @@ def save(rig: RigDep, body: SaveIn | None = None) -> dict[str, Any]:
     partial = target.with_name(target.name + ".tmp")
     partial.write_text(text)
     os.replace(partial, target)
-    return {"path": str(target), "document": document}
+    return {"path": str(target), "document": document, "written": True}
+
+
+def merge_overlays(first: dict[str, Any], then: dict[str, Any]) -> dict[str, Any]:
+    """One overlay that does what applying `first`, then `then`, does.
+
+    Mappings merge key by key; anything else in `then` replaces what `first` had, a `None` (a
+    deletion) included -- kept, not applied, so it still deletes from the files beneath.
+    """
+    out = dict(first)
+    for key, value in then.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = merge_overlays(out[key], value)
+        else:
+            out[key] = value
+    return out
 
 
 def _runner_section(target: Path) -> dict[str, Any]:

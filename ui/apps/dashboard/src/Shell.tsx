@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { AppBar, Box, IconButton, Toolbar, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
 import HomeOutlinedIcon from "@mui/icons-material/HomeOutlined";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
@@ -7,7 +7,7 @@ import { hashFor, type Page } from "./router.js";
 export interface ShellProps {
   page: Page;
   title: string;
-  /** The status chips: conditions, recording, program, server, sim. On a narrow screen they scroll sideways. */
+  /** The status chips: conditions, recording, program, server, sim. On a phone they get a row of their own and wrap. */
   status: ReactNode;
   /** The software stop. Its slot keeps its width whether or not the viewer may operate, so signing in never shifts the bar. */
   stop?: ReactNode;
@@ -36,9 +36,22 @@ export function Shell({ page, title, status, stop, account, startSlot, children 
   const phone = useMediaQuery(theme.breakpoints.down("sm"));
   const tabs = startSlot ?? null;
   const onDashboards = page === "dashboards" && tabs !== null;
+  // The bar's height varies (a phone wraps the chips; the dashboards page adds its tabs), so it is published as
+  // `--fb-bar-h` for whatever sits under it: the sticky page bar, the Graph page's full-height body.
+  const bar = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const publish = () => document.documentElement.style.setProperty("--fb-bar-h", `${el.offsetHeight}px`);
+    publish();
+    if (typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(publish);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
   return (
     <Box sx={{ minHeight: "100vh" }}>
-      <AppBar position="fixed" color="inherit" elevation={0} sx={{ borderBottom: 1, borderColor: "divider" }}>
+      <AppBar ref={bar} position="sticky" color="inherit" elevation={0} sx={{ borderBottom: 1, borderColor: "divider" }}>
         <Toolbar variant="dense" sx={{ gap: 1.5 }}>
           <Tooltip title="Dashboards">
             <IconButton edge="start" aria-label="dashboards" href={hashFor("dashboards")} color={page === "dashboards" ? "primary" : "default"} data-testid="home-button">
@@ -56,10 +69,11 @@ export function Shell({ page, title, status, stop, account, startSlot, children 
             {title}
           </Typography>
           {onDashboards && !phone ? tabs : <Box sx={{ flexGrow: 1 }} />}
-          {/* The chips scroll sideways rather than push the stop slot or the gear off a phone screen. */}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, flexShrink: 1, py: "4px", overflowX: "auto", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" }, "& > *": { flexShrink: 0 } }}>
-            {status}
-          </Box>
+          {!phone && (
+            <Box data-testid="status-chips" sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, flexShrink: 1, py: "4px", overflowX: "auto", "& > *": { flexShrink: 0 } }}>
+              {status}
+            </Box>
+          )}
           <Box data-testid="stop-slot" sx={{ width: STOP_SLOT_W, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
             {stop}
           </Box>
@@ -70,6 +84,12 @@ export function Shell({ page, title, status, stop, account, startSlot, children 
             </IconButton>
           </Tooltip>
         </Toolbar>
+        {/* On a phone the chips get a row of their own and wrap, so none is ever out of sight behind a hidden scroll. */}
+        {phone && (
+          <Box data-testid="status-chips" sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1, px: 1, py: "6px", borderTop: 1, borderColor: "divider" }}>
+            {status}
+          </Box>
+        )}
         {onDashboards && phone && (
           <Toolbar variant="dense" disableGutters sx={{ px: 1, borderTop: 1, borderColor: "divider" }}>
             {tabs}
@@ -78,9 +98,8 @@ export function Shell({ page, title, status, stop, account, startSlot, children 
       </AppBar>
 
       {/* The page uses the width it has: one gutter on a phone, two on a desktop, capped only where a card row would get absurd. */}
-      <Box component="main" sx={{ minWidth: 0, px: { xs: "16px", md: "24px" }, pb: "24px", maxWidth: 2200, mx: "auto" }}>
-        <Toolbar variant="dense" sx={{ mb: "16px" }} />
-        {onDashboards && phone && <Toolbar variant="dense" />}
+      {/* The bar is sticky, so it takes its own height in the flow however many rows it wraps to: no spacer to keep in step. */}
+      <Box component="main" sx={{ minWidth: 0, px: { xs: "16px", md: "24px" }, pt: "16px", pb: "24px", maxWidth: 2200, mx: "auto" }}>
         {children}
       </Box>
     </Box>

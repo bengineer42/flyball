@@ -99,13 +99,16 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
       setRestarting(false);
     }
   };
+  // Offline and backing off: the rig still polls, but between retries (`next_retry_ns` set only then).
+  const retrying = run?.next_retry_ns != null;
   const runLine = (run || conditions.length > 0 || modeSignal) && (
     <div className="fb-device-run">
       {run && (
         <span className="fb-muted" title={run.period_s !== null ? `Polled every ${run.period_s} s` : "Not polled on a period"}>
-          {run.running ? "polling" : "stopped"}
+          {!run.running ? "stopped" : retrying ? `retrying · ${run.consecutive_failures} failed` : "polling"}
           {run.period_s !== null && ` · every ${run.period_s} s`}
           {run.last_read_ns !== null && ` · last read ${clock(run.last_read_ns)}`}
+          {retrying && ` · next try ${clock(run.next_retry_ns!)}`}
         </span>
       )}
       {modeSignal && currentMode !== null && currentMode !== undefined && (
@@ -122,9 +125,9 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
           ))}
         </span>
       )}
-      {onRestart && run && !run.running && (
-        <button type="button" className="fb-tb" disabled={restarting || !canOperate} onClick={() => void restart()} title="Poll the device again on its period">
-          Restart
+      {onRestart && run && (!run.running || retrying) && (
+        <button type="button" className="fb-tb" disabled={restarting || !canOperate} onClick={() => void restart()} title={retrying ? "Try a read now instead of waiting for the next retry" : "Poll the device again on its period"} data-testid="device-restart">
+          {retrying ? "Retry now" : "Restart"}
         </button>
       )}
     </div>

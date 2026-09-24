@@ -917,6 +917,8 @@ export interface RigVersionDetail extends RigVersion {
 export interface SaveResult {
   path: string;
   document: RigDocument;
+  /** False when the default overlay already said the same, so nothing was rewritten. */
+  written: boolean;
 }
 
 // endregion

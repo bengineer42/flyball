@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import { alarmLevel, deviceOf, staleAfterS, type Address, type ActivityOut, type AlarmLevel, type ControllerOut, type DeviceRunOut, type Event, type Freshness, type SampleOut, type SignalOut, type Value, type WriteOut } from "@flyball/client";
+import { alarmLevel, deviceOf, staleAfterS, staleThresholdS, type Address, type ActivityOut, type AlarmLevel, type ControllerOut, type DeviceRunOut, type Event, type Freshness, type SampleOut, type SignalOut, type Value, type WriteOut } from "@flyball/client";
 import { useTelemetry } from "../provider.js";
 import type { SocketStream, StoreStream, StreamStatus, TelemetryStore } from "./telemetry.js";
 
@@ -257,11 +257,13 @@ export function useFreshness(address: Address | undefined, periodS?: number | nu
     const now = store.clockS(); // `atS` in playback: a point just before it is fresh, whatever the live clock says
     if (last === undefined || now === null) return -1;
     const ageS = now - last;
-    return ageS > staleAfterS(period()) ? Math.round(ageS) : -1;
+    const limit = staleThresholdS(period());
+    return limit !== null && ageS > limit ? Math.round(ageS) : -1;
   });
   const last = address === undefined ? null : (store.lastSampleS(address) ?? null);
   const now = store.clockS();
-  const resolved = period() ?? null;
+  // Kept as given: `null` (not read on a period, never stale by age) is not `undefined` (not known yet).
+  const resolved = period();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => ({ periodS: resolved, lastSampleS: last, nowS: age >= 0 && last !== null ? last + age : now }), [resolved, age, address]);
 }

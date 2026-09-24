@@ -169,6 +169,9 @@ class Rig:
     `recording`), carried into the rendered document unchanged."""
     loaded: dict[str, Any] | None
     """The rig as it was when this run started, rendered: what `changes` are measured from."""
+    saved_overlay: dict[str, Any]
+    """The runner's own saved overlay (`<rig>.d/added.*`) as this run loaded it; empty if there
+    was none. `loaded` already includes it, so a save writes it merged with this run's changes."""
     on_change: Callable[[str], None] | None
     """Called after the rig's composition changes (a link, a device, a controller added or
     removed), with a one-line reason: the runner records a version."""
@@ -218,6 +221,7 @@ class Rig:
         self.files = []
         self.header = {}
         self.loaded = None
+        self.saved_overlay = {}
         self.on_change = None
         self.on_recording_stopped = None
         self._closed = False

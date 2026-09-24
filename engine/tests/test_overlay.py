@@ -131,3 +131,10 @@ class TestResolveLayers:
         (tmp_path / "a.yaml").write_text("a: 1\nb: 2\na: 3\n")
         with pytest.raises(ValueError, match="'a'"):
             resolve_layers([tmp_path / "a.yaml"])
+
+
+def test_a_deletion_inside_a_mapping_the_base_lacks_leaves_nothing_behind() -> None:
+    # A saved overlay can delete a device an earlier save added: over files that never had
+    # it, the deletion must not arrive as a `None` entry.
+    assert merge({"name": "lab"}, {"devices": {"probe": None}}) == {"name": "lab", "devices": {}}
+    assert merge({"a": 1}, {"a": {"b": None, "c": 2}}) == {"a": {"c": 2}}

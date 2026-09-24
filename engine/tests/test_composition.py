@@ -228,6 +228,42 @@ class TestRoutes:
             client.post("/api/rig/save", json={"path": str(tmp_path / "x.txt")}).status_code == 422
         )
 
+    def test_a_later_run_s_save_keeps_what_an_earlier_run_saved(
+        self, client: TestClient, store: SqliteStore, tmp_path
+    ) -> None:
+        from flyball.runtime.config import load_rig_config
+
+        rig_file = tmp_path / "lab.yaml"
+        rig_file.write_text("name: lab\n")
+        overlay = tmp_path / "lab.yaml.d" / "added.yaml"
+
+        def run() -> Rig:  # a start from the file, as the runner does: the saved overlay comes too
+            rig = load_rig_config(rig_file).build(clock=SteppedClock(0), start=False)
+            set_rig(rig)
+            return rig
+
+        first = run()
+        assert first.saved_overlay == {}
+        assert client.post("/api/links", json=PLANT).status_code == 201
+        assert client.post("/api/rig/save").json()["written"] is True
+        second = run()
+        assert "t1" in second.links and second.saved_overlay["links"].keys() == {"t1"}
+        r = client.post("/api/rig/save")
+        assert r.status_code == 200 and r.json()["written"] is False, "nothing new: file untouched"
+        assert client.post("/api/devices", json=DAQ).status_code == 201
+        assert client.post("/api/rig/save").json()["written"] is True
+        saved = load_document(overlay)
+        assert set(saved["links"]) == {"t1"}, "the first run's link survives the second's save"
+        assert set(saved["devices"]) == {"probe"}
+        third = run()
+        assert set(third.links) == {"t1"} and set(third.devices) == {"probe"}
+        # A removal is saved too, and the next run starts without it.
+        assert client.delete("/api/devices/probe").status_code in (200, 204)
+        assert client.post("/api/rig/save").json()["written"] is True
+        assert set(run().devices) == set()
+        for rig in (first, second, third):
+            rig.close()
+
     def test_overwriting_a_rig_file_keeps_its_runner_section(
         self, client: TestClient, rig: Rig, tmp_path
     ) -> None:
