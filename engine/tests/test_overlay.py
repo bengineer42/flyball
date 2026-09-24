@@ -133,8 +133,28 @@ class TestResolveLayers:
             resolve_layers([tmp_path / "a.yaml"])
 
 
-def test_a_deletion_inside_a_mapping_the_base_lacks_leaves_nothing_behind() -> None:
-    # A saved overlay can delete a device an earlier save added: over files that never had
-    # it, the deletion must not arrive as a `None` entry.
-    assert merge({"name": "lab"}, {"devices": {"probe": None}}) == {"name": "lab", "devices": {}}
-    assert merge({"a": 1}, {"a": {"b": None, "c": 2}}) == {"a": {"c": 2}}
+def test_a_file_s_deletions_survive_until_it_is_laid_over_the_files_below(tmp_path) -> None:
+    # sim.yaml deletes rig.yaml's real links: its nulls must reach the layering, not be
+    # dropped while the file is loaded on its own (the aging-room / mushroom-room overlays).
+    rig = tmp_path / "rig.yaml"
+    rig.write_text("links:\n  i2c1: {type: i2c}\n  plant: {type: sim_plant}\n")
+    sim = tmp_path / "sim.yaml"
+    sim.write_text("links:\n  i2c1: null\n")
+    document, _ = resolve_layers([rig, sim])
+    assert document["links"] == {"plant": {"type": "sim_plant"}}
+    base = tmp_path / "base.yaml"
+    base.write_text("name: lab\n")
+    child = tmp_path / "child.yaml"
+    child.write_text("extends: [base.yaml]\nlinks:\n  i2c1: null\n")
+    document, _ = resolve_layers([rig, child])
+    assert document["links"] == {"plant": {"type": "sim_plant"}}, "through an extends too"
+
+
+def test_a_deletion_with_nothing_beneath_leaves_nothing_behind(tmp_path) -> None:
+    # A saved overlay can delete a device an earlier save added, over files that never had it.
+    rig = tmp_path / "lab.yaml"
+    rig.write_text("name: lab\n")
+    added = tmp_path / "added.yaml"
+    added.write_text("devices:\n  probe: null\n")
+    document, _ = resolve_layers([rig, added])
+    assert document == {"name": "lab", "devices": {}}

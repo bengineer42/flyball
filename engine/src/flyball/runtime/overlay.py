@@ -25,17 +25,17 @@ def merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     """`overlay` layered onto `base`: mappings deep-merge, everything else replaces.
 
     A key whose overlay value is `None` is removed from the result -- the
-    only way to delete something an earlier layer set -- at any depth, so a
-    mapping the base lacks arrives without its `None`s. Neither argument is
-    mutated.
+    only way to delete something an earlier layer set. A mapping the base
+    lacks arrives as it is, `None`s included, so a file's deletions survive
+    until it is laid over the layers they are meant for (see `_lay`).
+    Neither argument is mutated.
     """
     result = dict(base)
     for key, value in overlay.items():
         if value is None:
             result.pop(key, None)
-        elif isinstance(value, dict):
-            below = result.get(key)
-            result[key] = merge(below if isinstance(below, dict) else {}, value)
+        elif isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = merge(result[key], value)
         else:
             result[key] = value
     return result
@@ -86,6 +86,26 @@ def apply_set(document: dict[str, Any], path: list[str], value: Any) -> dict[str
     return result
 
 
+def _lay(below: dict[str, Any], layer: dict[str, Any]) -> dict[str, Any]:
+    """`layer` over the layers `below` it: `merge`, minus deletions with nothing to delete.
+
+    A `None` whose key is not beneath is dropped rather than carried in.
+
+    A saved overlay that deletes a device an earlier save added lies over files that never
+    had it; without this, `devices: {probe: null}` would arrive as a `None` device.
+    """
+    result = dict(below)
+    for key, value in layer.items():
+        if value is None:
+            result.pop(key, None)
+        elif isinstance(value, dict):
+            under = result.get(key)
+            result[key] = _lay(under if isinstance(under, dict) else {}, value)
+        else:
+            result[key] = value
+    return result
+
+
 def _load_layer(path: Path, stack: tuple[Path, ...]) -> tuple[dict[str, Any], list[Path]]:
     """`path`, with its own `extends` resolved and stripped, and the files that contributed.
 
@@ -133,9 +153,9 @@ def resolve_layers(
     """
     document: dict[str, Any] = {}
     contributed: list[Path] = []
-    for path in paths:
+    for index, path in enumerate(paths):
         layer, files = _load_layer(Path(path), ())
-        document = merge(document, layer)
+        document = layer if index == 0 else _lay(document, layer)
         contributed.extend(f for f in files if f not in contributed)
     for expr in sets:
         set_path, value = parse_set(expr)
