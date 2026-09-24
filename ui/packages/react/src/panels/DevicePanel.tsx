@@ -144,6 +144,7 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
             command={command}
             device={device.name}
             currentMode={currentMode}
+            signals={schema.signals}
             onRun={(args) => onRun(name, args)}
             busy={busy === name}
             canOperate={canOperate}

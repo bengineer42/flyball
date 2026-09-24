@@ -396,10 +396,6 @@
 .fb-write-error { flex-basis: 100%; }
 /* The cell a write row sits in: the `fb-state` grid's `1fr` column may shrink below the row's min-content, so the row wraps rather than overflowing. */
 .fb-state dd.fb-write-cell { min-width: 0; }
-/* A `together` group: a member per line, label, set value and its own slider; one Set for the lot. */
-.fb-write-group { column-gap: 0.8rem; }
-.fb-write-member { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; flex: 1 1 100%; min-width: 0; }
-.fb-write-hint { flex-basis: 100%; font-size: 0.85em; color: var(--fb-fg-2); }
 /* An `rw` setting: the value as last read and the entry, one line. */
 .fb-setting { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; min-width: 0; }
 .fb-setting-value { display: inline; }

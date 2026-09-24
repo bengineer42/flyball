@@ -1,17 +1,24 @@
 # Controllers
 
-The **Controllers** page (`#/controllers`) is one card per writable signal: with a controller, the faceplate below; without, the signal's card alone -- adding a controller is done from [Config](rig.md), not here. What a controller is: [How a controller works](../../2-config/controllers.md#how-a-controller-works); how it is declared: [Controllers](../../2-config/controllers.md).
+The **Controllers** page (`#/controllers`) is one card per writable signal: with a controller, the faceplate below; without, the signal's card alone, including a device's other demands when one of them is driven (a furnace's other zones) -- adding a controller is done from [Config](rig.md), not here. What a controller is: [How a controller works](../../2-config/controllers.md#how-a-controller-works); how it is declared: [Controllers](../../2-config/controllers.md).
 
 !!! tip "At the terminal"
     `flyball controllers` lists every faceplate's numbers; regulate / manual are routes for now -- [Controllers and tuning](../cli/controllers.md).
 
 ## Adding a controller
 
-In [Options › Rig file](rig.md), **Add controller** opens a four-step dialog: the
+In [Options › Rig file](rig.md), **Add controller** opens a five-step dialog: the
 **Output** (the demand the controller drives — its `output`), the
 **Measured** signal (the published signal it regulates — its `measured`),
-the law (a stored tuning, one configured here, or none) and the
-feedforward, defaulted from the two units as the rig would. Signals already
+the law (a stored tuning, one configured here, or none), the
+feedforward, defaulted from the two units as the rig would, and **On fault**:
+what it does once its measured signal has had no value for its wait
+([`on_fault`](../../2-config/controllers.md#on_fault-what-a-controller-does-about-a-faulty-source):
+freeze, the default; manual; stop; stop device), with an optional "freeze
+first for" time that makes it `{freeze_s, then}`, and the optional
+**setpoint period** (`setpoint_period_s`: how often a moving setpoint's
+feedforward is re-applied between readings). A box left blank takes the
+rig's default and is not sent. Signals already
 driven or regulated by another controller are listed but disabled. Once an
 output is chosen the measured list leads with **Suggested** — the signals in
 the output's own unit that nothing regulates yet — and puts everything
@@ -41,6 +48,11 @@ controller as three aligned rows, each with a bar:
   its write state), the bar's fill turns to the alarm tint and the rail it
   is pinned against gets a 2px alarm end-cap — colour on the bar, not a text
   badge — and a **"requested …"** caption names what was asked for.
+
+The header carries **Manual** (put the controller in manual: it stops
+regulating, the output keeps its last demand and takes demands directly;
+this is not the rig's software stop and writes nothing) and the remove
+button; removing a regulating controller puts it in manual first.
 
 A banner above the rows reads "measured offline", "output at limit" or "open
 loop" for the corresponding condition. Process and Drive mini trends (each

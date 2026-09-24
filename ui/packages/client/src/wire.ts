@@ -303,8 +303,8 @@ export interface CommandOut {
   mode: Value;
   /** Runs while a controller drives the device and puts it into manual once the method has succeeded (the response's `interrupted` names it); without it the command is refused while one is active. */
   interrupts: boolean;
-  /** What it moves that no linked argument says: demand paths (gpio `on`/`off` move `on`), or a private child's name (a dosing pump's `pump`). A command with any is refused while a controller drives the device, unless it `interrupts`. Always sent; optional here only for older fixtures. */
-  writes?: string[];
+  /** What it moves that no linked argument says: demand paths (gpio `on`/`off` move `on`), or a private child's name (a dosing pump's `pump`). A command with any is refused while a controller drives the device, unless it `interrupts`. */
+  writes: string[];
   /** A synthesised `set_<name>`: the path of the demand it sets. */
   demand_of: string | null;
   /** Argument name -> the path (relative to the device) of the demand or setting it is a value for. */
@@ -441,8 +441,8 @@ export interface CommandSchema {
   commit: boolean;
   mode: Value;
   interrupts: boolean;
-  /** As `CommandOut.writes`. Always sent; optional here only for older fixtures. */
-  writes?: string[];
+  /** As `CommandOut.writes`. */
+  writes: string[];
   demand_of: string | null;
 }
 
