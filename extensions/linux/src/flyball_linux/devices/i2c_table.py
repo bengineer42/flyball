@@ -6,12 +6,14 @@ device's tree is its own config: `registers` maps each signal's name to a
 register, `value = raw * scale + offset` after the bytes are assembled in
 the order and signedness the table says. A register with `write: true` is
 also a demand `[RPW]` -- a DAC's output, a setpoint -- and reads back what
-the chip holds, quantised.
+the chip holds, quantised. `init` writes a fixed list of registers once,
+when the device is built -- a mode or reset register a signal never needs
+to read back.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Literal
 
 from flyball.foundation.config import resolve
@@ -46,6 +48,21 @@ class Register(BaseModel):
     shift: int = Field(
         default=0, ge=0, description="Right-shift the raw value first: 12-bit left-justified ADCs."
     )
+    mask: int | None = Field(
+        default=None,
+        ge=0,
+        description="AND with the shifted raw value: a bit-field inside a wider register.",
+    )
+    sign_bit: int | None = Field(
+        default=None,
+        ge=0,
+        le=63,
+        description=(
+            "The masked value's own sign bit (0-based): two's-complement at that width,"
+            " not the register's. A bit-field register (`mask` or `sign_bit` set) is"
+            " read-only here -- there is no safe read-modify-write of the other bits."
+        ),
+    )
     scale: float = 1.0
     offset: float = 0.0
     unit: str = "1"
@@ -66,6 +83,8 @@ class Register(BaseModel):
     def _setting_is_writable(self) -> Register:
         if self.role is not None and not self.write:
             raise ValueError("only a writable register can be declared a setting")
+        if (self.mask is not None or self.sign_bit is not None) and self.write:
+            raise ValueError("a register with a mask or sign_bit is read-only")
         return self
 
     @property
@@ -83,12 +102,34 @@ class Register(BaseModel):
             raise ValueError(
                 f"register 0x{self.address:02x} wants {self.length} bytes, got {len(data)}"
             )
-        raw = int.from_bytes(data, self.byteorder, signed=self.signed) >> self.shift
+        if self.mask is None and self.sign_bit is None:
+            raw = int.from_bytes(data, self.byteorder, signed=self.signed) >> self.shift
+        else:
+            raw = int.from_bytes(data, self.byteorder, signed=False) >> self.shift
+            if self.mask is not None:
+                raw &= self.mask
+            if self.sign_bit is not None and raw & (1 << self.sign_bit):
+                raw -= 1 << (self.sign_bit + 1)
         return raw * self.scale + self.offset
 
     def encode(self, value: float) -> bytes:
         raw = round((value - self.offset) / self.scale) << self.shift
         return raw.to_bytes(self.length, self.byteorder, signed=self.signed)
+
+
+class InitWrite(BaseModel):
+    """One write sent when the device is built: a config or reset register with no signal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    address: int = Field(ge=0, le=0xFF, description="The register address on the chip.")
+    value: int
+    length: int = Field(default=1, ge=1, le=8, description="Bytes.")
+    byteorder: Literal["big", "little"] = "big"
+    signed: bool = False
+
+    def encode(self) -> bytes:
+        return self.value.to_bytes(self.length, self.byteorder, signed=self.signed)
 
 
 class I2cTable(Readable, Committable):
@@ -100,6 +141,7 @@ class I2cTable(Readable, Committable):
         link: I2cLink,
         address: int,
         registers: Mapping[str, Register],
+        init: Sequence[InitWrite] = (),
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
@@ -108,6 +150,7 @@ class I2cTable(Readable, Committable):
         self.link = link
         self.address = address
         self.registers = dict(registers)
+        self.init = list(init)
         # Device.blocking is a ClassVar; this driver's real bus or fake is only known
         # per instance, at build. The link itself says whether it wants the Writer
         # thread -- a real bus always does, a fake only if configured to.
@@ -123,10 +166,14 @@ class I2cTable(Readable, Committable):
             for key, r in self.registers.items()
         ])
         self._signals = [self.signals[key] for key in self.registers]
+        for w in self.init:
+            self.link.write_register(self.address, w.address, w.encode())
 
     @property
     def config(self) -> I2cTableConfig:
-        return I2cTableConfig(link="", address=self.address, registers=self.registers)
+        return I2cTableConfig(
+            link="", address=self.address, registers=self.registers, init=self.init
+        )
 
     def _value(self, signal: Signal) -> float:
         register = self.registers[signal.name]
@@ -158,6 +205,8 @@ class I2cTableConfig(DriverConfig[I2cTable], type="i2c_table"):
       driver: i2c_table
       link: i2c1
       address: 0x48
+      init:
+        - { address: 0x01, value: 0x60 }   # one-shot mode, per the datasheet
       registers:
         temperature: { address: 0, length: 2, signed: true, scale: 0.0078125, unit: "°C" }
     ```
@@ -166,14 +215,20 @@ class I2cTableConfig(DriverConfig[I2cTable], type="i2c_table"):
     link: I2cLinkConfig | str  # type: ignore[valid-type]
     address: int = Field(ge=0x03, le=0x77, description="The chip's bus address.")
     registers: dict[str, Register]
+    init: list[InitWrite] = Field(
+        default_factory=list,
+        description="Writes sent once, in order, when the device is built.",
+    )
 
     def build(self, name: str, label: str | None = None) -> I2cTable:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return I2cTable(name, resolve(self.link), self.address, self.registers, label=label)
+        return I2cTable(
+            name, resolve(self.link), self.address, self.registers, self.init, label=label
+        )
 
 
 I2cTable.config_type = I2cTableConfig  # the config is declared after the device it builds
 
 
-__all__ = ["I2cTable", "I2cTableConfig", "Register"]
+__all__ = ["I2cTable", "I2cTableConfig", "InitWrite", "Register"]

@@ -150,13 +150,24 @@ rig file gives it a `stop:` value.
 
 ### `modbus`
 
-One device per unit, a register per signal. `value = raw * scale`.
+One device per unit, a register per signal. `value = decode(words) * scale + offset`.
+`kind` picks the Modbus table, and so the function code: `holding` (FC03 read, FC16
+write -- the default), `input` (FC04, read-only), `coil` (FC01 read, FC05 write) and
+`discrete` (FC02, read-only). Coils and discrete inputs are plain booleans (0/1): they
+take no `format`, `scale` or `offset`.
 
 | field | default | |
 | --- | --- | --- |
 | `link` | required | a [register link](../links.md#register-instruments) |
-| `registers` | required | `{signal: {address, kind?, unit, scale?, write?, role?}}` -- `kind` is `holding` (default), `input` or `coil`; `write: true` makes a `holding` register `[RPW]`, a demand (refused on `input`); `role: setting` makes a writable register a setting (a configuration register) rather than a demand, so no controller can drive it |
+| `registers` | required | `{signal: {address, kind?, format?, word_order?, unit, scale?, offset?, write?, role?}}` -- `kind` is `holding` (default), `input`, `coil` or `discrete`; `write: true` makes a `holding` or `coil` register `[RPW]`, a demand (refused on `input`/`discrete`); `role: setting` makes a writable register a setting (a configuration register) rather than a demand, so no controller can drive it |
 | `unit_id` | `1` | the Modbus unit (slave) id |
+
+`format` is `u16` (default: today's one-word unsigned reading), `i16`, or one of the
+32-bit `u32`/`i32`/`f32`, which span two registers at `address` and `address + 1`.
+`word_order` (`big`, the default, or `little`) says which of the two holds the high
+word -- `big` is the convention Alicat-style mass-flow controllers and most Modbus
+float32 instruments use. It is named `format`, not `type`, so it cannot clash with a
+device config's own `type:` discriminator.
 
 ```yaml
 chiller:
@@ -165,6 +176,12 @@ chiller:
   registers:
     temperature: { address: 100, scale: 0.1, unit: "°C" }
     setpoint:    { address: 101, scale: 0.1, unit: "°C", write: true }
+    valve_open:  { address: 0, kind: coil, unit: "1", write: true }
+mfc:
+  driver: modbus
+  link: mfc
+  registers:
+    flow: { address: 10, format: f32, word_order: big, unit: "slm" }   # Alicat-style
 ```
 
 ## Wrapped instrument libraries
@@ -286,15 +303,24 @@ MCP9808, INA219, LM75.
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
 | `address` | required | the chip's bus address |
-| `registers` | required | `{signal: {address, length, signed?, byteorder?, shift?, scale?, offset?, unit, write?, role?}}` -- `write: true` makes a register a demand; `role: setting` makes a writable one a setting instead (a configuration register), which no controller can drive |
+| `init` | none | `[{address, value, length?, byteorder?, signed?}]` -- writes sent once, in order, when the device is built: a mode or reset register no signal reads back |
+| `registers` | required | `{signal: {address, length, signed?, byteorder?, shift?, mask?, sign_bit?, scale?, offset?, unit, write?, role?}}` -- `write: true` makes a register a demand; `role: setting` makes a writable one a setting instead (a configuration register), which no controller can drive |
+
+`mask` (ANDed in after `shift`) and `sign_bit` (that masked value's own sign bit,
+two's-complemented at that width) decode a bit-field inside a wider register --
+a status byte's fault flags, or a field narrower than its register. A register
+with either is read-only: there is no safe read-modify-write of the bits around it.
 
 ```yaml
 board_temp:
   driver: i2c_table
   link: i2c1
   address: 0x48
+  init:
+    - { address: 0x01, value: 0x60 }   # one-shot mode, per the datasheet
   registers:
     temperature: { address: 0, length: 2, signed: true, scale: 0.0078125, unit: "°C" }
+    fault:        { address: 2, length: 1, mask: 0x0F, sign_bit: 3 }
 ```
 
 ### `sht4x`
@@ -691,17 +717,50 @@ consulted.]
 
 ### `pulse_counter`
 
-A hall-effect flow meter (YF-S201-class): `rate` (L/min) and `count`
-(cumulative pulses), both `[RP]`. Native `gpiod` edge-event detection and
-debounce -- no hand-rolled polling loop.
+A pulse-train sensor: a hall-effect flow meter (YF-S201-class), a
+tachometer, any device whose pulse frequency is proportional to what it
+measures. Two `[RP]` signals: `rate` (in `unit`, since the previous read)
+and `count` (cumulative pulses, always a plain count regardless of `unit`).
+Native `gpiod` edge-event detection and debounce -- no hand-rolled polling
+loop.
 
 | field | default | |
 | --- | --- | --- |
 | `link` | required | a `gpio` link |
 | `line` | required | |
-| `pulses_per_litre` | required | the sensor's own calibration constant, e.g. 450 for a YF-S201 |
+| `unit` | required | `rate`'s unit: a plain frequency (`Hz`, `rpm`) or written `amount/time` (`L/min`, `mL/s`) |
+| `per_pulse` | required | the amount one pulse represents, in `unit`'s own terms -- see below |
 | `debounce_s` | `0` | passed straight to `gpiod`'s native debounce |
 | `pull_up` | omitted | the line's bias: `true` pulls up, `false` pulls down, omitted leaves it as the board has it |
+
+A plain frequency unit (`Hz`, `rpm`, ...) has a dimensionless numerator, so
+`per_pulse` is itself dimensionless -- a whole pulse (`1.0`), or a fraction
+of a revolution for a multi-pulse-per-turn encoder (`0.5` for two pulses a
+turn). Any other unit must be written `amount/time` (`L/min`, `mL/s`):
+`per_pulse` is then in the amount's own unit -- litres, millilitres. Either
+way, the division by elapsed time is by whichever time unit `unit` names --
+a minute for `rpm` or `L/min`, a second for `Hz` or `mL/s` -- so a flow
+meter reads naturally in litres/minute and a tachometer in rpm from the
+same driver:
+
+```yaml
+flow:
+  driver: pulse_counter
+  link: gpio0
+  line: 21
+  unit: L/min
+  per_pulse: 0.002222   # 1/450, a YF-S201's calibration constant
+tacho:
+  driver: pulse_counter
+  link: gpio0
+  line: 22
+  unit: rpm
+  per_pulse: 0.5        # two pulses per revolution
+```
+
+**Breaking (this release):** `pulses_per_litre` is gone, replaced by
+`unit`/`per_pulse` above; a rig file using it needs `unit: L/min` and
+`per_pulse: <1 / pulses_per_litre>`.
 
 ### `dosing_pump`
 
