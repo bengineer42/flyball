@@ -20,7 +20,7 @@ function Wired({ device, commands }: { device: DeviceOut; commands: string[] | u
   const schema = useDeviceSchema(device.name);
   const run = useDeviceRun(device.name); // from the store: this widget alone re-renders on its device
   const runner = useCommands(device.name);
-  const title = useMemo(() => <Ref kind="device" name={device.name}>{device.label ?? device.name}</Ref>, [device.name, device.label]);
+  const title = useMemo(() => <Ref kind="device" name={device.name}>{device.label}</Ref>, [device.name, device.label]);
   useWidgetChrome({ title, subtitle: describeDevice(device.driver ?? device.class_name), severity: severityOf(run?.conditions ?? device.conditions) });
   if (schema.error) return <Missing what="device schema" name={schema.error.message} failed />;
   if (!schema.data) return null;

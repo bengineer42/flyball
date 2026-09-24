@@ -38,14 +38,14 @@ function transport(posted: Array<{ path: string; body: unknown }> = []): Transpo
 }
 
 describe("InputsLine", () => {
-  const input = (over: Partial<InputOut>): InputOut => ({ name: "dry", label: "", quantity: "", unit: "%", bound: null, quality: "ok", ...over });
+  const input = (over: Partial<InputOut>): InputOut => ({ name: "dry", label: "Dry", quantity: "", unit: "%", bound: null, quality: "ok", ...over });
   it("shows a constant, a bound source's quality with its reason, and its age", () => {
     render(
       createElement(InputsLine, {
         inputs: {
           dry: input({ name: "dry", constant: 36.5, unit: "%" }),
-          wet: input({ name: "wet", bound: "sensors.wet", quality: "stale", reason: "device_offline", age_s: 12.4 }),
-          supply: input({ name: "supply", bound: "sensors.supply", quality: "ok", age_s: 1.25 }),
+          wet: input({ name: "wet", label: "Wet", bound: "sensors.wet", quality: "stale", reason: "device_offline", age_s: 12.4 }),
+          supply: input({ name: "supply", label: "Supply", bound: "sensors.supply", quality: "ok", age_s: 1.25 }),
         },
       }),
     );

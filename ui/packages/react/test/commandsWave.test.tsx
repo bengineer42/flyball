@@ -33,6 +33,7 @@ function transport(controllers: ControllerOut[] = [], writeRefusal?: string): Tr
 afterEach(cleanup);
 
 const command = (over: Partial<CommandSchema>): CommandSchema => ({
+  label: "Set flows",
   description: null,
   arguments: { type: "object", properties: {} },
   simulation: false,
@@ -81,15 +82,15 @@ describe("commandDrives", () => {
 
 describe("CommandForm while a controller regulates the device", () => {
   it("says the command is refused and holds its button", async () => {
-    render(createElement(RigProvider, { transport: transport([REGULATING]) }, createElement(CommandForm, { name: "open", command: command({ writes: ["valve"] }), device: "blender", onRun: async () => undefined })));
+    render(createElement(RigProvider, { transport: transport([REGULATING]) }, createElement(CommandForm, { name: "open", command: command({ label: "Open", writes: ["valve"] }), device: "blender", onRun: async () => undefined })));
     expect((await screen.findByTestId("command-refused", undefined, { timeout: 2000 })).textContent).toBe("refused while blender.fraction regulates: put it in manual first");
     expect((screen.getByRole("button", { name: "Open" }) as HTMLButtonElement).disabled).toBe(true);
   });
   it("says nothing for a command that interrupts, or on another device", async () => {
     render(
       createElement(RigProvider, { transport: transport([REGULATING]) },
-        createElement(CommandForm, { name: "set_flows", command: command({ writes: ["valve"], interrupts: true }), device: "blender", onRun: async () => undefined }),
-        createElement(CommandForm, { name: "open", command: command({ writes: ["valve"] }), device: "other", onRun: async () => undefined }),
+        createElement(CommandForm, { name: "set_flows", command: command({ label: "Set flows", writes: ["valve"], interrupts: true }), device: "blender", onRun: async () => undefined }),
+        createElement(CommandForm, { name: "open", command: command({ label: "Open", writes: ["valve"] }), device: "other", onRun: async () => undefined }),
       ),
     );
     await new Promise((r) => setTimeout(r, 400));
@@ -109,7 +110,7 @@ describe("CommandForm while a controller regulates the device", () => {
 describe("WritePanel refusal", () => {
   it("shows the rig's reason word for word", async () => {
     const reason = "'blender.flows.dry' [RP] is not writable: it is a readback, moved by the command 'set_flows' (it puts a regulating controller in manual)";
-    const signal = { name: "dry", address: "blender.flows.dry", access: "rw", label: "", quantity: "", unit: "L/min", dimension: null, dtype: "float", shape: [], role: "demand", tags: {}, initial: null, range: null, precision: 1, limits: null, warning: null, alarm: null, poll_s: null, stale_after_s: null, write: null, latest: null } as unknown as SignalOut;
+    const signal = { name: "dry", address: "blender.flows.dry", access: "rw", label: "Dry", quantity: "", unit: "L/min", dimension: null, dtype: "float", shape: [], role: "demand", tags: {}, initial: null, range: null, precision: 1, limits: null, warning: null, alarm: null, poll_s: null, stale_after_s: null, write: null, latest: null } as unknown as SignalOut;
     render(createElement(RigProvider, { transport: transport([], reason) }, createElement(WritePanel, { signal })));
     fireEvent.change(screen.getByLabelText(/demand$/), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "Set" }));

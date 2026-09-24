@@ -168,7 +168,7 @@ export const AddControllerDialog = memo(function AddControllerDialog({
   onCreated(controller: ControllerOut): void;
 }) {
   const deviceLabel = (name: string) => devices.find((d) => d.name === name)?.label ?? name;
-  const choiceLabel = (c: SignalChoice) => c.label || c.address.slice(c.device.length + 1);
+  const choiceLabel = (c: SignalChoice) => c.label;
   const rig = useRig();
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   // Bumped to remount a SchemaForm with new initial values (it keeps its own form state after the first render).

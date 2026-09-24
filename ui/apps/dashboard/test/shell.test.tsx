@@ -32,7 +32,7 @@ const who = (verbs: string[]): AuthInfo => ({
   login: { password: false, token: false, passkey: false, sso: null },
 });
 
-const DASHBOARD = { id: 1, name: "wall", rig: "t", created_ns: 1, sha256: "", body: { schema_version: 6, name: "wall", label: "Wall display", rig: "t", grid: { cols: 24, row_height: 24 }, widgets: [] } };
+const DASHBOARD = { id: 1, name: "wall", label: "Wall display", rig: "t", created_ns: 1, sha256: "", body: { schema_version: 6, name: "wall", label: "Wall display", rig: "t", grid: { cols: 24, row_height: 24 }, widgets: [] } };
 
 function transport(info: AuthInfo): Transport {
   return {

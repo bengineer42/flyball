@@ -2,7 +2,7 @@
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import type { Request, Response, SessionRow, SignalRow, StreamHandlers, Subscription, Transport } from "@flyball/client";
+import { humanise, type Request, type Response, type SessionRow, type SignalRow, type StreamHandlers, type Subscription, type Transport } from "@flyball/client";
 import { RigProvider } from "../src/provider.js";
 import { SessionPanel } from "../src/panels/SessionPanel.js";
 import type { SessionDetail } from "../src/hooks/useSession.js";
@@ -63,7 +63,7 @@ function signalRow(address: string, unit: string, extra: Partial<SignalRow> = {}
     access: "rp",
     dtype: "float",
     shape: [],
-    label: null,
+    label: humanise(address.slice(address.lastIndexOf(".") + 1)),
     range: null,
     precision: 2,
     warning: null,

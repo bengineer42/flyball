@@ -47,7 +47,7 @@ const SIGNAL: SignalOut = {
   name: "demand",
   address: "heater.demand",
   access: "rw",
-  label: "",
+  label: "Demand",
   quantity: "power",
   unit: "W",
   dimension: null,
@@ -68,7 +68,7 @@ const SIGNAL: SignalOut = {
 
 const CONTROLLER: ControllerOut = {
   name: "heater.demand",
-  label: null,
+  label: "Demand",
   output_signal: "heater.demand",
   measured_signal: "chamber.temp",
   is_default: false,
@@ -147,7 +147,7 @@ describe("ControllerPanel gates controls/headerControls on canOperate", () => {
 
 
 describe("CommandForm canOperate", () => {
-  const NO_ARGS: CommandSchema = { description: null, arguments: { type: "object", properties: {} }, simulation: false, commit: false, sets_mode: null, interrupts: false, writes: [], demand_of: null };
+  const NO_ARGS: CommandSchema = { label: "Zero", description: null, arguments: { type: "object", properties: {} }, simulation: false, commit: false, sets_mode: null, interrupts: false, writes: [], demand_of: null };
   const run = vi.fn(async () => undefined);
   it("a command's button is live by default", () => {
     render(withRig(createElement(CommandForm, { name: "zero", command: NO_ARGS, onRun: run })));

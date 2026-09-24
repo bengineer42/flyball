@@ -327,7 +327,7 @@ export interface DevicePicks {
   demands: Record<string, Record<string, SignalSchema>>;
 }
 
-const signalTitle = (path: string, signal: SignalSchema) => signal.label || humanise(path.split(".").pop() ?? path);
+const signalTitle = (_path: string, signal: SignalSchema) => signal.label;
 
 /** The device command a `run` step names, when `devices` knows it. */
 function deviceCommandOf(args: Record<string, unknown>, devices: DevicePicks | undefined): CommandSchema | undefined {

@@ -76,9 +76,9 @@ const ControllerWidget = memo(function ControllerWidget({ config }: WidgetCompon
   const target = controller ? bindings.devices.flatMap((d) => signalsOf(d.signals)).find((s) => s.address === controller.output_signal) : undefined;
   // Measured-offline (B-3): the rig's own `stale` reading on the measured signal.
   const offline = useReading(controller?.measured_signal)?.quality === "stale";
-  // A controller is named by its output's label; an output with none is titled like any signal, never by its address.
+  // A controller is named by its label; one that is only its output's is titled like that signal, qualified by its namespace.
   const title = useMemo(
-    () => (controller ? <Ref kind="controller" name={controller.name}>{controller.label ? describeController(controller) : target ? signalTitle(target, bindings.devices) : controller.name}</Ref> : undefined),
+    () => (controller ? <Ref kind="controller" name={controller.name}>{target && controller.label === target.label ? signalTitle(target, bindings.devices) : describeController(controller)}</Ref> : undefined),
     [controller?.name, controller?.label, target, bindings], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const subtitle = useMemo(

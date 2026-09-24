@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { SignalOut, ActivityOut } from "@flyball/client";
+import { humanise, type SignalOut, type ActivityOut } from "@flyball/client";
 import { Gauge, gaugeRange, gaugeZones } from "../src/panels/Gauge.js";
 import { readoutLevel } from "../src/panels/Readout.js";
 import { groupByUnit } from "../src/panels/UnitCharts.js";
@@ -12,7 +12,7 @@ function signal(address: string, unit: string, bands: Partial<Pick<SignalOut, "r
     name: address.slice(address.lastIndexOf(".") + 1),
     address,
     access: "rp",
-    label: "",
+    label: humanise(address.slice(address.lastIndexOf(".") + 1)),
     quantity: "temperature",
     unit,
     dimension: null,

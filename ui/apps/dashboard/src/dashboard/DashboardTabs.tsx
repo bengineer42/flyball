@@ -101,7 +101,7 @@ export function DashboardTabs({ name, generated, onOpen }: DashboardTabsProps) {
             }}
             onDragEnd={() => setDragging(null)}
             value={d.name}
-            label={labelOf(d.body, d.name)}
+            label={d.label}
             icon={home === d.name ? <HomeIcon sx={{ fontSize: 16 }} /> : undefined}
             iconPosition="end"
             component="a"

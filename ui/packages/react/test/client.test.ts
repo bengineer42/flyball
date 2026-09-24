@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OPERATE, RigClient, RigError, addressOf, captionFor, describeSignal, describeUnit, deviceOf, deviceTitle, fixed, humanise, isNamespace, placeOf, publishes, signalsOf, titleFor, unitTitle, verbLabel, withUnit, writable, type AuthInfo, type ReadOut, type Request, type StopReport, type Transport, type TreeNode } from "@flyball/client";
+import { OPERATE, RigClient, RigError, addressOf, captionFor, describeSignal, describeUnit, deviceOf, deviceTitle, fixed, humanise, isNamespace, placeOf, publishes, saysMore, signalsOf, signalTitle, signalTitleAt, titleFor, unitTitle, verbLabel, withUnit, writable, type AuthInfo, type ReadOut, type Request, type StopReport, type Transport, type TreeNode } from "@flyball/client";
 
 /** A transport answering from a table of `METHOD path` → body, recording what was asked. */
 function fakeTransport(routes: Record<string, unknown>, status = 200, token?: string) {
@@ -131,10 +131,10 @@ describe("address helpers", () => {
 
   it("flattens a device tree to its signals, namespaces recursed", () => {
     const signal = (address: string, access: string): TreeNode =>
-      ({ name: address.split(".").pop()!, address, access, label: "", quantity: "q", unit: "", dimension: null, dtype: "float", shape: [], range: null, precision: null, warning: null, alarm: null, poll_s: null, limits: null, role: "readout", tags: {}, initial: null, latest: null, write: null }) as TreeNode;
+      ({ name: address.split(".").pop()!, address, access, label: humanise(address.split(".").pop()!), quantity: "q", unit: "", dimension: null, dtype: "float", shape: [], range: null, precision: null, warning: null, alarm: null, poll_s: null, limits: null, role: "readout", tags: {}, initial: null, latest: null, write: null }) as TreeNode;
     const tree: TreeNode[] = [
       signal("d.a", "rp"),
-      { name: "ns", address: "d.ns", atomic: true, label: "", poll_s: null, signals: [signal("d.ns.b", "w"), signal("d.ns.c", "rw")] },
+      { name: "ns", address: "d.ns", atomic: true, label: "Ns", poll_s: null, signals: [signal("d.ns.b", "w"), signal("d.ns.c", "rw")] },
     ];
     expect(isNamespace(tree[1]!)).toBe(true);
     expect(isNamespace(tree[0]!)).toBe(false);
@@ -146,14 +146,14 @@ describe("address helpers", () => {
 });
 
 describe("titles from labels", () => {
-  const signal = (address: string, unit: string, quantity = "q", label = ""): TreeNode =>
+  const signal = (address: string, unit: string, quantity = "q", label = humanise(address.split(".").pop()!)): TreeNode =>
     ({ name: address.split(".").pop()!, address, access: "rp", label, quantity, unit, dimension: null, dtype: "float", shape: [], range: null, precision: null, warning: null, alarm: null, poll_s: null, limits: null, role: "readout", tags: {}, initial: null, latest: null, write: null }) as TreeNode;
   const sensors = {
     name: "hum_sensors",
     label: "Humidity sensors",
-    signals: [{ name: "chamber", address: "hum_sensors.chamber", atomic: true, label: "", poll_s: null, signals: [signal("hum_sensors.chamber.humidity", "%RH", "humidity"), signal("hum_sensors.chamber.temperature", "°C", "temperature")] }] as TreeNode[],
+    signals: [{ name: "chamber", address: "hum_sensors.chamber", atomic: true, label: "Chamber", poll_s: null, signals: [signal("hum_sensors.chamber.humidity", "%RH", "humidity"), signal("hum_sensors.chamber.temperature", "°C", "temperature")] }] as TreeNode[],
   };
-  const blender = { name: "blender", label: null, signals: [signal("blender.expected_humidity", "%RH", "humidity"), signal("blender.dry_effort", "1", "effort")] };
+  const blender = { name: "blender", label: "Blender", signals: [signal("blender.expected_humidity", "%RH", "humidity"), signal("blender.dry_effort", "1", "effort")] };
   const devices = [sensors, blender];
 
   it("never prints the dimensionless unit `1`, and keeps a worded one", () => {
@@ -178,9 +178,19 @@ describe("titles from labels", () => {
     expect(titleFor(chamber, placeOf(chamber.address, devices))).toBe("Chamber humidity");
     expect(titleFor(expected, placeOf(expected.address, devices))).toBe("Expected humidity · Blender");
     expect(titleFor(expected)).toBe("Expected humidity");
-    expect(titleFor(signal("d.rh", "%RH", "humidity", "RH"), { namespace: { name: "wet", address: "d.wet", label: "" } })).toBe("Wet RH");
+    expect(titleFor(signal("d.rh", "%RH", "humidity", "RH"), { namespace: { name: "wet", address: "d.wet", label: "Wet" } })).toBe("Wet RH");
     expect(captionFor(placeOf(chamber.address, devices))).toBe("Chamber · Humidity sensors");
     expect(deviceTitle(blender)).toBe("Blender");
+  });
+
+  it("names a signal alone by a label that says more than its name, else by its namespace too", () => {
+    const humidity = signalsOf(sensors.signals)[0]!;
+    expect(humidity.label).toBe("Humidity");
+    expect(saysMore(humidity)).toBe(false);
+    expect(signalTitle(humidity, devices)).toBe("Chamber humidity");
+    const declared = { ...humidity, label: "Chamber RH" };
+    expect(saysMore(declared)).toBe(true);
+    expect(signalTitleAt(declared, placeOf(declared.address, devices))).toBe("Chamber RH");
   });
 
   it("heads a unit chart by the unit, or the quantities when the unit is dimensionless", () => {
@@ -191,8 +201,8 @@ describe("titles from labels", () => {
 
   it("does not double a verb a label already opens with -- a signal named set_voltage humanises to 'Set voltage' on its own", () => {
     expect(humanise("set_voltage")).toBe("Set voltage");
-    expect(verbLabel("Set", describeSignal({ name: "set_voltage", label: null }))).toBe("Set voltage");
-    expect(verbLabel("Set", describeSignal({ name: "voltage", label: null }))).toBe("Set Voltage");
+    expect(verbLabel("Set", describeSignal({ name: "set_voltage", label: "Set voltage" }))).toBe("Set voltage");
+    expect(verbLabel("Set", describeSignal({ name: "voltage", label: "Voltage" }))).toBe("Set Voltage");
     // Case-insensitive: an explicit driver label already phrased as a sentence is left alone too.
     expect(verbLabel("Set", "set point")).toBe("set point");
   });

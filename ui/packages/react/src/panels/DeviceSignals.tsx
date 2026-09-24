@@ -86,7 +86,7 @@ function InputsLine({ device }: { device: DeviceOut }) {
   return (
     <div className="fb-device-inputs">
       {shown.map((i) => {
-        const name = i.label || humanise(i.name);
+        const name = i.label;
         return i.bound ? (
           <span key={i.name} className="fb-muted" title={`${name} follows ${i.bound}`}>
             {name} ← <Ref kind="signal" name={i.bound}>{i.bound}</Ref>
@@ -230,7 +230,7 @@ function Namespace({ namespace, common }: { namespace: NamespaceOut; common: Com
     <section className="fb-section fb-section-static fb-namespace">
       {/* Atomic (read as one sample, every signal sharing a timestamp) is a hover hint, not text: it says nothing to an operator. */}
       <h4 className="fb-section-title" title={namespace.atomic ? `${namespace.address} · read as one sample` : namespace.address}>
-        {namespace.label || humanise(namespace.name)}
+        {namespace.label}
       </h4>
       <Level nodes={namespace.signals} common={common} />
     </section>
@@ -296,7 +296,7 @@ export function DeviceSignals({ device, sparkline = true, windowS, controls, eve
   return (
     <article className="fb-panel fb-source">
       <header className="fb-source-head">
-        <h3><Ref kind="device" name={device.name}>{device.label ?? device.name}</Ref></h3>
+        <h3><Ref kind="device" name={device.name}>{device.label}</Ref></h3>
         <span className="fb-muted">
           {device.label && `${device.name} · `}
           {describeDevice(device.driver ?? device.class_name)} · {all.length} signal{all.length === 1 ? "" : "s"}

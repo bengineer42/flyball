@@ -187,7 +187,7 @@ export function DevicePanel({ device, schema, view, commands, onRun, busy, resul
   return (
     <article className="fb-panel fb-device">
       <header>
-        <h3>{title ?? <Ref kind="device" name={device.name}>{device.label ?? device.name}</Ref>}</h3>
+        <h3>{title ?? <Ref kind="device" name={device.name}>{device.label}</Ref>}</h3>
         <span className="fb-muted">
           {title === undefined && device.label && `${device.name} · `}
           {describeDevice(device.driver ?? device.class_name)}

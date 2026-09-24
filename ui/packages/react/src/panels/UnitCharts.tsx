@@ -79,7 +79,7 @@ const UnitChart = memo(
     // Where each signal sits; a device the caller did not describe is named by its name.
     const placeFor = (s: SignalOut): Place => {
       const place = placeOf(s.address, devices ?? []);
-      return place.device ? place : { device: { name: deviceOf(s.address), label: null } };
+      return place.device ? place : { device: { name: deviceOf(s.address) } };
     };
     const places = ss.map(placeFor);
     // The device qualifies a root signal only when the chart spans more than one device.

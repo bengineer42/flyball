@@ -289,9 +289,9 @@ function DeviceFaults({ schema }: { schema: DeviceSchema }) {
   return (
     <Box sx={{ mb: 2.25 }}>
       <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
-        {schema.label ?? schema.name}{" "}
+        {schema.label}{" "}
         <Typography component="span" variant="body2" color="text.secondary">
-          {schema.label && `${schema.name} · `}
+          {`${schema.name} · `}
           {describeDevice(schema.class_name)}
         </Typography>
       </Typography>

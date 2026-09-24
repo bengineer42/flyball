@@ -56,7 +56,7 @@ const SOURCE: SignalOut = {
   name: "temp",
   address: "chamber.temp",
   access: "rp",
-  label: "",
+  label: "Temp",
   quantity: "temperature",
   unit: "°C",
   dimension: null,
@@ -77,7 +77,7 @@ const SOURCE: SignalOut = {
 
 const CONTROLLER: ControllerOut = {
   name: "heater.demand",
-  label: null,
+  label: "Demand",
   output_signal: "heater.demand",
   measured_signal: "chamber.temp",
   is_default: false,

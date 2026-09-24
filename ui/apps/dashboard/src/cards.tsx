@@ -108,7 +108,7 @@ export const clickThrough = (href: string | undefined) => (e: MouseEvent) => {
 export const clickableSx = { cursor: "pointer", transition: "border-color 120ms, background-color 120ms", "&:hover": { borderColor: "primary.main", bgcolor: "action.hover" } } as const;
 
 /** A device card: label (a link to its page; the name is its hover hint), type, a status chip at the end, then the body. The whole card opens the page when it has one. */
-export function DeviceCard({ icon: Icon, name, label, href, type, chip, actions, children, footer, className }: { icon: IconComponent; name: string; label?: string | null; href?: string; type: string; chip: ReactNode; actions?: ReactNode; children: ReactNode; footer?: ReactNode; className?: string }) {
+export function DeviceCard({ icon: Icon, name, label, href, type, chip, actions, children, footer, className }: { icon: IconComponent; name: string; label: string; href?: string; type: string; chip: ReactNode; actions?: ReactNode; children: ReactNode; footer?: ReactNode; className?: string }) {
   return (
     <Paper className={className} sx={{ p: 3, display: "flex", flexDirection: "column", gap: 1.5, minWidth: 0, ...(href ? clickableSx : {}) }} onClick={clickThrough(href)}>
       {/* The name and its status on one row; the driver's kind beneath, where it never fights the name for room. */}
@@ -117,10 +117,10 @@ export function DeviceCard({ icon: Icon, name, label, href, type, chip, actions,
         <Typography fontWeight={600} noWrap sx={{ minWidth: 0 }}>
           {href ? (
             <Link href={href} underline="hover" color="inherit" title={name}>
-              {label ?? name}
+              {label}
             </Link>
           ) : (
-            <span title={name}>{label ?? name}</span>
+            <span title={name}>{label}</span>
           )}
         </Typography>
         <Box sx={{ ml: "auto !important", flex: "none" }}>{chip}</Box>

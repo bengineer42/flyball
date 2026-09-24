@@ -3,7 +3,7 @@
  * compare documents. The server validates the outline (see the client's
  * `DashboardDocument`); the widget types and their `config` are `../widgets`.
  */
-import type { DashboardDocument, DashboardWidget } from "@flyball/client";
+import { humanise, type DashboardDocument, type DashboardWidget } from "@flyball/client";
 
 /** The document version the server takes, and the only one: it refuses any other (nothing converts an older document). */
 export const SCHEMA_VERSION = 6;
@@ -19,8 +19,11 @@ export function emptyDocument(name: string, rig: string, label: string | null = 
   return { schema_version: SCHEMA_VERSION, name, label, rig, description: null, grid: { ...DEFAULT_GRID }, widgets: [], readonly: false, order: null };
 }
 
-/** What a person sees for a dashboard: its `label`, else its `name` (the key). */
-export const labelOf = (doc: Pick<DashboardDocument, "name" | "label"> | null | undefined, name = ""): string => doc?.label || doc?.name || name;
+/**
+ * What a person sees for a dashboard not yet saved (a saved one's row carries its `label`, resolved
+ * by the server): its `label`, else its `name` humanised, as the server resolves a blank one.
+ */
+export const labelOf = (doc: Pick<DashboardDocument, "name" | "label"> | null | undefined, name = ""): string => doc?.label || humanise(doc?.name || name);
 
 /**
  * The key a dashboard called `label` is saved under, in the canonical form (D-079): lower case,
@@ -38,8 +41,8 @@ export const nameFor = (label: string): string =>
     .slice(0, 64)
     .replace(/_+$/, "");
 
-/** The `label` to store for what a person typed: none when it is the key itself. */
-export const labelFor = (typed: string, name: string): string | null => (typed === name ? null : typed);
+/** The `label` to store for what a person typed: none when it is the key itself, or what a blank label resolves to. */
+export const labelFor = (typed: string, name: string): string | null => (typed === name || typed === humanise(name) ? null : typed);
 
 /**
  * A document with every optional field filled in and its widgets' positions
