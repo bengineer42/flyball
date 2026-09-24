@@ -158,12 +158,12 @@
             {
               "discriminator": {
                 "mapping": {
-                  "IMC": "#/$defs/IMCConfig",
-                  "P": "#/$defs/PConfig",
-                  "PI": "#/$defs/PIConfig",
-                  "PID": "#/$defs/PIDConfig",
+                  "imc": "#/$defs/IMCConfig",
                   "on_off": "#/$defs/OnOffConfig",
                   "open_loop": "#/$defs/OpenLoopConfig",
+                  "p": "#/$defs/PConfig",
+                  "pi": "#/$defs/PIConfig",
+                  "pid": "#/$defs/PIDConfig",
                   "scheduled": "#/$defs/ScheduledConfig",
                   "sliding": "#/$defs/SlidingModeConfig",
                   "smith": "#/$defs/SmithPredictorConfig"
@@ -981,8 +981,8 @@
       "additionalProperties": false,
       "properties": {
         "type": {
-          "const": "IMC",
-          "default": "IMC",
+          "const": "imc",
+          "default": "imc",
           "title": "Type",
           "type": "string"
         },
@@ -1282,8 +1282,8 @@
       "additionalProperties": false,
       "properties": {
         "type": {
-          "const": "P",
-          "default": "P",
+          "const": "p",
+          "default": "p",
           "title": "Type",
           "type": "string"
         },
@@ -1302,8 +1302,8 @@
       "additionalProperties": false,
       "properties": {
         "type": {
-          "const": "PI",
-          "default": "PI",
+          "const": "pi",
+          "default": "pi",
           "title": "Type",
           "type": "string"
         },
@@ -1335,8 +1335,8 @@
       "additionalProperties": false,
       "properties": {
         "type": {
-          "const": "PID",
-          "default": "PID",
+          "const": "pid",
+          "default": "pid",
           "title": "Type",
           "type": "string"
         },
@@ -8407,7 +8407,7 @@
           },
           {
             "type": "object",
-            "title": "scd40",
+            "title": "scd4x",
             "description": "One chip by its I2C address; `variant: scd41` unlocks `single_shot`.",
             "properties": {
               "label": {
@@ -8539,7 +8539,7 @@
                 "title": "Permissive"
               },
               "driver": {
-                "const": "scd40"
+                "const": "scd4x"
               },
               "link": {
                 "anyOf": [
