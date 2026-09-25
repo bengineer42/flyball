@@ -286,9 +286,9 @@ which takes the lock inside and lets it go before it returns:
 
 | operation | what is one step |
 | --- | --- |
-| `regulate(which, at, law=, transfer=, actor=)` | all or nothing: for every controller named, first the refusals (a latch, or a long command on its output's device; a person's regulate leaves out the controller's own `on_fault: manual` latch when it is the only one), the aim resolved and the law built; then that latch reset; then each law swapped in and each aim taken |
+| `regulate(which, at, law=, transfer=, actor=)` | all or nothing: for every controller named (each once), first the refusals (a latch, or a long command on its output's device; a person's regulate leaves out the controller's own `on_fault: manual` latch when it is the only one), the aim resolved and the law built; then that latch reset; then each law swapped in and each aim taken, their writes staged in one `_touched`; then one commit, as a re-apply's: a commit that raises is its device's `write_failed` and retry, and each controller on it is told nothing was set -- never an error after some controllers changed |
 | `follow(which, profile, start=, ...)` | the same, with each controller's profile started from `start`, or by the rule (its setpoint now, else its last reading) read in the same step; returns each start |
-| `retune(which, law, transfer=)` | a law swapped in bumplessly: the reference and the mode stay; in manual only the law changes |
+| `retune(which, law, transfer=)` | a law swapped in bumplessly: the reference and the mode stay; in manual only the law changes; the writes committed once, as `regulate`'s |
 | `manual(which)`, `set_setpoint(name, at, start=)` | the mode, or the reference, of each controller named |
 | `detach_controller(name)` | the controller to manual while still wired (its output keeps its last value), then off its output |
 | `attach_controller`, `add_entry`, `remove_device`, `store_tuning` | the composition, or the tunings, changed |

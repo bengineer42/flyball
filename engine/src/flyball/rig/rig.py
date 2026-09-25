@@ -2680,7 +2680,9 @@ class Rig:
         regulate resets a controller's own `on_fault: manual` latch when that is the only
         latch on it. All or nothing: every refusal is found (ignoring only that latch), every
         aim resolved and every law built before any controller changes or any latch is
-        reset.
+        reset; then every controller changes, and their writes are committed together at the
+        end. A commit that raises is its device's `write_failed` and retry, not an error
+        here. A controller named twice is regulated once.
 
         Raises:
             ControllerNotFoundError: A named controller is not on the rig.
@@ -2697,10 +2699,14 @@ class Rig:
             for cause in self._regulate_checks(controllers, actor):
                 assert actor is not None  # only a person's regulate resets one
                 self.stopping.reset(cause, actor)
-            for controller in controllers:
-                controller.regulate(
-                    aims[controller], tuning=laws[controller], time_ns=now, transfer=transfer
-                )
+
+            def hand_over() -> None:
+                for controller in controllers:
+                    controller.regulate(
+                        aims[controller], tuning=laws[controller], time_ns=now, transfer=transfer
+                    )
+
+            self._in_one_commit(now, hand_over)
             return controllers
 
     def follow(
@@ -2743,14 +2749,18 @@ class Rig:
             for cause in self._regulate_checks(controllers, actor):
                 assert actor is not None  # only a person's regulate resets one
                 self.stopping.reset(cause, actor)
-            for controller, value in starts.items():
-                controller.regulate(
-                    value,
-                    generator=profiles[controller],
-                    tuning=laws[controller],
-                    time_ns=now,
-                    transfer=transfer,
-                )
+
+            def hand_over() -> None:
+                for controller, value in starts.items():
+                    controller.regulate(
+                        value,
+                        generator=profiles[controller],
+                        tuning=laws[controller],
+                        time_ns=now,
+                        transfer=transfer,
+                    )
+
+            self._in_one_commit(now, hand_over)
             return starts
 
     def retune(
@@ -2767,9 +2777,13 @@ class Rig:
             controllers = self._loops(which)
             laws = _laws(law, controllers)
             self._regulate_checks([c for c in controllers if c.mode.active()], None)
-            for controller, built in laws.items():
-                assert built is not None  # `law` is given
-                controller.retune(built, transfer=transfer)
+
+            def swap() -> None:
+                for controller, built in laws.items():
+                    assert built is not None  # `law` is given
+                    controller.retune(built, transfer=transfer)
+
+            self._in_one_commit(self.clock.now_ns(), swap)
             return controllers
 
     def manual(self, which: Loops) -> list[Controller]:
@@ -2819,8 +2833,35 @@ class Rig:
             self.tunings.add(tuning)
 
     def _loops(self, which: Loops) -> list[Controller]:
+        """The controllers `which` names, each once, in the order first named."""
         names = [which] if which is None or isinstance(which, str) else list(which)
-        return [self.controllers.resolve(name) for name in names]
+        return list(dict.fromkeys(self.controllers.resolve(name) for name in names))
+
+    def _in_one_commit(self, now_ns: int, change: Callable[[], None]) -> None:
+        """Run `change` -- each controller's handover -- in one `_touched`, then one commit.
+
+        As `_reapply` commits: the controllers' writes are staged, not committed one by
+        one, so every controller named changes before any device is written; a commit that
+        raises is that device's `write_failed` and its retry, delivered to the controllers
+        as nothing set, never an exception after a partial change. Inside a delivery (a
+        program step on a stepped clock) the delivery's own commit takes them.
+        """
+        if self._touched is not None:
+            change()
+            return
+        touched: dict[Device, None] = {}
+        self._touched = touched
+        failed: dict[Signal, WriteState] = {}
+        try:
+            change()
+            states = self._commit(touched, now_ns, failed)
+        finally:
+            self._touched = None
+        self._deliver(failed)
+        self._deliver(states)
+        if states and self.recorder is not None:
+            self.recorder.record((), (), states, time_ns=now_ns)
+        self._flush_pushed()
 
     def _regulate_checks(self, controllers: Iterable[Controller], actor: Actor | None) -> list[str]:
         """Raise if a latch or a long command holds any of them; the latches to reset first.

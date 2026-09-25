@@ -17,7 +17,7 @@ import pytest
 from conftest import TestClient
 from flyball.control.laws import PI, P
 from flyball.control.setpoint import LinearRampSetpoint
-from flyball.foundation.device import Code, Sample
+from flyball.foundation.device import Code, Committable, Demand, Sample
 from flyball.foundation.errors import ConflictError
 from flyball.foundation.time import Duration
 from flyball.interfaces.server import create_app, set_rig
@@ -29,7 +29,7 @@ from flyball.rig import Rig
 from flyball.rig.latches import RIG_STOP, Latch, fault_cause, subjects
 from test_server import Daq, Drive, deliver
 from test_wf2_lock import Hanging, _in_thread
-from test_wf3_stop import BEN, Doser
+from test_wf3_stop import BEN, POWER, Doser
 
 
 @pytest.fixture
@@ -200,6 +200,80 @@ def test_several_regulated_all_or_nothing(rig, fresh):
     assert a.mode is ControllerMode.MANUAL
     rig.regulate([a.name, b.name], 30.0, law=PI.config_type(kp=1.0, ki=0.1))
     assert a.mode is b.mode is ControllerMode.REGULATING
+
+
+class Failing(Committable):
+    """A demand on a device that commits inline, and whose commit raises while `fail` is set."""
+
+    out = Demand("out", "Out", POWER, limits=(0.0, 100.0), off=0.0)
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.fail = False
+        self.writes: list[float] = []
+
+    def commit(self, time_ns: int) -> None:
+        if self.fail:
+            raise OSError("bus down")
+        self.writes.extend(self.staged.values())
+
+
+@pytest.fixture
+def failing(rig, daq, drive, fresh):
+    """Two controllers, the first on a device whose commit raises: (device, first, second)."""
+    device = Failing(fresh("failing"))
+    rig.add_device(device)
+    a = rig.attach_controller(device.signals["out"], daq.signals["zone1"], law=P(1))
+    b = rig.attach_controller(drive.signals["heater1"], daq.signals["zone2"], law=P(1))
+    deliver(rig, daq)
+    return device, a, b
+
+
+def _write_failed(rig: Rig, device: Committable) -> bool:
+    return rig.conditions.get(device, Code.WRITE_FAILED) is not None
+
+
+def test_a_handover_write_that_fails_is_the_devices_not_the_regulates(rig, failing):
+    """B1: the loop changes whole, then one commit; a bus error is `write_failed` and a retry.
+
+    `Controller.regulate` sets REGULATING before it writes, and the write used to commit
+    at once and raise: the caller got the error with the first controller changed and the
+    second not.
+    """
+    device, a, b = failing
+    device.fail = True
+    assert rig.regulate([a.name, b.name], 30.0) == [a, b]
+    assert a.mode is b.mode is ControllerMode.REGULATING
+    assert _write_failed(rig, device) and device in rig._retries, "the device's: retried"
+    assert a.expected is None, "nothing set on its output"
+
+
+def test_a_follow_whose_handover_write_fails_changes_every_loop(rig, failing):
+    device, a, b = failing
+    device.fail = True
+    ramp = lambda: LinearRampSetpoint(Duration(1.0), end=5.0)  # noqa: E731
+    rig.follow([a.name, b.name], ramp)
+    assert a.mode is b.mode is ControllerMode.REGULATING
+    assert _write_failed(rig, device)
+
+
+def test_a_retune_whose_write_fails_retunes_every_loop(rig, failing):
+    device, a, b = failing
+    rig.regulate([a.name, b.name], 30.0)
+    device.fail = True
+    rig.retune([a.name, b.name], PI.config_type(kp=1.0, ki=0.1))
+    assert isinstance(a.law, PI) and isinstance(b.law, PI), "both retuned"
+    assert _write_failed(rig, device)
+
+
+def test_a_controller_named_twice_is_regulated_once(rig, loops):
+    """N1: its own `on_fault: manual` latch reset once; it raised NotFoundError on the second."""
+    one, _ = loops
+    cause = fault_cause(one.name)
+    _latch(rig, cause, "controller", one.name, FaultAction.MANUAL.value)
+    assert rig.regulate([one.name, one.name], 30.0, actor=BEN) == [one]
+    assert rig.stopping.latches.get(cause) is None
+    assert one.mode is ControllerMode.REGULATING
 
 
 def test_the_latch_reset_and_the_aim_are_one_operation(rig, loops, monkeypatch):
