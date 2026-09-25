@@ -296,11 +296,17 @@ which takes the lock inside and lets it go before it returns:
 | `device_snapshot(device)` | a read: every reading, write state, condition, input state and poll run of one device from one instant, copied, for a route to render off the lock |
 
 Latches are set and reset under the lock (`Stopping.latch`, `Stopping.reset`;
-a stop waits at most `LATCH_WAIT_S`, 0.2 s, for a stuck lock, once, then
-latches without it -- every commit checks the latches first -- and puts the
-controllers in manual without it too; `RigStopper` cancels long commands
-before any of that). A stop's manual is one step under the lock, so a
-`regulate` lands wholly before or after it. `write` makes every check --
+a stop waits at most `LATCH_WAIT_S`, 0.2 s, for the lock at each of its
+latch, its manual and its second manual after a program interrupt -- 0.6 s
+at worst; found stuck at the latch, it latches without it -- every commit
+checks the latches first -- and puts the controllers in manual without it
+too; `RigStopper` cancels long commands before any of that). A manual made
+without the lock is made once more under it when the lock is next free,
+within `DEVICE_STOP_S`, before the device stops (which wait for the same
+lock to the same deadline). So a stop's last manual is one step under the
+lock, and a `regulate` lands wholly before or after it; only a lock stuck
+past `DEVICE_STOP_S`, which fails every device stop too, leaves the
+lockless manual the last. `write` makes every check --
 the latches, the long command's claim, the permissive, the driving
 controller, the limits -- under the lock, with the apply and the commit, so a
 stop, a `regulate` or a delivery that moves a permissive's source lands

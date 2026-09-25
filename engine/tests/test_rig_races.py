@@ -383,7 +383,22 @@ class TestNoCommitDuringALongCommand:
 # endregion
 
 
-# region A stop under a stuck lock, and a stop's manual (F1, F4)
+# region A stop under a stuck lock, and a stop's manual (F1, F4, R1)
+
+
+class Slow(Committable):
+    """A demand on a device that commits inline, on a slow bus."""
+
+    out = Demand("out", "Out", POWER, limits=(0.0, 100.0), off=0.0)
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.slow_s = 0.0
+        self.committing = threading.Event()
+
+    def commit(self, time_ns: int) -> None:
+        self.committing.set()
+        time.sleep(self.slow_s)
 
 
 def test_a_stop_under_a_stuck_lock_waits_for_it_once(dosing, monkeypatch):
@@ -455,6 +470,66 @@ def test_a_stops_manual_is_one_step_under_the_lock(dosing, monkeypatch):
     thread.join(2.0)
     assert out == [[heater]], "it regulated after the stop, whole"
     assert heater.mode is ControllerMode.REGULATING and heater.reference == 40.0
+
+
+def test_a_regulate_after_a_lockless_manual_is_undone_under_the_lock(dosing, monkeypatch):
+    """R1: a stop that put the controllers in manual without the lock does it again under it.
+
+    A regulate holding the lock through the stop's wait changes a controller after the
+    lockless manual. Nothing latched (a planned stop) refuses it, and it went on
+    regulating once the stop had returned.
+    """
+    monkeypatch.setattr(stopping_mod, "LATCH_WAIT_S", 0.05)
+    monkeypatch.setattr(stopping_mod, "DEVICE_STOP_S", 2.0)
+    rig, _, daq, drive = dosing
+    heater = rig.attach_controller(drive.signals["heater1"], daq.signals["zone1"], law=P(1))
+    rig.regulate(heater.name, 30.0)
+    lockless = threading.Event()
+    real = stopping_mod._to_manual
+
+    def to_manual(rig_: Rig, why: str | None) -> dict[str, str]:
+        out = real(rig_, why)
+        if not rig._lock._is_owned():
+            lockless.set()
+        return out
+
+    monkeypatch.setattr(stopping_mod, "_to_manual", to_manual)
+    holding = threading.Event()
+
+    def a_regulate_in_progress() -> None:
+        with rig._lock:
+            holding.set()
+            assert lockless.wait(2.0)
+            rig.regulate(heater.name, 40.0)  # lands after the stop's lockless manual
+
+    thread = threading.Thread(target=a_regulate_in_progress, daemon=True)
+    thread.start()
+    assert holding.wait(2.0)
+    report = RigStopper(rig).stop(BEN, "planned", latch=False)
+    thread.join(2.0)
+    assert heater.mode is ControllerMode.MANUAL, "the stop's manual under the lock came last"
+    assert report.controllers_manual == [heater.name]
+    assert report.devices[drive.name]["state"] != "failed", "the device stops had time left"
+
+
+def test_a_slow_handover_commit_and_a_planned_stop(dosing, fresh):
+    """B1 with F4: a stop landing during a regulate's slow inline commit leaves every loop manual.
+
+    The handover of the first loop committed before the second changed; a planned stop
+    going without the lock in between left `a` manual and `b` regulating.
+    """
+    rig, _, daq, drive = dosing
+    slow = Slow(fresh("slow"))
+    rig.add_device(slow)
+    a = rig.attach_controller(slow.signals["out"], daq.signals["zone1"], law=P(1))
+    b = rig.attach_controller(drive.signals["heater1"], daq.signals["zone2"], law=P(1))
+    slow.slow_s = 0.5
+    thread, out = _in_thread(rig.regulate, [a.name, b.name], 30.0)
+    assert slow.committing.wait(2.0)
+    RigStopper(rig).stop(BEN, "planned", latch=False)
+    thread.join(3.0)
+    assert out == [[a, b]]
+    assert a.mode is b.mode is ControllerMode.MANUAL
 
 
 # endregion

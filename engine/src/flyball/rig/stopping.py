@@ -18,13 +18,16 @@ goes through `max_rate`, a hold, a permissive or a latch. Stop is a control func
 not a safety function: "stopped" means flyball refuses its own automatic writes, not
 that the outputs are off.
 
-**A stop** ([RigStopper][flyball.rig.stopping.RigStopper]): the rig's latch first, so
-nothing automatic writes from then on; every running long command cancelled
-(`Device.cancel`); the program interrupted; every controller to manual; then every
-device stopped at once, each within `DEVICE_STOP_S`, never waiting behind a stuck
-delivery or command for longer. Each device is reported `stopped`, `unchanged` (it
-kept every output) or `failed`. The latch holds until a person resets it; a restart
-re-applies it.
+**A stop** ([RigStopper][flyball.rig.stopping.RigStopper]): every running long command
+cancelled first (`Device.cancel`), before anything waits; the rig's latch, so nothing
+automatic writes from then on (a planned stop sets none, and only drops what was
+staged); every controller to manual; the program interrupted, and every controller to
+manual again if one was running; then every device stopped at once, all within
+`DEVICE_STOP_S`. Each of the latch and the manuals waits at most `LATCH_WAIT_S` for
+the rig's lock; a manual that went without it is made once more under it when it is
+next free, within the devices' `DEVICE_STOP_S`. Each device is reported `stopped`,
+`unchanged` (it kept every output) or `failed`. The latch holds until a person resets
+it; a restart re-applies it.
 
 **`on_fault`** acts here too: a controller whose source's outage is released goes to
 manual, and `stop` / `stop_device` write its output's or device's resolved stop,
@@ -84,10 +87,13 @@ DEVICE_STOP_S = 5.0
 not done by then is reported `failed` ("may still act"), and the stop returns."""
 
 LATCH_WAIT_S = 0.2
-"""How long a stop waits for the rig's lock, once, before going on without it (a stuck
-delivery or command): to set its latch, then to put the controllers in manual. Once it has
-gone without, nothing else in that stop waits for the lock but the device stops, each on its
-own deadline. A latch set without the lock still refuses: every commit checks it first."""
+"""How long each step of a stop waits for the rig's lock before going on without it (a stuck
+delivery or command): to set its latch (a planned stop: to drop what was staged), to put the
+controllers in manual, and to put them in manual again after a program was interrupted --
+at most three waits, 0.6 s, before the device stops. Once the latch has gone without, the
+manuals do not wait. A latch set without the lock still refuses: every commit checks it
+first. A manual made without it is made once more under it, when it is next free, within
+the device stops' `DEVICE_STOP_S` (which wait for the same lock)."""
 
 type Origin = Literal["off", "you_said", "nobody_said"]
 
@@ -208,7 +214,7 @@ class InterimStopper:
         at_utc_ns = time.time_ns()
         with self._lock:
             interrupted = _interrupt(self.program, "the rig was stopped")
-            failed = _manual(self.rig, None, LATCH_WAIT_S)
+            failed, _ = _manual(self.rig, None, LATCH_WAIT_S)
         devices: dict[str, DeviceStop] = {}
         for name, device in list(self.rig.devices.items()):
             if not stoppable(device):
@@ -282,7 +288,8 @@ class Stopping:
         """Hold `latch`: conditions raised, staged values on what it holds replaced (A6).
 
         Under the rig's lock, so a write or a command checked under it lands wholly before
-        the latch or is refused by it. A lock held past `LATCH_WAIT_S` (a stuck delivery or
+        the latch or after it: refused, or a person's forced through it and logged. A lock
+        held past `LATCH_WAIT_S` (a stuck delivery or
         command) does not hold the latch up: see
         [latch_within][flyball.rig.stopping.Stopping.latch_within].
         """
@@ -644,9 +651,11 @@ class Stopping:
 class RigStopper:
     """The software stop: cancel, latch, manual, interrupt, then every device's resolved stop.
 
-    Long commands are cancelled first, before anything waits. The rig's lock is waited
-    for at most `LATCH_WAIT_S`, once: found stuck, the latch and the controllers' manual go
-    on without it, and only each device's own stop waits (to its deadline).
+    Long commands are cancelled first, before anything waits. Each step waits for the rig's
+    lock at most `LATCH_WAIT_S` (see there: at most three waits); the latch found stuck, the
+    manuals go on without it. A manual made without the lock is made again under it once it
+    is free, within `DEVICE_STOP_S`, so a `regulate` lands wholly before the stop's last
+    manual or after it; each device's own stop waits to the same deadline.
 
     What `POST /api/rig/stop`, MCP `stop_rig`, `flyball stop` and `SIGUSR1` run. Stops are
     serialised; a second one while the rig is latched latches nothing new and stops every
@@ -746,18 +755,25 @@ class RigStopper:
         The controllers go to manual before the program is interrupted (which may wait for
         its worker), and again after it if one was running, for what its last step did.
         `wait_s`: how long `_manual` may wait for the rig's lock (0 once the stop found it
-        stuck).
+        stuck). A manual that went without the lock is made once more under it, as soon as
+        it is free, within the devices' `DEVICE_STOP_S`: a `regulate` that held the lock
+        then may have changed a controller after it, and nothing latched refuses that.
         """
         rig = self.rig
         _cancel(rig)  # again: one started before the latch
-        failed = _manual(rig, why, wait_s)
+        failed, locked = _manual(rig, why, wait_s)
         interrupted = _interrupt(self.program, f"the rig was stopped ({why})")
         if interrupted:
-            failed.update(_manual(rig, why, wait_s))
+            more, again = _manual(rig, why, wait_s)
+            failed.update(more)
+            locked = locked and again
+        deadline = time.monotonic() + DEVICE_STOP_S
+        if not locked:
+            failed.update(_manual_when_free(rig, why, deadline))
         chosen = (
             [d for d in list(rig.devices.values()) if stoppable(d)] if devices is None else devices
         )
-        stops = _stop_all(rig.stopping, chosen, time.monotonic() + DEVICE_STOP_S)
+        stops = _stop_all(rig.stopping, chosen, deadline)
         for name, stop in stops.items():
             for address, error in failed.items():
                 if address.partition(".")[0] == name:
@@ -854,21 +870,40 @@ def _cancel(rig: Rig) -> None:
         device.cancel()
 
 
-def _manual(rig: Rig, why: str | None, wait_s: float) -> dict[str, str]:
-    """Every controller to manual, with an `interrupted` event; by output address, what failed.
+def _manual(rig: Rig, why: str | None, wait_s: float) -> tuple[dict[str, str], bool]:
+    """Every controller to manual, with an `interrupted` event: (what failed, whether locked).
 
-    Under the rig's lock, so no `regulate` lands part-way through, waiting at most `wait_s`
-    for it (none at 0); a lock held longer than that (a stuck delivery) is gone without.
+    What failed is by output address. Under the rig's lock, so no `regulate` lands
+    part-way through, waiting at most `wait_s` for it (none at 0); a lock held longer than
+    that (a stuck delivery) is gone without.
     """
     lock = rig._lock
     locked = lock.acquire(timeout=wait_s) if wait_s > 0 else lock.acquire(blocking=False)
     if not locked:
         log.warning("stop: controllers put in manual without the rig's lock (held too long)")
     try:
-        return _to_manual(rig, why)
+        return _to_manual(rig, why), locked
     finally:
         if locked:
             lock.release()
+
+
+def _manual_when_free(rig: Rig, why: str | None, deadline: float) -> dict[str, str]:
+    """Every controller to manual once more, under the rig's lock, if it is free by `deadline`.
+
+    After a manual made without the lock: what held the lock then (a `regulate`) has
+    finished by the time this takes it, so this manual comes after all of it. Not free by
+    `deadline` (`time.monotonic()`), nothing is done: the device stops, which wait for the
+    same lock to the same deadline, fail with it.
+    """
+    lock = rig._lock
+    if not lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
+        log.warning("stop: the rig's lock was not free again in time for a manual under it")
+        return {}
+    try:
+        return _to_manual(rig, why)
+    finally:
+        lock.release()
 
 
 def _to_manual(rig: Rig, why: str | None) -> dict[str, str]:
