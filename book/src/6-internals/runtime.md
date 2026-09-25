@@ -5,7 +5,7 @@ What the equipment *is* and what it is *doing*, kept apart.
 ## The rig
 
 `Rig` owns the clock, the devices by name, the controllers between their
-signals, the polling, the recorder and the tuning registry. It has no
+signals, the polling, a record sink and the tuning registry. It has no
 opinion about what any controller regulates.
 
 A delivery ([on_samples][flyball.rig.rig.Rig.on_samples]) runs under the
@@ -45,8 +45,8 @@ a fresh read may deliver several at once:
    pushed (or the committed value, if it pushed nothing). A blocking
    device's commit runs on its own `Writer` thread instead, and its states
    arrive later through `Rig.written`.
-5. **The recorder goes last**, so it sees what the whole delivery produced:
-   `recorder.record(published, ticks, states, time_ns=...)` — every sample
+5. **The record sink goes last**, so it sees what the whole delivery produced:
+   one `Delivered` row put to it (`flyball.rig.sink`) — every sample
    that had something published, every controller tick, every write state
    from this delivery's commits.
 
@@ -252,7 +252,7 @@ tick — is arithmetic under the lock. What leaves it:
 
 `rig.close()` stops all of it: the timers first (nothing armed fires while
 the rig comes down; a call in progress is waited on for at most 1 s), then
-polling, writers, recording, then closes the rig's links. It waits for reads in progress for `STOP_JOIN_S` (2 s) in
+polling, writers, lets go of the record sink (the recorder ends its own session), then closes the rig's links. It waits for reads in progress for `STOP_JOIN_S` (2 s) in
 total; a poll thread still in its driver's `read` after that is abandoned
 -- it is a daemon thread -- and logged once by device name. A link whose
 `close` raises is logged and skipped; the rest still close.
@@ -367,9 +367,16 @@ unwind.
 
 ## The recorder
 
-Not an observer: it wants the whole delivery, after the controllers have
-ticked and the touched devices have committed. Which signals and
-controllers it records is decided once, at construction (the rig defaults
-to every signal that publishes or is written, on every device, and every
-controller). The mechanism — buffering, the flush thread, what a signal's
-access decides is recorded — is in [Storage](db.md#recording-a-session).
+The rig does not record: it makes immutable rows under its lock -- a
+delivery, a tick taken then, an event -- numbers them from one counter, and
+puts them to the one sink attached ([attach_sink][flyball.rig.rig.Rig.attach_sink]).
+The recorder (`flyball.runtime.recorder.Recorder`) is that sink while it
+records, and the only thing that opens sessions; it switches from one session
+to the next with a marker in the same stream ([mark][flyball.rig.rig.Rig.mark]),
+so no delivery is split or lost between them. Not an observer: it wants the
+whole delivery, after the controllers have ticked and the touched devices
+have committed. Which signals and controllers a session records is decided
+once, at its start (by default every signal that publishes or is written, on
+every device, and every controller). The mechanism — the stream, buffering,
+the flush thread, what a signal's access decides is recorded — is in
+[Storage](db.md#recording-a-session).

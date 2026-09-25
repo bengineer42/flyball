@@ -1,4 +1,4 @@
-"""Building a rig from a config and opening a store on it, with version bookkeeping."""
+"""Building a rig from a config, opening a store and a recorder on it; version bookkeeping."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from flyball.foundation import Clock
 from flyball.record.store import Store
 from flyball.rig import Rig
 from flyball.runtime.config import ClockEntry, RigConfig
+from flyball.runtime.recorder import Recorder, recover
 
 log = logging.getLogger("flyball.runner")
 
@@ -24,10 +25,13 @@ class BuildFailed(Exception):
 
 def start(
     config: RigConfig, record: bool | None = None, store_path: str | Path = "flyball.sqlite"
-) -> Rig:
-    """Build the rig and, if asked or if the file says so, open a session on it."""
-    rig, _ = start_with_store(config, record, store_path)
-    return rig
+) -> tuple[Rig, Recorder]:
+    """Build the rig and, if asked or if the file says so, open a session on it.
+
+    The recorder holds the session; `recorder.stop()` ends it.
+    """
+    rig, _, recorder = start_with_store(config, record, store_path)
+    return rig, recorder
 
 
 def start_with_store(
@@ -35,8 +39,11 @@ def start_with_store(
     record: bool | None = None,
     store_path: str | Path = "flyball.sqlite",
     edit: int | None = None,
-) -> tuple[Rig, Store]:
-    """`start`, also returning the store so the server can read history from it.
+) -> tuple[Rig, Store, Recorder]:
+    """`start`, also returning the store, for the server to read history from.
+
+    The recorder is the one that owns sessions on the store for this rig: `serve`
+    takes it, to keep the scratch record and sweep.
 
     The store is opened whether or not a session is: past sessions are
     readable and recording can be started from the API either way. Opened
@@ -51,31 +58,20 @@ def start_with_store(
     from flyball.record.sqlite import SqliteStore
 
     store = SqliteStore(store_path)
-    _clean_sessions(store)
+    recover(store)
     try:
         rig = config.build(clock=_seed_clock(config, store))
     except Exception as e:
         store.close()
         raise BuildFailed(str(e) or type(e).__name__) from e
+    recorder = Recorder(rig, store)
     try:
-        _open(config, rig, store, record, store_path, edit)
+        _open(config, rig, recorder, record, store_path, edit)
     except BaseException:
+        recorder.stop()
         rig.close()  # nothing left polling a rig that will not be served
         raise
-    return rig, store
-
-
-def _clean_sessions(store: Store) -> None:
-    # A delete cut off part-way (it goes in batches) is finished before anything reads.
-    for half in store.deleting_sessions():
-        store.delete_session(half.id)
-        log.warning("finished deleting session %d, begun by an earlier run", half.id)
-    # A session still open in the store was left by a runner that died: close
-    # it at its last sample, or it would look live and overlap the next one.
-    for orphan in store.sessions():
-        if orphan.open:
-            store.end_session(orphan.id)
-            log.warning("closed session %d, left open by an earlier run", orphan.id)
+    return rig, store, recorder
 
 
 def _seed_clock(config: RigConfig, store: Store) -> Clock | None:
@@ -104,11 +100,12 @@ def _seed_clock(config: RigConfig, store: Store) -> Clock | None:
 def _open(
     config: RigConfig,
     rig: Rig,
-    store: Store,
+    recorder: Recorder,
     record: bool | None,
     store_path: str | Path,
     edit: int | None = None,
 ) -> None:
+    store = recorder.store
     keep_versions(
         rig,
         store,
@@ -117,7 +114,7 @@ def _open(
     )
     rig.values.attach(store)  # values written in an earlier run, while the file agrees
     if record if record is not None else config.recording:
-        rig.start_recording(store, config=config.model_dump(mode="json"))
+        recorder.start_session(config=config.model_dump(mode="json"))
         log.info("recording to %s", store_path)
 
 

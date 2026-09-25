@@ -49,6 +49,7 @@ from flyball.record.sqlite import SqliteStore
 from flyball.rig import Rig
 from flyball.rig.stopping import InterimStopper
 from flyball.runtime.config import RigConfig
+from flyball.runtime.recorder import Recorder
 
 HUMIDITY = Quantity("humidity", Percent)
 
@@ -527,10 +528,11 @@ class TestRecordFalse:
             "devices": {"s": {"driver": source_tag, "signals": {"other": {"record": False}}}}
         }).build(start=False)
         store = SqliteStore(tmp_path / "s.sqlite")
-        recorder = rig.start_recording(store)
+        recorder = Recorder(rig, store)
+        session = recorder.start_session()
         s = rig.devices["s"]
-        assert s.signals["level"] in recorder.signals
-        assert s.signals["other"] not in recorder.signals
+        assert s.signals["level"] in session.signals
+        assert s.signals["other"] not in session.signals
         assert not s.signals["other"].spec.record
-        rig.stop_recording()
+        recorder.end_session()
         store.close()

@@ -248,15 +248,29 @@ The runner that wants history attaches a store as well:
 
 ```python
 from flyball.record import SqliteStore
-from flyball.interfaces.server import set_store
+from flyball.interfaces.server.deps import set_recorder, set_store
+from flyball.runtime.recorder import Recorder
 
 store = SqliteStore("rig.db")
 set_store(store)
-rig.start_recording(store)
+recorder = Recorder(rig, store)  # the one thing that opens sessions on the rig
+set_recorder(recorder)
+recorder.start_session()
 ```
 
 History routes then read the store, never the rig, so they also work against
-a database copied from another machine with no rig attached.
+a database copied from another machine with no rig attached. A rig and a
+store set without a recorder get a plain one the first time
+`POST /api/recording` asks: no scratch record, no sweeps. The runner makes
+its own and starts it with its `runner:` section, which is what keeps the
+scratch record below.
+
+Every session records what produced it, whoever started it:
+`flyball_version` (the engine), `packages` (each installed distribution
+that registers `flyball.configs` -- the engine, `flyball-sim`, an extension
+-- with its version) and `hardware` (what the rig can say about what it runs
+on; nothing yet). A client that posts `hardware` adds to the rig's, never
+replaces it; a posted `flyball_version` is not kept.
 
 ## The scratch record
 

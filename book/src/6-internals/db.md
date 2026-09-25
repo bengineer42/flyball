@@ -62,15 +62,45 @@ version.
 
 ## Recording a session
 
-`flyball.runtime.Recorder(writer, signals, controllers, flush_s=0.1, on_failure=None)`
-is not an observer: it wants the whole delivery, after the controllers have
-ticked and the touched devices have committed, so it records what each tick
-produced and what each commit set. The rig holds at most one and calls
-`recorder.record(samples, ticks, states, time_ns=...)` at the end of every
-delivery ([on_samples][flyball.rig.rig.Rig.on_samples]), and again with
-empty samples and ticks after a manual demand made outside one; a blocking
-device's deferred write states reach it the same way, through
-`Rig.written`, once its writer thread finishes the commit.
+**The recorder owns sessions.** `flyball.runtime.recorder.Recorder(rig, store)`
+is the one thing that opens a session on the store for a rig
+(`start_session`, `end_session`, `rotate`, `ensure_scratch`), fills in what
+produced it at open -- `flyball_version` (`flyball.__version__`), `packages`
+(`importlib.metadata`: each installed distribution with a `flyball.configs`
+entry point, name to version, read once per process) and `hardware`
+(`rig_hardware(rig)`, which says nothing yet; a posted value is added to it,
+never put in its place) -- and, once `start(runner_config)` is called, keeps
+the scratch record and runs the sweeps (`flyball.runtime.retention.Retention`,
+which it owns). What an earlier run left -- a delete cut off, a session never
+ended -- is finished by `recover(store)` before anything reads the store.
+
+**How the rig feeds it.** The rig does not record. It has one record sink
+(`Rig.attach_sink`, `detach_sink`; the protocol is `flyball.rig.sink.RecordSink`)
+and puts immutable rows to it, each made at the moment it happens, under the
+rig's lock, and numbered from one counter: a `Delivered` (the published
+samples, a `TickRow` per controller tick -- the controller's mode, correction,
+setpoint and output *taken then*, not read later -- and the write states, at
+the commit's time), a `Published` event, a `Declared` device. A `Marker`
+(`Rig.mark(message)`) travels in the same stream: it is how the recorder
+switches sessions. `start_session` opens the new session and declares what it
+records first, off the rig's lock; the switch is the marker, so every row
+before it is the old session's and every row after it the new one's; then the
+old one is closed and, for `include_ns`, the scratch record's rows are copied
+into the new one (`Store.backfill`). Today the stream is a synchronous call on
+the thread that made the row; the hub (D-095) will put a queue and a thread
+between them without changing what the recorder is given. `Recorder.flush()`
+is the barrier a read of just-recorded rows takes (keeping a range of the
+scratch record does).
+
+`flyball.runtime.recorder.SessionRecorder(writer, signals, controllers, flush_s=0.1, on_failure=None)`
+records into one session. It is not an observer: it wants the whole
+delivery, after the controllers have ticked and the touched devices have
+committed, so it records what each tick produced and what each commit set.
+The rig puts a row at the end of every delivery
+([on_samples][flyball.rig.rig.Rig.on_samples]), and again with empty samples
+and ticks after a manual demand made outside one; a blocking device's
+deferred write states reach it the same way, through `Rig.written`, once its
+writer thread finishes the commit.
 
 What is recorded follows a signal's access: readings of published (`P`)
 signals go in as samples — a fresh read of an `RW` setting is for whoever
@@ -78,17 +108,19 @@ asked for it, not the record — and write states of writable (`W`) ones go
 in as `write_state` rows; a controller's measured signal and output are always
 included, asked for or not. Declaring (`declare_device`, `declare_signal`,
 `declare_controller`) is idempotent and happens once, at construction, over
-the signals and controllers given — which the rig defaults to every signal
+the signals and controllers given — which the recorder defaults to every signal
 that publishes or is written, on every device, and every controller.
 
 Deliveries are buffered on the delivery path — appends to four lists under
-one lock — and written by the recorder's own thread in one transaction
+one lock — and written by the session recorder's own thread in one transaction
 every `flush_s`: a transaction costs milliseconds on an SD card whether it
 holds one row or a hundred, and none of those milliseconds are the
-delivery's. A store that fails ends the recording (`on_failure` is called
-once; the rig turns it into a `recording_failed` event) without touching
-control. `close` stops the thread, writes what is left, and ends the
-session.
+delivery's. The lists are unbounded: a store slower than the rig grows them
+until it fails (a bound and a `recording_behind` condition are still to
+come). A store that fails ends the recording (`on_failure` is called once;
+the recorder switches away from the session and raises `recording_failed` on
+the rig) without touching control. `close` stops the thread, writes what is
+left, and ends the session.
 
 The recorder is a write-behind log of what happened: nothing on the
 delivery or control path ever reads it back, and a controller's law never
@@ -239,8 +271,8 @@ a measured bytes-per-row (`_ROW_BYTES`); the store's `used_bytes()` is pages
 less free pages × page size, which is what `max_store` is measured against.
 Samples backfilled into a new recording (`include_ns`) are numbered from −1
 downwards, below the writer's own count, so the recorder need not know. The
-sweep itself is `flyball.runtime.retention.Retention`, started by `serve()`
-when there is a store; what it does and in what order is
+sweep itself is `flyball.runtime.retention.Retention`, owned by the recorder
+and started by `serve()` (`Recorder.start`) when there is a store; what it does and in what order is
 [What ages out](../1-running/runner/index.md#what-ages-out).
 
 The runner's action audit is the `audit` table, one row per

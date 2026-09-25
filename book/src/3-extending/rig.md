@@ -48,28 +48,38 @@ When a device delivers — a poll, a push, or a fresh read —
    steps, and the output value is written to the output.
 4. Every device touched — by a tick's write or by a bound input landing —
    has `commit` called once, however many signals on it changed.
-5. The recorder, if any, is given the published samples, the ticks, and the
-   write states.
+5. The rig's record sink, if one is attached (the recorder, while it
+   records), is given one row of the delivery: the published samples, a
+   row of each tick taken then, and the write states.
 
 Nothing is reordered: samples reach observers, controllers and the recorder
-in the order the device delivered them. See
+in the order the device delivered them, and every row the rig hands the
+recorder carries a number from one counter. See
 [The delivery loop](../6-internals/runtime.md) for the full sequence.
 
 ## Recording
 
 ```python
 from flyball.record import SqliteStore
-store = SqliteStore("run.db")
-rig.start_recording(store, **session_fields)
+from flyball.runtime.recorder import Recorder
+
+recorder = Recorder(rig, SqliteStore("run.db"))
+recorder.start_session(**session_fields)
 ...
-rig.stop_recording()
+recorder.end_session()
 ```
 
-Opens a session and records every signal that publishes or is written, and
-every controller, from the next delivery on — pass `signals=`/
-`controllers=` to record a subset instead. Deliveries are buffered and
-written in one transaction per interval, so a controller at any rate pays
-one list append per tick. See [Storage](../6-internals/db.md).
+The rig does not record: the recorder does, and it is the only thing that
+opens a session. `start_session` opens one and records every signal that
+publishes or is written, and every controller, from the next delivery on —
+pass `signals=`/`controllers=` to record a subset instead. The session
+says what produced it without being told: `flyball_version`, `packages`
+(each installed distribution registering `flyball.configs`, with its
+version) and `hardware`. Deliveries are buffered and written in one
+transaction per interval, so a controller at any rate pays one list append
+per tick. `recorder.start(runner_config)` adds the runner's scratch record
+and sweeps; `recorder.stop()` ends them and the session. See
+[Storage](../6-internals/db.md).
 
 ## Serving
 

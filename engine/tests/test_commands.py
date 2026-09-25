@@ -24,6 +24,7 @@ from flyball.foundation.primitives import Labelled
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Percent
 from flyball.rig import Rig
+from flyball.runtime.recorder import Recorder
 
 TEMP = Quantity("temperature", Celsius)
 DUTY = Quantity("duty", Percent)
@@ -218,8 +219,9 @@ def test_recording_declares_a_limit_that_follows_a_signal_as_its_number(
     from flyball.record import SqliteStore
 
     store = SqliteStore(tmp_path / "rig.sqlite")
-    rig.start_recording(store)  # `banks.a` has limits (0, max_duty): declared as (0, 80)
-    rig.stop_recording()
+    recorder = Recorder(rig, store)
+    recorder.start_session()  # `banks.a` has limits (0, max_duty): declared as (0, 80)
+    recorder.end_session()
     session = store.sessions()[0]
     limits = {s.address: s.limits for s in store.signals(session.id)}
     assert tuple(limits["heater.banks.a"]) == (0.0, 80.0)

@@ -9,7 +9,7 @@ import pytest
 
 from conftest import TestClient
 from flyball.interfaces.server import create_app, set_rig
-from flyball.interfaces.server.deps import get_rig, set_store
+from flyball.interfaces.server.deps import get_recorder, set_store
 from flyball.record.sqlite import SqliteStore
 from flyball.rig import Rig
 
@@ -91,14 +91,14 @@ def test_end_session_route_closes_live_and_orphaned(client):
 
 def test_two_starts_at_once_open_one_session(client, monkeypatch):
     c, store = client
-    rig = get_rig()
-    start = rig.start_recording
+    recorder = get_recorder()  # the plain one a rig and a store set get
+    start = recorder.start_session
 
     def slow_start(*args, **kwargs):
         time.sleep(0.2)  # widen the gap between the 409 check and the open
         return start(*args, **kwargs)
 
-    monkeypatch.setattr(rig, "start_recording", slow_start)
+    monkeypatch.setattr(recorder, "start_session", slow_start)
     results: list[int] = []
     threads = [
         threading.Thread(target=lambda: results.append(c.post("/api/recording").status_code))

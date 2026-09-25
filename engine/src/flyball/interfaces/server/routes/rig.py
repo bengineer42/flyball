@@ -16,6 +16,7 @@ from flyball.foundation.device import Code, Condition, Severity, SubjectKind
 from flyball.interfaces.server.deps import (
     RigDep,
     current_exposure,
+    current_recorder,
     current_rig,
     current_rig_config,
     current_simulation,
@@ -124,7 +125,7 @@ async def read_health() -> dict[str, Any]:
         "conditions": conditions,
         "alarms": _alarm_summary(conditions),
         "activities": sorted(rig.triggers.states()),
-        "recording": rig.recording is not None,
+        "recording": _recording(),
         "stopped": None
         if stopped is None
         else {
@@ -135,6 +136,12 @@ async def read_health() -> dict[str, Any]:
         "latches": rig.stopping.latches.rows(),
         "exposure": current_exposure(),  # served on loopback though asked for more, or open
     }
+
+
+def _recording() -> bool:
+    """Whether a session someone started is being recorded (not the scratch record)."""
+    recorder = current_recorder()
+    return recorder is not None and recorder.recording is not None
 
 
 # endregion

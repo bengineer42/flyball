@@ -28,7 +28,7 @@ def oven():
 
 def test_a_rig_stop_survives_a_restart_through_the_runner(tmp_path, oven):
     path = tmp_path / "s.sqlite"
-    rig, store = start_with_store(oven, store_path=path)
+    rig, store, _ = start_with_store(oven, store_path=path)
     try:
         RigStopper(rig).stop(BEN, "test")
         assert rig.stopping.latches.rig_stop is not None
@@ -36,7 +36,7 @@ def test_a_rig_stop_survives_a_restart_through_the_runner(tmp_path, oven):
         rig.close()
         store.close()
 
-    rig, store = start_with_store(oven, store_path=path)
+    rig, store, _ = start_with_store(oven, store_path=path)
     try:
         assert rig.stopping.latches.rig_stop is not None, "a restart un-stopped the rig"
     finally:
@@ -58,7 +58,7 @@ def test_nothing_polls_before_the_saved_state_is_restored(tmp_path, oven, monkey
         return start_polling(self, device)
 
     monkeypatch.setattr(Rig, "start_polling", spy)
-    rig, store = start_with_store(oven, store_path=tmp_path / "s.sqlite")
+    rig, store, _ = start_with_store(oven, store_path=tmp_path / "s.sqlite")
     try:
         assert restored_at_first_poll == [True], "a device was polled before the restore"
     finally:

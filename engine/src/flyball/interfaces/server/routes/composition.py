@@ -31,6 +31,7 @@ from flyball.interfaces.server.deps import (
     RigDep,
     compose_allowed,
     current_programmer,
+    current_recorder,
     current_runner,
     current_stopper,
     get_catalog,
@@ -180,7 +181,9 @@ def _edit(
             raise
         log.warning("rig edit (%s): version %d; stopping the rig and restarting", reason, row.id)
         report = _stop(rig, request, f"rig edit: {reason}; restarting at version {row.id}")
-        runner.restart_for_edit(row.id, previous, record=rig.recording is not None)
+        recorder = current_recorder()
+        recording = recorder is not None and recorder.recording is not None
+        runner.restart_for_edit(row.id, previous, record=recording)
     return EditOut(
         rig_version_id=row.id,
         previous=previous,
