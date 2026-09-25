@@ -23,6 +23,8 @@ from pydantic import TypeAdapter, create_model
 from flyball.foundation.actor import Actor
 from flyball.foundation.device import CommandSpec, Device, InputBinding, Node, Signal
 from flyball.foundation.errors import ConflictError, NotFoundError
+from flyball.foundation.keys import humanise
+from flyball.foundation.schema import Titled
 from flyball.interfaces.server.deps import RigDep
 from flyball.interfaces.server.routes.stop import actor
 from flyball.interfaces.server.schemas import (
@@ -88,7 +90,9 @@ def _signal_schema(signal: Signal, lineage: Lineage) -> dict[str, Any]:
         "unit": signal.unit.symbol,
         "dimension": signal.unit.dimension.label,
         "dtype": signal.spec.dtype,
-        "value_schema": TypeAdapter(signal.spec.vtype).json_schema(mode="serialization"),
+        "value_schema": TypeAdapter(signal.spec.vtype).json_schema(
+            mode="serialization", schema_generator=Titled
+        ),
         "range": signal.range,
         "precision": signal.spec.precision,
         "limits": signal.limits,
@@ -117,12 +121,14 @@ def device_schema(
         "readable": cls.readable,
         "writable": cls.writable,
         **extra,
-        "config": TypeAdapter(cls.config_type).json_schema(mode="validation"),
+        "config": TypeAdapter(cls.config_type).json_schema(
+            mode="validation", schema_generator=Titled
+        ),
         "signals": {path: _signal_schema(s, paired) for path, s in device.signals.items()},
         "inputs": {
             name: {
-                "label": "" if (spec := binding.declared) is None else spec.label,
-                "quantity": "" if spec is None else spec.quantity.name,
+                "label": binding.label,
+                "quantity": "" if (spec := binding.declared) is None else spec.quantity.name,
                 "unit": "" if (unit := binding.unit) is None else unit.symbol,
                 "bound": binding.address,
                 "constant": binding.constant,
@@ -132,10 +138,13 @@ def device_schema(
         },
         "commands": {
             command: {
+                "label": spec.label,
                 "description": spec.doc,
                 "arguments": _linking_demands(
                     _naming_signals(
-                        TypeAdapter(arguments_for(cls, spec)).json_schema(mode="validation"),
+                        TypeAdapter(arguments_for(cls, spec)).json_schema(
+                            mode="validation", schema_generator=Titled
+                        ),
                         device,
                     ),
                     spec,
@@ -172,7 +181,7 @@ def _linking_demands(
             **properties[name],
             "x-signal": signal.address,
             "unit": signal.unit.symbol,
-            "title": signal.label or properties[name].get("title", name),
+            "title": signal.declared_label or properties[name].get("title") or humanise(name),
         }
         if (limits := signal.limits) is not None:
             field["minimum"], field["maximum"] = limits

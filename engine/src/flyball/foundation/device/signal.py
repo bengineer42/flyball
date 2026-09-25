@@ -22,7 +22,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
 from ..errors import NotFoundError, NotReadyError, UnachievableError
-from ..keys import canonical, check_key
+from ..keys import canonical, check_key, humanise
 from ..quantities import Unit
 from ..quantities.quantity import Quantity
 from ..time.clock import Rate
@@ -243,7 +243,8 @@ class SignalSpec:
     shape: tuple[int, ...] = ()
     """The dimensions of a value: `()` a scalar. Only scalars are carried yet."""
     label: str = ""
-    """The display text; `""` shows the titlecased name. The rig file may set it."""
+    """The declared display text, or `""`; the rig file may set it. A bound signal's `label`
+    resolves a blank one to the name, humanised (D-086)."""
     # read side (R / P)
     range: Bounds | None = None
     """The values a reading can plausibly take, for a gauge or an axis; None if unbounded."""
@@ -321,6 +322,7 @@ class NodeSpec:
     atomic: bool = False
     """Read (and written) as one Sample / one Write."""
     label: str = ""
+    """The declared display text, or `""`; the bound node resolves a blank one (D-086)."""
     poll_s: float | None = None
     """Inherited downwards; a child may override."""
     tags: dict[str, str] = field(default_factory=dict)
@@ -433,7 +435,13 @@ class Node:
 
     @property
     def label(self) -> str:
-        return (self.device.label or "") if self.spec is None else self.spec.label
+        """What a person reads: the declared label, else the name humanised; never empty."""
+        return self.device.label if self.spec is None else self.spec.label or humanise(self.name)
+
+    @property
+    def declared_label(self) -> str:
+        """The label as declared (driver, then rig file); `""` when none was."""
+        return (self.device.declared_label or "") if self.spec is None else self.spec.label
 
     @property
     def atomic(self) -> bool:
@@ -702,6 +710,12 @@ class Signal:
 
     @property
     def label(self) -> str:
+        """What a person reads: the declared label, else the name humanised; never empty."""
+        return self.spec.label or humanise(self.spec.name)
+
+    @property
+    def declared_label(self) -> str:
+        """The label as declared (driver, then rig file); `""` when none was."""
         return self.spec.label
 
     @property

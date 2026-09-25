@@ -19,8 +19,8 @@ const transport: Transport = {
   stream: () => ({ close: () => undefined }),
 };
 
-const SOURCE = { name: "temp", address: "chamber.temp", access: "r", label: "", quantity: "temperature", unit: "°C", dimension: null, dtype: "float", shape: [], role: "measurement", tags: {}, initial: null, range: null, precision: 1, warning: null, alarm: null, poll_s: 1, limits: null, latest: null, write: null } as unknown as SignalOut;
-const BASE = { name: "heater.demand", label: null, output_signal: "heater.demand", measured_signal: "chamber.temp", is_default: false, mode: "manual", law: null, feedforward: { type: "none" }, output_unit: "W", reference: 50, setpoint: 50, correction: 0, output_value: 0, expected: 0, delivered_correction: 0, measured_value: null } as unknown as ControllerOut;
+const SOURCE = { name: "temp", address: "chamber.temp", access: "r", label: "Temp", quantity: "temperature", unit: "°C", dimension: null, dtype: "float", shape: [], role: "measurement", tags: {}, initial: null, range: null, precision: 1, warning: null, alarm: null, poll_s: 1, limits: null, latest: null, write: null } as unknown as SignalOut;
+const BASE = { name: "heater.demand", label: "Demand", output_signal: "heater.demand", measured_signal: "chamber.temp", is_default: false, mode: "manual", law: null, feedforward: { type: "none" }, output_unit: "W", reference: 50, setpoint: 50, correction: 0, output_value: 0, expected: 0, delivered_correction: 0, measured_value: null } as unknown as ControllerOut;
 
 const panel = (controller: ControllerOut, extra: Record<string, unknown> = {}) =>
   render(createElement(RigProvider, { transport }, createElement(ControllerPanel, { controller, source: SOURCE, trends: false, ...extra })));

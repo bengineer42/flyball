@@ -26,7 +26,7 @@ rig can differ in all three.
 
 Each signal is a **descriptor** on the class: [`Readout`][flyball.foundation.device.descriptors.Readout]
 for something produced (`RP`), the only role a pure sensor needs. Its
-arguments are the signal's name, a label, its quantity, then metadata:
+arguments are the signal's name, a label (`""` for the name humanised), its quantity, then metadata:
 `range` and `precision` for a gauge or an axis, `warning` and `alarm` bands,
 `poll_s` for a signal read at its own rate, `tags` to group it across
 devices. A [`Namespace`][flyball.foundation.device.descriptors.Namespace] groups several

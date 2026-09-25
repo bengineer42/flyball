@@ -36,7 +36,7 @@ from flyball.foundation.device import (
     WriteState,
 )
 from flyball.foundation.errors import ConflictError, NotFoundError
-from flyball.foundation.keys import canonical, check_key
+from flyball.foundation.keys import canonical, check_key, humanise
 
 from .errors import (
     ConstraintError,
@@ -159,7 +159,13 @@ def _config_json(device: Device) -> Any:
 
 
 def _device_row(row: sqlite3.Row) -> DeviceRow:
-    return DeviceRow(row["id"], row["address"], row["driver"], _loads(row["config"]), row["label"])
+    return DeviceRow(
+        row["id"],
+        row["address"],
+        row["driver"],
+        _loads(row["config"]),
+        row["label"] or humanise(row["address"]),
+    )
 
 
 def _signal_row(row: sqlite3.Row) -> SignalRow:
@@ -172,7 +178,7 @@ def _signal_row(row: sqlite3.Row) -> SignalRow:
         access=row["access"],
         dtype=row["dtype"],
         shape=_loads(row["shape"]),
-        label=row["label"],
+        label=row["label"] or humanise(row["address"].rpartition(".")[2]),
         range=_band(row["range"]),
         precision=row["precision"],
         warning=_band(row["warning"]),
@@ -200,13 +206,16 @@ def _window_clause(window: Window | None, column: str, shift: int = 0) -> tuple[
 
 
 def _dashboard_row(row: sqlite3.Row) -> DashboardRow:
+    body = _loads(row["body"])
+    declared = body.get("label") if isinstance(body, dict) else None
     return DashboardRow(
         id=row["id"],
         name=row["name"],
         rig=row["rig"],
-        body=_loads(row["body"]),
+        body=body,
         created_ns=row["created_ns"],
         sha256=row["sha256"],
+        label=declared if isinstance(declared, str) and declared else humanise(row["name"]),
     )
 
 
@@ -393,7 +402,7 @@ class SqliteSessionWriter:
                     str(signal.access),
                     spec.dtype,
                     _dumps(list(spec.shape)),
-                    spec.label or None,
+                    signal.label,
                     _dumps(spec.range),
                     spec.precision,
                     _dumps(spec.warning),

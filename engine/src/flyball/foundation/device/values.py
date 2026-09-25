@@ -52,7 +52,7 @@ class ValueEntry(BaseModel):
     quantity: str | None = Field(
         default=None, description="What it is (`humidity`); default: the value's name."
     )
-    label: str = Field(default="", description="The display text; default: the titled name.")
+    label: str = Field(default="", description="The display text; blank: the name, humanised.")
     limits: Bounds | None = Field(
         default=None, description="What a write is clamped to, `[low, high]`, in its unit."
     )

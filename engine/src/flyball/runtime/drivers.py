@@ -29,6 +29,8 @@ from typing import Any, TypeAliasType, get_args
 
 from flyball.foundation.config import Config
 from flyball.foundation.device import DriverConfig
+from flyball.foundation.keys import humanise
+from flyball.foundation.schema import Titled
 from flyball.model.catalog import Catalog, Catalogs, get_catalog
 
 log = logging.getLogger("flyball.drivers")
@@ -143,7 +145,7 @@ def describe(config: type[Config[Any]], catalogs: Catalogs) -> dict[str, Any]:
     else:
         entry["family"] = config.family
     try:
-        entry["schema"] = config.model_json_schema()
+        entry["schema"] = config.model_json_schema(schema_generator=Titled)
     except Exception as e:  # a schema pydantic cannot build: say so, keep the rest
         entry["schema_error"] = f"{type(e).__name__}: {e}"
     return entry
@@ -157,9 +159,10 @@ def requires(driver: type[DriverConfig[Any]], catalogs: Catalogs) -> dict[str, A
     `link` is every registered link type of that family, fakes and simulations included, and
     any other its `link` field names; empty for a driver that takes no link. `inputs` are its
     device's declared inputs, each `{name, label, kind, optional, quantity, unit}`: `name` is
-    the key under `inputs:`, and `kind` is `signal` (an address to follow, or a number held as a
-    constant). A composite with no `link` of its own takes its nested driver's: `link` is
-    theirs combined, `family` theirs when they agree, and `nested` names the field.
+    the key under `inputs:`, `label` the declared one else `name` humanised (D-086), and
+    `kind` is `signal` (an address to follow, or a number held as a constant). A composite
+    with no `link` of its own takes its nested driver's: `link` is theirs combined,
+    `family` theirs when they agree, and `nested` names the field.
     """
     field = driver.model_fields.get("link")
     named = [] if field is None else _configs_in(field.annotation)
@@ -191,7 +194,7 @@ def requires(driver: type[DriverConfig[Any]], catalogs: Catalogs) -> dict[str, A
     inputs = [
         {
             "name": name,
-            "label": declared.label,
+            "label": declared.label or humanise(name),
             "kind": "signal",
             "optional": declared.optional,
             "quantity": declared.quantity.name,

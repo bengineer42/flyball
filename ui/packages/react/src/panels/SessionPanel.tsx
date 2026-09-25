@@ -36,7 +36,7 @@ function asSignal(row: SignalRow): SignalOut {
     name: row.address.slice(row.address.lastIndexOf(".") + 1),
     address: row.address,
     access: row.access,
-    label: row.label ?? "",
+    label: row.label,
     quantity: row.quantity,
     unit: row.unit,
     dimension: null,
@@ -455,10 +455,10 @@ export function SessionPanel({ detail, height = 180, grouping, onGrouping, yScal
               const { label, rest } = deviceConfig(d.config);
               return (
                 <div key={d.id} className="fb-state-row">
-                  <dt><Ref kind="device" name={d.address}>{d.label ?? label ?? d.address}</Ref></dt>
+                  <dt><Ref kind="device" name={d.address}>{d.label}</Ref></dt>
                   <dd>
                     {d.driver ? describeDevice(d.driver) : "device"}
-                    {(d.label ?? label) && <> · {d.address}</>}
+                    {d.label !== d.address && <> · {d.address}</>}
                     {Object.keys(rest).length > 0 && <ValueView value={rest} describeKey={describeStateKey} />}
                   </dd>
                 </div>

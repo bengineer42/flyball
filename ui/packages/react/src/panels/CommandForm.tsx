@@ -169,7 +169,7 @@ export function CommandForm({ name, command, onRun, busy, result, form, device, 
   const args = only
     ? { ...command.arguments, properties: { ...command.arguments.properties, [only]: { ...command.arguments.properties![only]!, title: "" } } }
     : command.arguments;
-  const label = humanise(name);
+  const label = command.label;
   // The raw name beside the heading is only worth showing when it carries something the
   // heading doesn't: `demand` -> "Demand" is a bare recapitalisation, so the chip would just
   // repeat the heading in lowercase; `set_flows` -> "Set flows" hides the underscore a caller

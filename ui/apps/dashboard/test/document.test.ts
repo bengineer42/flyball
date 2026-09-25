@@ -16,15 +16,16 @@ describe("a dashboard's name and label", () => {
     expect(nameFor("a" + " b".repeat(40))).toMatch(/^[a-z][a-z0-9_]{0,63}$/);
   });
 
-  it("a label is kept only when it says more than the name", () => {
-    expect(labelFor("Furnace overview", "furnace_overview")).toBe("Furnace overview");
+  it("a label is kept only when it says more than the name, humanised", () => {
+    expect(labelFor("Furnace Overview", "furnace_overview")).toBe("Furnace Overview");
+    expect(labelFor("Furnace overview", "furnace_overview")).toBeNull();
     expect(labelFor("ops", "ops")).toBeNull();
   });
 
-  it("what shows is the label, else the name", () => {
+  it("what shows is the label, else the name humanised, as the server resolves a blank one", () => {
     expect(labelOf({ name: "wall", label: "Wall display" })).toBe("Wall display");
-    expect(labelOf({ name: "wall", label: null })).toBe("wall");
-    expect(labelOf(null, "wall")).toBe("wall");
+    expect(labelOf({ name: "wall_display", label: null })).toBe("Wall display");
+    expect(labelOf(null, "wall")).toBe("Wall");
   });
 
   it("a new document is at the current version and carries its label", () => {

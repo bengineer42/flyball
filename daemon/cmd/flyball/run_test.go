@@ -192,6 +192,8 @@ func fakeEnv(t *testing.T) (dir string) {
 	os.Mkdir(filepath.Join(dir, "run"), 0o700)
 	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(dir, "run"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+	t.Setenv("FLYBALL_CONFIG", filepath.Join(dir, "config.yaml")) // none: the runner below, not a venv's
+	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
 	t.Setenv("FLYBALL_INSECURE_OPEN", "")
 	t.Setenv("FLYBALL_FAKE_RUNNER", filepath.Join(dir, "stopped"))
 	t.Setenv("FLYBALL_FAKE_ARGS", filepath.Join(dir, "args"))

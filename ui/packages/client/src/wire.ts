@@ -280,6 +280,7 @@ export interface NamespaceOut {
   address: Address;
   /** Read (and written) as one sample / one demand. */
   atomic: boolean;
+  /** What a person reads: the declared label, else the name humanised; never empty. */
   label: string;
   poll_s: number | null;
   signals: TreeNode[];
@@ -295,6 +296,8 @@ export function isNamespace(node: TreeNode): node is NamespaceOut {
 
 export interface CommandOut {
   name: string;
+  /** What a person reads: the driver's `@command(label=...)`, else the name humanised. */
+  label: string;
   description: string | null;
   /** Only meaningful on a simulated device (a scripted fault, a disturbance); shown on the simulation page. */
   simulation: boolean;
@@ -337,7 +340,7 @@ export interface CommandRunOut {
  */
 export interface InputOut {
   name: string;
-  /** The declared input's label; `""` for a name only the rig file gives. */
+  /** The declared input's label, else the name humanised; never empty. */
   label: string;
   /** The declared input's quantity, else the source's; `""` when neither says. */
   quantity: string;
@@ -396,8 +399,8 @@ export interface RunOut {
  */
 export interface DeviceOut {
   name: string;
-  /** A display name; null when the rig gave none, in which case show `name`. */
-  label: string | null;
+  /** What a person reads: the rig file's `label`, else the name humanised; never empty. */
+  label: string;
   /** `device`, or `simulation` for an application's own simulation device (kept on the simulation page). */
   kind: string;
   /** The rig file's `driver:` for it (`sim_daq`, `scpi`); null for a device built in code. */
@@ -438,6 +441,8 @@ export interface DeviceRunOut extends RunOut {
  * signal's current value.
  */
 export interface CommandSchema {
+  /** As `CommandOut.label`. */
+  label: string;
   description: string | null;
   arguments: JsonSchema;
   simulation: boolean;
@@ -488,7 +493,8 @@ export interface InputSchema {
 /** `GET /api/devices/{name}/schema`: how a device is configured, its signals, inputs and commands. */
 export interface DeviceSchema {
   name: string;
-  label: string | null;
+  /** As `DeviceOut.label`. */
+  label: string;
   class_name: string;
   driver: string | null;
   description: string | null;
@@ -606,8 +612,8 @@ export type GeneratorSpec = LinearRampSpec | DwellSpec | ProfileSpec | { type: s
 export interface ControllerOut {
   /** The output's address. */
   name: Address;
-  /** The output signal's display name; null when it has none, in which case show `name`. */
-  label: string | null;
+  /** What a person reads: the rig file's `label` for it, else its output signal's; never empty. */
+  label: string;
   output_signal: Address;
   measured_signal: Address;
   is_default: boolean;
@@ -704,6 +710,8 @@ export interface NewController {
   setpoint_period_s?: number | null;
   /** Omitted: `freeze`. `stop` is refused (409) on an output whose stop is `keep`. */
   on_fault?: OnFault;
+  /** What a person reads; omitted: the output signal's label. */
+  label?: string | null;
 }
 
 export type ValueSource = "measured" | "setpoint" | "output";
@@ -757,6 +765,8 @@ export interface ClockOut {
 export interface Health {
   ok: boolean;
   rig: string | null;
+  /** What a person reads for the rig: the rig file's `label`, else its name humanised; null with no rig. */
+  label: string | null;
   uptime_s: number;
   /** Each polled device. */
   devices: Record<string, { running: boolean; last_read_ns: Nanoseconds | null }>;
@@ -1179,7 +1189,8 @@ export interface DeviceRow {
   address: Address;
   driver: string | null;
   config: unknown;
-  label: string | null;
+  /** Its label as resolved when the session declared it. */
+  label: string;
 }
 
 /** One signal as declared for the session; `address` is the key everything else uses. */
@@ -1192,7 +1203,8 @@ export interface SignalRow {
   access: Access;
   dtype: string;
   shape: number[];
-  label: string | null;
+  /** Its label as resolved when the session declared it. */
+  label: string;
   range: Bounds | null;
   precision: number | null;
   warning: Bounds | null;

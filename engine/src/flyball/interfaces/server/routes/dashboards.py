@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from flyball.foundation.device import Access
 from flyball.foundation.files import SUFFIXES, load_document
 from flyball.foundation.keys import check_key
+from flyball.foundation.schema import Titled
 from flyball.interfaces.server.deps import RigDep, StoreDep
 from flyball.record import DashboardRow
 from flyball.record.errors import DashboardNotFoundError
@@ -81,7 +82,8 @@ class Dashboard(BaseModel):
     name: str = Field(min_length=1)
     label: str | None = Field(
         default=None,
-        description="What its tab and its row in a list show; none: the name. Renaming edits it.",
+        description="What its tab and its row in a list show; none: the name, humanised."
+        " Renaming edits it.",
     )
     rig: str
     description: str | None = None
@@ -131,6 +133,9 @@ class DashboardWithProblems(BaseModel):
 
     id: int
     name: str
+    label: str
+    """What a person reads: the document's `label`, else the name humanised; the document
+    (`body`) keeps the one it declared, or none."""
     rig: str
     body: Any
     created_ns: int
@@ -143,6 +148,7 @@ class DashboardWithProblems(BaseModel):
         return cls(
             id=row.id,
             name=row.name,
+            label=row.label,
             rig=row.rig,
             body=body,
             created_ns=row.created_ns,
@@ -234,7 +240,7 @@ def import_directory(store: Store, directory: Path, rig: str, now_ns: int) -> li
 @router.get("/schema")
 async def read_dashboard_schema() -> dict[str, Any]:
     """JSON Schema of the document, for an editor or an import check."""
-    return Dashboard.model_json_schema()
+    return Dashboard.model_json_schema(schema_generator=Titled)
 
 
 @router.get("/widgets")

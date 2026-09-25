@@ -427,17 +427,26 @@ export function describeDevice(type: string): string {
   return DEVICE_TYPES[type] ?? humanise(type);
 }
 
-/** A signal's display name: its `label`, or its `name` humanised when the driver gave none. */
+/** A signal's display name: its `label`, which the server resolves (declared, else the name humanised). */
 export function describeSignal(signal: Pick<SignalOut, "name" | "label">): string {
-  return signal.label || humanise(signal.name);
+  return signal.label;
 }
 
-/** A namespace's display name: its `label`, or its `name` humanised when the driver gave none. */
+/**
+ * Whether a label says more than its name: one the driver or the rig file declared, unless it
+ * is only the name humanised -- what the server resolves a blank label to (D-086). A title
+ * qualifies a signal whose label does not by its namespace (`Dry humidity`).
+ */
+export function saysMore(item: { name: string; label: string }): boolean {
+  return item.label !== humanise(item.name);
+}
+
+/** A namespace's display name: its `label`, which the server resolves. */
 export function describeNamespace(namespace: Pick<NamespaceOut, "name" | "label">): string {
-  return namespace.label || humanise(namespace.name);
+  return namespace.label;
 }
 
-/** A device's display name: its `label`, or its `name` humanised when the rig gave none (`DeviceOut.label` is null then). */
+/** A device's display name: its `label`, which the server resolves; the name humanised for a device known only by name. */
 export function deviceTitle(device: DeviceRef): string {
   return device.label || humanise(device.name);
 }
@@ -458,10 +467,10 @@ export function withUnit(text: string, unit: string | null | undefined): string 
   return shown ? `${text} ${shown}` : text;
 }
 
-/** What names a device for a title: its name and, when the rig gave one, its label; the tree when the caller has it. */
+/** What names a device for a title: its name and its label (absent for a device known only by name); the tree when the caller has it. */
 export interface DeviceRef {
   name: string;
-  label?: string | null;
+  label?: string;
   signals?: readonly TreeNode[];
 }
 
@@ -527,7 +536,7 @@ export function signalTitleAt(signal: Pick<SignalOut, "name" | "label" | "addres
   const own = describeSignal(signal);
   if (!place.namespace) return own;
   const shared = signalsOf(place.device?.signals ?? []).some((other) => other.address !== signal.address && describeSignal(other) === own);
-  return signal.label && !shared ? own : titleFor(signal, { namespace: place.namespace });
+  return saysMore(signal) && !shared ? own : titleFor(signal, { namespace: place.namespace });
 }
 
 /** A tile's caption under a title from `signalTitleAt`: the device alone once the title already names the namespace. */
@@ -584,9 +593,9 @@ export function unitTitle(unit: string, signals: ReadonlyArray<Pick<SignalOut, "
   return quantities.join(", ") || "dimensionless";
 }
 
-/** A controller's display name: its target's `label`, or its `name` (the target's address). */
+/** A controller's display name: its `label`, which the server resolves (declared, else its output signal's). */
 export function describeController(controller: Pick<ControllerOut, "name" | "label">): string {
-  return controller.label || controller.name;
+  return controller.label;
 }
 
 const ACCESS_WORDS: Record<string, string> = { r: "read", p: "publish", w: "write" };

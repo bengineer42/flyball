@@ -29,7 +29,7 @@ const samples = (...items: Array<[node: string, t: number, values: Record<string
 
 const controller = (t: number, output: number | null): ControllerOut => ({
   name: "heaters.heater1",
-  label: null,
+  label: "Heater1",
   output_signal: "heaters.heater1",
   measured_signal: "furnace.zone1",
   is_default: true,

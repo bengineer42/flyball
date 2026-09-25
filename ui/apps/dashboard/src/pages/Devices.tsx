@@ -25,7 +25,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useAuth } from "../auth.js";
 import { DevicePanel, DeviceSignals, SchemaForm, useCommands, useControllers, useDeviceRuns, useDeviceSchema, useQuery, useRig, useRigDocument, useRigFileSchema, type QueryState } from "@flyball/react";
-import { describeController, describeDevice, describeQuality, deviceOf, humanise, RigError, withUnit, type DeviceOut, type InputOut, type JsonSchema, type NewDevice, type RigDocument, type RigEditOut, type ValueSourceOut } from "@flyball/client";
+import { describeController, describeDevice, describeQuality, deviceOf, RigError, withUnit, type DeviceOut, type InputOut, type JsonSchema, type NewDevice, type RigDocument, type RigEditOut, type ValueSourceOut } from "@flyball/client";
 import { DeviceSummaryCard, SectionHead, StateBlock } from "../cards.js";
 import { PAGE_ICONS } from "../icons.js";
 import { hashFor, hrefFor } from "../router.js";
@@ -490,7 +490,7 @@ export function InputsLine({ inputs }: { inputs: Record<string, InputOut> }) {
           <Fragment key={role}>
             {i > 0 && "  ·  "}
             <span data-testid={`input-${role}`}>
-              {input.label || humanise(input.name)}{" "}
+              {input.label}{" "}
               {input.constant !== undefined && input.constant !== null ? (
                 <span title="a constant: the rig file binds this input to a number">= {withUnit(String(input.constant), input.unit)}</span>
               ) : input.bound ? (
@@ -611,7 +611,7 @@ export function DevicePage({ devices, name, windowS }: { devices: DeviceOut[]; n
   return (
     <>
       <PageBar>
-        <Crumbs items={[{ label: "readings", href: hashFor("readings") }, { label: device.label ?? name }]} />
+        <Crumbs items={[{ label: "readings", href: hashFor("readings") }, { label: device.label }]} />
       </PageBar>
       {schema.error && <Alert severity="error">{schema.error.message}</Alert>}
       <div className="grid">

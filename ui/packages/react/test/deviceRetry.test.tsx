@@ -13,7 +13,7 @@ afterEach(cleanup);
 
 const run = (over: Partial<DeviceOut["run"] & object>) => ({ period_s: 1, running: true, last_read_ns: 1e18, read_s: 0.01, missed: 0, reading_since_ns: null, consecutive_failures: 0, next_retry_ns: null, ...over });
 const device = (r: ReturnType<typeof run>) => ({ name: "furnace", label: "Tube furnace", class_name: "SimDaq", driver: "sim_daq", kind: "device", signals: [], commands: [], conditions: [], run: r, inputs: {} }) as unknown as DeviceOut;
-const schema = { name: "furnace", label: null, class_name: "SimDaq", driver: "sim_daq", description: null, readable: true, writable: false, config: {}, signals: {}, commands: {} } as unknown as DeviceSchema;
+const schema = { name: "furnace", label: "Furnace", class_name: "SimDaq", driver: "sim_daq", description: null, readable: true, writable: false, config: {}, signals: {}, commands: {} } as unknown as DeviceSchema;
 
 function show(r: ReturnType<typeof run>) {
   render(createElement(RigProvider, { transport }, createElement(DevicePanel, { device: device(r), schema, onRun: async () => undefined, onRestart: async () => undefined })));

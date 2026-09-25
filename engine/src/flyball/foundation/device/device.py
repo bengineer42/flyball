@@ -58,7 +58,7 @@ from pydantic import Field
 
 from flyball.model.config import Config
 
-from ..keys import Keyed, check_key
+from ..keys import Keyed, check_key, humanise
 from ..router.router import Router
 from ..time.clock import Clock
 from .binding import InputBinding
@@ -227,8 +227,8 @@ class Device:
     """Implements `commit`: a [Committable][flyball.foundation.device.device.Committable]."""
 
     name: str
-    label: str | None = None
-    """A display name, from the rig file; None: show `name`."""
+    declared_label: str | None = None
+    """The display name as declared (the rig file's `label`), or None; `label` resolves it."""
     poll_s: float | None = None
     """How often the runtime calls `read`, inherited down the tree; None: never polled."""
     root: Node
@@ -269,7 +269,7 @@ class Device:
 
     def __init__(self, name: str, label: str | None = None) -> None:
         self.name = check_key(name, "device")
-        self.label = label
+        self.declared_label = label or None
         self.bound = {n: InputBinding(self, n, spec) for n, spec in self.INPUTS.items()}
         self.staged = Staged()
         self.written = {}
@@ -281,6 +281,11 @@ class Device:
         self._extended = False
         self._batch: dict[Signal, Value] | None = None
         self.bind(self.TREE)
+
+    @property
+    def label(self) -> str:
+        """What a person reads: the declared label, else the name humanised (D-086)."""
+        return self.declared_label or humanise(self.name)
 
     def stops_by(self) -> str | None:
         """The command that is this device's stop, if it has one (`stops=True`).

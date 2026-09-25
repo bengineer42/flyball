@@ -72,6 +72,8 @@ export interface DashboardProblem {
 export interface DashboardRow {
   id: number;
   name: string;
+  /** What a person reads: the document's `label`, else the name humanised. `body.label` stays as declared. */
+  label: string;
   rig: string;
   body: DashboardDocument;
   created_ns: Nanoseconds;

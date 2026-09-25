@@ -29,7 +29,7 @@ const SIGNAL: SignalOut = {
   name: "t",
   address: "f.t",
   access: "rp",
-  label: "",
+  label: "T",
   quantity: "temperature",
   unit: "°C",
   dimension: null,
@@ -116,7 +116,7 @@ describe("panels show a reading with no value as a dash and why, never the value
     const { wrap } = driven([frozen]);
     const controller = {
       name: "h.p",
-      label: null,
+      label: "P",
       output_signal: "h.p",
       measured_signal: "f.t",
       is_default: false,
@@ -144,7 +144,7 @@ describe("panels show a reading with no value as a dash and why, never the value
     const { wrap } = driven();
     const device = {
       name: "blend",
-      label: null,
+      label: "Blend",
       kind: "device",
       driver: "blend",
       class_name: "Blend",
@@ -153,8 +153,8 @@ describe("panels show a reading with no value as a dash and why, never the value
       signals: [],
       commands: [],
       inputs: {
-        dry: { name: "dry", label: "", quantity: "humidity", unit: "%RH", bound: null, constant: 36.5, quality: "ok" },
-        wet: { name: "wet", label: "", quantity: "humidity", unit: "%RH", bound: "f.t", quality: "stale", reason: "silent" },
+        dry: { name: "dry", label: "Dry", quantity: "humidity", unit: "%RH", bound: null, constant: 36.5, quality: "ok" },
+        wet: { name: "wet", label: "Wet", quantity: "humidity", unit: "%RH", bound: "f.t", quality: "stale", reason: "silent" },
       },
       consumers: {},
       sources: {},
@@ -172,7 +172,7 @@ describe("panels show a reading with no value as a dash and why, never the value
     const { wrap } = driven();
     const readback = { ...SIGNAL, name: "dry", address: "blend.dry", label: "Dry pump flow", role: "demand", access: "rp", unit: "L/min", readback: "sensed" } as SignalOut;
     const settable = { ...SIGNAL, name: "wet", address: "blend.wet", label: "Wet pump flow", role: "demand", access: "rpw", unit: "L/min" } as SignalOut;
-    const device = { name: "blend", label: null, kind: "device", driver: "blend", class_name: "Blend", link: null, poll_s: null, signals: [readback, settable], commands: [], inputs: {}, consumers: {}, sources: {}, readable: true, writable: true, conditions: [], run: null } as unknown as DeviceOut;
+    const device = { name: "blend", label: "Blend", kind: "device", driver: "blend", class_name: "Blend", link: null, poll_s: null, signals: [readback, settable], commands: [], inputs: {}, consumers: {}, sources: {}, readable: true, writable: true, conditions: [], run: null } as unknown as DeviceOut;
     render(wrap(createElement(DeviceSignals, { device, sparkline: false })));
     expect(screen.getAllByRole("button", { name: "Set" })).toHaveLength(1); // the settable one only
     expect(screen.queryByLabelText(/Dry pump flow/)).toBeNull();

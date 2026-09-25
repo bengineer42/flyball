@@ -35,7 +35,7 @@ const BODY: DashboardDocument = { schema_version: 6, name: "wall", label: null, 
 
 function stub(calls: Request[]): Transport {
   let body = BODY;
-  const row = () => ({ id: 1, name: "wall", rig: "t", created_ns: 1, sha256: "", body });
+  const row = () => ({ id: 1, name: "wall", label: body.label ?? "Wall", rig: "t", created_ns: 1, sha256: "", body });
   return {
     base: "",
     async request(request: Request): Promise<Response> {
@@ -66,7 +66,7 @@ describe("renaming a dashboard", () => {
     const t = stub(calls);
     render(createElement(AuthProvider, { transport: t }, createElement(RigProvider, { transport: t }, createElement(App, { onSignIn: () => undefined }))));
     const tabs = await screen.findByTestId("dashboard-tabs");
-    await waitFor(() => expect(within(tabs).getByTestId("dashboard-tab-wall").textContent).toBe("wall"));
+    await waitFor(() => expect(within(tabs).getByTestId("dashboard-tab-wall").textContent).toBe("Wall"));
     fireEvent.click(await screen.findByTestId("more", undefined, { timeout: 5000 }));
     await waitFor(() => expect(screen.getByTestId("menu-rename").getAttribute("aria-disabled")).not.toBe("true"));
     fireEvent.click(screen.getByTestId("menu-rename"));

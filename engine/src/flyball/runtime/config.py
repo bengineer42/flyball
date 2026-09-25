@@ -73,6 +73,7 @@ from flyball.foundation.errors import ConflictError, NotFoundError
 from flyball.foundation.files import SUFFIXES, load_document
 from flyball.foundation.keys import Keyed, check_address, check_key, check_keys
 from flyball.foundation.keys import canonical as canonical_key
+from flyball.foundation.schema import Titled
 from flyball.foundation.time import Clock
 from flyball.model.catalog import Catalogs, ensure_discovered, get_catalog
 from flyball.model.controller import OnFault
@@ -155,6 +156,10 @@ class ControllerEntry(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    label: str | None = Field(
+        default=None,
+        description="What a person reads; none: the output signal's label.",
+    )
     measured: str = Field(description="The measured signal's address (a P signal).")
     law: LawConfig | None = None  # type: ignore[valid-type]
     feedforward: FeedforwardConfig | None = Field(  # type: ignore[valid-type]
@@ -799,6 +804,9 @@ class RigConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = None
+    label: str | None = Field(
+        default=None, description="What a person reads for the rig; none: its name, humanised."
+    )
     board: str | None = Field(
         default=None,
         description="A board profile: a name on the board path, or a path to the file.",
@@ -829,6 +837,7 @@ class RigConfig(BaseModel):
 
     @classmethod
     def model_json_schema(cls, **kwargs: Any) -> dict[str, Any]:  # type: ignore[override]
+        kwargs.setdefault("schema_generator", Titled)
         if cls is RigConfig:
             catalogs = get_catalog()
             schema = rig_model(catalogs).model_json_schema(**kwargs)
@@ -1032,6 +1041,7 @@ class RigConfig(BaseModel):
                     min_period_s=controller.min_period_s,
                     setpoint_period_s=controller.setpoint_period_s,
                     on_fault=controller.fault_policy(),
+                    label=controller.label,
                 )
         except Exception:
             for device in built_devices:
@@ -1146,7 +1156,7 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
     variant per registered driver; before any driver registers, `devices`
     is just a plain `DeviceEntry` map.
     """
-    base = DeviceEntry.model_json_schema(ref_template="#/$defs/{model}")
+    base = DeviceEntry.model_json_schema(ref_template="#/$defs/{model}", schema_generator=Titled)
     defs: dict[str, Any] = dict(base.get("$defs", {}))
     envelope = {k: v for k, v in base["properties"].items() if k != "driver"}
     drivers = _driver_configs(catalogs)
@@ -1155,7 +1165,9 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
         return {"additionalProperties": {"$ref": "#/$defs/DeviceEntry"}}, defs
     variants = []
     for driver in drivers:
-        driver_schema = driver.model_json_schema(ref_template="#/$defs/{model}")
+        driver_schema = driver.model_json_schema(
+            ref_template="#/$defs/{model}", schema_generator=Titled
+        )
         defs.update(driver_schema.pop("$defs", {}))
         device = driver.device_class()
         inputs = {} if device is None else device.INPUTS
@@ -1198,7 +1210,7 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
 def render_document(loaded: dict[str, Any]) -> dict[str, Any]:
     """A rig as a rig file, in the form [Rig.document][flyball.rig.rig.Rig.document] gives.
 
-    `loaded` holds `name`, the header keys (`board`, `clock`, `recording`), `links` as the
+    `loaded` holds `name`, the header keys (`label`, `board`, `clock`, `recording`), `links` as the
     file writes them (`{type, ...}`), `devices` as entries and `controllers` as
     [ControllerEntry][flyball.runtime.config.ControllerEntry]s. Defaults are left out, as a
     hand-written file leaves them; a law's or feedforward's `type` is kept, since the file

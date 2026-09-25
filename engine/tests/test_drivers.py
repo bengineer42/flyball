@@ -148,7 +148,7 @@ def test_the_list_says_what_each_driver_requires(_catalog) -> None:
             },
             {
                 "name": "wet",
-                "label": "",
+                "label": "wet",  # none declared: the name in words (D-086)
                 "kind": "signal",
                 "optional": False,
                 "quantity": "wet",

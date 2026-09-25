@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ..errors import NotReadyError
+from ..keys import humanise
 from ..quantities import Unit
 from .novalue import NoValue, NoValueError, Quality, Reason
 from .signal import Access, Limit, Node, Reading, Signal, Value
@@ -125,6 +126,16 @@ class InputBinding:
     def spelled(self) -> str | float | None:
         """As the rig file writes it: the address, or the number; None while unbound."""
         return self._constant if self._follows is None else self._follows.address
+
+    @property
+    def label(self) -> str:
+        """What a person reads: the declared input's label, else the name humanised (D-086)."""
+        return self.declared_label or humanise(self.name)
+
+    @property
+    def declared_label(self) -> str:
+        """The declared input's label; `""` when it has none, or only the rig file names it."""
+        return "" if self.declared is None else self.declared.label
 
     @property
     def unit(self) -> Unit | None:

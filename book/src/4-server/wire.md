@@ -117,18 +117,22 @@ Kelvin against a °C signal converts before it reports.
 
 ## Devices
 
+Every `label` is a string, never empty and never null: the declared one, else
+the name humanised (`dry_pump_flow` → "dry pump flow"); a controller's, else
+its output signal's (D-086).
+
 | type | JSON |
 | --- | --- |
 | `DeviceOut` | `{name, label, kind, driver, class_name, link, poll_s, signals, commands, inputs, consumers, sources, readable, writable, conditions, run}` — see [Devices](api.md#devices) |
 | `InputOut` | `{name, label, quantity, unit, bound, constant?, quality, reason?, age_s?, optional?}`: what an input follows (an address, or a number) and its quality now; `optional: true` where the driver declares it optional, so an unbound one reads as "not bound (optional)" rather than an error |
 | `ValueSourceOut` | `{origin: rig_file \| restored \| written, initial, actor, written_utc_ns}`: where a `values` device's value in force came from; `actor` who wrote it (`null`: not known) |
 | `Actor` | `{principal, kind, via, sid, message}` -- who acted, on every record of an action (a stop, a latch, a write, an event's `details.actor`): `principal` the caller's id (`local:console`, `token:<name>`) or the rig's own (`program`, a controller's name, `stop`); `kind` `human`, `service`, `agent`, or `program`, `controller`, `rule`; `via` `http`, `mcp`, `signal` (the break-glass, the runner's shutdown) or `rig` (the rig's own); `sid` the login, `""` for none; `message` anything more (`from 127.0.0.1`) |
-| `CommandOut` | `{name, description, simulation, commit, mode, interrupts, writes, demand_of, links}` |
+| `CommandOut` | `{name, label, description, simulation, commit, mode, interrupts, writes, demand_of, links}` |
 | `CommandRunOut` (`POST .../commands/{command}`) | `{"result": any, "interrupted": [{"controller": str, "was": "regulating"}]}` — `result` what the method returned; `interrupted` the controllers an `interrupts` command put in manual once it had succeeded |
 | a device's `config` (`GET .../schema`'s `config`) | a JSON Schema; an instance is `{...fields}` |
 | `Condition` | `{"code": str, "severity": "debug" \| "info" \| "warning" \| "error", "message": str, "since_ns": int, "subject_kind": "device" \| "signal" \| "controller" \| "rig", "subject": str, "details": any}` — `subject` is the owner's name (a signal's address) |
 | `Event` | `{"time_ns": int, "severity": …, "subject_kind": str, "subject": str, "code": str, "message": str, "details": any, "edge": "raised" \| "cleared" \| null}` — see [Events](api.md#events) |
-| `DeviceSchema` (`GET .../schema`) | `{name, label, class_name, driver, description, readable, writable, config, signals, inputs, commands: {command: {description, arguments, simulation, commit, mode, interrupts, writes, demand_of}}}`; each of `signals` is `{address, access, role, tags, label, quantity, unit, dimension, dtype, value_schema, range, precision, limits, raw?, raw_for?}` |
+| `DeviceSchema` (`GET .../schema`) | `{name, label, class_name, driver, description, readable, writable, config, signals, inputs, commands: {command: {label, description, arguments, simulation, commit, mode, interrupts, writes, demand_of}}}`; each of `signals` is `{address, access, role, tags, label, quantity, unit, dimension, dtype, value_schema, range, precision, limits, raw?, raw_for?}` |
 | a command request | one property per method parameter after `self`, from the method's signature; an argument linked to a demand also carries `x-signal`, `unit`, `minimum`/`maximum` |
 
 ### Raw and engineering signals
@@ -156,7 +160,7 @@ carries `raw_for`; only the store leaves it out.
 | --- | --- |
 | `DriverOut` (`GET /api/drivers`, by tag) | `{kind: "driver" \| "link", module, description, summary, schema}` -- `description` the config's own docstring, `summary` its first line (both `null` without one); `schema_error` in place of `schema` when pydantic cannot build one. A link adds `family`; a driver adds `requires`, and `category` and `addresses` where it has them |
 | `family` | a link's kind of transport: `"i2c"`, `"spi"`, `"gpio"`, `"pwm"`, `"onewire"`, `"uart"`, `"modbus"`, `"text"` (`visa`, `serial`, `fake_text`: a line-oriented instrument), `"plant"` (a simulated plant); the links of one family are interchangeable to a driver. `null` for a link that declares none |
-| `requires` | `{link: [tag], family, inputs: [{name, label, kind: "signal", optional, quantity, unit}]}` -- `link` every registered link type of the driver's family, fakes and simulations included (`sht4x`: `["fake_i2c", "i2c"]` where flyball-linux is installed), `[]` for a driver that takes no link (`values`); `family` `null` then. A composite whose link sits in a nested driver's config (`current_loop`'s `adc`, `dosing_pump`'s `pump`) takes that driver's requirements: `link` theirs combined, `family` theirs when they agree (`current_loop` takes an I²C or an SPI ADC, so `null`), and `nested` the field's name. `inputs` its device's declared inputs: `name` the key under `inputs:`, `kind` `signal` (bound to another device's signal, or to a number held as a constant), `optional` true where the rig file may leave it out, `quantity` and `unit` as `InputOut`'s |
+| `requires` | `{link: [tag], family, inputs: [{name, label, kind: "signal", optional, quantity, unit}]}` -- `link` every registered link type of the driver's family, fakes and simulations included (`sht4x`: `["fake_i2c", "i2c"]` where flyball-linux is installed), `[]` for a driver that takes no link (`values`); `family` `null` then. A composite whose link sits in a nested driver's config (`current_loop`'s `adc`, `dosing_pump`'s `pump`) takes that driver's requirements: `link` theirs combined, `family` theirs when they agree (`current_loop` takes an I²C or an SPI ADC, so `null`), and `nested` the field's name. `inputs` its device's declared inputs: `name` the key under `inputs:`, `label` the driver's own, else `name` in words (D-086), `kind` `signal` (bound to another device's signal, or to a number held as a constant), `optional` true where the rig file may leave it out, `quantity` and `unit` as `InputOut`'s |
 | `category` | a string a driver declares to group itself in a list; absent when it declares none |
 | `addresses` | `[int]`: the I²C address an `i2c` driver defaults to (`sht4x`: `[68]`, 0x44), for probe suggestions; absent otherwise |
 

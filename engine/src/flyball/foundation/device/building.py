@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin, get_type_hints
 
+from ..keys import humanise
 from ..quantities.quantity import Quantity
 from ..quantities.si import Unitless
 from .commands import CommandSpec, Param
@@ -79,7 +80,7 @@ def _link_params(cls: type[Device], fn: Callable[..., Any]) -> dict[str, Param]:
 def _setter(cls: type[Device], leaf: _Leaf) -> CommandSpec:
     """`set_<path>(value)` for a demand no command sets; the rig routes it to its demand path."""
     name = "set_" + leaf.path.replace(".", "_")
-    label = leaf.spec.label or leaf.spec.name.replace("_", " ")
+    label = leaf.spec.label or humanise(leaf.spec.name)
 
     def setter(self: Device, value: float) -> None:
         raise NotImplementedError("a synthesised setter runs through the rig's demand path")
@@ -115,7 +116,7 @@ def _last_of(cls: type[Device]) -> NodeSpec:
                 quantity=Quantity(command, Unitless),
                 access=Access.RP,
                 vtype=dict[str, Any],
-                label=command.replace("_", " "),
+                label=spec.declared_label,
             )
             for command, spec in cls.commands.items()
             if not spec.simulation and spec.demand_of is None

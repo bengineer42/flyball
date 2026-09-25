@@ -108,7 +108,7 @@ function DashboardList() {
           {rows.map((row, i) => (
             <TableRow key={row.name} data-testid={`options-dashboard-${row.name}`}>
               <TableCell>
-                <Link href={hashFor("dashboards", row.name)}>{labelOf(row.body, row.name)}</Link>
+                <Link href={hashFor("dashboards", row.name)}>{row.label}</Link>
               </TableCell>
               <TableCell sx={{ whiteSpace: "nowrap" }}>
                 <IconButton size="small" aria-label={`move ${row.name} earlier`} disabled={!canOperate || busy || i === 0} onClick={() => void move(i, i - 1)}>

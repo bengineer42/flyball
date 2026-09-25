@@ -569,7 +569,7 @@ export function ControllerPanel({
     <div className={`fb-loop-frame${trends ? "" : " fb-loop-no-trends"}`}>
       {!bare && (
         <header className="fb-loop-head">
-          <h3><Ref kind="controller" name={controller.name}>{controller.label ? describeController(controller) : target ? describeSignal(target) : controller.name}</Ref></h3>
+          <h3><Ref kind="controller" name={controller.name}>{describeController(controller)}</Ref></h3>
           <span className="fb-muted" title={`${controller.name} regulates ${controller.measured_signal}`}>
             regulates <Ref kind="signal" name={controller.measured_signal}>{describeSignal(source)}</Ref>
             {controller.is_default && " · default"}

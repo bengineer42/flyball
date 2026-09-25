@@ -167,7 +167,7 @@ export function Graph({ devices, ...charts }: GraphProps) {
     rows.set("unit", [...new Set(all.map((s) => s.unit))].map((u) => ({ value: u, label: unitTitle(u, all.filter((s) => s.unit === u)) })));
     rows.set(
       "device",
-      publishing.map(({ device }) => ({ value: device.name, label: device.label ?? device.name })),
+      publishing.map(({ device }) => ({ value: device.name, label: device.label })),
     );
     for (const [axis, values] of tagAxes(all)) rows.set(axis, values.map((v) => ({ value: v, label: humanise(v) })));
     return rows;
@@ -189,7 +189,7 @@ export function Graph({ devices, ...charts }: GraphProps) {
     passes(s) && (!needle || `${title(s)} ${s.address} ${s.quantity} ${s.unit} ${Object.values(s.tags ?? {}).join(" ")} ${deviceLabel(deviceOf(s.address))}`.toLowerCase().includes(needle));
 
   // The list stays in device order under device headings: the filters narrow it, they never regroup it.
-  const branches = publishing.map(({ device, signals }) => ({ key: device.name, heading: device.label ?? device.name, signals: signals.filter(matches) }));
+  const branches = publishing.map(({ device, signals }) => ({ key: device.name, heading: device.label, signals: signals.filter(matches) }));
   const visibleBranches = branches.filter((b) => b.signals.length > 0);
   // Select all / none acts on what the filters and the search currently show, never on hidden signals.
   const shown = visibleBranches.flatMap((b) => b.signals.map((s) => s.address));

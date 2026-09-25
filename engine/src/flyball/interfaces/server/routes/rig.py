@@ -102,6 +102,7 @@ async def read_health() -> dict[str, Any]:
         return {
             "ok": False,
             "rig": None,
+            "label": None,
             "stopped": None,
             "latches": [],
             "exposure": current_exposure(),
@@ -113,6 +114,7 @@ async def read_health() -> dict[str, Any]:
             c["severity"] == Severity.ERROR and c["code"] not in BANDS for c in conditions
         ),
         "rig": rig.name,
+        "label": rig.label,
         "uptime_s": rig.clock.elapsed_s(),
         "devices": {
             name: {"running": run.running, "last_read_ns": run.last_read_ns}
