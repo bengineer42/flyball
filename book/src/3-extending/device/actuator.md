@@ -180,7 +180,7 @@ Every parameter and the return type must be describable by pydantic; this
 is checked when the class is defined, not on the first request. The command's
 name defaults to the method name; `@command(name="off")` overrides it,
 `@command(label="Switch off")` gives what a button reads (left out, the name
-humanised: "Off"), and a command needs a docstring. `schema` is reserved as a route segment.
+humanised: "off"), and a command needs a docstring. `schema` is reserved as a route segment.
 
 A command with a `sets_mode` or a linked argument changes what drives the
 device, so it is refused while a controller drives one of its demands —

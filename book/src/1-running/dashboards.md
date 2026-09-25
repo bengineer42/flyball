@@ -43,7 +43,7 @@ disk until then.
 `name` is the dashboard's key: its link (`#/dashboards/furnace`), its route
 and its file name. `label` is what a person reads -- its tab, its row in
 **Options › Dashboards** -- and may be left out, when the name shows
-humanised (`wall_display` → "Wall display"). A widget's `type` says which widget it is, and its optional
+humanised (`wall_display` → "wall display"). A widget's `type` says which widget it is, and its optional
 `label` is the tile's heading (left out, the widget names itself: a
 readout its signal, a chart its unit).
 

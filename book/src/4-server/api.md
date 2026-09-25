@@ -254,7 +254,7 @@ demand's resolved stop value is always allowed.
 Every `label` the server sends -- a device's, a namespace's, a signal's, an
 input's, a command's, a controller's, the rig's, a dashboard row's -- is a
 string, never empty and never null: the one declared, else the name humanised
-(`dry_pump_flow` → "Dry pump flow"; D-086).
+(`dry_pump_flow` → "dry pump flow"; D-086).
 
 A `DeviceOut` is `{name, label, kind, driver, class_name, link, poll_s, signals,
 commands, inputs, consumers, sources, readable, writable, conditions, run}`: `kind` is
@@ -316,7 +316,7 @@ signal (it refuses manual demands; set its setpoint or detach it).
 
 A `CommandOut` is `{name, label, description, simulation, commit, sets_mode,
 interrupts, writes, demand_of, links}`: `label` the driver's `@command(label=...)`,
-else the name humanised (`set_flows` → "Set flows"), `commit` whether the rig commits the
+else the name humanised (`set_flows` → "set flows"), `commit` whether the rig commits the
 device once the method returns, `sets_mode` what the device's `mode` output
 becomes when it runs (if it has one), `interrupts` whether it may run while
 a controller drives the device (the controller goes to manual once the

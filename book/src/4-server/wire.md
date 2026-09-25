@@ -118,7 +118,7 @@ Kelvin against a °C signal converts before it reports.
 ## Devices
 
 Every `label` is a string, never empty and never null: the declared one, else
-the name humanised (`dry_pump_flow` → "Dry pump flow"); a controller's, else
+the name humanised (`dry_pump_flow` → "dry pump flow"); a controller's, else
 its output signal's (D-086).
 
 | type | JSON |

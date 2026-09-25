@@ -22,7 +22,7 @@ devices:
 | key | type | |
 | --- | --- | --- |
 | `driver` | string | which driver builds it -- one of the [supported drivers](drivers.md), a board driver, or one from the runner's `drivers/` directory |
-| `label` | string | what a person reads for it; left out or blank, the name humanised (`wet_pump` → "Wet pump") |
+| `label` | string | what a person reads for it; left out or blank, the name humanised (`wet_pump` → "wet pump") |
 | `poll_s` | number | how often it is read; inherited down the tree, a signal's own winning. Unset: never polled (a pushed device) |
 | `signals` | `{name: metadata}` | per-signal metadata, [below](#signals) |
 | `inputs` | `{input: address or number}` | what each of this device's inputs follows: another device's signal, or a number. Every input the driver declares must be given one -- an input has no default, [below](#binding-one-device-to-another) |

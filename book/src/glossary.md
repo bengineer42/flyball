@@ -160,7 +160,7 @@ Kept in the store, so a restart keeps it and writes its stop again.
 
 **label** — what a person reads for a named thing: the rig, a device, a
 namespace, a signal, an input, a command, a controller, a dashboard. It may be
-left blank, and then it is the name humanised (`dry_pump_flow` → "Dry pump
+left blank, and then it is the name humanised (`dry_pump_flow` → "dry pump
 flow"); the server always sends one. The **name** is the key a machine matches
 on.
 

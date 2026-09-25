@@ -50,17 +50,18 @@ whose synthesised `set_<path>` would be one command (`flows.dry` beside
 A name is what a machine matches on; a **label** is what a person reads. Every
 `label` -- the rig's, a device's, a namespace's or signal's under `signals:`,
 a controller's, a `values:` entry's -- may be left out or blank, and then it is
-the name humanised: underscores to spaces, the first letter capitalised, the
-rest as written (`dry_pump_flow` → "Dry pump flow", `tvoc` → "Tvoc"; a driver
-that means "TVOC" says so). A saved or rendered rig file keeps only the labels
-that were written (D-086).
+the name humanised: underscores to spaces, the rest as written, lower-case
+(`dry_pump_flow` → "dry pump flow", `tvoc` → "tvoc"; a driver that means
+"TVOC" says so). `humanise` also takes a `capitalise` option for sentence
+case ("Dry pump flow"); nothing generates a label with it yet. A saved or
+rendered rig file keeps only the labels that were written (D-086).
 
 ## Top level
 
 | key | type | |
 | --- | --- | --- |
 | `name` | key | optional; the rig's name ([Names](#names)) |
-| `label` | string, optional | what a person reads for the rig; blank or left out: the name humanised (`dry_pump_flow` → "Dry pump flow") |
+| `label` | string, optional | what a person reads for the rig; blank or left out: the name humanised (`dry_pump_flow` → "dry pump flow") |
 | `board` | string | a board profile: a name on the board path (`$FLYBALL_BOARDS`, `boards/` beside or above the file, `~/.config/flyball/boards`, `/etc/flyball/boards`), or a path relative to the file; its `links` are added underneath the file's own, and `pin: "LABEL"` on a device resolves against its `pins` |
 | `recording` | bool | open a session when the runner starts |
 | `clock` | `{speed?, stepped?}` | run the rig's time faster (`speed`, default 1×), or only when stepped (`stepped`, for a batch run or a test); refused unless every link is `sim_*`/`fake_*` |
@@ -118,7 +119,7 @@ field named like an envelope key). A nested `config:` is refused.
 | envelope key | type | |
 | --- | --- | --- |
 | `driver` | string | which driver builds this device; a type registered in the driver catalog |
-| `label` | string, optional | what a person reads for the device; blank or left out: the name humanised (`dry_pump_flow` → "Dry pump flow") |
+| `label` | string, optional | what a person reads for the device; blank or left out: the name humanised (`dry_pump_flow` → "dry pump flow") |
 | `poll_s` | number, optional | inherited down the tree; a namespace's or signal's own wins |
 | `signals` | `{name: SignalMeta \| NamespaceMeta}` | per-signal metadata and access restriction — never adds access the driver did not declare |
 | `inputs` | `{input: address \| number}` | what each input follows: an address on another device, resolved once at build to its `Signal` (which must publish) or `Node` (something under it must), or a finite number, a constant. The device reads it through its `InputBinding` (`self.<input>.value`). Every input the driver declares must be given one and no other name -- an input has no default; a cycle through `inputs:` is refused, the path named. [Devices: binding one device to another](../2-config/devices/index.md#binding-one-device-to-another) |
