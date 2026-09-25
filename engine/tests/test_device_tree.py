@@ -192,7 +192,7 @@ class TestBinding:
         assert list(bare.signals) == []
         assert bare.staged == {} and bare.bound == {}
         assert bare.poll_s is None and bare.declared_label is None
-        assert bare.label == "Bare", "no label declared: the name, humanised"
+        assert bare.label == "bare", "no label declared: the name, humanised"
         assert bare.root.address == "bare" and bare.nodes == {}
         assert list(bare.root.walk()) == []
         assert list(bare.published) == []

@@ -81,16 +81,17 @@ def check_keys[V](mapping: Mapping[str, V], what: str = "name") -> dict[str, V]:
     return out
 
 
-def humanise(key: str) -> str:
-    """The label a blank one resolves to: `key` in sentence case (D-086).
+def humanise(key: str, *, capitalise: bool = False) -> str:
+    """The label a blank one resolves to: `key` in words (D-086).
 
-    Underscores (and dashes) become spaces, the first letter is capitalised, and the rest
-    stays as written: `dry_pump_flow` -> "Dry pump flow", `tvoc` -> "Tvoc" (a driver that
-    means "TVOC" declares it). The one fallback: devices, namespaces, signals, inputs,
-    commands, controllers, the rig and a JSON Schema field's title all use it.
+    Underscores (and dashes) become spaces and the rest stays as written: `dry_pump_flow`
+    -> "dry pump flow"; with `capitalise`, the first letter is upper-cased, "Dry pump flow"
+    (`tvoc` -> "Tvoc": a driver that means "TVOC" declares it). The one fallback: devices,
+    namespaces, signals, inputs, commands, controllers, the rig and a JSON Schema field's
+    title all use it. No caller asks for `capitalise` yet: which ones should is open.
     """
     words = " ".join(part for part in re.split(r"[_-]+", key) if part)
-    return words[:1].upper() + words[1:]
+    return words[:1].upper() + words[1:] if capitalise else words
 
 
 class Keyed[V](dict[str, V]):

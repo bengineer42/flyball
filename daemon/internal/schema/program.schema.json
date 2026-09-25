@@ -22,14 +22,14 @@
               "prompt": {
                 "anyOf": [
                   {
-                    "title": "Message",
+                    "title": "message",
                     "type": "string"
                   },
                   {
                     "additionalProperties": false,
                     "properties": {
                       "message": {
-                        "title": "Message",
+                        "title": "message",
                         "type": "string"
                       },
                       "name": {
@@ -42,7 +42,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Name"
+                        "title": "name"
                       },
                       "timeout": {
                         "anyOf": [
@@ -96,7 +96,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Timeout"
+                        "title": "timeout"
                       }
                     },
                     "required": [
@@ -121,14 +121,14 @@
                 "additionalProperties": false,
                 "properties": {
                   "device": {
-                    "title": "Device",
+                    "title": "device",
                     "type": "string"
                   },
                   "values": {
                     "additionalProperties": {
                       "type": "number"
                     },
-                    "title": "Values",
+                    "title": "values",
                     "type": "object"
                   }
                 },
@@ -153,11 +153,11 @@
                 "additionalProperties": false,
                 "properties": {
                   "command": {
-                    "title": "Command",
+                    "title": "command",
                     "type": "string"
                   },
                   "device": {
-                    "title": "Device",
+                    "title": "device",
                     "type": "string"
                   },
                   "args": {
@@ -171,7 +171,7 @@
                       }
                     ],
                     "default": null,
-                    "title": "Args"
+                    "title": "args"
                   }
                 },
                 "required": [
@@ -194,14 +194,14 @@
               "regulate": {
                 "anyOf": [
                   {
-                    "title": "Setpoint",
+                    "title": "setpoint",
                     "type": "number"
                   },
                   {
                     "additionalProperties": false,
                     "properties": {
                       "setpoint": {
-                        "title": "Setpoint",
+                        "title": "setpoint",
                         "type": "number"
                       },
                       "controllers": {
@@ -220,7 +220,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Controllers"
+                        "title": "controllers"
                       },
                       "tuning": {
                         "anyOf": [
@@ -232,7 +232,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Tuning"
+                        "title": "tuning"
                       }
                     },
                     "required": [
@@ -256,14 +256,14 @@
               "ramp": {
                 "anyOf": [
                   {
-                    "title": "To",
+                    "title": "to",
                     "type": "number"
                   },
                   {
                     "additionalProperties": false,
                     "properties": {
                       "to": {
-                        "title": "To",
+                        "title": "to",
                         "type": "number"
                       },
                       "pace": {
@@ -351,7 +351,7 @@
                             "title": "Duration"
                           }
                         ],
-                        "title": "Pace"
+                        "title": "pace"
                       },
                       "controllers": {
                         "anyOf": [
@@ -369,11 +369,11 @@
                           }
                         ],
                         "default": null,
-                        "title": "Controllers"
+                        "title": "controllers"
                       },
                       "wait": {
                         "default": true,
-                        "title": "Wait",
+                        "title": "wait",
                         "type": "boolean"
                       },
                       "per_nanosecond": {
@@ -549,7 +549,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Message"
+                        "title": "message"
                       },
                       "timeout": {
                         "anyOf": [
@@ -603,7 +603,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Timeout"
+                        "title": "timeout"
                       },
                       "nanoseconds": {
                         "type": "number",
@@ -667,7 +667,7 @@
                       }
                     ],
                     "default": null,
-                    "title": "Controllers"
+                    "title": "controllers"
                   },
                   {
                     "additionalProperties": false,
@@ -688,16 +688,16 @@
                           }
                         ],
                         "default": null,
-                        "title": "Controllers"
+                        "title": "controllers"
                       },
                       "within": {
                         "default": 1.0,
-                        "title": "Within",
+                        "title": "within",
                         "type": "number"
                       },
                       "count": {
                         "default": 3,
-                        "title": "Count",
+                        "title": "count",
                         "type": "integer"
                       },
                       "timeout": {
@@ -752,7 +752,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Timeout"
+                        "title": "timeout"
                       },
                       "message": {
                         "anyOf": [
@@ -764,7 +764,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Message"
+                        "title": "message"
                       }
                     },
                     "title": "SettleRequest",
@@ -800,7 +800,7 @@
                       }
                     ],
                     "default": null,
-                    "title": "Controllers"
+                    "title": "controllers"
                   },
                   {
                     "additionalProperties": false,
@@ -821,7 +821,7 @@
                           }
                         ],
                         "default": null,
-                        "title": "Controllers"
+                        "title": "controllers"
                       }
                     },
                     "title": "ManualRequest",
@@ -848,7 +848,7 @@
       "properties": {
         "value": {
           "exclusiveMinimum": 0.0,
-          "title": "Value",
+          "title": "value",
           "type": "number"
         },
         "per": {

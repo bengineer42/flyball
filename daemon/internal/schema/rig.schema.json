@@ -6,16 +6,16 @@
         "type": {
           "const": "affine",
           "default": "affine",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         },
         "gain": {
-          "title": "Gain",
+          "title": "gain",
           "type": "number"
         },
         "bias": {
           "default": 0.0,
-          "title": "Bias",
+          "title": "bias",
           "type": "number"
         },
         "rate_gain": {
@@ -28,7 +28,7 @@
             }
           ],
           "default": null,
-          "title": "Rate gain"
+          "title": "rate gain"
         }
       },
       "required": [
@@ -52,7 +52,7 @@
           ],
           "default": null,
           "description": "Bearer token for the CLI, MCP clients, scripts and the UI.",
-          "title": "Token"
+          "title": "token"
         },
         "anonymous": {
           "default": "none",
@@ -61,7 +61,7 @@
             "none",
             "read"
           ],
-          "title": "Anonymous",
+          "title": "anonymous",
           "type": "string"
         },
         "password": {
@@ -76,7 +76,7 @@
           "default": null,
           "deprecated": true,
           "description": "Removed: ignored with a warning. The bare runner has no password login; use `token`, or run it under `flyball run` (`runner.front`).",
-          "title": "Password"
+          "title": "password"
         },
         "session": {
           "anyOf": [
@@ -90,7 +90,7 @@
           "default": null,
           "deprecated": true,
           "description": "Removed: ignored with a warning. A token-link session lasts 12 h.",
-          "title": "Session"
+          "title": "session"
         },
         "secret": {
           "anyOf": [
@@ -104,7 +104,7 @@
           "default": null,
           "deprecated": true,
           "description": "Removed: ignored with a warning. Sessions are no longer signed.",
-          "title": "Secret"
+          "title": "secret"
         }
       },
       "title": "AuthConfig",
@@ -131,13 +131,13 @@
           "default": 1.0,
           "description": "Rig seconds per wall second.",
           "exclusiveMinimum": 0,
-          "title": "Speed",
+          "title": "speed",
           "type": "number"
         },
         "stepped": {
           "default": false,
           "description": "Time moves only when stepped; for a batch run or a test.",
-          "title": "Stepped",
+          "title": "stepped",
           "type": "boolean"
         }
       },
@@ -159,11 +159,11 @@
           ],
           "default": null,
           "description": "What a person reads; none: the output signal's label.",
-          "title": "Label"
+          "title": "label"
         },
         "measured": {
           "description": "The measured signal's address (a P signal).",
-          "title": "Measured",
+          "title": "measured",
           "type": "string"
         },
         "law": {
@@ -218,7 +218,7 @@
             }
           ],
           "default": null,
-          "title": "Law"
+          "title": "law"
         },
         "feedforward": {
           "anyOf": [
@@ -253,11 +253,11 @@
           ],
           "default": null,
           "description": "Maps the measured signal's unit to the output's; the law adds to it. Omit for identity (the setpoint itself) when the units agree, else none.",
-          "title": "Feedforward"
+          "title": "feedforward"
         },
         "is_default": {
           "default": false,
-          "title": "Is default",
+          "title": "is default",
           "type": "boolean"
         },
         "min_period_s": {
@@ -272,7 +272,7 @@
           ],
           "default": null,
           "description": "Update the law at most this often; omit to update on every reading.",
-          "title": "Min period s"
+          "title": "min period s"
         },
         "setpoint_period_s": {
           "anyOf": [
@@ -286,7 +286,7 @@
           ],
           "default": null,
           "description": "While following a moving setpoint (a ramp, a profile), re-apply its feedforward this often between readings; the law steps only on readings. Omit for max(0.1 s, poll_s / 4) from the measured signal's poll_s.",
-          "title": "Setpoint period s"
+          "title": "setpoint period s"
         },
         "on_fault": {
           "$ref": "#/$defs/OnFaultEntry",
@@ -305,26 +305,26 @@
       "description": "`runner.front.proxy.jwt`: a signed assertion the `custom` preset verifies.",
       "properties": {
         "header": {
-          "title": "Header",
+          "title": "header",
           "type": "string"
         },
         "jwks_url": {
-          "title": "Jwks url",
+          "title": "jwks url",
           "type": "string"
         },
         "issuer": {
-          "title": "Issuer",
+          "title": "issuer",
           "type": "string"
         },
         "audience": {
-          "title": "Audience",
+          "title": "audience",
           "type": "string"
         },
         "algorithms": {
           "items": {
             "type": "string"
           },
-          "title": "Algorithms",
+          "title": "algorithms",
           "type": "array"
         }
       },
@@ -343,7 +343,7 @@
       "description": "The envelope of one device in the rig file: flyball's keys, the same for every driver.\n\n`driver:` picks the driver's config model by type; the driver's own\nfields sit flat beside these keys, and every key that is not one of them\nis the driver's (`driver_config`).",
       "properties": {
         "driver": {
-          "title": "Driver",
+          "title": "driver",
           "type": "string"
         },
         "label": {
@@ -356,7 +356,7 @@
             }
           ],
           "default": null,
-          "title": "Label"
+          "title": "label"
         },
         "poll_s": {
           "anyOf": [
@@ -368,7 +368,7 @@
             }
           ],
           "default": null,
-          "title": "Poll s"
+          "title": "poll s"
         },
         "signals": {
           "additionalProperties": {
@@ -381,7 +381,7 @@
               }
             ]
           },
-          "title": "Signals",
+          "title": "signals",
           "type": "object"
         },
         "inputs": {
@@ -396,7 +396,7 @@
             ]
           },
           "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-          "title": "Inputs",
+          "title": "inputs",
           "type": "object"
         },
         "reads": {
@@ -421,7 +421,7 @@
           ],
           "default": null,
           "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-          "title": "Retry max age s"
+          "title": "retry max age s"
         },
         "stop": {
           "anyOf": [
@@ -444,7 +444,7 @@
           ],
           "default": null,
           "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-          "title": "Stop"
+          "title": "stop"
         },
         "on_shutdown": {
           "anyOf": [
@@ -472,7 +472,7 @@
           ],
           "default": null,
           "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-          "title": "Permissive"
+          "title": "permissive"
         }
       },
       "required": [
@@ -488,13 +488,13 @@
             "type": "boolean"
           },
           "description": "Input levels by line.",
-          "title": "Levels",
+          "title": "levels",
           "type": "object"
         },
         "type": {
           "const": "fake_gpio",
           "default": "fake_gpio",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -513,7 +513,7 @@
             },
             "type": "object"
           },
-          "title": "Registers",
+          "title": "registers",
           "type": "object"
         },
         "replies": {
@@ -526,19 +526,19 @@
             },
             "type": "array"
           },
-          "title": "Replies",
+          "title": "replies",
           "type": "object"
         },
         "blocking": {
           "default": false,
           "description": "Run this fake's writes on the Writer thread, as a real bus would.",
-          "title": "Blocking",
+          "title": "blocking",
           "type": "boolean"
         },
         "type": {
           "const": "fake_i2c",
           "default": "fake_i2c",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -561,13 +561,13 @@
               }
             ]
           },
-          "title": "Texts",
+          "title": "texts",
           "type": "object"
         },
         "type": {
           "const": "fake_onewire",
           "default": "fake_onewire",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -579,7 +579,7 @@
         "type": {
           "const": "fake_pwm",
           "default": "fake_pwm",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -592,19 +592,19 @@
           "additionalProperties": {
             "type": "integer"
           },
-          "title": "Registers",
+          "title": "registers",
           "type": "object"
         },
         "blocking": {
           "default": false,
           "description": "Run this fake's writes on the Writer thread, as a real bus would.",
-          "title": "Blocking",
+          "title": "blocking",
           "type": "boolean"
         },
         "type": {
           "const": "fake_registers",
           "default": "fake_registers",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -620,13 +620,13 @@
             },
             "type": "array"
           },
-          "title": "Replies",
+          "title": "replies",
           "type": "array"
         },
         "type": {
           "const": "fake_spi",
           "default": "fake_spi",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -639,19 +639,19 @@
           "additionalProperties": {
             "type": "string"
           },
-          "title": "Replies",
+          "title": "replies",
           "type": "object"
         },
         "blocking": {
           "default": false,
           "description": "Run this fake's writes on the Writer thread, as a real instrument would.",
-          "title": "Blocking",
+          "title": "blocking",
           "type": "boolean"
         },
         "type": {
           "const": "fake_text",
           "default": "fake_text",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -665,13 +665,13 @@
             "format": "binary",
             "type": "string"
           },
-          "title": "Replies",
+          "title": "replies",
           "type": "array"
         },
         "type": {
           "const": "fake_uart",
           "default": "fake_uart",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -685,7 +685,7 @@
         "freeze_s": {
           "description": "Seconds of fault time (accrued across flicker) to stay frozen before `then`.",
           "minimum": 0,
-          "title": "Freeze s",
+          "title": "freeze s",
           "type": "number"
         },
         "then": {
@@ -694,7 +694,7 @@
             "stop",
             "stop_device"
           ],
-          "title": "Then",
+          "title": "then",
           "type": "string"
         }
       },
@@ -712,7 +712,7 @@
         "listen": {
           "default": "127.0.0.1:8000",
           "description": "Where the front listens.",
-          "title": "Listen",
+          "title": "listen",
           "type": "string"
         },
         "auth": {
@@ -724,7 +724,7 @@
             "proxy",
             "sso"
           ],
-          "title": "Auth",
+          "title": "auth",
           "type": "string"
         },
         "url": {
@@ -738,7 +738,7 @@
           ],
           "default": null,
           "description": "The external URL the rig is reached at.",
-          "title": "Url"
+          "title": "url"
         },
         "tls": {
           "anyOf": [
@@ -762,7 +762,7 @@
           ],
           "default": null,
           "description": "`auth: password`: a `$scrypt$` line from `flyball password`.",
-          "title": "Password"
+          "title": "password"
         },
         "anonymous": {
           "default": "none",
@@ -770,7 +770,7 @@
             "none",
             "read"
           ],
-          "title": "Anonymous",
+          "title": "anonymous",
           "type": "string"
         },
         "proxy": {
@@ -786,19 +786,19 @@
         },
         "uv": {
           "default": false,
-          "title": "Uv",
+          "title": "uv",
           "type": "boolean"
         },
         "login": {
           "default": "12h",
-          "title": "Login",
+          "title": "login",
           "type": "string"
         },
         "trusted_proxies": {
           "items": {
             "type": "string"
           },
-          "title": "Trusted proxies",
+          "title": "trusted proxies",
           "type": "array"
         },
         "tokens": {
@@ -823,7 +823,7 @@
         "zones": {
           "default": 3,
           "minimum": 1,
-          "title": "Zones",
+          "title": "zones",
           "type": "integer"
         },
         "power_w": {
@@ -839,7 +839,7 @@
             }
           ],
           "default": 2000.0,
-          "title": "Power w"
+          "title": "power w"
         },
         "capacity_j_per_k": {
           "anyOf": [
@@ -854,68 +854,68 @@
             }
           ],
           "default": 5000.0,
-          "title": "Capacity j per k"
+          "title": "capacity j per k"
         },
         "coupling_w_per_k": {
           "default": 5.0,
           "minimum": 0,
-          "title": "Coupling w per k",
+          "title": "coupling w per k",
           "type": "number"
         },
         "loss_w_per_k": {
           "default": 2.0,
           "minimum": 0,
-          "title": "Loss w per k",
+          "title": "loss w per k",
           "type": "number"
         },
         "emissivity": {
           "default": 0.8,
           "maximum": 1,
           "minimum": 0,
-          "title": "Emissivity",
+          "title": "emissivity",
           "type": "number"
         },
         "area_m2": {
           "default": 0.02,
           "minimum": 0,
-          "title": "Area m2",
+          "title": "area m2",
           "type": "number"
         },
         "ambient_c": {
           "default": 20.0,
           "live": "outputs.*",
-          "title": "Ambient c",
+          "title": "ambient c",
           "type": "number"
         },
         "sample_capacity_j_per_k": {
           "default": 800.0,
           "exclusiveMinimum": 0,
-          "title": "Sample capacity j per k",
+          "title": "sample capacity j per k",
           "type": "number"
         },
         "sample_coupling_w_per_k": {
           "default": 4.0,
           "minimum": 0,
-          "title": "Sample coupling w per k",
+          "title": "sample coupling w per k",
           "type": "number"
         },
         "sample_zone": {
           "default": 2,
           "minimum": 1,
-          "title": "Sample zone",
+          "title": "sample zone",
           "type": "integer"
         },
         "sensor_lag_s": {
           "default": 3.0,
           "minimum": 0,
-          "title": "Sensor lag s",
+          "title": "sensor lag s",
           "type": "number"
         },
         "noise": {
           "default": 0.0,
           "live": "stats.noise",
           "minimum": 0,
-          "title": "Noise",
+          "title": "noise",
           "type": "number"
         },
         "seed": {
@@ -928,7 +928,7 @@
             }
           ],
           "default": null,
-          "title": "Seed"
+          "title": "seed"
         },
         "initial_c": {
           "anyOf": [
@@ -941,12 +941,12 @@
           ],
           "default": null,
           "live": "outputs.*",
-          "title": "Initial c"
+          "title": "initial c"
         },
         "type": {
           "const": "sim_furnace",
           "default": "sim_furnace",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -957,13 +957,13 @@
       "properties": {
         "chip": {
           "default": "gpiochip0",
-          "title": "Chip",
+          "title": "chip",
           "type": "string"
         },
         "type": {
           "const": "gpio",
           "default": "gpio",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -974,13 +974,13 @@
       "properties": {
         "bus": {
           "minimum": 0,
-          "title": "Bus",
+          "title": "bus",
           "type": "integer"
         },
         "type": {
           "const": "i2c",
           "default": "i2c",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -996,20 +996,20 @@
         "type": {
           "const": "imc",
           "default": "imc",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         },
         "gain": {
-          "title": "Gain",
+          "title": "gain",
           "type": "number"
         },
         "tau_s": {
-          "title": "Tau s",
+          "title": "tau s",
           "type": "number"
         },
         "dead_time_s": {
           "default": 0.0,
-          "title": "Dead time s",
+          "title": "dead time s",
           "type": "number"
         },
         "lam_s": {
@@ -1022,16 +1022,16 @@
             }
           ],
           "default": null,
-          "title": "Lam s"
+          "title": "lam s"
         },
         "derivative": {
           "default": true,
-          "title": "Derivative",
+          "title": "derivative",
           "type": "boolean"
         },
         "b": {
           "default": 1.0,
-          "title": "B",
+          "title": "b",
           "type": "number"
         },
         "n": {
@@ -1044,7 +1044,7 @@
             }
           ],
           "default": null,
-          "title": "N"
+          "title": "n"
         }
       },
       "required": [
@@ -1060,7 +1060,7 @@
         "type": {
           "const": "identity",
           "default": "identity",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -1074,18 +1074,18 @@
     "ModbusRtuConfigTagged": {
       "properties": {
         "port": {
-          "title": "Port",
+          "title": "port",
           "type": "string"
         },
         "baud": {
           "default": 9600,
-          "title": "Baud",
+          "title": "baud",
           "type": "integer"
         },
         "type": {
           "const": "modbus_rtu",
           "default": "modbus_rtu",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -1098,24 +1098,24 @@
     "ModbusTcpConfigTagged": {
       "properties": {
         "host": {
-          "title": "Host",
+          "title": "host",
           "type": "string"
         },
         "port": {
           "default": 502,
-          "title": "Port",
+          "title": "port",
           "type": "integer"
         },
         "timeout_s": {
           "default": 3.0,
           "description": "Socket timeout for the pymodbus client.",
-          "title": "Timeout s",
+          "title": "timeout s",
           "type": "number"
         },
         "type": {
           "const": "modbus_tcp",
           "default": "modbus_tcp",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -1139,7 +1139,7 @@
             }
           ],
           "default": null,
-          "title": "Label"
+          "title": "label"
         },
         "poll_s": {
           "anyOf": [
@@ -1151,7 +1151,7 @@
             }
           ],
           "default": null,
-          "title": "Poll s"
+          "title": "poll s"
         },
         "tags": {
           "anyOf": [
@@ -1166,7 +1166,7 @@
             }
           ],
           "default": null,
-          "title": "Tags"
+          "title": "tags"
         },
         "signals": {
           "additionalProperties": {
@@ -1179,7 +1179,7 @@
               }
             ]
           },
-          "title": "Signals",
+          "title": "signals",
           "type": "object"
         }
       },
@@ -1192,7 +1192,7 @@
         "type": {
           "const": "none",
           "default": "none",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -1230,21 +1230,21 @@
         "type": {
           "const": "on_off",
           "default": "on_off",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         },
         "high": {
-          "title": "High",
+          "title": "high",
           "type": "number"
         },
         "low": {
           "default": 0.0,
-          "title": "Low",
+          "title": "low",
           "type": "number"
         },
         "hysteresis": {
           "default": 0.0,
-          "title": "Hysteresis",
+          "title": "hysteresis",
           "type": "number"
         }
       },
@@ -1265,13 +1265,13 @@
       "properties": {
         "root": {
           "default": "/sys/bus/w1/devices",
-          "title": "Root",
+          "title": "root",
           "type": "string"
         },
         "type": {
           "const": "onewire",
           "default": "onewire",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -1284,7 +1284,7 @@
         "type": {
           "const": "open_loop",
           "default": "open_loop",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -1297,11 +1297,11 @@
         "type": {
           "const": "p",
           "default": "p",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         },
         "kp": {
-          "title": "Kp",
+          "title": "kp",
           "type": "number"
         }
       },
@@ -1317,27 +1317,27 @@
         "type": {
           "const": "pi",
           "default": "pi",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         },
         "kp": {
           "default": 0,
-          "title": "Kp",
+          "title": "kp",
           "type": "number"
         },
         "ki": {
           "default": 0,
-          "title": "Ki",
+          "title": "ki",
           "type": "number"
         },
         "tt_s": {
           "default": 0,
-          "title": "Tt s",
+          "title": "tt s",
           "type": "number"
         },
         "b": {
           "default": 1.0,
-          "title": "B",
+          "title": "b",
           "type": "number"
         }
       },
@@ -1350,32 +1350,32 @@
         "type": {
           "const": "pid",
           "default": "pid",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         },
         "kp": {
           "default": 0,
-          "title": "Kp",
+          "title": "kp",
           "type": "number"
         },
         "ki": {
           "default": 0,
-          "title": "Ki",
+          "title": "ki",
           "type": "number"
         },
         "kd": {
           "default": 0,
-          "title": "Kd",
+          "title": "kd",
           "type": "number"
         },
         "tt_s": {
           "default": 0.0,
-          "title": "Tt s",
+          "title": "tt s",
           "type": "number"
         },
         "b": {
           "default": 1.0,
-          "title": "B",
+          "title": "b",
           "type": "number"
         },
         "n": {
@@ -1388,7 +1388,7 @@
             }
           ],
           "default": null,
-          "title": "N"
+          "title": "n"
         }
       },
       "title": "PIDConfig",
@@ -1400,7 +1400,7 @@
       "properties": {
         "signal": {
           "description": "The address whose value permits the write.",
-          "title": "Signal",
+          "title": "signal",
           "type": "string"
         },
         "above": {
@@ -1414,7 +1414,7 @@
           ],
           "default": null,
           "description": "Permit only above this value.",
-          "title": "Above"
+          "title": "above"
         },
         "below": {
           "anyOf": [
@@ -1427,7 +1427,7 @@
           ],
           "default": null,
           "description": "Permit only below this value.",
-          "title": "Below"
+          "title": "below"
         }
       },
       "required": [
@@ -1446,46 +1446,46 @@
             "integrator",
             "fopdt"
           ],
-          "title": "Model",
+          "title": "model",
           "type": "string"
         },
         "tau_s": {
           "default": 10.0,
           "description": "Time constant (lag, fopdt).",
           "exclusiveMinimum": 0,
-          "title": "Tau s",
+          "title": "tau s",
           "type": "number"
         },
         "dead_time_s": {
           "default": 0.0,
           "description": "Dead time (fopdt).",
           "minimum": 0,
-          "title": "Dead time s",
+          "title": "dead time s",
           "type": "number"
         },
         "gain": {
           "default": 1.0,
-          "title": "Gain",
+          "title": "gain",
           "type": "number"
         },
         "leak": {
           "default": 0.0,
           "description": "Drain rate (integrator).",
           "minimum": 0,
-          "title": "Leak",
+          "title": "leak",
           "type": "number"
         },
         "ambient": {
           "default": 0.0,
           "description": "Where a lag rests with no input (lag, fopdt).",
           "live": "output",
-          "title": "Ambient",
+          "title": "ambient",
           "type": "number"
         },
         "initial": {
           "default": 0.0,
           "live": "output",
-          "title": "Initial",
+          "title": "initial",
           "type": "number"
         },
         "noise": {
@@ -1493,7 +1493,7 @@
           "description": "Gaussian noise on what is read, in the output's unit.",
           "live": "stats.noise",
           "minimum": 0,
-          "title": "Noise",
+          "title": "noise",
           "type": "number"
         },
         "seed": {
@@ -1506,12 +1506,12 @@
             }
           ],
           "default": null,
-          "title": "Seed"
+          "title": "seed"
         },
         "type": {
           "const": "sim_plant",
           "default": "sim_plant",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -1532,7 +1532,7 @@
             "cloudflare",
             "custom"
           ],
-          "title": "Preset",
+          "title": "preset",
           "type": "string"
         },
         "from": {
@@ -1553,7 +1553,7 @@
           ],
           "default": null,
           "description": "Whose unsigned headers are believed: `unix` (the front's socket), or addresses and CIDRs.",
-          "title": "From"
+          "title": "from"
         },
         "secret_file": {
           "anyOf": [
@@ -1566,7 +1566,7 @@
             }
           ],
           "default": null,
-          "title": "Secret file"
+          "title": "secret file"
         },
         "team": {
           "anyOf": [
@@ -1579,7 +1579,7 @@
           ],
           "default": null,
           "description": "cloudflare: the Access team name.",
-          "title": "Team"
+          "title": "team"
         },
         "issuer": {
           "anyOf": [
@@ -1591,7 +1591,7 @@
             }
           ],
           "default": null,
-          "title": "Issuer"
+          "title": "issuer"
         },
         "audience": {
           "anyOf": [
@@ -1603,7 +1603,7 @@
             }
           ],
           "default": null,
-          "title": "Audience"
+          "title": "audience"
         },
         "grants": {
           "additionalProperties": {
@@ -1613,7 +1613,7 @@
             "type": "array"
           },
           "description": "A grant (names pending D-034) -> subjects and `group:<id>`s.",
-          "title": "Grants",
+          "title": "grants",
           "type": "object"
         },
         "user_header": {
@@ -1626,7 +1626,7 @@
             }
           ],
           "default": null,
-          "title": "User header"
+          "title": "user header"
         },
         "groups_header": {
           "anyOf": [
@@ -1638,7 +1638,7 @@
             }
           ],
           "default": null,
-          "title": "Groups header"
+          "title": "groups header"
         },
         "separator": {
           "anyOf": [
@@ -1650,7 +1650,7 @@
             }
           ],
           "default": null,
-          "title": "Separator"
+          "title": "separator"
         },
         "jwt": {
           "anyOf": [
@@ -1675,18 +1675,18 @@
         "chip": {
           "default": 0,
           "minimum": 0,
-          "title": "Chip",
+          "title": "chip",
           "type": "integer"
         },
         "root": {
           "default": "/sys/class/pwm",
-          "title": "Root",
+          "title": "root",
           "type": "string"
         },
         "type": {
           "const": "pwm",
           "default": "pwm",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -1697,7 +1697,7 @@
       "description": "`value` per `per`. On the wire also `{\"per_minute\": 2}`: one key naming the unit.",
       "properties": {
         "value": {
-          "title": "Value",
+          "title": "value",
           "type": "number"
         },
         "per": {
@@ -1726,7 +1726,7 @@
           ],
           "default": null,
           "description": "Reads that raise in a row before the device is offline.",
-          "title": "Fail after"
+          "title": "fail after"
         },
         "backoff_s": {
           "anyOf": [
@@ -1742,7 +1742,7 @@
           ],
           "default": null,
           "description": "Seconds between retries while offline, in turn; the last repeats.",
-          "title": "Backoff s"
+          "title": "backoff s"
         },
         "give_up_after_s": {
           "anyOf": [
@@ -1755,7 +1755,7 @@
           ],
           "default": null,
           "description": "Stop retrying this long after the device went offline; null: never.",
-          "title": "Give up after s"
+          "title": "give up after s"
         }
       },
       "title": "Reads",
@@ -1768,17 +1768,17 @@
         "host": {
           "default": "127.0.0.1",
           "description": "Bind address; loopback unless reachable.",
-          "title": "Host",
+          "title": "host",
           "type": "string"
         },
         "port": {
           "default": 8000,
-          "title": "Port",
+          "title": "port",
           "type": "integer"
         },
         "log_level": {
           "default": "info",
-          "title": "Log level",
+          "title": "log level",
           "type": "string"
         },
         "store": {
@@ -1793,7 +1793,7 @@
           ],
           "default": null,
           "description": "Sessions and versions; default <rig>.sqlite beside the file.",
-          "title": "Store"
+          "title": "store"
         },
         "store_dir": {
           "anyOf": [
@@ -1807,7 +1807,7 @@
           ],
           "default": null,
           "description": "Where stores live, one per rig by name: <dir>/<name>.sqlite.",
-          "title": "Store dir"
+          "title": "store dir"
         },
         "programs": {
           "anyOf": [
@@ -1821,7 +1821,7 @@
           ],
           "default": null,
           "description": "Program files to import; default programs/ beside the file.",
-          "title": "Programs"
+          "title": "programs"
         },
         "tunings": {
           "anyOf": [
@@ -1835,7 +1835,7 @@
           ],
           "default": null,
           "description": "Control-law configs; default tunings/ beside the file.",
-          "title": "Tunings"
+          "title": "tunings"
         },
         "drivers": {
           "anyOf": [
@@ -1849,7 +1849,7 @@
           ],
           "default": null,
           "description": "Driver .py files; default drivers/ beside the file.",
-          "title": "Drivers"
+          "title": "drivers"
         },
         "auth": {
           "$ref": "#/$defs/AuthConfig",
@@ -1870,13 +1870,13 @@
         "compose": {
           "default": false,
           "description": "Build up a hardware rig over the API.",
-          "title": "Compose",
+          "title": "compose",
           "type": "boolean"
         },
         "mcp": {
           "default": true,
           "description": "Mount the MCP servers at /mcp.",
-          "title": "Mcp",
+          "title": "mcp",
           "type": "boolean"
         },
         "root_path": {
@@ -1890,18 +1890,18 @@
           ],
           "default": null,
           "description": "Serve under this path prefix.",
-          "title": "Root path"
+          "title": "root path"
         },
         "allow_save": {
           "default": false,
           "description": "Let the API write rig files: a save to a path, a sim save.",
-          "title": "Allow save",
+          "title": "allow save",
           "type": "boolean"
         },
         "allow_shutdown": {
           "default": false,
           "description": "Let the API stop or restart the runner.",
-          "title": "Allow shutdown",
+          "title": "allow shutdown",
           "type": "boolean"
         },
         "on_shutdown": {
@@ -1911,7 +1911,7 @@
             "stop",
             "keep"
           ],
-          "title": "On shutdown",
+          "title": "on shutdown",
           "type": "string"
         },
         "reads": {
@@ -1921,38 +1921,38 @@
         "keep": {
           "default": "1h",
           "description": "How much the scratch record holds while nothing is recorded, in the rig's clock (`1h`, `30m`); `0` keeps none.",
-          "title": "Keep",
+          "title": "keep",
           "type": "string"
         },
         "keep_size": {
           "default": "256MB",
           "description": "The most the scratch record may take on disk; the oldest goes first.",
-          "title": "Keep size",
+          "title": "keep size",
           "type": "string"
         },
         "retain": {
           "default": "0",
           "description": "Delete an unpinned session this long after it ended (`30d`); `0` keeps all.",
-          "title": "Retain",
+          "title": "retain",
           "type": "string"
         },
         "rotate": {
           "default": "0",
           "description": "Close a recording at this length and continue it in a new session (`24h`); `0` never rotates.",
-          "title": "Rotate",
+          "title": "rotate",
           "type": "string"
         },
         "max_store": {
           "default": "0",
           "description": "Keep the store under this size by deleting the oldest data, of any kind, never pinned (`20GB`); `0` sets no cap.",
-          "title": "Max store",
+          "title": "max store",
           "type": "string"
         },
         "run": {
           "additionalProperties": true,
           "deprecated": true,
           "description": "Deprecated: `runner.front`. Accepted for one release: `serve_ui` is read as `front.listen`, `uv` as `front.uv`, with a warning.",
-          "title": "Run",
+          "title": "run",
           "type": "object"
         }
       },
@@ -1966,7 +1966,7 @@
         "fail_after": {
           "default": 3,
           "description": "Reads that raise in a row before a device is offline.",
-          "title": "Fail after",
+          "title": "fail after",
           "type": "integer"
         },
         "backoff_s": {
@@ -1974,7 +1974,7 @@
           "items": {
             "type": "number"
           },
-          "title": "Backoff s",
+          "title": "backoff s",
           "type": "array"
         }
       },
@@ -1987,7 +1987,7 @@
         "type": {
           "const": "scheduled",
           "default": "scheduled",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         },
         "points": {
@@ -1997,17 +1997,17 @@
             },
             "type": "array"
           },
-          "title": "Points",
+          "title": "points",
           "type": "array"
         },
         "tt_s": {
           "default": 0.0,
-          "title": "Tt s",
+          "title": "tt s",
           "type": "number"
         },
         "b": {
           "default": 1.0,
-          "title": "B",
+          "title": "b",
           "type": "number"
         },
         "n": {
@@ -2020,7 +2020,7 @@
             }
           ],
           "default": null,
-          "title": "N"
+          "title": "n"
         }
       },
       "required": [
@@ -2032,25 +2032,25 @@
     "SerialConfigTagged": {
       "properties": {
         "port": {
-          "title": "Port",
+          "title": "port",
           "type": "string"
         },
         "baudrate": {
           "default": 9600,
           "exclusiveMinimum": 0,
-          "title": "Baudrate",
+          "title": "baudrate",
           "type": "integer"
         },
         "timeout": {
           "default": 1.0,
           "exclusiveMinimum": 0,
-          "title": "Timeout",
+          "title": "timeout",
           "type": "number"
         },
         "type": {
           "const": "uart",
           "default": "uart",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -2063,28 +2063,28 @@
     "SerialLinkConfigTagged": {
       "properties": {
         "port": {
-          "title": "Port",
+          "title": "port",
           "type": "string"
         },
         "baud": {
           "default": 9600,
-          "title": "Baud",
+          "title": "baud",
           "type": "integer"
         },
         "terminator": {
           "default": "\n",
-          "title": "Terminator",
+          "title": "terminator",
           "type": "string"
         },
         "timeout_s": {
           "default": 1.0,
-          "title": "Timeout s",
+          "title": "timeout s",
           "type": "number"
         },
         "type": {
           "const": "serial",
           "default": "serial",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -2108,7 +2108,7 @@
             }
           ],
           "default": null,
-          "title": "Label"
+          "title": "label"
         },
         "range": {
           "anyOf": [
@@ -2131,7 +2131,7 @@
             }
           ],
           "default": null,
-          "title": "Precision"
+          "title": "precision"
         },
         "warning": {
           "anyOf": [
@@ -2165,7 +2165,7 @@
             }
           ],
           "default": null,
-          "title": "Poll s"
+          "title": "poll s"
         },
         "stale_after_s": {
           "anyOf": [
@@ -2177,7 +2177,7 @@
             }
           ],
           "default": null,
-          "title": "Stale after s"
+          "title": "stale after s"
         },
         "limits": {
           "anyOf": [
@@ -2260,7 +2260,7 @@
             }
           ],
           "default": null,
-          "title": "Tags"
+          "title": "tags"
         },
         "record": {
           "anyOf": [
@@ -2273,7 +2273,7 @@
           ],
           "default": null,
           "description": "false: left out of a recording started with the default selection (a raw value a derived signal is computed from). Default: recorded.",
-          "title": "Record"
+          "title": "record"
         },
         "access": {
           "anyOf": [
@@ -2285,7 +2285,7 @@
             }
           ],
           "default": null,
-          "title": "Access"
+          "title": "access"
         },
         "readable": {
           "anyOf": [
@@ -2297,7 +2297,7 @@
             }
           ],
           "default": null,
-          "title": "Readable"
+          "title": "readable"
         },
         "published": {
           "anyOf": [
@@ -2309,7 +2309,7 @@
             }
           ],
           "default": null,
-          "title": "Published"
+          "title": "published"
         },
         "writable": {
           "anyOf": [
@@ -2321,7 +2321,7 @@
             }
           ],
           "default": null,
-          "title": "Writable"
+          "title": "writable"
         }
       },
       "title": "SignalMeta",
@@ -2333,19 +2333,19 @@
         "type": {
           "const": "sliding",
           "default": "sliding",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         },
         "k": {
-          "title": "K",
+          "title": "k",
           "type": "number"
         },
         "lam": {
-          "title": "Lam",
+          "title": "lam",
           "type": "number"
         },
         "boundary": {
-          "title": "Boundary",
+          "title": "boundary",
           "type": "number"
         }
       },
@@ -2363,42 +2363,42 @@
         "type": {
           "const": "smith",
           "default": "smith",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         },
         "kp": {
-          "title": "Kp",
+          "title": "kp",
           "type": "number"
         },
         "ki": {
-          "title": "Ki",
+          "title": "ki",
           "type": "number"
         },
         "gain": {
-          "title": "Gain",
+          "title": "gain",
           "type": "number"
         },
         "tau_s": {
-          "title": "Tau s",
+          "title": "tau s",
           "type": "number"
         },
         "dead_time_s": {
-          "title": "Dead time s",
+          "title": "dead time s",
           "type": "number"
         },
         "tt_s": {
           "default": 0.0,
-          "title": "Tt s",
+          "title": "tt s",
           "type": "number"
         },
         "feedforward": {
           "default": 1.0,
-          "title": "Feedforward",
+          "title": "feedforward",
           "type": "number"
         },
         "b": {
           "default": 1.0,
-          "title": "B",
+          "title": "b",
           "type": "number"
         }
       },
@@ -2416,31 +2416,31 @@
       "properties": {
         "bus": {
           "minimum": 0,
-          "title": "Bus",
+          "title": "bus",
           "type": "integer"
         },
         "chip_select": {
           "minimum": 0,
-          "title": "Chip select",
+          "title": "chip select",
           "type": "integer"
         },
         "speed_hz": {
           "default": 1000000,
           "exclusiveMinimum": 0,
-          "title": "Speed hz",
+          "title": "speed hz",
           "type": "integer"
         },
         "spi_mode": {
           "default": 0,
           "maximum": 3,
           "minimum": 0,
-          "title": "Spi mode",
+          "title": "spi mode",
           "type": "integer"
         },
         "type": {
           "const": "spi",
           "default": "spi",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -2457,7 +2457,7 @@
         "type": {
           "const": "table",
           "default": "table",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         },
         "points": {
@@ -2474,7 +2474,7 @@
             ],
             "type": "array"
           },
-          "title": "Points",
+          "title": "points",
           "type": "array"
         },
         "rate_gain": {
@@ -2487,7 +2487,7 @@
             }
           ],
           "default": null,
-          "title": "Rate gain"
+          "title": "rate gain"
         }
       },
       "required": [
@@ -2537,12 +2537,12 @@
       "properties": {
         "cert": {
           "format": "path",
-          "title": "Cert",
+          "title": "cert",
           "type": "string"
         },
         "key": {
           "format": "path",
-          "title": "Key",
+          "title": "key",
           "type": "string"
         }
       },
@@ -2568,7 +2568,7 @@
           ],
           "default": null,
           "description": "A token's lifetime when created without an explicit `expires_in`. A Go duration plus a `d` suffix for days (e.g. `90d`, `36h`). Unset: the built-in 90 days.",
-          "title": "Default lifetime"
+          "title": "default lifetime"
         },
         "max_lifetime": {
           "anyOf": [
@@ -2581,7 +2581,7 @@
           ],
           "default": null,
           "description": "The hard cap on a token's lifetime, for tokens that are neither cleartext nor kind `agent` (those keep a fixed 30-day cap, tightened further if this is smaller). May only tighten the built-in ceiling of 365 days, never loosen it. Unset: the built-in 365 days.",
-          "title": "Max lifetime"
+          "title": "max lifetime"
         }
       },
       "title": "TokensConfig",
@@ -2590,23 +2590,23 @@
     "VisaLinkConfigTagged": {
       "properties": {
         "resource": {
-          "title": "Resource",
+          "title": "resource",
           "type": "string"
         },
         "timeout_ms": {
           "default": 2000,
-          "title": "Timeout ms",
+          "title": "timeout ms",
           "type": "integer"
         },
         "backend": {
           "default": "@py",
-          "title": "Backend",
+          "title": "backend",
           "type": "string"
         },
         "type": {
           "const": "visa",
           "default": "visa",
-          "title": "Type",
+          "title": "type",
           "type": "string"
         }
       },
@@ -2623,7 +2623,7 @@
         "channel": {
           "maximum": 7,
           "minimum": 0,
-          "title": "Channel",
+          "title": "channel",
           "type": "integer"
         },
         "quantity": {
@@ -2637,22 +2637,22 @@
           ],
           "default": null,
           "description": "The quantity's own name, if it differs from the signal's.",
-          "title": "Quantity"
+          "title": "quantity"
         },
         "unit": {
           "default": "V",
-          "title": "Unit",
+          "title": "unit",
           "type": "string"
         },
         "scale": {
           "default": 1.0,
           "description": "Signal units per volt.",
-          "title": "Scale",
+          "title": "scale",
           "type": "number"
         },
         "offset": {
           "default": 0.0,
-          "title": "Offset",
+          "title": "offset",
           "type": "number"
         }
       },
@@ -2684,26 +2684,26 @@
               "type": "string"
             }
           ],
-          "title": "Link"
+          "title": "link"
         },
         "channels": {
           "additionalProperties": {
             "$ref": "#/$defs/flyball_chips__ads1115__Channel"
           },
-          "title": "Channels",
+          "title": "channels",
           "type": "object"
         },
         "i2c_address": {
           "default": 72,
           "maximum": 75,
           "minimum": 72,
-          "title": "I2c address",
+          "title": "i2c address",
           "type": "integer"
         },
         "gain": {
           "default": 1,
           "description": "PGA gain: 2/3, 1, 2, 4, 8 or 16.",
-          "title": "Gain",
+          "title": "gain",
           "type": "number"
         }
       },
@@ -2721,7 +2721,7 @@
         "channel": {
           "description": "The channel on the wrapped ADC.",
           "minimum": 0,
-          "title": "Channel",
+          "title": "channel",
           "type": "integer"
         },
         "quantity": {
@@ -2735,41 +2735,41 @@
           ],
           "default": null,
           "description": "The quantity's own name, if it differs from the signal's.",
-          "title": "Quantity"
+          "title": "quantity"
         },
         "unit": {
           "default": "1",
-          "title": "Unit",
+          "title": "unit",
           "type": "string"
         },
         "resistor_ohms": {
           "default": 250.0,
           "description": "The loop's sense resistor.",
           "exclusiveMinimum": 0,
-          "title": "Resistor ohms",
+          "title": "resistor ohms",
           "type": "number"
         },
         "scale": {
           "default": 1.0,
           "description": "Signal units per milliamp.",
-          "title": "Scale",
+          "title": "scale",
           "type": "number"
         },
         "offset": {
           "default": 0.0,
-          "title": "Offset",
+          "title": "offset",
           "type": "number"
         },
         "low_ma": {
           "default": 3.6,
           "description": "At or below this, the loop is faulted.",
-          "title": "Low ma",
+          "title": "low ma",
           "type": "number"
         },
         "high_ma": {
           "default": 21.0,
           "description": "At or above this, the loop is faulted.",
-          "title": "High ma",
+          "title": "high ma",
           "type": "number"
         }
       },
@@ -2801,20 +2801,20 @@
               "type": "string"
             }
           ],
-          "title": "Link"
+          "title": "link"
         },
         "channels": {
           "additionalProperties": {
             "$ref": "#/$defs/flyball_chips__mcp3008__Channel"
           },
-          "title": "Channels",
+          "title": "channels",
           "type": "object"
         },
         "vref": {
           "default": 3.3,
           "description": "The reference voltage on VREF.",
           "exclusiveMinimum": 0,
-          "title": "Vref",
+          "title": "vref",
           "type": "number"
         }
       },
@@ -2832,7 +2832,7 @@
         "channel": {
           "maximum": 3,
           "minimum": 0,
-          "title": "Channel",
+          "title": "channel",
           "type": "integer"
         },
         "quantity": {
@@ -2846,22 +2846,22 @@
           ],
           "default": null,
           "description": "The quantity's own name, if it differs from the signal's.",
-          "title": "Quantity"
+          "title": "quantity"
         },
         "unit": {
           "default": "V",
-          "title": "Unit",
+          "title": "unit",
           "type": "string"
         },
         "scale": {
           "default": 1.0,
           "description": "Signal units per volt.",
-          "title": "Scale",
+          "title": "scale",
           "type": "number"
         },
         "offset": {
           "default": 0.0,
-          "title": "Offset",
+          "title": "offset",
           "type": "number"
         }
       },
@@ -2878,7 +2878,7 @@
         "channel": {
           "maximum": 7,
           "minimum": 0,
-          "title": "Channel",
+          "title": "channel",
           "type": "integer"
         },
         "quantity": {
@@ -2892,22 +2892,22 @@
           ],
           "default": null,
           "description": "The quantity's own name, if it differs from the signal's.",
-          "title": "Quantity"
+          "title": "quantity"
         },
         "unit": {
           "default": "V",
-          "title": "Unit",
+          "title": "unit",
           "type": "string"
         },
         "scale": {
           "default": 1.0,
           "description": "Signal units per volt.",
-          "title": "Scale",
+          "title": "scale",
           "type": "number"
         },
         "offset": {
           "default": 0.0,
-          "title": "Offset",
+          "title": "offset",
           "type": "number"
         }
       },
@@ -2943,11 +2943,11 @@
               "type": "string"
             }
           ],
-          "title": "Link"
+          "title": "link"
         },
         "line": {
           "minimum": 0,
-          "title": "Line",
+          "title": "line",
           "type": "integer"
         },
         "direction": {
@@ -2956,19 +2956,19 @@
             "output",
             "input"
           ],
-          "title": "Direction",
+          "title": "direction",
           "type": "string"
         },
         "invert": {
           "default": false,
           "description": "An active-low relay board or switch.",
-          "title": "Invert",
+          "title": "invert",
           "type": "boolean"
         },
         "initial": {
           "default": false,
           "description": "An output's level at startup.",
-          "title": "Initial",
+          "title": "initial",
           "type": "boolean"
         },
         "pull_up": {
@@ -2982,7 +2982,7 @@
           ],
           "default": null,
           "description": "An input's bias: true pulls up, false down, omitted as-is.",
-          "title": "Pull up"
+          "title": "pull up"
         }
       },
       "required": [
@@ -3018,22 +3018,22 @@
               "type": "string"
             }
           ],
-          "title": "Link"
+          "title": "link"
         },
         "channel": {
           "minimum": 0,
-          "title": "Channel",
+          "title": "channel",
           "type": "integer"
         },
         "frequency_hz": {
           "default": 1000.0,
           "exclusiveMinimum": 0,
-          "title": "Frequency hz",
+          "title": "frequency hz",
           "type": "number"
         },
         "invert": {
           "default": false,
-          "title": "Invert",
+          "title": "invert",
           "type": "boolean"
         },
         "unit": {
@@ -3047,7 +3047,7 @@
           ],
           "default": null,
           "description": "The unit `drive` is set in; omitted, it is the duty itself.",
-          "title": "Unit"
+          "title": "unit"
         },
         "quantity": {
           "anyOf": [
@@ -3060,7 +3060,7 @@
           ],
           "default": null,
           "description": "With `unit`: what `drive` then is ('temperature').",
-          "title": "Quantity"
+          "title": "quantity"
         },
         "span": {
           "anyOf": [
@@ -3090,7 +3090,7 @@
           "description": "The register address on the chip.",
           "maximum": 255,
           "minimum": 0,
-          "title": "Address",
+          "title": "address",
           "type": "integer"
         },
         "length": {
@@ -3098,12 +3098,12 @@
           "description": "Bytes.",
           "maximum": 8,
           "minimum": 1,
-          "title": "Length",
+          "title": "length",
           "type": "integer"
         },
         "signed": {
           "default": false,
-          "title": "Signed",
+          "title": "signed",
           "type": "boolean"
         },
         "byteorder": {
@@ -3112,29 +3112,29 @@
             "big",
             "little"
           ],
-          "title": "Byteorder",
+          "title": "byteorder",
           "type": "string"
         },
         "shift": {
           "default": 0,
           "description": "Right-shift the raw value first: 12-bit left-justified ADCs.",
           "minimum": 0,
-          "title": "Shift",
+          "title": "shift",
           "type": "integer"
         },
         "scale": {
           "default": 1.0,
-          "title": "Scale",
+          "title": "scale",
           "type": "number"
         },
         "offset": {
           "default": 0.0,
-          "title": "Offset",
+          "title": "offset",
           "type": "number"
         },
         "unit": {
           "default": "1",
-          "title": "Unit",
+          "title": "unit",
           "type": "string"
         },
         "quantity": {
@@ -3148,12 +3148,12 @@
           ],
           "default": null,
           "description": "The quantity's own name, if it differs from the signal's.",
-          "title": "Quantity"
+          "title": "quantity"
         },
         "write": {
           "default": false,
           "description": "Also a demand: a DAC output, a setpoint.",
-          "title": "Write",
+          "title": "write",
           "type": "boolean"
         },
         "role": {
@@ -3168,7 +3168,7 @@
           ],
           "default": null,
           "description": "`setting`: a writable entry that changes how the instrument behaves (a range, a frequency, a configuration register), not what controls the process; a controller cannot drive it. Omitted: a writable entry is a demand.",
-          "title": "Role"
+          "title": "role"
         }
       },
       "required": [
@@ -3182,7 +3182,7 @@
       "description": "One line of a `modbus` device's tree: where a value lives, and how it converts.\n\n`value = raw * scale`. Every register is readable and published; `write`\nalso makes it writable. `input` registers are read-only on real hardware,\nso `write` on one is refused here too.",
       "properties": {
         "address": {
-          "title": "Address",
+          "title": "address",
           "type": "integer"
         },
         "kind": {
@@ -3192,21 +3192,21 @@
             "input",
             "coil"
           ],
-          "title": "Kind",
+          "title": "kind",
           "type": "string"
         },
         "unit": {
-          "title": "Unit",
+          "title": "unit",
           "type": "string"
         },
         "scale": {
           "default": 1.0,
-          "title": "Scale",
+          "title": "scale",
           "type": "number"
         },
         "write": {
           "default": false,
-          "title": "Write",
+          "title": "write",
           "type": "boolean"
         },
         "role": {
@@ -3221,7 +3221,7 @@
           ],
           "default": null,
           "description": "`setting`: a writable entry that changes how the instrument behaves (a range, a frequency, a configuration register), not what controls the process; a controller cannot drive it. Omitted: a writable entry is a demand.",
-          "title": "Role"
+          "title": "role"
         }
       },
       "required": [
@@ -3237,7 +3237,7 @@
       "properties": {
         "property": {
           "description": "The instrument's attribute name.",
-          "title": "Property",
+          "title": "property",
           "type": "string"
         },
         "unit": {
@@ -3251,11 +3251,11 @@
           ],
           "default": null,
           "description": "Overrides the docstring's unit.",
-          "title": "Unit"
+          "title": "unit"
         },
         "publish": {
           "default": false,
-          "title": "Publish",
+          "title": "publish",
           "type": "boolean"
         },
         "role": {
@@ -3270,7 +3270,7 @@
           ],
           "default": null,
           "description": "`setting`: a writable entry that changes how the instrument behaves (a range, a frequency, a configuration register), not what controls the process; a controller cannot drive it. Omitted: a writable entry is a demand.",
-          "title": "Role"
+          "title": "role"
         }
       },
       "required": [
@@ -3285,7 +3285,7 @@
       "properties": {
         "property": {
           "description": "The parameter's name, dotted for a submodule: 'source.voltage'.",
-          "title": "Property",
+          "title": "property",
           "type": "string"
         },
         "unit": {
@@ -3299,11 +3299,11 @@
           ],
           "default": null,
           "description": "Overrides the parameter's own `unit`.",
-          "title": "Unit"
+          "title": "unit"
         },
         "publish": {
           "default": false,
-          "title": "Publish",
+          "title": "publish",
           "type": "boolean"
         },
         "role": {
@@ -3318,7 +3318,7 @@
           ],
           "default": null,
           "description": "`setting`: a writable entry that changes how the instrument behaves (a range, a frequency, a configuration register), not what controls the process; a controller cannot drive it. Omitted: a writable entry is a demand.",
-          "title": "Role"
+          "title": "role"
         }
       },
       "required": [
@@ -3342,7 +3342,7 @@
           ],
           "default": null,
           "description": "A query; the reply is this signal's value.",
-          "title": "Query"
+          "title": "query"
         },
         "write": {
           "anyOf": [
@@ -3355,10 +3355,10 @@
           ],
           "default": null,
           "description": "A command with `{value}` formatted in, sent on commit.",
-          "title": "Write"
+          "title": "write"
         },
         "unit": {
-          "title": "Unit",
+          "title": "unit",
           "type": "string"
         },
         "quantity": {
@@ -3372,12 +3372,12 @@
           ],
           "default": null,
           "description": "The quantity's own name, if it differs from the signal's.",
-          "title": "Quantity"
+          "title": "quantity"
         },
         "scale": {
           "default": 1.0,
           "description": "A reply or a demand is multiplied/divided by this.",
-          "title": "Scale",
+          "title": "scale",
           "type": "number"
         },
         "role": {
@@ -3392,7 +3392,7 @@
           ],
           "default": null,
           "description": "`setting`: a writable entry that changes how the instrument behaves (a range, a frequency, a configuration register), not what controls the process; a controller cannot drive it. Omitted: a writable entry is a demand.",
-          "title": "Role"
+          "title": "role"
         }
       },
       "required": [
@@ -3409,7 +3409,7 @@
           "default": 68,
           "maximum": 119,
           "minimum": 3,
-          "title": "I2c address",
+          "title": "i2c address",
           "type": "integer"
         }
       },
@@ -3421,7 +3421,7 @@
       "description": "A `sim_daq` signal spelled out: which port, and what it measures if the plant cannot say.",
       "properties": {
         "port": {
-          "title": "Port",
+          "title": "port",
           "type": "string"
         },
         "quantity": {
@@ -3435,7 +3435,7 @@
           ],
           "default": null,
           "description": "What the output is: 'temperature', 'level'.",
-          "title": "Quantity"
+          "title": "quantity"
         },
         "unit": {
           "anyOf": [
@@ -3447,7 +3447,7 @@
             }
           ],
           "default": null,
-          "title": "Unit"
+          "title": "unit"
         },
         "label": {
           "anyOf": [
@@ -3460,7 +3460,7 @@
           ],
           "default": null,
           "description": "Display text: 'Dry line humidity'.",
-          "title": "Label"
+          "title": "label"
         },
         "tags": {
           "anyOf": [
@@ -3476,7 +3476,7 @@
           ],
           "default": null,
           "description": "Groupings across the tree, `{axis: name}`: `{line: dry}`.",
-          "title": "Tags"
+          "title": "tags"
         },
         "range": {
           "anyOf": [
@@ -3499,7 +3499,7 @@
             }
           ],
           "default": null,
-          "title": "Precision"
+          "title": "precision"
         },
         "warning": {
           "anyOf": [
@@ -3543,46 +3543,46 @@
             "integrator",
             "fopdt"
           ],
-          "title": "Model",
+          "title": "model",
           "type": "string"
         },
         "tau_s": {
           "default": 10.0,
           "description": "Time constant (lag, fopdt).",
           "exclusiveMinimum": 0,
-          "title": "Tau s",
+          "title": "tau s",
           "type": "number"
         },
         "dead_time_s": {
           "default": 0.0,
           "description": "Dead time (fopdt).",
           "minimum": 0,
-          "title": "Dead time s",
+          "title": "dead time s",
           "type": "number"
         },
         "gain": {
           "default": 1.0,
-          "title": "Gain",
+          "title": "gain",
           "type": "number"
         },
         "leak": {
           "default": 0.0,
           "description": "Drain rate (integrator).",
           "minimum": 0,
-          "title": "Leak",
+          "title": "leak",
           "type": "number"
         },
         "ambient": {
           "default": 0.0,
           "description": "Where a lag rests with no input (lag, fopdt).",
           "live": "output",
-          "title": "Ambient",
+          "title": "ambient",
           "type": "number"
         },
         "initial": {
           "default": 0.0,
           "live": "output",
-          "title": "Initial",
+          "title": "initial",
           "type": "number"
         },
         "noise": {
@@ -3590,7 +3590,7 @@
           "description": "Gaussian noise on what is read, in the output's unit.",
           "live": "stats.noise",
           "minimum": 0,
-          "title": "Noise",
+          "title": "noise",
           "type": "number"
         },
         "seed": {
@@ -3603,7 +3603,7 @@
             }
           ],
           "default": null,
-          "title": "Seed"
+          "title": "seed"
         }
       },
       "title": "PlantConfig",
@@ -3624,7 +3624,7 @@
       "description": "A `sim_drive` signal spelled out: which port, and the unit and limits it is set in.\n\nIn the default `demand: input` form the signal is declared in that unit\nwith those limits, so an overlay can mirror a real device's writable\nsignal unit for unit (`blender.humidity [W] %RH 0..100`); a demand is\nmapped linearly over `limits` onto the port's 0..1 drive.\n\n`demand: output` instead declares the signal in the plant's own output\nunit -- what a `sim_daq` reading the same plant would read -- and\n`commit` inverts the plant's static model to find the drive, so a\ncontroller can hand it the setpoint directly (the `setpoint`\nfeedforward). `quantity`/`unit` may be omitted when the plant knows its\noutput (a furnace zone); `limits` may be omitted when the plant's model\nhas a static inverse (`Lag`, `Fopdt`; not `Integrator`) -- otherwise\nboth must be given.",
       "properties": {
         "port": {
-          "title": "Port",
+          "title": "port",
           "type": "string"
         },
         "demand": {
@@ -3633,7 +3633,7 @@
             "input",
             "output"
           ],
-          "title": "Demand",
+          "title": "demand",
           "type": "string"
         },
         "label": {
@@ -3647,7 +3647,7 @@
           ],
           "default": null,
           "description": "Display text: 'Zone 1 heater'.",
-          "title": "Label"
+          "title": "label"
         },
         "tags": {
           "anyOf": [
@@ -3663,7 +3663,7 @@
           ],
           "default": null,
           "description": "Groupings across the tree, `{axis: name}`: `{zone: 1}`.",
-          "title": "Tags"
+          "title": "tags"
         },
         "quantity": {
           "anyOf": [
@@ -3676,7 +3676,7 @@
           ],
           "default": null,
           "description": "What is set: 'humidity', 'power' -- or, in output mode, what the plant's output measures, if it cannot say.",
-          "title": "Quantity"
+          "title": "quantity"
         },
         "unit": {
           "anyOf": [
@@ -3688,7 +3688,7 @@
             }
           ],
           "default": null,
-          "title": "Unit"
+          "title": "unit"
         },
         "limits": {
           "anyOf": [
@@ -3715,7 +3715,7 @@
       "properties": {
         "initial": {
           "description": "Its value from build, and after a restart unless one was written since while this stayed the same.",
-          "title": "Initial",
+          "title": "initial",
           "type": "number"
         },
         "unit": {
@@ -3729,7 +3729,7 @@
           ],
           "default": null,
           "description": "The unit symbol (`%`, `\u00b0C`, `L/min`); omit for none.",
-          "title": "Unit"
+          "title": "unit"
         },
         "quantity": {
           "anyOf": [
@@ -3742,12 +3742,12 @@
           ],
           "default": null,
           "description": "What it is (`humidity`); default: the value's name.",
-          "title": "Quantity"
+          "title": "quantity"
         },
         "label": {
           "default": "",
           "description": "The display text; blank: the name, humanised.",
-          "title": "Label",
+          "title": "label",
           "type": "string"
         },
         "limits": {
@@ -3782,7 +3782,7 @@
         }
       ],
       "default": null,
-      "title": "Name"
+      "title": "name"
     },
     "label": {
       "anyOf": [
@@ -3795,7 +3795,7 @@
       ],
       "default": null,
       "description": "What a person reads for the rig; none: its name, humanised.",
-      "title": "Label"
+      "title": "label"
     },
     "board": {
       "anyOf": [
@@ -3808,12 +3808,12 @@
       ],
       "default": null,
       "description": "A board profile: a name on the board path, or a path to the file.",
-      "title": "Board"
+      "title": "board"
     },
     "recording": {
       "default": false,
       "description": "Open a recording session when the runner starts.",
-      "title": "Recording",
+      "title": "recording",
       "type": "boolean"
     },
     "clock": {
@@ -3922,7 +3922,7 @@
           }
         ]
       },
-      "title": "Links",
+      "title": "links",
       "type": "object"
     },
     "devices": {
@@ -3943,7 +3943,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -3955,7 +3955,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -3968,7 +3968,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -3983,7 +3983,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -4008,7 +4008,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -4031,7 +4031,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -4059,7 +4059,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "ads1115"
@@ -4083,26 +4083,26 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "channels": {
                 "additionalProperties": {
                   "$ref": "#/$defs/Channel"
                 },
-                "title": "Channels",
+                "title": "channels",
                 "type": "object"
               },
               "i2c_address": {
                 "default": 72,
                 "maximum": 75,
                 "minimum": 72,
-                "title": "I2c address",
+                "title": "i2c address",
                 "type": "integer"
               },
               "gain": {
                 "default": 1,
                 "description": "PGA gain: 2/3, 1, 2, 4, 8 or 16.",
-                "title": "Gain",
+                "title": "gain",
                 "type": "number"
               }
             },
@@ -4132,7 +4132,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -4144,7 +4144,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -4157,7 +4157,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -4172,7 +4172,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -4197,7 +4197,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -4220,7 +4220,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -4248,7 +4248,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "bme280"
@@ -4272,33 +4272,33 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "i2c_address": {
                 "default": 118,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2c address",
+                "title": "i2c address",
                 "type": "integer"
               },
               "has_humidity": {
                 "default": true,
-                "title": "Has humidity",
+                "title": "has humidity",
                 "type": "boolean"
               },
               "osrs_t": {
                 "default": 1,
-                "title": "Osrs t",
+                "title": "osrs t",
                 "type": "integer"
               },
               "osrs_p": {
                 "default": 1,
-                "title": "Osrs p",
+                "title": "osrs p",
                 "type": "integer"
               },
               "osrs_h": {
                 "default": 1,
-                "title": "Osrs h",
+                "title": "osrs h",
                 "type": "integer"
               }
             },
@@ -4327,7 +4327,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -4339,7 +4339,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -4352,7 +4352,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -4367,7 +4367,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -4392,7 +4392,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -4415,7 +4415,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -4443,7 +4443,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "ccs811"
@@ -4467,13 +4467,13 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "i2c_address": {
                 "default": 90,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2c address",
+                "title": "i2c address",
                 "type": "integer"
               }
             },
@@ -4502,7 +4502,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -4514,7 +4514,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -4527,7 +4527,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -4542,7 +4542,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -4567,7 +4567,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -4590,7 +4590,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -4618,7 +4618,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "current_loop"
@@ -4634,7 +4634,7 @@
                 ],
                 "default": null,
                 "description": "A transport (or a simulated plant), by name.",
-                "title": "Link"
+                "title": "link"
               },
               "adc": {
                 "anyOf": [
@@ -4646,13 +4646,13 @@
                   }
                 ],
                 "description": "The ADC the loop's sense-resistor voltage is read on.",
-                "title": "Adc"
+                "title": "adc"
               },
               "channels": {
                 "additionalProperties": {
                   "$ref": "#/$defs/CurrentLoopChannel"
                 },
-                "title": "Channels",
+                "title": "channels",
                 "type": "object"
               }
             },
@@ -4682,7 +4682,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -4694,7 +4694,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -4707,7 +4707,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -4722,7 +4722,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -4747,7 +4747,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -4770,7 +4770,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -4798,7 +4798,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "dosing_pump"
@@ -4814,7 +4814,7 @@
                 ],
                 "default": null,
                 "description": "A transport (or a simulated plant), by name.",
-                "title": "Link"
+                "title": "link"
               },
               "pump": {
                 "anyOf": [
@@ -4828,19 +4828,19 @@
                     "type": "string"
                   }
                 ],
-                "title": "Pump"
+                "title": "pump"
               },
               "ml_per_s": {
                 "description": "Delivery rate at full drive (pwm) or on (gpio).",
                 "exclusiveMinimum": 0,
-                "title": "Ml per s",
+                "title": "ml per s",
                 "type": "number"
               },
               "drive_fraction": {
                 "default": 1.0,
                 "exclusiveMinimum": 0.0,
                 "maximum": 1.0,
-                "title": "Drive fraction",
+                "title": "drive fraction",
                 "type": "number"
               },
               "max_dispense_ml": {
@@ -4854,7 +4854,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Max dispense ml"
+                "title": "max dispense ml"
               }
             },
             "required": [
@@ -4883,7 +4883,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -4895,7 +4895,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -4908,7 +4908,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -4923,7 +4923,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -4948,7 +4948,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -4971,7 +4971,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -4999,7 +4999,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "ds18b20"
@@ -5027,10 +5027,10 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "probe_id": {
-                "title": "Probe id",
+                "title": "probe id",
                 "type": "string"
               }
             },
@@ -5060,7 +5060,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -5072,7 +5072,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -5085,7 +5085,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -5100,7 +5100,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -5125,7 +5125,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -5148,7 +5148,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -5176,7 +5176,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "ezo_do"
@@ -5200,7 +5200,7 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               }
             },
             "required": [
@@ -5228,7 +5228,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -5240,7 +5240,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -5253,7 +5253,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -5268,7 +5268,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -5293,7 +5293,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -5316,7 +5316,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -5344,7 +5344,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "ezo_ec"
@@ -5368,7 +5368,7 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               }
             },
             "required": [
@@ -5396,7 +5396,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -5408,7 +5408,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -5421,7 +5421,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -5436,7 +5436,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -5461,7 +5461,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -5484,7 +5484,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -5512,7 +5512,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "ezo_orp"
@@ -5536,7 +5536,7 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               }
             },
             "required": [
@@ -5564,7 +5564,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -5576,7 +5576,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -5589,7 +5589,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -5604,7 +5604,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -5629,7 +5629,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -5652,7 +5652,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -5680,7 +5680,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "ezo_ph"
@@ -5704,7 +5704,7 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               }
             },
             "required": [
@@ -5732,7 +5732,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -5744,7 +5744,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -5757,7 +5757,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -5772,7 +5772,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -5797,7 +5797,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -5820,7 +5820,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -5848,7 +5848,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "gpio_line"
@@ -5876,11 +5876,11 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "line": {
                 "minimum": 0,
-                "title": "Line",
+                "title": "line",
                 "type": "integer"
               },
               "direction": {
@@ -5889,19 +5889,19 @@
                   "output",
                   "input"
                 ],
-                "title": "Direction",
+                "title": "direction",
                 "type": "string"
               },
               "invert": {
                 "default": false,
                 "description": "An active-low relay board or switch.",
-                "title": "Invert",
+                "title": "invert",
                 "type": "boolean"
               },
               "initial": {
                 "default": false,
                 "description": "An output's level at startup.",
-                "title": "Initial",
+                "title": "initial",
                 "type": "boolean"
               },
               "pull_up": {
@@ -5915,7 +5915,7 @@
                 ],
                 "default": null,
                 "description": "An input's bias: true pulls up, false down, omitted as-is.",
-                "title": "Pull up"
+                "title": "pull up"
               }
             },
             "required": [
@@ -5944,7 +5944,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -5956,7 +5956,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -5969,7 +5969,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -5984,7 +5984,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -6009,7 +6009,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -6032,7 +6032,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -6060,7 +6060,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "htu21d"
@@ -6084,13 +6084,13 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "i2c_address": {
                 "default": 64,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2c address",
+                "title": "i2c address",
                 "type": "integer"
               }
             },
@@ -6119,7 +6119,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -6131,7 +6131,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -6144,7 +6144,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -6159,7 +6159,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -6184,7 +6184,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -6207,7 +6207,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -6235,7 +6235,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "hx711"
@@ -6259,18 +6259,18 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "clock_line": {
                 "description": "PD_SCK: the host drives this.",
                 "minimum": 0,
-                "title": "Clock line",
+                "title": "clock line",
                 "type": "integer"
               },
               "data_line": {
                 "description": "DOUT: the chip drives this.",
                 "minimum": 0,
-                "title": "Data line",
+                "title": "data line",
                 "type": "integer"
               },
               "gain": {
@@ -6280,18 +6280,18 @@
                   "b32",
                   "a64"
                 ],
-                "title": "Gain",
+                "title": "gain",
                 "type": "string"
               },
               "scale": {
                 "default": 1.0,
                 "description": "Weight units per raw ADC count.",
-                "title": "Scale",
+                "title": "scale",
                 "type": "number"
               },
               "offset": {
                 "default": 0.0,
-                "title": "Offset",
+                "title": "offset",
                 "type": "number"
               }
             },
@@ -6322,7 +6322,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -6334,7 +6334,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -6347,7 +6347,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -6362,7 +6362,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -6387,7 +6387,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -6410,7 +6410,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -6438,7 +6438,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "i2c_table"
@@ -6466,20 +6466,20 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "i2c_address": {
                 "description": "The chip's bus address.",
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2c address",
+                "title": "i2c address",
                 "type": "integer"
               },
               "registers": {
                 "additionalProperties": {
                   "$ref": "#/$defs/Register"
                 },
-                "title": "Registers",
+                "title": "registers",
                 "type": "object"
               }
             },
@@ -6510,7 +6510,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -6522,7 +6522,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -6535,7 +6535,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -6550,7 +6550,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -6575,7 +6575,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -6598,7 +6598,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -6626,7 +6626,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "mcp3008"
@@ -6650,20 +6650,20 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "channels": {
                 "additionalProperties": {
                   "$ref": "#/$defs/Channel"
                 },
-                "title": "Channels",
+                "title": "channels",
                 "type": "object"
               },
               "vref": {
                 "default": 3.3,
                 "description": "The reference voltage on VREF.",
                 "exclusiveMinimum": 0,
-                "title": "Vref",
+                "title": "vref",
                 "type": "number"
               }
             },
@@ -6693,7 +6693,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -6705,7 +6705,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -6718,7 +6718,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -6733,7 +6733,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -6758,7 +6758,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -6781,7 +6781,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -6809,7 +6809,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "mcp4725"
@@ -6833,13 +6833,13 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "i2c_address": {
                 "default": 96,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2c address",
+                "title": "i2c address",
                 "type": "integer"
               },
               "unit": {
@@ -6853,7 +6853,7 @@
                 ],
                 "default": null,
                 "description": "The unit `drive` is set in; omitted, it is the fraction itself.",
-                "title": "Unit"
+                "title": "unit"
               },
               "quantity": {
                 "anyOf": [
@@ -6866,7 +6866,7 @@
                 ],
                 "default": null,
                 "description": "With `unit`: what `drive` then is ('drive').",
-                "title": "Quantity"
+                "title": "quantity"
               },
               "span": {
                 "anyOf": [
@@ -6906,7 +6906,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -6918,7 +6918,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -6931,7 +6931,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -6946,7 +6946,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -6971,7 +6971,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -6994,7 +6994,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -7022,7 +7022,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "mhz19"
@@ -7046,7 +7046,7 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               }
             },
             "required": [
@@ -7074,7 +7074,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -7086,7 +7086,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -7099,7 +7099,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -7114,7 +7114,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -7139,7 +7139,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -7162,7 +7162,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -7190,7 +7190,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "modbus"
@@ -7222,18 +7222,18 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "registers": {
                 "additionalProperties": {
                   "$ref": "#/$defs/ModbusRegister"
                 },
-                "title": "Registers",
+                "title": "registers",
                 "type": "object"
               },
               "unit_id": {
                 "default": 1,
-                "title": "Unit id",
+                "title": "unit id",
                 "type": "integer"
               }
             },
@@ -7263,7 +7263,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -7275,7 +7275,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -7288,7 +7288,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -7303,7 +7303,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -7328,7 +7328,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -7351,7 +7351,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -7379,7 +7379,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "ms5611"
@@ -7403,13 +7403,13 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "i2c_address": {
                 "default": 119,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2c address",
+                "title": "i2c address",
                 "type": "integer"
               },
               "osr": {
@@ -7421,7 +7421,7 @@
                   2048,
                   4096
                 ],
-                "title": "Osr",
+                "title": "osr",
                 "type": "integer"
               }
             },
@@ -7450,7 +7450,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -7462,7 +7462,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -7475,7 +7475,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -7490,7 +7490,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -7515,7 +7515,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -7538,7 +7538,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -7566,7 +7566,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "pulse_counter"
@@ -7594,22 +7594,22 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "line": {
                 "minimum": 0,
-                "title": "Line",
+                "title": "line",
                 "type": "integer"
               },
               "pulses_per_litre": {
                 "exclusiveMinimum": 0,
-                "title": "Pulses per litre",
+                "title": "pulses per litre",
                 "type": "number"
               },
               "debounce_s": {
                 "default": 0.0,
                 "minimum": 0,
-                "title": "Debounce s",
+                "title": "debounce s",
                 "type": "number"
               },
               "pull_up": {
@@ -7623,7 +7623,7 @@
                 ],
                 "default": null,
                 "description": "The line's bias: true pulls up, false down, omitted as-is.",
-                "title": "Pull up"
+                "title": "pull up"
               }
             },
             "required": [
@@ -7653,7 +7653,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -7665,7 +7665,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -7678,7 +7678,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -7693,7 +7693,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -7718,7 +7718,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -7741,7 +7741,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -7769,7 +7769,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "pwm_channel"
@@ -7797,22 +7797,22 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "channel": {
                 "minimum": 0,
-                "title": "Channel",
+                "title": "channel",
                 "type": "integer"
               },
               "frequency_hz": {
                 "default": 1000.0,
                 "exclusiveMinimum": 0,
-                "title": "Frequency hz",
+                "title": "frequency hz",
                 "type": "number"
               },
               "invert": {
                 "default": false,
-                "title": "Invert",
+                "title": "invert",
                 "type": "boolean"
               },
               "unit": {
@@ -7826,7 +7826,7 @@
                 ],
                 "default": null,
                 "description": "The unit `drive` is set in; omitted, it is the duty itself.",
-                "title": "Unit"
+                "title": "unit"
               },
               "quantity": {
                 "anyOf": [
@@ -7839,7 +7839,7 @@
                 ],
                 "default": null,
                 "description": "With `unit`: what `drive` then is ('temperature').",
-                "title": "Quantity"
+                "title": "quantity"
               },
               "span": {
                 "anyOf": [
@@ -7880,7 +7880,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -7892,7 +7892,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -7905,7 +7905,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -7920,7 +7920,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -7945,7 +7945,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -7968,7 +7968,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -7996,7 +7996,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "pymeasure"
@@ -8012,28 +8012,28 @@
                 ],
                 "default": null,
                 "description": "A transport (or a simulated plant), by name.",
-                "title": "Link"
+                "title": "link"
               },
               "instrument": {
                 "description": "Dotted class, e.g. pymeasure.instruments.keithley.Keithley2400",
-                "title": "Instrument",
+                "title": "instrument",
                 "type": "string"
               },
               "adapter": {
                 "description": "The resource: 'GPIB::24', 'ASRL/dev/ttyUSB0', a VISA string.",
-                "title": "Adapter",
+                "title": "adapter",
                 "type": "string"
               },
               "kwargs": {
                 "additionalProperties": true,
-                "title": "Kwargs",
+                "title": "kwargs",
                 "type": "object"
               },
               "channels": {
                 "additionalProperties": {
                   "$ref": "#/$defs/PyMeasureSignal"
                 },
-                "title": "Channels",
+                "title": "channels",
                 "type": "object"
               }
             },
@@ -8064,7 +8064,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -8076,7 +8076,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -8089,7 +8089,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -8104,7 +8104,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -8129,7 +8129,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -8152,7 +8152,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -8180,7 +8180,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "qcodes"
@@ -8196,11 +8196,11 @@
                 ],
                 "default": null,
                 "description": "A transport (or a simulated plant), by name.",
-                "title": "Link"
+                "title": "link"
               },
               "instrument": {
                 "description": "Dotted class, e.g. qcodes.instrument_drivers.Keithley.Keithley2450",
-                "title": "Instrument",
+                "title": "instrument",
                 "type": "string"
               },
               "instrument_name": {
@@ -8214,23 +8214,23 @@
                 ],
                 "default": null,
                 "description": "The QCoDeS instrument's own `name`; defaults to the device's.",
-                "title": "Instrument name"
+                "title": "instrument name"
               },
               "args": {
                 "items": {},
-                "title": "Args",
+                "title": "args",
                 "type": "array"
               },
               "kwargs": {
                 "additionalProperties": true,
-                "title": "Kwargs",
+                "title": "kwargs",
                 "type": "object"
               },
               "channels": {
                 "additionalProperties": {
                   "$ref": "#/$defs/QCoDeSSignal"
                 },
-                "title": "Channels",
+                "title": "channels",
                 "type": "object"
               }
             },
@@ -8260,7 +8260,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -8272,7 +8272,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -8285,7 +8285,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -8300,7 +8300,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -8325,7 +8325,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -8348,7 +8348,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -8376,7 +8376,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "scd30"
@@ -8400,24 +8400,24 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "i2c_address": {
                 "default": 97,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2c address",
+                "title": "i2c address",
                 "type": "integer"
               },
               "pressure_mbar": {
                 "default": 0,
                 "description": "0 disables ambient-pressure compensation",
-                "title": "Pressure mbar",
+                "title": "pressure mbar",
                 "type": "integer"
               },
               "sleep": {
                 "default": true,
-                "title": "Sleep",
+                "title": "sleep",
                 "type": "boolean"
               }
             },
@@ -8446,7 +8446,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -8458,7 +8458,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -8471,7 +8471,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -8486,7 +8486,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -8511,7 +8511,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -8534,7 +8534,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -8562,7 +8562,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "scd4x"
@@ -8586,13 +8586,13 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "i2c_address": {
                 "default": 98,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2c address",
+                "title": "i2c address",
                 "type": "integer"
               },
               "variant": {
@@ -8601,22 +8601,22 @@
                   "scd40",
                   "scd41"
                 ],
-                "title": "Variant",
+                "title": "variant",
                 "type": "string"
               },
               "low_power": {
                 "default": false,
-                "title": "Low power",
+                "title": "low power",
                 "type": "boolean"
               },
               "single_shot": {
                 "default": false,
-                "title": "Single shot",
+                "title": "single shot",
                 "type": "boolean"
               },
               "sleep": {
                 "default": true,
-                "title": "Sleep",
+                "title": "sleep",
                 "type": "boolean"
               }
             },
@@ -8645,7 +8645,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -8657,7 +8657,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -8670,7 +8670,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -8685,7 +8685,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -8710,7 +8710,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -8733,7 +8733,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -8761,7 +8761,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "scpi"
@@ -8793,13 +8793,13 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "channels": {
                 "additionalProperties": {
                   "$ref": "#/$defs/ScpiSignal"
                 },
-                "title": "Channels",
+                "title": "channels",
                 "type": "object"
               },
               "stop_command": {
@@ -8813,7 +8813,7 @@
                 ],
                 "default": null,
                 "description": "What a stop sends (`OUTP OFF`, `INP OFF`): the instrument's own stop. Omitted: a stop leaves its outputs as they are -- the right string differs by instrument, so none is assumed.",
-                "title": "Stop command"
+                "title": "stop command"
               }
             },
             "required": [
@@ -8842,7 +8842,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -8854,7 +8854,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -8867,7 +8867,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -8882,7 +8882,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -8907,7 +8907,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -8930,7 +8930,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -8958,7 +8958,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "sgp30"
@@ -8982,13 +8982,13 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "i2c_address": {
                 "default": 88,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2c address",
+                "title": "i2c address",
                 "type": "integer"
               },
               "baseline": {
@@ -9012,7 +9012,7 @@
                 ],
                 "default": null,
                 "description": "[co2eq, tvoc] IAQ baseline words to restore at startup, as read back earlier from Sgp30Sensor.get_baseline; omit to let the chip's own algorithm re-settle from cold.",
-                "title": "Baseline"
+                "title": "baseline"
               }
             },
             "required": [
@@ -9040,7 +9040,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -9052,7 +9052,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -9065,7 +9065,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -9080,7 +9080,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -9105,7 +9105,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -9128,7 +9128,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -9156,7 +9156,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "sgp40"
@@ -9180,13 +9180,13 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "i2c_address": {
                 "default": 89,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2c address",
+                "title": "i2c address",
                 "type": "integer"
               },
               "humidity_source": {
@@ -9200,7 +9200,7 @@
                 ],
                 "default": null,
                 "description": "Signal address to read humidity compensation from on each read; omit to use the datasheet's fixed 50 %RH default.",
-                "title": "Humidity source"
+                "title": "humidity source"
               },
               "temperature_source": {
                 "anyOf": [
@@ -9213,7 +9213,7 @@
                 ],
                 "default": null,
                 "description": "Signal address to read temperature compensation from on each read; omit to use the datasheet's fixed 25 degC default.",
-                "title": "Temperature source"
+                "title": "temperature source"
               }
             },
             "required": [
@@ -9241,7 +9241,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -9253,7 +9253,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -9266,7 +9266,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -9281,7 +9281,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -9306,7 +9306,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -9329,7 +9329,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -9357,7 +9357,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "sht31"
@@ -9381,13 +9381,13 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "i2c_address": {
                 "default": 68,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2c address",
+                "title": "i2c address",
                 "type": "integer"
               },
               "precision": {
@@ -9397,7 +9397,7 @@
                   "medium",
                   "low"
                 ],
-                "title": "Precision",
+                "title": "precision",
                 "type": "string"
               }
             },
@@ -9426,7 +9426,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -9438,7 +9438,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -9451,7 +9451,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -9466,7 +9466,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -9491,7 +9491,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -9514,7 +9514,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -9542,7 +9542,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "sht4x"
@@ -9566,13 +9566,13 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "i2c_address": {
                 "default": 68,
                 "maximum": 119,
                 "minimum": 3,
-                "title": "I2c address",
+                "title": "i2c address",
                 "type": "integer"
               },
               "precision": {
@@ -9582,7 +9582,7 @@
                   "medium",
                   "low"
                 ],
-                "title": "Precision",
+                "title": "precision",
                 "type": "string"
               }
             },
@@ -9611,7 +9611,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -9623,7 +9623,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -9636,7 +9636,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -9651,7 +9651,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -9676,7 +9676,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -9699,7 +9699,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -9727,7 +9727,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "sht4x_set"
@@ -9751,13 +9751,13 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "sensors": {
                 "additionalProperties": {
                   "$ref": "#/$defs/SensorEntry"
                 },
-                "title": "Sensors",
+                "title": "sensors",
                 "type": "object"
               },
               "precision": {
@@ -9767,7 +9767,7 @@
                   "medium",
                   "low"
                 ],
-                "title": "Precision",
+                "title": "precision",
                 "type": "string"
               }
             },
@@ -9797,7 +9797,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -9809,7 +9809,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -9822,7 +9822,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -9837,7 +9837,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -9862,7 +9862,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -9885,7 +9885,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -9913,7 +9913,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "sim_daq"
@@ -9934,7 +9934,7 @@
                   ]
                 },
                 "description": "Signal path -> the plant's output port; spelled out with `quantity` and `unit` when the plant does not say what a port measures (a bare `sim_plant`). A dotted path (`dry.humidity`) puts the signal in a namespace, so the device can mirror a real one's addresses.",
-                "title": "Ports",
+                "title": "ports",
                 "type": "object"
               }
             },
@@ -9964,7 +9964,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -9976,7 +9976,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -9989,7 +9989,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -10004,7 +10004,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -10029,7 +10029,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -10052,7 +10052,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -10080,7 +10080,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "sim_drive"
@@ -10101,7 +10101,7 @@
                   ]
                 },
                 "description": "Signal path -> the plant's input port, or spelled out with the `quantity`, `unit` and `limits` the signal is set in (mapped linearly onto the port's 0..1 drive), or `demand: output` to declare it in the plant's own output unit and let `commit` invert the plant. A dotted path is a namespace.",
-                "title": "Ports",
+                "title": "ports",
                 "type": "object"
               }
             },
@@ -10131,7 +10131,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -10143,7 +10143,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -10156,7 +10156,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -10171,7 +10171,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -10196,7 +10196,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -10219,7 +10219,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -10247,7 +10247,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "stepper"
@@ -10275,21 +10275,21 @@
                     "type": "string"
                   }
                 ],
-                "title": "Link"
+                "title": "link"
               },
               "step_line": {
                 "minimum": 0,
-                "title": "Step line",
+                "title": "step line",
                 "type": "integer"
               },
               "direction_line": {
                 "minimum": 0,
-                "title": "Direction line",
+                "title": "direction line",
                 "type": "integer"
               },
               "steps_per_s": {
                 "exclusiveMinimum": 0,
-                "title": "Steps per s",
+                "title": "steps per s",
                 "type": "number"
               },
               "enable_line": {
@@ -10303,11 +10303,11 @@
                   }
                 ],
                 "default": null,
-                "title": "Enable line"
+                "title": "enable line"
               },
               "enable_active_low": {
                 "default": true,
-                "title": "Enable active low",
+                "title": "enable active low",
                 "type": "boolean"
               },
               "steps_per_unit": {
@@ -10321,12 +10321,12 @@
                   }
                 ],
                 "default": null,
-                "title": "Steps per unit"
+                "title": "steps per unit"
               },
               "pulse_width_s": {
                 "default": 0.0005,
                 "minimum": 0,
-                "title": "Pulse width s",
+                "title": "pulse width s",
                 "type": "number"
               }
             },
@@ -10358,7 +10358,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -10370,7 +10370,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -10383,7 +10383,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -10398,7 +10398,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -10423,7 +10423,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -10446,7 +10446,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -10474,7 +10474,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               },
               "driver": {
                 "const": "values"
@@ -10490,14 +10490,14 @@
                 ],
                 "default": null,
                 "description": "A transport (or a simulated plant), by name.",
-                "title": "Link"
+                "title": "link"
               },
               "values": {
                 "additionalProperties": {
                   "$ref": "#/$defs/ValueEntry"
                 },
                 "description": "Each value by name: `{initial, unit, label, limits}`.",
-                "title": "Values",
+                "title": "values",
                 "type": "object"
               }
             },
@@ -10524,7 +10524,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Label"
+                "title": "label"
               },
               "poll_s": {
                 "anyOf": [
@@ -10536,7 +10536,7 @@
                   }
                 ],
                 "default": null,
-                "title": "Poll s"
+                "title": "poll s"
               },
               "signals": {
                 "additionalProperties": {
@@ -10549,7 +10549,7 @@
                     }
                   ]
                 },
-                "title": "Signals",
+                "title": "signals",
                 "type": "object"
               },
               "inputs": {
@@ -10564,7 +10564,7 @@
                   ]
                 },
                 "description": "Input name -> what it follows: an address on another device (`hum_sensors.dry.humidity`), or a number (`36.5`). Every input the driver declares must be given one; it has no default.",
-                "title": "Inputs",
+                "title": "inputs",
                 "type": "object"
               },
               "reads": {
@@ -10589,7 +10589,7 @@
                 ],
                 "default": null,
                 "description": "How long a value a failed write kept may wait to be sent again; older is dropped, not sent. Omit for 60 s.",
-                "title": "Retry max age s"
+                "title": "retry max age s"
               },
               "stop": {
                 "anyOf": [
@@ -10612,7 +10612,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> what a stop writes to it: a number, or `keep` to leave it as it is. A demand left out takes its driver's `off`, else keeps. Refused on a device whose driver has a stop command (it stops the whole device).",
-                "title": "Stop"
+                "title": "stop"
               },
               "on_shutdown": {
                 "anyOf": [
@@ -10640,7 +10640,7 @@
                 ],
                 "default": null,
                 "description": "Demand path -> the value condition a write to it needs: `{signal: <address>, above: <n>, below: <n>}`. Fails closed when the signal has no value.",
-                "title": "Permissive"
+                "title": "permissive"
               }
             },
             "not": {
@@ -10655,7 +10655,7 @@
           }
         ]
       },
-      "title": "Devices",
+      "title": "devices",
       "type": "object"
     },
     "controllers": {
@@ -10671,7 +10671,7 @@
         ]
       },
       "description": "Keyed by the output signal's address.",
-      "title": "Controllers",
+      "title": "controllers",
       "type": "object"
     },
     "runner": {
@@ -10690,12 +10690,12 @@
         "format": "path",
         "type": "string"
       },
-      "title": "Files",
+      "title": "files",
       "type": "array"
     },
     "resumed": {
       "default": false,
-      "title": "Resumed",
+      "title": "resumed",
       "type": "boolean"
     },
     "extends": {

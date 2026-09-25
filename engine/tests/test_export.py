@@ -220,7 +220,7 @@ def test_history_routes_read_by_address(client):
         "access": "rp",
         "dtype": "float",
         "shape": [],
-        "label": "Temperature",
+        "label": "temperature",
         "range": None,
         "precision": None,
         "warning": None,

@@ -81,36 +81,37 @@ def _oven(**extra: object) -> dict:
 
 class TestHumanise:
     @pytest.mark.parametrize(
-        ("key", "label"),
+        ("key", "label", "capitalised"),
         [
-            ("dry_pump_flow", "Dry pump flow"),
-            ("tvoc", "Tvoc"),
-            ("poll_s", "Poll s"),
-            ("wet-pump", "Wet pump"),
-            ("a__b", "A b"),
-            ("x", "X"),
-            ("already Spaced", "Already Spaced"),
-            ("", ""),
+            ("dry_pump_flow", "dry pump flow", "Dry pump flow"),
+            ("tvoc", "tvoc", "Tvoc"),
+            ("poll_s", "poll s", "Poll s"),
+            ("wet-pump", "wet pump", "Wet pump"),
+            ("a__b", "a b", "A b"),
+            ("x", "x", "X"),
+            ("already Spaced", "already Spaced", "Already Spaced"),
+            ("", "", ""),
         ],
     )
-    def test_sentence_case_the_rest_as_written(self, key, label):
+    def test_sentence_case_the_rest_as_written(self, key, label, capitalised):
         assert humanise(key) == label
+        assert humanise(key, capitalise=True) == capitalised
 
 
 class TestResolved:
     def test_a_blank_label_is_the_name_humanised_a_declared_one_stands(self):
         pump = Pump("main_pump")
-        assert (pump.label, pump.declared_label) == ("Main pump", None)
-        assert pump.root.label == "Main pump" and pump.root.declared_label == ""
+        assert (pump.label, pump.declared_label) == ("main pump", None)
+        assert pump.root.label == "main pump" and pump.root.declared_label == ""
         lines = pump.nodes["pump_lines"]
-        assert (lines.label, lines.declared_label) == ("Pump lines", "")
+        assert (lines.label, lines.declared_label) == ("pump lines", "")
         dry = pump.signals["pump_lines.dry_pump_flow"]
-        assert (dry.label, dry.declared_label) == ("Dry pump flow", "")
+        assert (dry.label, dry.declared_label) == ("dry pump flow", "")
         wet = pump.signals["pump_lines.wet"]
         assert (wet.label, wet.declared_label) == ("Wet line", "Wet line")
         assert pump.signals["tvoc"].label == "TVOC", "the driver says how an acronym reads"
         supply = pump.bound["supply_rh"]
-        assert (supply.label, supply.declared_label) == ("Supply rh", "")
+        assert (supply.label, supply.declared_label) == ("supply rh", "")
 
     def test_a_device_label_given_resolves_to_itself(self):
         assert Pump("p", "The pump").label == "The pump"
@@ -118,14 +119,14 @@ class TestResolved:
 
     def test_a_command_is_labelled_like_everything_else(self):
         commands = Pump("p").commands
-        assert commands["prime_pump"].label == "Prime pump"
+        assert commands["prime_pump"].label == "prime pump"
         assert commands["prime_pump"].declared_label == ""
         assert commands["purge"].label == "Purge the lines"
         setter = commands["set_pump_lines_dry_pump_flow"]
-        assert setter.label == "Set pump lines dry pump flow"
-        assert setter.doc == "Set Dry pump flow."
+        assert setter.label == "set pump lines dry pump flow"
+        assert setter.doc == "Set dry pump flow."
         assert Pump("p").signals["last.purge"].label == "Purge the lines"
-        assert Pump("p").signals["last.prime_pump"].label == "Prime pump"
+        assert Pump("p").signals["last.prime_pump"].label == "prime pump"
 
     def test_the_rig_file_labels_a_signal_the_rig_and_a_controller(self):
         document = _oven(label="The test oven")
@@ -136,7 +137,7 @@ class TestResolved:
         try:
             assert rig.label == "The test oven"
             assert rig.devices["thermo"].label == "Thermometer"
-            assert rig.devices["heater"].label == "Heater"
+            assert rig.devices["heater"].label == "heater"
             assert rig.devices["thermo"].signals["oven_temp"].label == "Oven"
             assert rig.controllers["heater.drive"].label == "Oven loop"
             rendered = rig.document()
@@ -149,15 +150,18 @@ class TestResolved:
     def test_a_rendered_rig_never_gains_a_fallback(self):
         rig = RigConfig.model_validate(_oven()).build(start=False)
         try:
-            assert rig.label == "Test oven"
+            assert rig.label == "test oven"
             controller = rig.controllers["heater.drive"]
             assert controller.declared_label is None
-            assert controller.label == "Drive", "none declared: its output signal's"
+            assert controller.label == "drive", "none declared: its output signal's"
             rendered = rig.document()
             assert "label" not in rendered
             assert "label" not in rendered["controllers"]["heater.drive"]
             assert all("label" not in entry for entry in rendered["devices"].values())
-            assert "Test oven" not in str(rendered) and "Heater" not in str(rendered)
+            # "heater" (the fallback label) now reads the same as the device's own key, so
+            # only the multi-word rig label -- "test oven" with a space, not "test_oven" --
+            # still distinguishes a written-back fallback from the bare document.
+            assert "test oven" not in str(rendered)
         finally:
             rig.close()
 
@@ -181,7 +185,7 @@ class TestWire:
     def test_every_label_on_the_wire_is_a_non_empty_string(self, client):
         devices = {d["name"]: d for d in client.get("/api/devices").json()}
         assert devices["thermo"]["label"] == "Thermometer"
-        assert devices["heater"]["label"] == "Heater"
+        assert devices["heater"]["label"] == "heater"
 
         def labels(tree):
             for node in tree:
@@ -194,18 +198,18 @@ class TestWire:
             found += [i["label"] for i in device["inputs"].values()]
             assert found and all(isinstance(x, str) and x for x in found), found
         (controller,) = client.get("/api/controllers").json()
-        assert controller["label"] == "Drive"
-        assert client.get("/api/health").json()["label"] == "Test oven"
+        assert controller["label"] == "drive"
+        assert client.get("/api/health").json()["label"] == "test oven"
         schema = client.get("/api/devices/heater/schema").json()
-        assert schema["label"] == "Heater"
-        assert schema["commands"]["set_drive"]["label"] == "Set drive"
+        assert schema["label"] == "heater"
+        assert schema["commands"]["set_drive"]["label"] == "set drive"
 
     def test_a_dashboard_row_resolves_its_label_and_its_document_keeps_none(self, client):
         document = {"name": "x", "rig": "test_oven"}
         saved = client.put("/api/dashboards/wall_display", json=document).json()
-        assert saved["label"] == "Wall display" and saved["body"]["label"] is None
+        assert saved["label"] == "wall display" and saved["body"]["label"] is None
         (row,) = client.get("/api/dashboards").json()
-        assert row["label"] == "Wall display"
+        assert row["label"] == "wall display"
         client.put("/api/dashboards/wall_display", json={**document, "label": "The wall"})
         assert client.get("/api/dashboards/wall_display").json()["label"] == "The wall"
 
@@ -214,9 +218,9 @@ class TestSchemaTitles:
     def test_an_untitled_field_is_titled_by_the_same_rule(self):
         schema = rig_schema()
         entry = schema["$defs"]["ControllerEntry"]["properties"]
-        assert entry["min_period_s"]["title"] == "Min period s"
-        assert entry["is_default"]["title"] == "Is default"
-        assert schema["properties"]["recording"]["title"] == "Recording"
+        assert entry["min_period_s"]["title"] == "min period s"
+        assert entry["is_default"]["title"] == "is default"
+        assert schema["properties"]["recording"]["title"] == "recording"
 
     def test_every_schema_flyball_generates_goes_through_titled(self):
         """A `json_schema(` call without the generator would title in Title Case again."""

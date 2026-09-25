@@ -130,7 +130,7 @@ class TestModes:
         tool = next(t for t in tools_for(client, "operate") if t.name == "heaters-set_duty")
         assert tool.tier == Tier.DRIVE and not tool.destructive
         assert tool.schema["properties"]["duty"]["type"] == "number"
-        assert tool.description.startswith("[Heaters] Drive the elements")
+        assert tool.description.startswith("[heaters] Drive the elements")
 
 
 class TestTools:
