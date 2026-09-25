@@ -432,7 +432,10 @@ holding `operate` can do it:
 All five run the same stop, in this order:
 
 1. **The rig is latched** (the condition `stopped` on the rig), so nothing
-   automatic writes from here on ([the latch](#the-latch)).
+   automatic writes from here on ([the latch](#the-latch)): a write already
+   past its checks is checked again before it is applied, and refused. The
+   latch waits at most a second for a stuck delivery or command, then is set
+   regardless.
 2. **Every running long command is cancelled**: a dose or a move ends now,
    and its own clean-up still runs.
 3. **The program is interrupted**, with a bounded wait for it to unwind.

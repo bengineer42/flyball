@@ -107,9 +107,12 @@ class Latch:
 class Latches:
     """Every cause held now, with its subjects; its own lock, so health reads it lock-free.
 
+    Set and cleared only through [Stopping][flyball.rig.stopping.Stopping] (`latch`,
+    `reset`), under the rig's lock: a check made under that lock (a write's, a command's,
+    a commit's) and what it guards see the same latches. Read anywhere.
+
     `on_change` hooks hear each latch set (True) or cleared (False), under the
-    rig's lock when the rig set it: the programmer interrupts a program that
-    names what a fault latched.
+    rig's lock: the programmer interrupts a program that names what a fault latched.
     """
 
     def __init__(self, rig: Rig) -> None:

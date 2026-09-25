@@ -83,6 +83,10 @@ DEVICE_STOP_S = 5.0
 """How long a stop waits for all devices together, a stuck lock or bus included: a device
 not done by then is reported `failed` ("may still act"), and the stop returns."""
 
+LATCH_WAIT_S = 1.0
+"""How long setting a latch waits for the rig's lock before setting it without (a stuck
+delivery or command): the latch is never held up, and every commit checks it again."""
+
 type Origin = Literal["off", "you_said", "nobody_said"]
 
 STOP_ACTOR = Actor(principal="stop", kind="rule", via="rig")
@@ -273,7 +277,24 @@ class Stopping:
     # region Latching
 
     def latch(self, latch: Latch) -> bool:
-        """Hold `latch`: conditions raised, staged values on what it holds replaced (A6)."""
+        """Hold `latch`: conditions raised, staged values on what it holds replaced (A6).
+
+        Under the rig's lock, so a write or a command checked before it cannot commit after
+        it (each re-checks under the lock). A lock held past `LATCH_WAIT_S` (a stuck delivery
+        or command) does not hold the latch up: it is set without, and every commit, which
+        runs under the lock, checks the latches again first.
+        """
+        lock = self.rig.lock
+        locked = lock.acquire(timeout=LATCH_WAIT_S)
+        if not locked:
+            log.warning("latch %s: set without the rig's lock (held too long)", latch.cause)
+        try:
+            return self._latch(latch)
+        finally:
+            if locked:
+                lock.release()
+
+    def _latch(self, latch: Latch) -> bool:
         if not self.latches.set(latch):
             return False
         rig = self.rig
@@ -311,9 +332,15 @@ class Stopping:
         A fault's Reset clears its controller's law (`clear_law`), so what made the law
         raise (a NaN in its state) does not persist into the next `regulate`.
 
+        Under the rig's lock: a reset lands between two deliveries, never inside a check.
+
         Raises:
             NotFoundError: No latch holds for `cause`.
         """
+        with self.rig.lock:
+            return self._reset(cause, actor)
+
+    def _reset(self, cause: str, actor: Actor) -> Latch:
         rig = self.rig
         latch = self.latches.clear(cause)
         if latch is None:

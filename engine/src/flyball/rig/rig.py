@@ -1099,7 +1099,9 @@ class Rig:
         everyone; the rig stop refuses every automatic writer and lets a
         person's write (`actor.person`) through, logged
         (`written_while_stopped`), the latch kept. A controller's write under a
-        latch is held, not refused. A `permissive` that does not hold refuses
+        latch is held, not refused. The latches are checked again under the
+        rig's lock, where they are set, just before the write is applied: a
+        stop that lands after the first check wins. A `permissive` that does not hold refuses
         it too (a write of the signal's resolved stop value excepted).
 
         Raises:
@@ -1177,6 +1179,17 @@ class Rig:
                 requested[signal] = original
             clamped[signal] = value
         with self.lock:
+            if self.stopping.latches.any():
+                # Again, where no latch can be set meanwhile (a stop sets it under this lock):
+                # a stop that landed since the checks above wins.
+                forced = None
+                for signal in clamped:
+                    refused, through = self.stopping.refusal(signal, by=by, person=person)
+                    if refused is not None:
+                        if by is not None:
+                            return {}
+                        raise ConflictError(refused)
+                    forced = forced or through
             time_ns = self.clock.now_ns()
             thread = self._writer_for(device)
             for signal, value in clamped.items():

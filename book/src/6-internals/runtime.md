@@ -295,6 +295,14 @@ which takes the lock inside and lets it go before it returns:
 | `write`, `invoke`/`run_command` | a demand or a command: checks, apply, commit (a long command's body runs off the lock) |
 | `device_snapshot(device)` | a read: every reading, write state, condition, input state and poll run of one device from one instant, copied, for a route to render off the lock |
 
+Latches are set and reset under the lock (`Stopping.latch`, `Stopping.reset`;
+a latch waits at most `LATCH_WAIT_S`, 1 s, for a stuck lock, then is set
+without it, and every commit checks the latches again first). `write` checks
+them again under the lock just before it applies, so a stop that lands
+between a write's first checks and its commit wins: an automatic writer is
+refused, a controller held, a person's write goes through the rig stop and
+says so (`written_while_stopped`).
+
 `which` names one controller, several (changed between the same two
 deliveries), or None for the default. The HTTP API is unchanged: `POST
 .../regulate` maps `tuning` onto `law=` and a generator `at` onto `follow`.
