@@ -162,6 +162,23 @@ install or release binary for the CLI yet -- the build above produces
 application such as `examples/humidity` has its own `uv sync` and brings
 its drivers with it. Extras per integration: [Integrations](../../5-integrations/index.md).
 
+With only the binary and a Python of 3.12 or later, and no uv:
+
+```
+flyball init                                                  # the config file and the folders
+python3 -m venv ~/.local/share/flyball/envs/default/.venv
+~/.local/share/flyball/envs/default/.venv/bin/pip install -e flyball/sim -e 'flyball/engine[server]'
+flyball run rig.yaml                                          # starts that venv's flyball-runner
+```
+
+A rig kept in `~/.local/share/flyball/rigs/NAME/rig.yaml` starts by its
+name, from anywhere: `flyball run NAME`.
+
+Install `flyball-sim` by path as above, not from PyPI: the name there is
+a placeholder. [`flyball init`](../../7-reference/cli.md#flyball-init)
+says where the file and the folders are, and how to point `flyball run`
+at another venv.
+
 The `flyballd` daemon supervises several runners behind one front: the
 same `daemon/` build produces it, and [the CLI reference](../../7-reference/cli.md#the-daemon)
 says how it is configured and driven. Its runners outlive it: stopping or

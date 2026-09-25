@@ -119,10 +119,17 @@ func main() {
 		return
 	}
 
-	// `password` and `new` are local operations (local.go) -- no runner
+	// `password`, `init` and `new` are local operations (local.go, init.go) -- no runner
 	// or daemon involved, so dispatched before target resolution too.
 	if args[0] == "password" {
 		if err := runPasswordCommand(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flyball:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if args[0] == "init" {
+		if err := runInitCommand(args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "flyball:", err)
 			os.Exit(1)
 		}
@@ -255,9 +262,12 @@ runner commands (addressed via -s/--server, FLYBALL_URL or FLYBALLD_URL):
   sim show|clock|advance|set|reset|config|save   a simulated rig's knobs
 
 local (no runner or daemon involved):
+  init [--print]                      make flyball's folders and ~/.config/flyball/config.yaml (every key
+                                      commented out at its default); --print prints that file instead
   rig schema                          the rig file's JSON Schema, for an editor
-  run RIG-FILE [RIG-FILE ...] [--listen ADDR] [--uv] [--insecure-open] [--set KEY=VALUE ...] [flyball-runner flags...]
-                                      start a runner directly, foreground; the front reads every file and --set
+  run NAME|RIG-FILE|-p FILE [...] [--listen ADDR] [--uv] [--insecure-open] [--set KEY=VALUE ...] [flyball-runner flags...]
+                                      start a runner directly, foreground; the front reads every file and --set.
+                                      NAME is the rig in <data_dir>/rigs/NAME/rig.yaml; -p/--path FILE is a file
   password [PASSWORD]                 hash a password for a front: runner.front.password in a rig
                                       file, or password: in flyballd.yaml
   new NAME [--dir PATH]                write a starting point for a device driver

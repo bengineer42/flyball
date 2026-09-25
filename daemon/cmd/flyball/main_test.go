@@ -14,7 +14,7 @@ func TestUsageMatchesTheFlagsRunAndLoginActuallyTake(t *testing.T) {
 	usage(&buf)
 	out := buf.String()
 
-	if !strings.Contains(out, "run RIG-FILE [RIG-FILE ...] [--listen ADDR] [--uv] [--insecure-open] [--set KEY=VALUE ...]") {
+	if !strings.Contains(out, "run NAME|RIG-FILE|-p FILE [...] [--listen ADDR] [--uv] [--insecure-open] [--set KEY=VALUE ...]") {
 		t.Errorf("usage() run line is stale: %q", out)
 	}
 	if strings.Contains(out, "--serve-ui ADDR] [--uv] [flyball-runner") {
