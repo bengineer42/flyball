@@ -114,10 +114,26 @@ type Loops = str | Sequence[str] | None
 """The controllers a loop command names: one by name, several, or None for the default."""
 
 
-def _one_each(law: ControlLawLike | None, controllers: Sequence[Controller]) -> None:
-    """Refuse one built law for several controllers: a law's state is its controller's."""
-    if isinstance(law, ControlLaw) and len(controllers) > 1:
-        raise ValueError("one built law per controller: pass its config or a tuning")
+def _laws(
+    law: ControlLawLike | None, controllers: Sequence[Controller]
+) -> dict[Controller, ControlLaw | None]:
+    """One built law per controller, built before any changes: a law's state is its own.
+
+    Raises:
+        ValueError: One built law for several controllers.
+    """
+    if isinstance(law, ControlLaw):
+        if len(controllers) > 1:
+            raise ValueError("one built law per controller: pass its config or a tuning")
+        return dict.fromkeys(controllers, law)
+    return {c: None if law is None else law.build() for c in controllers}
+
+
+def _finite(value: float, at: object) -> float:
+    """`value`, or a refusal before anything changes: a NaN or infinite aim poisons a law."""
+    if not math.isfinite(value):
+        raise ValueError(f"Setpoint is not finite: {value!r} (from {at!r})")
+    return value
 
 
 def _profile_start(controller: Controller, start: float | ValueSource | None, now_ns: int) -> float:
@@ -127,9 +143,9 @@ def _profile_start(controller: Controller, start: float | ValueSource | None, no
         LastReadingNotAvailableError: `start` omitted, and neither is available yet.
     """
     if start is not None:
-        return controller.resolve_value(start, now_ns)
+        return _finite(controller.resolve_value(start, now_ns), start)
     if controller.reference is not None:
-        return controller.setpoint_at(now_ns)
+        return _finite(controller.setpoint_at(now_ns), "setpoint")
     value = controller.last_value
     if value is None:
         raise LastReadingNotAvailableError
@@ -2661,21 +2677,30 @@ class Rig:
 
         `law` is swapped in first, bumplessly, as [retune][flyball.rig.rig.Rig.retune]
         would (what the API's `regulate` still takes as `tuning`). A person's (`actor.person`)
-        regulate first resets a controller's own `on_fault: manual` latch when that is the
-        only latch on it; any other latch refuses the whole command before anything changes.
+        regulate resets a controller's own `on_fault: manual` latch when that is the only
+        latch on it. All or nothing: every refusal is found (ignoring only that latch), every
+        aim resolved and every law built before any controller changes or any latch is
+        reset.
 
         Raises:
             ControllerNotFoundError: A named controller is not on the rig.
-            ConflictError: A latch holds one of them.
-            ValueError: A built law for more than one controller (each needs its own).
+            ConflictError: A latch, or a long command on its output's device, holds one.
+            LastReadingNotAvailableError: `at` is `measured` and one has no reading yet.
+            ValueError: An aim that is not finite; a built law for more than one
+                controller (each needs its own).
         """
         with self.lock:
             controllers = self._loops(which)
-            _one_each(law, controllers)
-            self._reset_own_faults(controllers, actor)
-            self._refuse_regulate(controllers)
+            now = self.clock.now_ns()
+            laws = _laws(law, controllers)
+            aims = {c: _finite(c.resolve_value(at, now), at) for c in controllers}
+            for cause in self._regulate_checks(controllers, actor):
+                assert actor is not None  # only a person's regulate resets one
+                self.stopping.reset(cause, actor)
             for controller in controllers:
-                controller.regulate(at, tuning=law, transfer=transfer)
+                controller.regulate(
+                    aims[controller], tuning=laws[controller], time_ns=now, transfer=transfer
+                )
             return controllers
 
     def follow(
@@ -2700,22 +2725,31 @@ class Rig:
             ControllerNotFoundError: A named controller is not on the rig.
             LastReadingNotAvailableError: `start` omitted, and a controller has neither a
                 setpoint nor a reading yet.
-            ConflictError: A latch holds one of them.
-            ValueError: One built generator or law for more than one controller.
+            ConflictError: A latch, or a long command on its output's device, holds one.
+            ValueError: A start that is not finite; one built generator or law for more
+                than one controller.
         """
         with self.lock:
             controllers = self._loops(which)
-            _one_each(law, controllers)
             if isinstance(profile, SetpointGenerator) and len(controllers) > 1:
                 raise ValueError("one profile per controller: pass what makes one")
             now = self.clock.now_ns()
+            laws = _laws(law, controllers)
             starts = {c: _profile_start(c, start, now) for c in controllers}
-            self._reset_own_faults(controllers, actor)
-            self._refuse_regulate(controllers)
+            profiles = {
+                c: profile if isinstance(profile, SetpointGenerator) else profile()
+                for c in controllers
+            }
+            for cause in self._regulate_checks(controllers, actor):
+                assert actor is not None  # only a person's regulate resets one
+                self.stopping.reset(cause, actor)
             for controller, value in starts.items():
-                generator = profile if isinstance(profile, SetpointGenerator) else profile()
                 controller.regulate(
-                    value, generator=generator, tuning=law, time_ns=now, transfer=transfer
+                    value,
+                    generator=profiles[controller],
+                    tuning=laws[controller],
+                    time_ns=now,
+                    transfer=transfer,
                 )
             return starts
 
@@ -2731,10 +2765,11 @@ class Rig:
         """
         with self.lock:
             controllers = self._loops(which)
-            _one_each(law, controllers)
-            self._refuse_regulate([c for c in controllers if c.mode.active()])
-            for controller in controllers:
-                controller.retune(law, transfer=transfer)
+            laws = _laws(law, controllers)
+            self._regulate_checks([c for c in controllers if c.mode.active()], None)
+            for controller, built in laws.items():
+                assert built is not None  # `law` is given
+                controller.retune(built, transfer=transfer)
             return controllers
 
     def manual(self, which: Loops) -> list[Controller]:
@@ -2787,11 +2822,33 @@ class Rig:
         names = [which] if which is None or isinstance(which, str) else list(which)
         return [self.controllers.resolve(name) for name in names]
 
-    def _refuse_regulate(self, controllers: Iterable[Controller]) -> None:
-        """Raise before anything changes if a latch or a long command holds any of them."""
+    def _regulate_checks(self, controllers: Iterable[Controller], actor: Actor | None) -> list[str]:
+        """Raise if a latch or a long command holds any of them; the latches to reset first.
+
+        A person's (`actor.person`) regulate resets a controller's own `on_fault: manual`
+        latch when it is the only latch on it (it holds nothing but the controller): that one
+        is left out of the refusal, and returned. Nothing is reset here: the caller resets
+        once every check has passed.
+        """
+        person = actor is not None and actor.person
+        latches = self.stopping.latches
+        resets: list[str] = []
         for controller in controllers:
-            if (refused := self._regulate_refusal(controller)) is not None:
+            cause = fault_cause(controller.name)
+            latch = latches.get(cause)
+            own = (
+                person
+                and latch is not None
+                and latch.action == FaultAction.MANUAL.value
+                and len(latches.of_controller(controller)) == 1
+            )
+            if not own and (refused := self.stopping.regulate_refusal(controller)) is not None:
                 raise ConflictError(refused)
+            if (why := self._claimed(controller.output_signal.device)) is not None:
+                raise ConflictError(f"controller {controller.name!r}: {why}")
+            if own:
+                resets.append(cause)
+        return resets
 
     def _regulate_refusal(self, controller: Controller) -> str | None:
         """Why `controller` may not regulate now: a latch, or a long command on its output's."""
@@ -2813,24 +2870,6 @@ class Rig:
         if (running := self._running.get(device)) is None:
             return None
         return f"'{device.name}' is running {running!r}: stop it, or wait for it to end"
-
-    def _reset_own_faults(self, controllers: Iterable[Controller], actor: Actor | None) -> None:
-        """A person's regulate resets each controller's own `on_fault: manual` latch.
-
-        Only where that latch is the only one on it: it holds nothing but the controller.
-        """
-        if actor is None or not actor.person:
-            return
-        latches = self.stopping.latches
-        for controller in controllers:
-            cause = fault_cause(controller.name)
-            latch = latches.get(cause)
-            if (
-                latch is not None
-                and latch.action == FaultAction.MANUAL.value
-                and len(latches.of_controller(controller)) == 1
-            ):
-                self.stopping.reset(cause, actor)
 
     def _reseeded(self, controller: Controller, was: float | None, now: float | None) -> None:
         """A controller resuming after a hold re-seeded its trajectory from the reading: say so."""

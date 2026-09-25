@@ -29,7 +29,7 @@ from flyball.rig import Rig
 from flyball.rig.latches import RIG_STOP, Latch, fault_cause, subjects
 from test_server import Daq, Drive, deliver
 from test_wf2_lock import Hanging, _in_thread
-from test_wf3_stop import BEN
+from test_wf3_stop import BEN, Doser
 
 
 @pytest.fixture
@@ -158,6 +158,48 @@ def test_a_persons_regulate_does_not_reset_past_another_latch(rig, loops):
     with pytest.raises(ConflictError, match="stopped"):
         rig.regulate(one.name, 30.0, actor=BEN)
     assert rig.stopping.latches.get(fault_cause(one.name)) is not None, "left as it was"
+
+
+def test_a_refused_regulate_resets_nothing(rig, daq, fresh):
+    """F6: the controller's own latch is reset only once every check has passed."""
+    doser = Doser(fresh("doser"))
+    rig.add_device(doser)
+    controller = rig.attach_controller(doser.signals["rate"], daq.signals["zone1"], law=P(1))
+    deliver(rig, daq)
+    cause = fault_cause(controller.name)
+    _latch(rig, cause, "controller", controller.name, FaultAction.MANUAL.value)
+    gate = threading.Event()
+    doser.wait = lambda seconds: gate.wait(seconds)  # type: ignore[method-assign]
+    thread, _ = _in_thread(rig.invoke, doser, "dose", {"seconds": 10.0})
+    assert doser.started.wait(2.0)
+    try:
+        with pytest.raises(ConflictError, match="is running 'dose'"):
+            rig.regulate(controller.name, 30.0, actor=BEN)
+        assert rig.stopping.latches.get(cause) is not None, "not reset for a refused regulate"
+    finally:
+        gate.set()
+        thread.join(2.0)
+
+
+def test_several_regulated_all_or_nothing(rig, fresh):
+    """F7: every aim resolved and every law built before any controller changes."""
+    daq, lonely, drive = Daq(fresh("furnace")), Daq(fresh("lonely")), Drive(fresh("heaters"))
+    for device in (daq, lonely, drive):
+        rig.add_device(device)
+    a = rig.attach_controller(drive.signals["heater1"], daq.signals["zone1"], law=P(1))
+    b = rig.attach_controller(drive.signals["heater2"], lonely.signals["zone1"], law=P(1))
+    deliver(rig, daq)  # `lonely` never read: `b` has no reading to aim at
+    with pytest.raises(LastReadingNotAvailableError):
+        rig.regulate([a.name, b.name], ValueSource.MEASURED)
+    assert a.mode is b.mode is ControllerMode.MANUAL and a.reference is None
+    with pytest.raises(LastReadingNotAvailableError):
+        rig.follow([a.name, b.name], lambda: LinearRampSetpoint(Duration(1.0), end=5.0))
+    assert a.mode is ControllerMode.MANUAL and a.reference is None
+    with pytest.raises(ValueError, match="not finite"):
+        rig.regulate([a.name, b.name], float("nan"))
+    assert a.mode is ControllerMode.MANUAL
+    rig.regulate([a.name, b.name], 30.0, law=PI.config_type(kp=1.0, ki=0.1))
+    assert a.mode is b.mode is ControllerMode.REGULATING
 
 
 def test_the_latch_reset_and_the_aim_are_one_operation(rig, loops, monkeypatch):
