@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
 from anyio import CapacityLimiter
@@ -26,6 +27,7 @@ from flyball.model.catalog import set_catalog as set_catalog
 from flyball.record import Store
 from flyball.rig import Rig
 from flyball.rig.stopping import RigStopper
+from flyball.runtime.recorder import Recorder
 
 from .dialect import Dialect
 
@@ -34,7 +36,6 @@ if TYPE_CHECKING:
     from flyball.rig.stopping import Stopper
     from flyball.runtime.config import Exposure, RigConfig, RunnerConfig
     from flyball.runtime.edits import Origin
-    from flyball.runtime.retention import Retention
     from flyball.sequencing import ProgrammerState
 
 
@@ -81,7 +82,9 @@ _dialect: Dialect | None = None
 _simulation: Simulation | None = None
 _simulation_device: Device | None = None
 _rig_config: RigConfig | None = None
-_retention: Retention | None = None
+_recorder: Recorder | None = None
+_implicit_recorder: Recorder | None = None
+_making = Lock()
 
 
 def set_rig(rig: Rig | None) -> None:
@@ -105,14 +108,42 @@ def current_rig_config() -> RigConfig | None:
     return _rig_config
 
 
-def set_retention(retention: Retention | None) -> None:
-    """The runner's sweeps over the store: the scratch record, rotation, retention, the cap."""
-    global _retention
-    _retention = retention
+def set_recorder(recorder: Recorder | None) -> None:
+    """The rig's recorder: every session, the scratch record, the sweeps over the store.
+
+    The runner sets its own (`flyball.runner.serve`). Without one, a rig and a
+    store set here get a plain recorder of their own the first time a route needs one:
+    no scratch record, no sweeps, sessions only as the API opens them.
+    """
+    global _recorder
+    _recorder = recorder
 
 
-def current_retention() -> Retention | None:
-    return _retention
+def current_recorder(make: bool = False) -> Recorder | None:
+    """The recorder set, else the plain one made for the rig and store set (see `set_recorder`).
+
+    None when neither exists; `make` makes the plain one if there is a rig and a store.
+    """
+    global _implicit_recorder
+    if _recorder is not None:
+        return _recorder
+    with _making:  # two first requests at once: one recorder, not one each
+        implicit = _implicit_recorder
+        if implicit is not None and (implicit.rig is not _rig or implicit.store is not _store):
+            implicit = _implicit_recorder = None  # set for another rig or store than now
+        if implicit is None and make and _rig is not None and _store is not None:
+            implicit = _implicit_recorder = Recorder(_rig, _store)
+        return implicit
+
+
+def get_recorder() -> Recorder:
+    """The recorder, for a route that opens or ends sessions; 503 without a rig and a store."""
+    recorder = current_recorder(make=True)
+    if recorder is None:
+        get_rig()
+        get_store()
+        raise HTTPException(status_code=503, detail="No recorder attached to this server")
+    return recorder
 
 
 def get_rig() -> Rig:
@@ -370,6 +401,7 @@ def get_catalog() -> Catalogs:
 
 RigDep = Annotated[Rig, Depends(get_rig)]
 StoreDep = Annotated[Store, Depends(store_slot)]
+RecorderDep = Annotated[Recorder, Depends(get_recorder)]
 ProgrammerDep = Annotated[Programmer, Depends(get_programmer)]
 DialectDep = Annotated[Dialect, Depends(get_dialect)]
 SimulationDep = Annotated[Simulation, Depends(get_simulation)]

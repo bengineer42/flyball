@@ -21,37 +21,37 @@ def oven():
 
 
 def test_start_builds_the_rig_and_records_only_when_asked(tmp_path, oven):
-    rig = runner.start(oven, store_path=tmp_path / "s.sqlite")
+    rig, recorder = runner.start(oven, store_path=tmp_path / "s.sqlite")
     try:
-        assert rig.name == "oven" and rig.recorder is None and list(rig.controllers)
+        assert rig.name == "oven" and recorder.session is None and list(rig.controllers)
     finally:
         rig.polling.stop_all()
 
 
 def test_start_records_when_asked(tmp_path, oven):
-    rig = runner.start(oven, record=True, store_path=tmp_path / "s.sqlite")
+    rig, recorder = runner.start(oven, record=True, store_path=tmp_path / "s.sqlite")
     try:
-        assert rig.recorder is not None and (tmp_path / "s.sqlite").exists()
+        assert recorder.recording is not None and (tmp_path / "s.sqlite").exists()
     finally:
-        rig.stop_recording()
+        recorder.stop()
         rig.polling.stop_all()
 
 
 def test_the_file_s_recording_flag_is_the_default(tmp_path, oven):
     config = oven.model_copy(update={"recording": True})
-    rig = runner.start(config, store_path=tmp_path / "s.sqlite")
+    rig, recorder = runner.start(config, store_path=tmp_path / "s.sqlite")
     try:
-        assert rig.recorder is not None
+        assert recorder.recording is not None
     finally:
-        rig.stop_recording()
+        recorder.stop()
         rig.polling.stop_all()
 
 
 def test_an_explicit_no_beats_the_file(tmp_path, oven):
     config = oven.model_copy(update={"recording": True})
-    rig = runner.start(config, record=False, store_path=tmp_path / "t.sqlite")
+    rig, recorder = runner.start(config, record=False, store_path=tmp_path / "t.sqlite")
     try:
-        assert rig.recorder is None
+        assert recorder.session is None
     finally:
         rig.polling.stop_all()
 
@@ -81,6 +81,19 @@ def test_a_store_from_before_the_baseline_is_a_message_not_a_traceback(
     assert runner.main([str(rig_file), "--store", str(store)]) == 2
     err = capsys.readouterr().err
     assert f"{store}: this store was made by a pre-reset flyball" in err and "delete it" in err
+
+
+def test_a_store_an_older_baseline_made_is_a_message_not_a_traceback(tmp_path, capsys, monkeypatch):
+    from test_recorder import older_baseline_store
+
+    rig_file = tmp_path / "lab.yaml"
+    rig_file.write_text("name: lab\n")
+    store = tmp_path / "older.sqlite"
+    older_baseline_store(store)
+    monkeypatch.setattr("flyball.runner.entrypoint.serve", lambda *a, **kw: pytest.fail("served"))
+    assert runner.main([str(rig_file), "--store", str(store)]) == 2
+    err = capsys.readouterr().err
+    assert f"{store}: this store was made by an older flyball" in err and "delete it" in err
 
 
 def test_a_missing_server_extra_is_one_line_not_a_traceback(monkeypatch, capsys, tmp_path):
@@ -405,14 +418,14 @@ def test_start_with_store_closes_sessions_an_earlier_run_left_open(tmp_path, ove
     store = SqliteStore(path)
     orphan = store.open_session(start_ns=1_000, config=None).session
     store.close()
-    rig, store = runner.start_with_store(oven, record=True, store_path=path)
+    rig, store, recorder = runner.start_with_store(oven, record=True, store_path=path)
     try:
         sessions = {s.id: s for s in store.sessions()}
         assert sessions[orphan.id].end_ns is not None, "the orphan was closed"
-        assert rig.recorder is not None and sum(s.open for s in sessions.values()) == 1
+        assert recorder.recording is not None and sum(s.open for s in sessions.values()) == 1
     finally:
         rig.polling.stop_all()
-        rig.stop_recording()
+        recorder.stop()
 
 
 def test_start_with_store_finishes_a_delete_an_earlier_run_cut_off(tmp_path, oven):
@@ -430,7 +443,7 @@ def test_start_with_store_finishes_a_delete_an_earlier_run_cut_off(tmp_path, ove
             ('{"name":"old","deleting":true}', half.session.id),
         )
     store.close()
-    rig, store = runner.start_with_store(oven, store_path=path)
+    rig, store, _ = runner.start_with_store(oven, store_path=path)
     try:
         assert store.deleting_sessions() == []
         assert half.session.id not in [s.id for s in store.sessions()]
@@ -483,7 +496,7 @@ def test_resume_follows_the_head_back_to_the_last_change(tmp_path):
 
 def test_a_start_at_the_head_records_nothing(tmp_path, oven):
 
-    rig, store = runner.start_with_store(oven, store_path=tmp_path / "s.sqlite")
+    rig, store, _ = runner.start_with_store(oven, store_path=tmp_path / "s.sqlite")
     try:
         first = store.head_rig_version()
         assert first is not None and first.reason == "loaded"

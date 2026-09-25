@@ -10,6 +10,7 @@ from flyball.control.laws import P
 from flyball.foundation.actor import Actor
 from flyball.foundation.device import Code, Committable, Demand, Sample, Severity, SubjectKind
 from flyball.record.sqlite import SqliteStore
+from flyball.runtime.recorder import Recorder
 from test_rig_devices import POWER, Furnace
 
 # region Severity
@@ -264,13 +265,14 @@ def test_a_session_records_when_a_condition_started_and_cleared(rig, clock, fres
     furnace = Furnace(fresh("furnace"))
     rig.add_device(furnace)
     store = SqliteStore(tmp_path / "s.db")
-    recorder = rig.start_recording(store)
+    recorder = Recorder(rig, store)
+    opened = recorder.start_session()
     clock.advance(1.0)
     rig.conditions.set(furnace, Code.SLOW, Severity.WARNING, "slow")
     clock.advance(4.0)
     rig.conditions.clear(furnace, Code.SLOW)
-    rig.stop_recording()
-    events = [e for e in store.events(recorder.writer.session.id) if e.code == "slow"]
+    recorder.end_session()
+    events = [e for e in store.events(opened.writer.session.id) if e.code == "slow"]
     assert [(e.edge, e.offset_ns, e.subject) for e in events] == [
         ("raised", 1_000_000_000, furnace.name),
         ("cleared", 5_000_000_000, furnace.name),
@@ -281,14 +283,16 @@ def test_a_session_records_when_a_condition_started_and_cleared(rig, clock, fres
 
 
 def test_a_failed_recording_is_a_condition_on_the_rig_until_the_next_starts(rig, tmp_path):
-    rig._recording_failed(OSError("disk full"))
+    store = SqliteStore(tmp_path / "s.db")
+    recorder = Recorder(rig, store)
+    opened = recorder.start_session()
+    opened.on_failure(OSError("disk full"))  # type: ignore[misc]  # as its thread would
     (failed,) = rig.conditions.of(rig)
     assert (failed.code, failed.subject_kind) == (Code.RECORDING_FAILED, SubjectKind.RIG)
-    store = SqliteStore(tmp_path / "s.db")
-    rig.start_recording(store)
+    recorder.start_session()
     assert rig.conditions.of(rig) == []
     assert [e.edge for e in rig.recent if e.code == Code.RECORDING_FAILED] == ["raised", "cleared"]
-    rig.stop_recording()
+    recorder.end_session()
     store.close()
 
 

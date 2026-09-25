@@ -98,7 +98,7 @@ class TestScaledClockSeed:
         config = load_rig_config(EXAMPLES / "oven.yaml")
         path = tmp_path / "s.sqlite"
 
-        rig1, store1 = start_with_store(config, store_path=path)
+        rig1, store1, _ = start_with_store(config, store_path=path)
         try:
             # A session that ended far ahead of real time, as a fast scaled clock would
             # leave one behind it.
@@ -109,7 +109,7 @@ class TestScaledClockSeed:
             rig1.close()
             store1.close()
 
-        rig2, store2 = start_with_store(config, store_path=path)
+        rig2, store2, _ = start_with_store(config, store_path=path)
         try:
             assert rig2.clock.now_ns() >= far_ahead_ns
         finally:
@@ -124,7 +124,7 @@ class TestScaledClockSeed:
         )
         path = tmp_path / "s.sqlite"
 
-        rig1, store1 = start_with_store(config, store_path=path)
+        rig1, store1, _ = start_with_store(config, store_path=path)
         try:
             far_ahead_ns = time.time_ns() + 3600 * 1_000_000_000
             writer = store1.open_session(rig1.clock.now_ns())
@@ -133,7 +133,7 @@ class TestScaledClockSeed:
             rig1.close()
             store1.close()
 
-        rig2, store2 = start_with_store(config, store_path=path)
+        rig2, store2, _ = start_with_store(config, store_path=path)
         try:
             assert rig2.clock.now_ns() < far_ahead_ns, "a stepped clock is not reseeded"
         finally:

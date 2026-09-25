@@ -68,6 +68,7 @@ CREATE TABLE session (
     start_ns        INTEGER NOT NULL,       -- the rig's clock at the session's start
     end_ns          INTEGER,                -- NULL while open
     flyball_version TEXT,                   -- flyball version string
+    packages        TEXT,                   -- JSON: {distribution: version} of what registers flyball.configs
     config          TEXT,                   -- JSON: the rig config that was built
     hardware        TEXT,                   -- JSON: what was actually found on the bus
     details         TEXT,                   -- JSON: anything else worth keeping

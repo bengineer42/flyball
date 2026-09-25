@@ -14,8 +14,8 @@ import logging
 import math
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from contextlib import suppress
 from dataclasses import dataclass, replace
+from itertools import count
 from pathlib import Path
 from threading import Lock, RLock
 from typing import TYPE_CHECKING, Any, overload
@@ -71,6 +71,7 @@ from .faults import Faults
 from .latches import RIG_STOP
 from .liveness import Liveness
 from .polling import Polling, poll_period
+from .sink import Declared, Delivered, Marker, Published, RecordSink, Row, tick_row
 from .stopping import STOP_ACTOR, Stopping, resolve_output
 from .triggers import Triggers
 from .values import LiveValues
@@ -78,8 +79,6 @@ from .values import LiveValues
 if TYPE_CHECKING:
     from flyball.foundation.device import Permissive
     from flyball.model.controller import OnFault
-    from flyball.record import Store
-    from flyball.runtime.recorder import Recorder
 
 log = logging.getLogger("flyball.rig")
 
@@ -204,7 +203,13 @@ class Rig:
     """Devices a stop, or a person's write under the rig stop, is committing now: their commit
     goes through the latch."""
     tunings: Tunings
-    recorder: Recorder | None
+    _sink: RecordSink | None
+    """Where the rows of what happens go: the recorder, while it records (`attach_sink`)."""
+    _record_seq: Iterator[int]
+    """One counter for every row and marker put to the sink, so they have one order."""
+    _putting: Lock
+    """Held while a row is numbered and put: rows reach the sink in the order of their numbers,
+    an event raised off the rig's lock included. Taken after the rig's lock, never before."""
     controllers: Controllers
     polling: Polling
     router: Router
@@ -280,9 +285,6 @@ class Rig:
     on_change: Callable[[str], None] | None
     """Called after the rig's composition changes (a link, a device, a controller added or
     removed), with a one-line reason: the runner records a version."""
-    on_recording_stopped: Callable[[], None] | None
-    """Called after `stop_recording` closes a session, outside the lock: the runner reopens
-    its scratch record. Not called when a recording replaces another, nor by `close`."""
     _closed: bool
 
     def __init__(self, name: str | None = None) -> None:
@@ -310,7 +312,9 @@ class Rig:
         self.permissives = {}
         self._forcing = set()
         self.tunings = Tunings()
-        self.recorder = None
+        self._sink = None
+        self._record_seq = count(1)
+        self._putting = Lock()
         self.controllers = Controllers()
         self.polling = Polling(self)
         self.router = Router()
@@ -342,7 +346,6 @@ class Rig:
         self.loaded = None
         self.saved_overlay = {}
         self.on_change = None
-        self.on_recording_stopped = None
 
     @property
     def label(self) -> str:
@@ -528,8 +531,7 @@ class Rig:
         )
         self.recent.append(event)
         self.events.publish(event)
-        if (recorder := self.recorder) is not None:
-            recorder.event(event)
+        self._put(lambda seq: Published(seq, event))
         if event.edge is not None and event.subject_kind == SubjectKind.DEVICE:
             self.polling.touch(event.subject)
         elif event.edge is not None and event.subject_kind == SubjectKind.SIGNAL:
@@ -548,7 +550,7 @@ class Rig:
         raise TypeError(f"{type(owner).__name__} cannot own a condition")
 
     def close(self) -> None:
-        """Tear down: polling, writers, recording, links. The rig can be built again.
+        """Tear down: polling, writers, the record sink, links. The rig can be built again.
 
         Idempotent; a second call is a no-op.
         """
@@ -568,7 +570,7 @@ class Rig:
         self.polling.stop_all()
         for writer in writers:  # joined outside the lock: a write in flight reports under it
             writer.stop()
-        self._stop_recording()
+        self.detach_sink()  # nothing more is recorded; the session is the recorder's to end
         self.conditions.close()
         for name, link in links:
             close = getattr(link, "close", None)
@@ -582,80 +584,81 @@ class Rig:
     # region Recording
 
     @property
-    def recording(self) -> Recorder | None:
-        """The recorder of a session someone started; None under scratch alone, or nothing."""
-        recorder = self.recorder
-        return None if recorder is None or recorder.writer.session.scratch else recorder
+    def sink(self) -> RecordSink | None:
+        """What each row is put to, if anything: the recorder, while it records."""
+        return self._sink
 
-    def start_recording(
+    def attach_sink(self, sink: RecordSink) -> None:
+        """Put every row to `sink` from the next one on.
+
+        One sink at a time: the recorder attaches itself while it records
+        ([Recorder][flyball.runtime.recorder.Recorder]) and switches sessions with
+        [mark][flyball.rig.rig.Rig.mark], not by attaching another sink. Attaching the one
+        already attached does nothing.
+
+        Raises:
+            ConflictError: Another sink is attached: a second recorder on the rig.
+        """
+        with self.lock, self._putting:
+            if self._sink is not None and self._sink is not sink:
+                raise ConflictError(
+                    "the rig already has a record sink: one recorder per rig; stop the other"
+                )
+            self._sink = sink
+
+    def mark(self, message: object) -> int:
+        """Put `message` in the sink's stream after every row made so far; its number.
+
+        Under the rig's lock, so no delivery is half before it: the recorder's way to switch
+        sessions at one point in the stream. Nothing is put without a sink.
+        """
+        with self.lock:
+            return self._put(lambda seq: Marker(seq, message), always=True)
+
+    def _put(self, make: Callable[[int], Row], always: bool = False) -> int:
+        """Number a row and put it to the sink, as one step; its number (0: no sink, no row).
+
+        `always` takes a number without a sink too.
+        """
+        with self._putting:
+            sink = self._sink
+            if sink is None and not always:
+                return 0
+            seq = next(self._record_seq)
+            if sink is not None:
+                sink.put(make(seq))
+            return seq
+
+    def _record(
         self,
-        store: Store,
-        signals: Iterable[Signal] | None = None,
-        controllers: Iterable[Controller] | None = None,
-        **session: Any,
-    ) -> Recorder:
-        """Open a session and record into it from the next delivery on.
+        samples: Sequence[Sample],
+        ticks: Iterable[tuple[Controller, Reading | None]],
+        states: Mapping[Signal, WriteState],
+        time_ns: int,
+    ) -> None:
+        """One delivery's rows, made now, under the lock, for the sink; nothing without one.
 
-        Defaults to every signal that publishes or is written, on every
-        device, except those the rig file marks `record: false`, and every
-        controller. Replaces a running recorder, closing its session first.
-        `session` is what the store's `open_session` takes; a `start_ns` in
-        it backdates the session (for what is then backfilled), else it
-        starts now.
+        A tick's row is the controller as it is now: whoever reads it later sees this tick.
         """
-        from flyball.runtime.recorder import Recorder
-
-        with self.lock:
-            self._stop_recording()
-            start_ns = session.pop("start_ns", None)
-            writer = store.open_session(
-                self.clock.now_ns() if start_ns is None else start_ns, **session
-            )
-            if signals is None:
-                signals = [
-                    s
-                    for device in self.devices.values()
-                    for s in device.signals.values()
-                    if (Access.P in s.access or Access.W in s.access) and s.spec.record
-                ]
-            if controllers is None:
-                controllers = [c for _, c in self.controllers.items()]
-            self.recorder = Recorder(
-                writer, signals, controllers, on_failure=self._recording_failed
-            )
-            self.conditions.clear(self, Code.RECORDING_FAILED, message="recording again")
-            return self.recorder
-
-    def _recording_failed(self, error: Exception) -> None:
-        """From the recorder's thread: detach it first, so the edge does not go back to it.
-
-        A `recording_failed` condition on the rig until the next recording starts.
-        """
-        with self.lock:
-            recorder, self.recorder = self.recorder, None
-        self.conditions.set(
-            self,
-            Code.RECORDING_FAILED,
-            Severity.ERROR,
-            f"recording stopped: {type(error).__name__}: {error}",
+        if self._sink is None:
+            return
+        row = (
+            tuple(samples),
+            tuple(tick_row(controller, reading, time_ns) for controller, reading in ticks),
+            tuple(states.items()),
         )
-        if recorder is not None:
-            with suppress(Exception):  # the store already failed once
-                recorder.writer.end(self.clock.now_ns())
+        self._put(lambda seq: Delivered(seq, time_ns, *row))
 
-    def stop_recording(self) -> None:
-        """Close the open session, if any, and tell `on_recording_stopped`."""
-        if self._stop_recording() and self.on_recording_stopped is not None:
-            self.on_recording_stopped()
+    def detach_sink(self, sink: RecordSink | None = None) -> RecordSink | None:
+        """Stop feeding `sink` (whatever is attached, for None); what was detached, if anything.
 
-    def _stop_recording(self) -> bool:
-        """Close the open session; whether there was one."""
-        with self.lock:
-            if (recorder := self.recorder) is None:
-                return False
-            self.recorder = None
-            recorder.close(self.clock.now_ns())
-            return True
+        A `sink` that is not the attached one is left alone.
+        """
+        with self.lock, self._putting:
+            if self._sink is None or (sink is not None and self._sink is not sink):
+                return None
+            detached, self._sink = self._sink, None
+            return detached
 
     # endregion
 
@@ -845,8 +848,8 @@ class Rig:
         try:
             self._deliver(failed)
             self._deliver(states)
-            if states and self.recorder is not None:
-                self.recorder.record((), (), states, time_ns=now)
+            if states:
+                self._record((), (), states, now)
             self._flush_pushed()
         finally:
             if outer is None:
@@ -1121,8 +1124,8 @@ class Rig:
                 self._forcing.add(device)
             try:
                 states = self._committing((device,), time_ns)
-                if states and self.recorder is not None:
-                    self.recorder.record((), (), states, time_ns=time_ns)
+                if states:
+                    self._record((), (), states, time_ns)
             finally:  # a failed commit's stale demands are delivered too
                 self._forcing.discard(device)
                 self._flush_pushed()
@@ -1405,8 +1408,8 @@ class Rig:
         self._forcing.add(device)
         try:
             states = self._committing((device,), time_ns)
-            if states and self.recorder is not None:
-                self.recorder.record((), (), states, time_ns=time_ns)
+            if states:
+                self._record((), (), states, time_ns)
         finally:
             self._forcing.discard(device)
             self._flush_pushed()
@@ -1638,8 +1641,8 @@ class Rig:
                 self._touched = None
             self._deliver(failed)
             self._deliver(states)
-            if states and self.recorder is not None:
-                self.recorder.record((), (), states, time_ns=now)
+            if states:
+                self._record((), (), states, now)
             self._flush_pushed()
 
     def _dropped(self, device: Device, old: Iterable[tuple[Signal, float, int]]) -> None:
@@ -1907,8 +1910,8 @@ class Rig:
             finally:
                 self._touched = None
             self._deliver(filled)
-            if filled and self.recorder is not None:
-                self.recorder.record((), (), filled, time_ns=time_ns)
+            if filled:
+                self._record((), (), filled, time_ns)
             self._flush_pushed()
 
     def _deliver(self, states: Mapping[Signal, WriteState]) -> None:
@@ -1986,8 +1989,8 @@ class Rig:
             self.entries[name] = entry
             if start:
                 self.start_polling(device)
-            if self.recorder is not None:
-                self.recorder.declare(s for s in device.signals.values() if s.spec.record)
+            recorded = tuple(s for s in device.signals.values() if s.spec.record)
+            self._put(lambda seq: Declared(seq, recorded))
             self._changed(f"added device {name}")
             return device
 
@@ -2381,8 +2384,8 @@ class Rig:
                 outer[device] = None
             else:
                 states = self._commit((device,), time_ns)
-                if states and self.recorder is not None:
-                    self.recorder.record((), (), states, time_ns=time_ns)
+                if states:
+                    self._record((), (), states, time_ns)
 
     # endregion
 
@@ -2576,8 +2579,7 @@ class Rig:
             self._deliver(states)
             if self.controller_states.watched:
                 self.controller_states.set(controller.name, controller.state)
-            if self.recorder is not None:
-                self.recorder.record((), [(controller, None)], states, time_ns=now)
+            self._record((), [(controller, None)], states, now)
             self._flush_pushed()
 
     # endregion
@@ -2702,8 +2704,7 @@ class Rig:
         if self.controller_states.watched:
             for controller, _ in ticks:
                 self.controller_states.set(controller.name, controller.state)
-        if self.recorder is not None:
-            self.recorder.record(published, ticks, states, time_ns=time_ns)
+        self._record(published, ticks, states, time_ns)
 
     def _landed(
         self, landed: Iterable[InputBinding], touched: dict[Device, None], time_ns: int

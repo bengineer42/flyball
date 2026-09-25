@@ -407,12 +407,12 @@ itself, and `outcome` one of `pending`, `fired`, `timeout`, `interrupted`.
 
 ## Recording
 
-The one place the rig and the store meet: opening a session needs both.
+The one place the rig and the store meet: opening a session needs both, and the recorder does it.
 
 | | | |
 | --- | --- | --- |
 | `GET` | `/api/recording` | the open *named* session as a `SessionRow`, or `null` -- `null` while only the [scratch record](../1-running/runner/index.md#the-scratch-record) runs |
-| `POST` | `/api/recording` | `{details?, flyball_version?, config?, hardware?, include_ns?}`; 201 `SessionRow`. `include_ns` starts the session that far back (clamped to what scratch holds) and backfills it from the scratch record it replaces. 409 if one is open |
+| `POST` | `/api/recording` | `{details?, config?, hardware?, include_ns?}`; 201 `SessionRow`. `include_ns` starts the session that far back (clamped to what scratch holds) and backfills it from the scratch record it replaces. The runner sets `flyball_version`, `packages` and `hardware` itself: a posted `hardware` is added to the rig's (merged when both are objects, the rig's keys winning; else `{rig, posted}`). 409 if one is open |
 | `POST` | `/api/recording/end` | close it; `SessionRow`. The scratch record reopens |
 
 ## History

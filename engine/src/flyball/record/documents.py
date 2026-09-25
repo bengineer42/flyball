@@ -68,6 +68,7 @@ def documents(store: Store, session_id: int) -> Iterator[Document]:
             "flyball": {
                 "session": session.id,
                 "flyball_version": session.flyball_version,
+                "packages": session.packages,
                 "config": session.config,
                 "hardware": session.hardware,
                 "details": session.details,

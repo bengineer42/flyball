@@ -28,7 +28,7 @@ from flyball.foundation.errors import (
 from flyball.interfaces.server.audit import Audit
 from flyball.interfaces.server.auth import Door, Fronted
 from flyball.interfaces.server.deps import (
-    current_retention,
+    current_recorder,
     current_rig,
     current_runner,
     rig_stopper,
@@ -113,13 +113,11 @@ def _stop() -> None:
         _shutdown_stop()
         with contextlib.suppress(Exception):
             rig.polling.stop_all()
-        # Close the session so it does not stay "open" forever in the store;
-        # the runner's sweeps stop first, or they would open the scratch record again.
-        if (retention := current_retention()) is not None:
+        # Close the session so it does not stay "open" forever in the store; the recorder
+        # stops its sweeps first, or they would open the scratch record again.
+        if (recorder := current_recorder()) is not None:
             with contextlib.suppress(Exception):
-                retention.stop()
-        with contextlib.suppress(Exception):
-            rig.stop_recording()
+                recorder.stop()
 
 
 SHUTDOWN_ACTOR = Actor(principal="local:shutdown", kind="service", via="signal")

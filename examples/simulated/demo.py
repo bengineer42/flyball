@@ -15,6 +15,7 @@ from pathlib import Path
 
 from flyball.record.sqlite import SqliteStore
 from flyball.runtime.config import load_rig_config
+from flyball.runtime.recorder import Recorder
 from flyball_sim import SteppedClock
 
 
@@ -27,7 +28,8 @@ def main(path: str, setpoint: float, seconds: float) -> None:
     period = source.poll_s or 1.0
 
     store = SqliteStore(":memory:")
-    rig.start_recording(store)
+    recorder = Recorder(rig, store)
+    recorder.start_session()
     rig.read(source, fresh=True)
     controller.regulate(setpoint)
 
@@ -49,7 +51,7 @@ def main(path: str, setpoint: float, seconds: float) -> None:
                 f"  t={t:6.0f}s  reading={reading:8.3f}  demand={state.demand:8.3f}"
                 f"  correction={state.correction:+8.3f}  {controller.target.address}={value:8.3f}"
             )
-    rig.stop_recording()
+    recorder.end_session()
     session = store.sessions()[0]
     print(f"recorded session {session.id}: {len(store.ticks(session.id, controller.name))} ticks")
 

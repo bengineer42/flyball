@@ -60,7 +60,7 @@ writing a device driver rather than editing the rig.
 | `flyball.hardware` | `hardware\|adaptive\|autotune\|record` | `I2cLink`, `Bank`; `links`: the `TextLink`/`RegisterLink` protocols only -- their fakes, real implementations (VISA, serial, Modbus) and the table-driven `scpi`/`modbus` devices built over them live in `extensions/visa`, `extensions/modbus` |
 | `flyball.record` | `hardware\|adaptive\|autotune\|record` | `Store`, `SessionWriter`, `SqliteStore`, row types; `documents` for the Bluesky event model |
 | `flyball.rig` | runtime (unlisted -- a real cycle, see Layering) | `Rig`, `Controllers`, `Polling`, `Triggers` -- the runtime container: devices, links, controllers, triggers, polling |
-| `flyball.runtime` | runtime | `Recorder`, `Writer`, retention, stats, `drivers`; `runtime.config`: `RigConfig`, `load_rig`, `rig_schema` — a rig as a file, with overlays |
+| `flyball.runtime` | runtime | `Recorder` (every session, the scratch record; its `SessionRecorder`s), `Writer`, retention, stats, `drivers`; `runtime.config`: `RigConfig`, `load_rig`, `rig_schema` — a rig as a file, with overlays |
 | `flyball.sequencing` | `sequencing` | `Step`, `Activity`, `Program`, `Programmer` |
 | `flyball.interfaces.server` | `mcp\|server` | the FastAPI app, routes, wire models, the program dialect |
 | `flyball.interfaces.mcp` | `mcp\|server` | the MCP server (stdio and mounted), tools, guides; built entirely on `flyball.interfaces.client` |

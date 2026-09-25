@@ -52,6 +52,7 @@ from flyball.record import Downsample, Flag
 from flyball.record.sqlite import SqliteStore
 from flyball.rig import Rig
 from flyball.runtime import stats
+from flyball.runtime.recorder import Recorder
 from flyball.sequencing.activities import Settled
 
 TEMP = Quantity("temperature", Celsius)
@@ -464,7 +465,8 @@ class TestDeviceOffline:
 class TestTheStoreFlag:
     def _record(self, tmp_path, rig: Rig, oven: Oven) -> tuple[SqliteStore, int]:
         store = SqliteStore(tmp_path / "t.db")
-        recorder = rig.start_recording(store)
+        recorder = Recorder(rig, store)
+        opened = recorder.start_session()
         zone = oven.signals["zone"]
         oven.signals["heater"].spec  # noqa: B018
         for i, value in enumerate((
@@ -481,8 +483,8 @@ class TestTheStoreFlag:
             del i
         oven.signals["heater"].narrow((0.0, 50.0))
         rig.write(oven.root, {"heater": 80.0})
-        session = recorder.writer.session.id
-        rig.stop_recording()
+        session = opened.writer.session.id
+        recorder.end_session()
         return store, session
 
     def test_no_values_are_null_with_their_code_and_marks_ride_value_rows(

@@ -24,3 +24,5 @@
 ::: flyball.rig.stopping
 
 ::: flyball.rig.latches
+
+::: flyball.rig.sink

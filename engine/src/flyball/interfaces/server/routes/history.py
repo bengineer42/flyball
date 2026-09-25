@@ -13,7 +13,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from flyball.foundation.errors import ConflictError, NotFoundError
-from flyball.interfaces.server.deps import StoreDep, current_rig
+from flyball.interfaces.server.deps import StoreDep, current_recorder, current_rig
 from flyball.record import (
     ControllerRow,
     DeviceRow,
@@ -57,11 +57,11 @@ class SessionPatch(BaseModel):
 
 
 def _being_written(session_id: int) -> SessionRow | None:
-    """The rig's open session if it is this one: not to be deleted from under its writer."""
-    rig = current_rig()
-    recorder = rig.recorder if rig is not None else None
-    if recorder is not None and recorder.writer.session.id == session_id:
-        return recorder.writer.session
+    """The recorder's open session if it is this one: not to be deleted from under its writer."""
+    recorder = current_recorder()
+    session = None if recorder is None else recorder.session
+    if session is not None and session.writer.session.id == session_id:
+        return session.writer.session
     return None
 
 
@@ -86,14 +86,14 @@ def read_session(store: StoreDep, session_id: int) -> SessionRow:
 def end_session(store: StoreDep, session_id: int) -> SessionRow:
     """Close an open session.
 
-    The one being recorded right now is closed through the rig, so the
-    recorder stops cleanly; one left open by a runner that died is closed in
+    The one being recorded right now is closed through the recorder, so it
+    stops cleanly; one left open by a runner that died is closed in
     the store at the time of its last sample. 409 if it is already ended.
     """
     if (writing := _being_written(session_id)) is not None:
         if writing.scratch:
             raise ConflictError("the scratch record is not a recording; it is trimmed, not ended")
-        current_rig().stop_recording()  # type: ignore[union-attr]
+        current_recorder().end_session()  # type: ignore[union-attr]
         return store.session(session_id)
     return store.end_session(session_id)
 
@@ -142,6 +142,8 @@ def keep_range(store: StoreDep, session_id: int, body: KeepRange) -> SessionRow:
     rig = current_rig()
     if rig is not None and body.end_ns > rig.clock.now_ns():
         raise ValueError(f"the range ends in the future; it is now {rig.clock.now_ns()}")
+    if _being_written(session_id) is not None:
+        current_recorder().flush()  # type: ignore[union-attr]  # what it has buffered, too
     return store.keep_range(session_id, body.start_ns, body.end_ns, body.details)
 
 

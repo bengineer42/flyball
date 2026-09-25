@@ -18,7 +18,10 @@ under the prefix so Starlette routes and links as at the root; 404 / 4404
 elsewhere; lifespan passes through). `app` is a module-level instance for
 `uvicorn flyball.interfaces.server:app`. Routes take the rig and store
 through dependencies (`RigDep`, `StoreDep`), which raise `NotReadyError`
-(503) when nothing is attached.
+(503) when nothing is attached. The recording routes open and end sessions
+through the recorder (`RecorderDep`: the one `set_recorder` attached, else a
+plain `Recorder` made for the rig and store set), never on the store or the
+rig directly.
 
 The door puts one principal on every request (`request.state.principal`,
 a `principal.Claims`, and how it got in on `request.state.scheme`) and

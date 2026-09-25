@@ -266,3 +266,54 @@ def test_a_delete_cut_off_part_way_is_marked_and_finished_by_deleting_again(
 
 
 # endregion
+
+# region History reads
+
+
+def test_a_long_history_read_does_not_hold_up_a_write(tmp_path, rig, fresh):
+    """A read of what a session recorded goes through its own read-only connection (D-029)."""
+    store = SqliteStore(tmp_path / "s.db")
+    try:
+        session_id = _recorded(store, rig, fresh, 3000)
+        address = store.signals(session_id)[0].address
+        reading = threading.Event()
+
+        def slow() -> int:  # every few hundred steps of the read: a slow SD card
+            reading.set()
+            time.sleep(0.002)
+            return 0
+
+        store._reader.set_progress_handler(slow, 200)
+        points: list[int] = []
+        reader = threading.Thread(
+            target=lambda: points.append(len(store.series(session_id, address).points))
+        )
+        reader.start()
+        assert reading.wait(2)
+        start = time.perf_counter()
+        writer = store.open_session(10_000)  # a write while the read runs
+        store.set_session_name(writer.session.id, "during")
+        wrote_s = time.perf_counter() - start
+        still_reading = reader.is_alive()
+        reader.join(30)
+        store._reader.set_progress_handler(None, 0)
+    finally:
+        store.close()
+    assert still_reading, "the control: the read was still going when the write finished"
+    assert wrote_s < QUICK_S, f"the write waited {wrote_s:.3f} s behind a read"
+    assert points == [3000], "the read saw the session whole"
+
+
+def test_a_history_read_sees_what_was_just_written(tmp_path, rig, fresh):
+    store = SqliteStore(tmp_path / "s.db")
+    try:
+        session_id = _recorded(store, rig, fresh, 10)
+        address = store.signals(session_id)[0].address
+        assert len(store.series(session_id, address).points) == 10
+        store.trim_session(session_id, 5)
+        assert len(store.series(session_id, address).points) == 5, "committed: read at once"
+    finally:
+        store.close()
+
+
+# endregion
