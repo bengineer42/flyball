@@ -254,7 +254,8 @@ write to the device, a command that drives it and a `regulate` of a
 controller on one of its demands are refused (409, "is running ..."); its
 `stops=True` command, and a command that drives nothing, still run. Its
 `commit` is not called meanwhile either: one the rig would make (an input
-landing, a failed write's retry) waits until the command ends. A long
+landing, a failed write's retry) waits until the command ends, and is
+made then even if the command raised. A long
 command counts as driving its device whatever it names, so it is refused
 while a controller regulates one of the device's demands (it cannot
 `interrupt` one). A long command cannot be run by a caller already

@@ -2347,27 +2347,61 @@ class Rig:
             self._running[device] = command
             device.cancelling.clear()
             before = dict(self.router.seq)
+        ran = False
+        result: Any = None
+        interrupted: tuple[Interrupted, ...] = ()
         try:
             result = spec.method(device, **given)
+            ran = True
         finally:
+            # One step, whether the method returned or raised: the claim ends, and what its
+            # commits held back is committed, with nothing -- a delivery committing it too --
+            # between the two.
             with self._lock:
-                self._running.pop(device, None)
-        with self._lock:
-            held_back = device in self._held_back
-            self._held_back.discard(device)
-            if self.devices.get(device.name) is not device:
-                return CommandRun(result)  # removed while it ran: nothing of it is the rig's
-            interrupted = self._displace(displaced, device, command)
-            self._touched = {}
-            time_ns = self.clock.now_ns()
-            try:
-                self._command_ran(device, spec, command, given, linked, before, time_ns, outer=None)
-            finally:
-                self._touched = None
-                self._flush_pushed()
-            if held_back and not spec.commit:
-                self._commit_held_back(device, time_ns)
+                interrupted = self._long_ended(
+                    device, spec, command, given, linked, displaced, before, ran=ran
+                )
         return CommandRun(result, interrupted)
+
+    def _long_ended(
+        self,
+        device: Device,
+        spec: CommandSpec,
+        command: str,
+        given: dict[str, Any],
+        linked: Mapping[str, Signal],
+        displaced: Sequence[Controller],
+        before: Mapping[Signal, int],
+        *,
+        ran: bool,
+    ) -> tuple[Interrupted, ...]:
+        """A long command ended (`ran`: its method returned). Under the lock, the caller's.
+
+        Its claim ends and what `_commit` held back meanwhile is taken; a device removed
+        meanwhile is left alone. A method that raised displaces nothing and records
+        nothing of itself, but what was held back is committed all the same. A latch set
+        meanwhile refuses that commit as it refuses any (`_commit`).
+        """
+        self._running.pop(device, None)
+        held_back = device in self._held_back
+        self._held_back.discard(device)
+        if self.devices.get(device.name) is not device:
+            return ()  # removed while it ran: nothing of it is the rig's
+        time_ns = self.clock.now_ns()
+        if not ran:
+            if held_back:
+                self._commit_held_back(device, time_ns)
+            return ()
+        interrupted = self._displace(displaced, device, command)
+        self._touched = {}
+        try:
+            self._command_ran(device, spec, command, given, linked, before, time_ns, outer=None)
+        finally:
+            self._touched = None
+            self._flush_pushed()
+        if held_back and not spec.commit:
+            self._commit_held_back(device, time_ns)
+        return interrupted
 
     def _commit_held_back(self, device: Device, time_ns: int) -> None:
         """Commit what a claimed device's commits left staged, now its long command has ended.

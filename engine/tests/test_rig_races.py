@@ -311,6 +311,17 @@ class Fed(Pump):
             self.dosing = False
 
 
+class Jamming(Fed):
+    """A long command that feeds, then raises."""
+
+    @command(long=True, writes=("rate",))
+    def feed_then_jam(self, seconds: float) -> None:
+        """Feed for `seconds`, then jam."""
+        self.started.set()
+        self.wait(seconds)
+        raise RuntimeError("pump jammed")
+
+
 class TestNoCommitDuringALongCommand:
     def test_an_input_landing_mid_command_commits_after_it(self, dosing, fresh):
         rig, _, daq, _ = dosing
@@ -344,6 +355,29 @@ class TestNoCommitDuringALongCommand:
         thread.join(2.0)
         rig.clock.advance(20.0)  # the retry, put off, comes up again
         assert fed.commits and fed.commits[-1] is False and 0.4 in fed.writes
+
+    def test_a_command_that_raises_still_commits_what_it_held_back(self, dosing, fresh):
+        """B2: the held-back commit is made in the command's `finally`, not after it.
+
+        It was made only once the method returned: a method that raised left the device in
+        `_held_back`, uncommitted, and the next long command's end committed it for nothing.
+        """
+        rig, _, daq, _ = dosing
+        fed = Jamming(fresh("fed"))
+        rig.add_device(fed)
+        rig.bind_inputs(fed, {"supply": f"{daq.name}.zone1"})
+        gate = threading.Event()
+        fed.wait = lambda seconds: gate.wait(seconds)  # type: ignore[method-assign]
+        thread, out = _in_thread(rig.invoke, fed, "feed_then_jam", {"seconds": 10.0})
+        assert fed.started.wait(2.0)
+        fed.commits.clear()
+        deliver(rig, daq)  # the input lands: held back
+        assert fed.commits == [] and fed in rig._held_back
+        gate.set()
+        thread.join(2.0)
+        assert isinstance(out[0], RuntimeError), "the command's error still reaches its caller"
+        assert fed.commits == [False], "committed once, as it ended"
+        assert fed not in rig._held_back
 
 
 # endregion
