@@ -1010,7 +1010,7 @@ devices:
     unit: NTU
     curve:
       type: table
-      points: [[2.5, 3000], [3.0, 2800], [3.5, 2000], [4.0, 700], [4.25, 0]]
+      points: [[2.5, 3000], [3.0, 2790], [3.5, 2020], [4.0, 690], [4.2, 0]]   # the vendor's typical curve: calibrate your own
   line_pressure:                              # a 0.5-4.5 V transducer over 0-100 kPa
     driver: curve
     inputs: { x: pressure_adc.raw_v }
