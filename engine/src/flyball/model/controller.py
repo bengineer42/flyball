@@ -25,7 +25,8 @@ follows a moving setpoint's feedforward between readings (E25).
 A controller has no lock of its own: the rig serialises it. Its tick runs in a
 delivery and its re-apply on the rig's timer, both under the rig's lock, and on a rig
 every command reaches it through a rig operation (`Rig.regulate`, `follow`, `retune`,
-`manual`, `set_setpoint`), under the same lock. Called directly -- a script before its
+`manual`, `set_setpoint`), under the same lock. A stop's manual takes it too, but waits
+for it at most `LATCH_WAIT_S` and then goes on without it. Called directly -- a script before its
 rig runs, a test -- it is the caller's to serialise. (It had one, which a tick never
 took; `regulate` held it across its write, which takes the rig's lock, while a re-apply
 took the two the other way round.)

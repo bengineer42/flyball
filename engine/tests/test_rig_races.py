@@ -229,6 +229,83 @@ class TestALongCommandClaimsItsDevice:
 # endregion
 
 
+# region A stop under a stuck lock, and a stop's manual (F1, F4)
+
+
+def test_a_stop_under_a_stuck_lock_waits_for_it_once(dosing, monkeypatch):
+    """Cancelled at once; latched and in manual after one `LATCH_WAIT_S`, not two waits."""
+    monkeypatch.setattr(stopping_mod, "DEVICE_STOP_S", 0.3)
+    rig, pump, daq, drive = dosing
+    heater = rig.attach_controller(drive.signals["heater1"], daq.signals["zone1"], law=P(1))
+    rig.regulate(heater.name, 30.0)
+    thread, _ = _dosing(rig, pump)
+    holding, release = threading.Event(), threading.Event()
+
+    def stuck() -> None:
+        with rig.lock:
+            holding.set()
+            release.wait(10.0)
+
+    threading.Thread(target=stuck, daemon=True).start()
+    assert holding.wait(2.0)
+    marks: dict[str, float] = {}
+    began = time.monotonic()
+    watching = threading.Event()
+
+    def watch() -> None:
+        watching.set()
+        while time.monotonic() - began < 5.0 and len(marks) < 3:
+            now = time.monotonic() - began
+            if pump.cancelling.is_set():
+                marks.setdefault("cancelled", now)
+            if rig.stopping.latches.rig_stop is not None:
+                marks.setdefault("latched", now)
+            if heater.mode is ControllerMode.MANUAL:
+                marks.setdefault("manual", now)
+            time.sleep(0.002)
+
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    watching.wait(1.0)
+    try:
+        RigStopper(rig).stop(BEN, "a delivery is stuck")
+    finally:
+        release.set()
+    watcher.join(2.0)
+    thread.join(2.0)
+    wait = stopping_mod.LATCH_WAIT_S
+    assert marks["cancelled"] < 0.1, marks
+    assert marks["latched"] < wait + 0.15, marks
+    assert marks["manual"] < wait + 0.15, marks
+
+
+def test_a_stops_manual_is_one_step_under_the_lock(dosing, monkeypatch):
+    """A `regulate` arriving mid-way through a planned stop's manual waits for all of it."""
+    rig, _, daq, drive = dosing
+    heater = rig.attach_controller(drive.signals["heater1"], daq.signals["zone1"], law=P(1))
+    rig.regulate(heater.name, 30.0)
+    real = type(heater).manual
+    during: list[tuple[threading.Thread, list[object]]] = []
+
+    def manual(self: Any) -> None:
+        if not during:
+            during.append(_in_thread(rig.regulate, heater.name, 40.0))
+            during[0][0].join(0.2)
+            assert during[0][0].is_alive(), "it waits for the stop's manual to finish"
+        real(self)
+
+    monkeypatch.setattr(type(heater), "manual", manual)
+    RigStopper(rig).stop(BEN, "planned", latch=False)
+    assert [e.subject for e in rig.recent if e.code == Code.INTERRUPTED] == [heater.name]
+    thread, out = during[0]
+    thread.join(2.0)
+    assert out == [[heater]], "it regulated after the stop, whole"
+    assert heater.mode is ControllerMode.REGULATING and heater.reference == 40.0
+
+
+# endregion
+
+
 # region A controller has no lock of its own (L4)
 
 

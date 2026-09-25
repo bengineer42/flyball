@@ -83,9 +83,11 @@ DEVICE_STOP_S = 5.0
 """How long a stop waits for all devices together, a stuck lock or bus included: a device
 not done by then is reported `failed` ("may still act"), and the stop returns."""
 
-LATCH_WAIT_S = 1.0
-"""How long setting a latch waits for the rig's lock before setting it without (a stuck
-delivery or command): the latch is never held up, and every commit checks it again."""
+LATCH_WAIT_S = 0.2
+"""How long a stop waits for the rig's lock, once, before going on without it (a stuck
+delivery or command): to set its latch, then to put the controllers in manual. Once it has
+gone without, nothing else in that stop waits for the lock but the device stops, each on its
+own deadline. A latch set without the lock still refuses: every commit checks it first."""
 
 type Origin = Literal["off", "you_said", "nobody_said"]
 
@@ -206,7 +208,7 @@ class InterimStopper:
         at_utc_ns = time.time_ns()
         with self._lock:
             interrupted = _interrupt(self.program, "the rig was stopped")
-            failed = _manual(self.rig, None)
+            failed = _manual(self.rig, None, LATCH_WAIT_S)
         devices: dict[str, DeviceStop] = {}
         for name, device in list(self.rig.devices.items()):
             if not stoppable(device):
@@ -279,17 +281,26 @@ class Stopping:
     def latch(self, latch: Latch) -> bool:
         """Hold `latch`: conditions raised, staged values on what it holds replaced (A6).
 
-        Under the rig's lock, so a write or a command checked before it cannot commit after
-        it (each re-checks under the lock). A lock held past `LATCH_WAIT_S` (a stuck delivery
-        or command) does not hold the latch up: it is set without, and every commit, which
-        runs under the lock, checks the latches again first.
+        Under the rig's lock, so a write or a command checked under it lands wholly before
+        the latch or is refused by it. A lock held past `LATCH_WAIT_S` (a stuck delivery or
+        command) does not hold the latch up: see
+        [latch_within][flyball.rig.stopping.Stopping.latch_within].
+        """
+        return self.latch_within(latch, LATCH_WAIT_S)[0]
+
+    def latch_within(self, latch: Latch, wait_s: float) -> tuple[bool, bool]:
+        """Hold `latch`, waiting at most `wait_s` for the rig's lock: (whether new, whether locked).
+
+        Not locked by then, it is set without the lock -- every commit checks the latches
+        before it writes -- and nothing in it waits for the lock again (what was staged is
+        dropped only if the lock is free at once).
         """
         lock = self.rig.lock
-        locked = lock.acquire(timeout=LATCH_WAIT_S)
+        locked = lock.acquire(timeout=wait_s) if wait_s > 0 else lock.acquire(blocking=False)
         if not locked:
             log.warning("latch %s: set without the rig's lock (held too long)", latch.cause)
         try:
-            return self._latch(latch)
+            return self._latch(latch), locked
         finally:
             if locked:
                 lock.release()
@@ -323,7 +334,8 @@ class Stopping:
                 rig.conditions.set(
                     owner, Code.LATCHED, Severity.ERROR, f"latched: {latch.said()}", details
                 )
-        rig.replace_staged(self._held_devices(latch), self._held_signals(latch))
+        # No second wait: under the lock this takes it at once; without, it does not wait.
+        rig.replace_staged(self._held_devices(latch), self._held_signals(latch), wait_s=0.0)
         return True
 
     def reset(self, cause: str, actor: Actor) -> Latch:
@@ -630,7 +642,11 @@ class Stopping:
 
 
 class RigStopper:
-    """The software stop: latch, cancel, interrupt, manual, then every device's resolved stop.
+    """The software stop: cancel, latch, manual, interrupt, then every device's resolved stop.
+
+    Long commands are cancelled first, before anything waits. The rig's lock is waited
+    for at most `LATCH_WAIT_S`, once: found stuck, the latch and the controllers' manual go
+    on without it, and only each device's own stop waits (to its deadline).
 
     What `POST /api/rig/stop`, MCP `stop_rig`, `flyball stop` and `SIGUSR1` run. Stops are
     serialised; a second one while the rig is latched latches nothing new and stops every
@@ -655,20 +671,29 @@ class RigStopper:
         at_utc_ns = time.time_ns()
         rig = self.rig
         with self._lock:
+            _cancel(rig)  # first, before anything waits: a dose or a move ends now
             if latch:
-                rig.stopping.latch(
+                _, locked = rig.stopping.latch_within(
                     Latch(
                         cause=RIG_STOP,
                         subjects=subjects([("rig", rig.name or "rig")]),
                         actor=actor,
                         at_utc_ns=at_utc_ns,
                         reason=reason,
-                    )
+                    ),
+                    LATCH_WAIT_S,
                 )
             else:
-                rig.replace_staged([d for d in list(rig.devices.values()) if stoppable(d)])
+                locked = rig.replace_staged(
+                    [d for d in list(rig.devices.values()) if stoppable(d)], wait_s=LATCH_WAIT_S
+                )
             report = self._run(
-                actor, reason, at_utc_ns, devices=None, why="stop" if latch else "planned stop"
+                actor,
+                reason,
+                at_utc_ns,
+                devices=None,
+                why="stop" if latch else "planned stop",
+                wait_s=LATCH_WAIT_S if locked else 0.0,
             )
         log.warning(
             "software stop by %s via %s (%s): program %s, %d controller(s) manual; %s",
@@ -696,16 +721,39 @@ class RigStopper:
                 if stoppable(device) and (entry is None or entry.on_shutdown != "keep"):
                     chosen.append(device)
         with self._lock:
-            return self._run(actor, "shutdown", time.time_ns(), devices=chosen, why="shutdown")
+            _cancel(rig)
+            return self._run(
+                actor,
+                "shutdown",
+                time.time_ns(),
+                devices=chosen,
+                why="shutdown",
+                wait_s=LATCH_WAIT_S,
+            )
 
     def _run(
-        self, actor: Actor, reason: str, at_utc_ns: int, *, devices: list[Device] | None, why: str
+        self,
+        actor: Actor,
+        reason: str,
+        at_utc_ns: int,
+        *,
+        devices: list[Device] | None,
+        why: str,
+        wait_s: float,
     ) -> StopReport:
+        """Cancel, manual, interrupt, then every device's stop.
+
+        The controllers go to manual before the program is interrupted (which may wait for
+        its worker), and again after it if one was running, for what its last step did.
+        `wait_s`: how long `_manual` may wait for the rig's lock (0 once the stop found it
+        stuck).
+        """
         rig = self.rig
-        for device in rig.running_commands():
-            device.cancel()  # a dose or a move ends now; its own `finally` still runs
+        _cancel(rig)  # again: one started before the latch
+        failed = _manual(rig, why, wait_s)
         interrupted = _interrupt(self.program, f"the rig was stopped ({why})")
-        failed = _manual(rig, why)
+        if interrupted:
+            failed.update(_manual(rig, why, wait_s))
         chosen = (
             [d for d in list(rig.devices.values()) if stoppable(d)] if devices is None else devices
         )
@@ -800,8 +848,30 @@ def _interrupt(program: Program | None, reason: str) -> bool:
     return running
 
 
-def _manual(rig: Rig, why: str | None) -> dict[str, str]:
-    """Every controller to manual, with an `interrupted` event; by output address, what failed."""
+def _cancel(rig: Rig) -> None:
+    """Every long command running ends now: a dose or a move; its own `finally` still runs."""
+    for device in rig.running_commands():
+        device.cancel()
+
+
+def _manual(rig: Rig, why: str | None, wait_s: float) -> dict[str, str]:
+    """Every controller to manual, with an `interrupted` event; by output address, what failed.
+
+    Under the rig's lock, so no `regulate` lands part-way through, waiting at most `wait_s`
+    for it (none at 0); a lock held longer than that (a stuck delivery) is gone without.
+    """
+    lock = rig.lock
+    locked = lock.acquire(timeout=wait_s) if wait_s > 0 else lock.acquire(blocking=False)
+    if not locked:
+        log.warning("stop: controllers put in manual without the rig's lock (held too long)")
+    try:
+        return _to_manual(rig, why)
+    finally:
+        if locked:
+            lock.release()
+
+
+def _to_manual(rig: Rig, why: str | None) -> dict[str, str]:
     failed: dict[str, str] = {}
     for name, controller in list(rig.controllers.items()):
         was = controller.mode

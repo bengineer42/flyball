@@ -296,8 +296,11 @@ which takes the lock inside and lets it go before it returns:
 | `device_snapshot(device)` | a read: every reading, write state, condition, input state and poll run of one device from one instant, copied, for a route to render off the lock |
 
 Latches are set and reset under the lock (`Stopping.latch`, `Stopping.reset`;
-a latch waits at most `LATCH_WAIT_S`, 1 s, for a stuck lock, then is set
-without it, and every commit checks the latches again first). `write` checks
+a stop waits at most `LATCH_WAIT_S`, 0.2 s, for a stuck lock, once, then
+latches without it -- every commit checks the latches first -- and puts the
+controllers in manual without it too; `RigStopper` cancels long commands
+before any of that). A stop's manual is one step under the lock, so a
+`regulate` lands wholly before or after it. `write` checks
 them again under the lock just before it applies, so a stop that lands
 between a write's first checks and its commit wins: an automatic writer is
 refused, a controller held, a person's write goes through the rig stop and

@@ -1430,16 +1430,26 @@ class Rig:
         finally:
             self._touched = None
 
-    def replace_staged(self, devices: Iterable[Device], signals: Iterable[Signal] = ()) -> None:
+    def replace_staged(
+        self,
+        devices: Iterable[Device],
+        signals: Iterable[Signal] = (),
+        *,
+        wait_s: float = REPLACE_WAIT_S,
+    ) -> bool:
         """Drop what is staged on `devices` (whole) and on `signals`: a stop or a latch replaces it.
 
         What a failed write kept is dropped too, and its retry cancelled (A6). Takes the
-        rig's lock, but gives up after `REPLACE_WAIT_S` rather than wait behind a stuck
+        rig's lock, but gives up after `wait_s` (0: at once) rather than wait behind a stuck
         delivery: the latch already refuses the commit, and a stop replaces what it writes.
+        Returns whether it had the lock.
         """
-        if not self.lock.acquire(timeout=REPLACE_WAIT_S):
+        locked = (
+            self.lock.acquire(timeout=wait_s) if wait_s > 0 else self.lock.acquire(blocking=False)
+        )
+        if not locked:
             log.warning("a stop could not take the rig's lock to drop staged values")
-            return
+            return False
         try:
             for device in devices:
                 self._drop_staged(device, None)
@@ -1448,6 +1458,7 @@ class Rig:
                 by_device.setdefault(signal.device, set()).add(signal)
             for device, held in by_device.items():
                 self._drop_staged(device, held)
+            return True
         finally:
             self.lock.release()
 
