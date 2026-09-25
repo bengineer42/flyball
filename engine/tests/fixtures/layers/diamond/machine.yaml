@@ -1,0 +1,4 @@
+# The machine extends the variant and the project; the variant extends the project too.
+# The project is merged once, under both, so the variant's rate survives.
+extends: [variant.yaml, project.yaml]
+name: machine

@@ -1,9 +1,11 @@
 package rigfile
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -183,5 +185,89 @@ func TestResolveLayers_absoluteExtends(t *testing.T) {
 	}
 	if len(files) != 2 || files[0] != base {
 		t.Fatalf("expected [%s %s], got %v", base, top, files)
+	}
+}
+
+// The layering cases the Python implementation shares
+// (engine/tests/fixtures/layers, engine/tests/test_overlay.py): both must
+// merge them to the same document.
+func TestSharedLayeringFixtures(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "engine", "tests", "fixtures", "layers")
+	cases, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ran := 0
+	for _, c := range cases {
+		if !c.IsDir() {
+			continue
+		}
+		ran++
+		t.Run(c.Name(), func(t *testing.T) {
+			dir := filepath.Join(root, c.Name())
+			raw, err := os.ReadFile(filepath.Join(dir, "expected.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var spec struct {
+				Layers   []string       `json:"layers"`
+				Document map[string]any `json:"document"`
+			}
+			if err := json.Unmarshal(raw, &spec); err != nil {
+				t.Fatal(err)
+			}
+			var paths []string
+			for _, l := range spec.Layers {
+				paths = append(paths, filepath.Join(dir, l))
+			}
+			got, _, err := ResolveLayers(paths, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if a, b := asJSON(t, got), asJSON(t, spec.Document); a != b {
+				t.Fatalf("merged:\n%s\nwant:\n%s", a, b)
+			}
+		})
+	}
+	if ran == 0 {
+		t.Fatal("no fixtures found")
+	}
+}
+
+// asJSON renders v as canonical JSON (sorted keys, numbers as JSON has
+// them), so an int from YAML and a float64 from JSON compare equal.
+func asJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back any
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(back)
+	return string(out)
+}
+
+func TestBothSpellingsInOneLayerAreRefused(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.yaml")
+	os.WriteFile(path, []byte("links: {bus-1: {type: sim_plant}, bus_1: {type: sim_plant}}\n"), 0o644)
+	if _, _, err := ResolveLayers([]string{path}, nil); err == nil || !strings.Contains(err.Error(), "one name, given twice") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestASetReachesTheEntryInEitherSpelling(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.yaml")
+	os.WriteFile(path, []byte("devices: {dry_air: {driver: values, poll_s: 1}}\n"), 0o644)
+	doc, _, err := ResolveLayers([]string{path}, []string{"devices.dry-air.poll_s=5"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := asJSON(t, doc); got != `{"devices":{"dry_air":{"driver":"values","poll_s":5}}}` {
+		t.Fatalf("got %s", got)
 	}
 }

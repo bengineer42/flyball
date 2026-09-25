@@ -6,7 +6,58 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"flyballd/internal/names"
 )
+
+// named are the sections keyed by names, whose `-` and `_` spellings are one
+// key (D-079). Matches flyball.runtime.overlay.NAMED.
+var named = []string{"links", "devices", "controllers"}
+
+func isNamed(section string) bool {
+	for _, n := range named {
+		if n == section {
+			return true
+		}
+	}
+	return false
+}
+
+// canonicalNames returns document with the names under links, devices and
+// controllers in canonical form, so `dry-air` in one layer and `dry_air` in
+// the next are one entry. Both spellings in one section of one layer is an
+// error. Matches flyball.runtime.overlay._canonical_names.
+func canonicalNames(document map[string]any, source string) (map[string]any, error) {
+	result := document
+	for _, section := range named {
+		entries, ok := document[section].(map[string]any)
+		if !ok {
+			continue
+		}
+		renamed := make(map[string]any, len(entries))
+		changed := false
+		for key, value := range entries {
+			name := names.Canonical(key)
+			if name != key {
+				changed = true
+			}
+			if _, dup := renamed[name]; dup {
+				return nil, fmt.Errorf("%s: %s: %q and %q are one name, given twice", source, section, key, name)
+			}
+			renamed[name] = value
+		}
+		if !changed {
+			continue
+		}
+		copied := make(map[string]any, len(result))
+		for k, v := range result {
+			copied[k] = v
+		}
+		copied[section] = renamed
+		result = copied
+	}
+	return result, nil
+}
 
 // Merge overlays overlay onto base: mappings deep-merge, everything else
 // replaces. A key whose overlay value is nil is removed from the result --
@@ -58,6 +109,9 @@ func ApplySet(document map[string]any, path []string, value any) (map[string]any
 	if len(path) == 0 {
 		return nil, fmt.Errorf("empty path")
 	}
+	if len(path) > 1 && isNamed(path[0]) {
+		path = append([]string{path[0], names.Canonical(path[1])}, path[2:]...)
+	}
 	head, rest := path[0], path[1:]
 	if len(rest) == 0 {
 		result := make(map[string]any, len(document)+1)
@@ -92,8 +146,11 @@ func ApplySet(document map[string]any, path []string, value any) (map[string]any
 
 // loadLayer reads path, resolving and stripping its own `extends`, matching
 // flyball.runtime.overlay._load_layer. stack carries the resolved paths of
-// files currently being loaded, to detect an extends cycle.
-func loadLayer(path string, stack []string) (map[string]any, []string, error) {
+// files currently being loaded, to detect an extends cycle; seen, the files
+// already merged in this resolution: each file is merged once, where it is
+// first reached (depth first), so a file two bases share cannot come back
+// over an earlier base's changes.
+func loadLayer(path string, stack []string, seen map[string]bool) (map[string]any, []string, error) {
 	resolved, err := filepath.Abs(path)
 	if err != nil {
 		return nil, nil, err
@@ -103,6 +160,10 @@ func loadLayer(path string, stack []string) (map[string]any, []string, error) {
 			return nil, nil, fmt.Errorf("extends cycle: %s -> %s", strings.Join(append(stack, resolved), " -> "), resolved)
 		}
 	}
+	if seen[resolved] {
+		return map[string]any{}, nil, nil
+	}
+	seen[resolved] = true
 	doc, err := LoadDocument(path)
 	if err != nil {
 		return nil, nil, err
@@ -132,7 +193,7 @@ func loadLayer(path string, stack []string) (map[string]any, []string, error) {
 		if !filepath.IsAbs(name) { // an absolute name is itself, as Python's path.parent / name
 			name = filepath.Join(filepath.Dir(path), name)
 		}
-		baseDoc, baseFiles, err := loadLayer(name, nextStack)
+		baseDoc, baseFiles, err := loadLayer(name, nextStack, seen)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -144,6 +205,10 @@ func loadLayer(path string, stack []string) (map[string]any, []string, error) {
 		if k != "extends" {
 			own[k] = v
 		}
+	}
+	own, err = canonicalNames(own, path)
+	if err != nil {
+		return nil, nil, err
 	}
 	contributed = appendUnique(contributed, path)
 	return Merge(base, own), contributed, nil
@@ -174,8 +239,9 @@ func appendUnique(list []string, items ...string) []string {
 func ResolveLayers(paths []string, sets []string) (map[string]any, []string, error) {
 	document := map[string]any{}
 	var contributed []string
+	seen := map[string]bool{}
 	for _, path := range paths {
-		layer, files, err := loadLayer(path, nil)
+		layer, files, err := loadLayer(path, nil, seen)
 		if err != nil {
 			return nil, nil, err
 		}

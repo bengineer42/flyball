@@ -1,0 +1,3 @@
+name: project
+links:
+  bus: {type: sim_plant, rate: 1}
