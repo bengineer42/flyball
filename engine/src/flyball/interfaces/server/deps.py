@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
 from anyio import CapacityLimiter
@@ -83,6 +84,7 @@ _simulation_device: Device | None = None
 _rig_config: RigConfig | None = None
 _recorder: Recorder | None = None
 _implicit_recorder: Recorder | None = None
+_making = Lock()
 
 
 def set_rig(rig: Rig | None) -> None:
@@ -125,12 +127,13 @@ def current_recorder(make: bool = False) -> Recorder | None:
     global _implicit_recorder
     if _recorder is not None:
         return _recorder
-    implicit = _implicit_recorder
-    if implicit is not None and (implicit.rig is not _rig or implicit.store is not _store):
-        implicit = _implicit_recorder = None  # set for another rig or store than now
-    if implicit is None and make and _rig is not None and _store is not None:
-        implicit = _implicit_recorder = Recorder(_rig, _store)
-    return implicit
+    with _making:  # two first requests at once: one recorder, not one each
+        implicit = _implicit_recorder
+        if implicit is not None and (implicit.rig is not _rig or implicit.store is not _store):
+            implicit = _implicit_recorder = None  # set for another rig or store than now
+        if implicit is None and make and _rig is not None and _store is not None:
+            implicit = _implicit_recorder = Recorder(_rig, _store)
+        return implicit
 
 
 def get_recorder() -> Recorder:
