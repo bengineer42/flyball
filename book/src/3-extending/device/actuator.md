@@ -249,8 +249,13 @@ def stop(self) -> None:
     self._run(False)
 ```
 
-A device runs one long command at a time: a second is refused (409)
-until the first ends. A long command cannot be run by a caller already
+A long command claims its device until it ends: a second long command, a
+write to the device, a command that drives it and a `regulate` of a
+controller on one of its demands are refused (409, "is running ..."); its
+`stops=True` command, and a command that drives nothing, still run. A long
+command counts as driving its device whatever it names, so it is refused
+while a controller regulates one of the device's demands (it cannot
+`interrupt` one). A long command cannot be run by a caller already
 holding the rig lock (refused, 409); a program's steps never hold it.
 
 ## What a stop does to it

@@ -1107,7 +1107,9 @@ class Rig:
         Raises:
             AddressNotFoundError: A name does not resolve under `node`.
             ConflictError: A key is not a writable signal under `node`, or
-                is driven by a controller; a latch or a permissive refuses it.
+                is driven by a controller; a latch or a permissive refuses it;
+                the device is running a long command (a controller's write is
+                held instead).
             LimitNotKnownError: A signal's limit follows a signal with no
                 value yet (a `NotReadyError`); not raised for a controller's
                 demand, which is held instead.
@@ -1179,6 +1181,10 @@ class Rig:
                 requested[signal] = original
             clamped[signal] = value
         with self.lock:
+            if (claimed := self._claimed(device)) is not None:
+                if by is not None:
+                    return {}  # held, as under a latch
+                raise ConflictError(claimed)
             if self.stopping.latches.any():
                 # Again, where no latch can be set meanwhile (a stop sets it under this lock):
                 # a stop that landed since the checks above wins.
@@ -2247,14 +2253,17 @@ class Rig:
         signal's effective limits. A synthesised `set_<name>` goes through
         [demand][flyball.rig.rig.Rig.write]. A command that changes
         what drives the device -- one with a `mode`, a linked demand, or
-        `writes=` -- is refused while a controller drives one of the device's
-        demands, unless it `interrupts`: the refusal is checked before the
+        `writes=`, and any `long` one -- is refused while a controller drives one
+        of the device's demands, unless it `interrupts`: the refusal is checked before the
         method runs, and each such controller is put into manual (with an
         event) only once the method has succeeded, so a command that raises
         leaves them regulating. The method runs under the rig lock -- unless it is
         `long` (a dose, a move): then only the checks do, the method runs off
         the lock, so polling, deliveries and the device's `stop` carry on, and
-        the rig re-enters the lock after it. Afterwards the
+        the rig re-enters the lock after it. A long command claims its device
+        until it ends: meanwhile a write to the device, a command that drives
+        it and a `regulate` of a controller on it are refused (its `stops=True`
+        command and a command that drives nothing are not). Afterwards the
         device's `mode` output (if it has one) becomes the command's, a
         `commit=True` command commits the device, each linked demand the
         driver did not push gets its argument as its reading, and
@@ -2270,8 +2279,9 @@ class Rig:
         Raises:
             NotFoundError: No such command.
             ConflictError: A latch holds the device; a controller drives the
-                device; or a long command while the device runs another, or
-                while the caller holds the rig lock (it would wait under it).
+                device; the device is running a long command and this one
+                drives it; or a long command while the caller holds the rig
+                lock (it would wait under it).
             NotReadyError: A linked argument was left out and its demand has
                 no value yet.
             LimitNotKnownError: A linked argument's demand has a limit that
@@ -2287,12 +2297,12 @@ class Rig:
         if spec.demand_of is not None:
             signal = device.signals[spec.demand_of]
             return CommandRun(self.write(signal.node, {signal: given["value"]}, actor=actor))
-        forced = self._latched_command(device, spec, actor)
         if spec.long and _held(self.lock):
             raise ConflictError(
                 f"{device.name}.{command} waits: it cannot run while the rig lock is held"
             )
         with self.lock:
+            forced = self._latched_command(device, spec, actor)
             linked, displaced = self._command_checks(device, spec, command, given)
             if not spec.long:
                 if forced:
@@ -2301,10 +2311,9 @@ class Rig:
                     return self._run_locked(device, spec, command, given, linked, displaced)
                 finally:
                     self._forcing.discard(device)
-            if (running := self._running.get(device)) is not None:
-                raise ConflictError(
-                    f"'{device.name}' is running {running!r}: stop it, or wait for it to end"
-                )
+            # A long command claims its device until it ends (`_claimed`). It cannot
+            # `interrupt` (refused at definition), so it displaced no controller: one driving
+            # the device refused it above.
             self._running[device] = command
             device.cancelling.clear()
             before = dict(self.router.seq)
@@ -2390,9 +2399,12 @@ class Rig:
                 given[name] = signal.clamp(float(given[name]))
         drives = (
             spec.sets_mode is not None
+            or spec.long  # a dose, a move: it drives hardware whatever it names
             or bool(spec.writes)
             or any(s.role is Role.DEMAND for s in linked.values())
         )
+        if drives and not spec.stops and (why := self._claimed(device)) is not None:
+            raise ConflictError(why)
         displaced: list[Controller] = []
         if drives:
             # It changes what drives the device: not while a controller does.
@@ -2562,7 +2574,7 @@ class Rig:
                 label=label,
             )
             controller.on_reference = lambda: self._reference_changed(controller)
-            controller.guard = lambda: self.stopping.regulate_refusal(controller)
+            controller.guard = lambda: self._regulate_refusal(controller)
             controller.on_reseed = lambda was, now: self._reseeded(controller, was, now)
             self.controllers.add(controller, is_default=is_default)
             self._changed(f"attached controller {controller.name}")
@@ -2741,10 +2753,29 @@ class Rig:
         return [self.controllers.resolve(name) for name in names]
 
     def _refuse_regulate(self, controllers: Iterable[Controller]) -> None:
-        """Raise before anything changes if a latch holds any of `controllers`."""
+        """Raise before anything changes if a latch or a long command holds any of them."""
         for controller in controllers:
-            if (refused := self.stopping.regulate_refusal(controller)) is not None:
+            if (refused := self._regulate_refusal(controller)) is not None:
                 raise ConflictError(refused)
+
+    def _regulate_refusal(self, controller: Controller) -> str | None:
+        """Why `controller` may not regulate now: a latch, or a long command on its output's."""
+        if (refused := self.stopping.regulate_refusal(controller)) is not None:
+            return refused
+        if (why := self._claimed(controller.output_signal.device)) is not None:
+            return f"controller {controller.name!r}: {why}"
+        return None
+
+    def _claimed(self, device: Device) -> str | None:
+        """Why nothing else may drive `device` now: the long command it is running, if any.
+
+        From its claim to its end, a long command (a dose, a move) is all that drives its
+        device: a write, a command that drives it and a controller's `regulate` on it are
+        refused; its own `stops=True` command, and a command that drives nothing, are not.
+        """
+        if (running := self._running.get(device)) is None:
+            return None
+        return f"'{device.name}' is running {running!r}: stop it, or wait for it to end"
 
     def _reset_own_faults(self, controllers: Iterable[Controller], actor: Actor | None) -> None:
         """A person's regulate resets each controller's own `on_fault: manual` latch.
