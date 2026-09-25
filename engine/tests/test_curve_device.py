@@ -42,6 +42,7 @@ from flyball.record.sqlite import SqliteStore
 from flyball.rig import Rig
 from flyball.rig.latches import stoppable
 from flyball.runtime.config import RigConfig
+from flyball.runtime.recorder import Recorder
 
 VOLTAGE = Quantity("voltage", Volt)
 
@@ -232,12 +233,12 @@ class TestStopAndRecording:
         rig = _rig(adc_tag, adc={"signals": {"raw_v": {"record": False}}})
         raw = rig.resolve("adc.raw_v")
         store = SqliteStore(tmp_path / "s.sqlite")
-        recorder = rig.start_recording(store)
-        session = recorder.writer.session.id
+        recorder = Recorder(rig, store)
+        session = recorder.start_session().writer.session.id
         for x in (3.0, 3.5):
             rig.clock.advance(1.0)
             _push(rig, raw, x)
-        rig.stop_recording()
+        recorder.end_session()
         declared = {s.address for s in store.signals(session)}
         assert "turbidity.value" in declared and "adc.raw_v" not in declared
         stored = [row.values for row in store.samples(session, "turbidity")]
