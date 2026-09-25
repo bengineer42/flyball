@@ -251,8 +251,7 @@ def stop(self) -> None:
 
 A device runs one long command at a time: a second is refused (409)
 until the first ends. A long command cannot be run by a caller already
-holding the rig lock (refused, 409); a program's `command` step does not
-hold it.
+holding the rig lock (refused, 409); a program's steps never hold it.
 
 ## What a stop does to it
 

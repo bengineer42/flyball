@@ -17,7 +17,6 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, TypeAdapter
 
 from flyball.control import Affine, GeneratorConfig, Table
-from flyball.control.errors import LastReadingNotAvailableError
 from flyball.control.setpoint import generator_union
 from flyball.foundation.config import discriminated_union
 from flyball.foundation.device import Access, Role, Signal
@@ -27,11 +26,10 @@ from flyball.foundation.typing import Positive
 from flyball.interfaces.server.deps import RigDep, current_catalog
 from flyball.interfaces.server.routes.stop import actor
 from flyball.interfaces.server.schemas import ControllerOut, LawConfig
-from flyball.model.controller import Controller, FaultAction, ValueSource
+from flyball.model.controller import ValueSource
 from flyball.model.feedforward import Identity, NoFeedforward
 from flyball.model.law import Transfer
 from flyball.rig import Rig
-from flyball.rig.latches import fault_cause
 from flyball.runtime.config import ControllerEntry, OnFaultEntry
 
 router = APIRouter(prefix="/api/controllers", tags=["controllers"])
@@ -169,33 +167,11 @@ def _signal(rig: Rig, address: str) -> Signal:
     return found
 
 
-def _start(controller: Controller, start: float | ValueSource | None) -> float | ValueSource:
-    """The request's `start` (a `ValueSource` is the controller's to resolve), else the rule."""
-    return _generator_start(controller) if start is None else start
-
-
-def _generator_start(controller: Controller) -> float:
-    """Where a generator spec starts from: the controller's own setpoint, or its last reading.
-
-    The same rule the `ramp` program step uses in `sequencing/loops.py`.
-
-    Raises:
-        LastReadingNotAvailableError: Neither is available yet.
-    """
-    start = (
-        controller.setpoint_at(controller.clock.now_ns())
-        if controller.reference is not None
-        else controller.last_value
-    )
-    if start is None:
-        raise LastReadingNotAvailableError
-    return start
-
-
-# The async routes here read the rig on the event loop, so they do not take
-# `rig.lock` (a delivery may hold it for a bus transaction). Each iterates a
-# snapshot taken in one C-level `list(...)` instead, so a controller or a
-# device added or removed meanwhile is not an error.
+# The async routes here read the rig on the event loop, so they reach nothing that
+# waits for the rig's lock (a delivery may hold it for a bus transaction). Each
+# iterates a snapshot taken in one C-level `list(...)` instead, so a controller or a
+# device added or removed meanwhile is not an error. The plain `def` routes that
+# change a controller each call one rig operation, which takes the lock itself.
 
 
 @router.get("")
@@ -247,27 +223,24 @@ def make_controller(rig: RigDep, body: NewController) -> ControllerOut:
     output = _signal(rig, body.output)
     measured = _signal(rig, body.measured)
     law = body.law.build() if isinstance(body.law, BaseModel) else body.law  # type: ignore[union-attr]
-    with rig.lock:
-        controller = rig.attach_controller(
-            output,
-            measured,
-            law=law,
-            feedforward=body.feedforward,
-            is_default=body.is_default,
-            min_period_s=body.min_period_s,
-            setpoint_period_s=body.setpoint_period_s,
-            on_fault=ControllerEntry(measured=body.measured, on_fault=body.on_fault).fault_policy(),
-            label=body.label,
-        )
+    controller = rig.attach_controller(
+        output,
+        measured,
+        law=law,
+        feedforward=body.feedforward,
+        is_default=body.is_default,
+        min_period_s=body.min_period_s,
+        setpoint_period_s=body.setpoint_period_s,
+        on_fault=ControllerEntry(measured=body.measured, on_fault=body.on_fault).fault_policy(),
+        label=body.label,
+    )
     return _out(rig, controller.name)
 
 
 @router.delete("/{address}", status_code=204)
 def remove_controller(rig: RigDep, address: str) -> None:
     """Detach a controller. It is put in manual first so the output holds its last value."""
-    with rig.lock:
-        rig.controllers.resolve(address).manual()
-        rig.detach_controller(address)
+    rig.detach_controller(address)
 
 
 @router.post("/{address}/regulate")
@@ -282,41 +255,33 @@ def regulate(rig: RigDep, request: Request, address: str, body: Regulate) -> Con
     action): a person resets it first. The one a person's `regulate` clears itself
     is the controller's own `on_fault: manual` latch, which holds nothing else.
     """
-    controller = rig.controllers.resolve(address)
-    who = actor(request)
-    cause = fault_cause(controller.name)
-    latch = rig.stopping.latches.get(cause)
-    if (
-        who.person
-        and latch is not None
-        and latch.action == FaultAction.MANUAL.value
-        and len(rig.stopping.latches.of_controller(controller)) == 1
-    ):
-        rig.stopping.reset(cause, who)
+    rig.controllers.resolve(address)  # 404 before anything else is looked at
     tuning = body.tuning.build() if isinstance(body.tuning, BaseModel) else body.tuning  # type: ignore[union-attr]
     if isinstance(tuning, str) and (tuning := rig.tunings.get(tuning)) is None:
         raise NotFoundError(f"Tuning {body.tuning!r} not found")
-    generator = body.at.build() if isinstance(body.at, BaseModel) else None  # type: ignore[union-attr]
-    at = _start(controller, body.start) if generator is not None else body.at
-    with rig.lock:
-        controller.regulate(at, generator=generator, tuning=tuning, transfer=body.transfer)  # type: ignore[arg-type]
+    who = actor(request)
+    # One rig operation each: the latch reset, the law swapped in and the aim, under the
+    # rig's lock together. `tuning` and a generator `at` map onto `law=` and `follow`.
+    if isinstance(body.at, BaseModel):
+        generator = body.at.build()  # type: ignore[union-attr]
+        rig.follow(
+            address, generator, start=body.start, law=tuning, transfer=body.transfer, actor=who
+        )
+    else:
+        rig.regulate(address, body.at, law=tuning, transfer=body.transfer, actor=who)
     return _out(rig, address)
 
 
 @router.post("/{address}/manual")
 def manual(rig: RigDep, address: str) -> ControllerOut:
     """Stop regulating; the output keeps its last value and takes demands directly."""
-    with rig.lock:
-        rig.controllers.resolve(address).manual()
+    rig.manual(address)
     return _out(rig, address)
 
 
 @router.put("/{address}/setpoint")
 def set_setpoint(rig: RigDep, address: str, body: NewSetpoint) -> ControllerOut:
     """Move the setpoint, or start following a generator, without touching the mode."""
-    controller = rig.controllers.resolve(address)
-    generator = body.at.build() if isinstance(body.at, BaseModel) else None  # type: ignore[union-attr]
-    at = _start(controller, body.start) if generator is not None else body.at
-    with rig.lock:
-        controller.set_setpoint(at, generator=generator)  # type: ignore[arg-type]
+    at = body.at.build() if isinstance(body.at, BaseModel) else body.at  # type: ignore[union-attr]
+    rig.set_setpoint(address, at, start=body.start)
     return _out(rig, address)

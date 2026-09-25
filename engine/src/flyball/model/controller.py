@@ -546,6 +546,52 @@ class Controller:
         self.on_reference()
         return RegulateResult(*applied, bump=bump)
 
+    def retune(
+        self,
+        law: ControlLawLike,
+        time_ns: int | None = None,
+        transfer: Transfer = Transfer.TRACK,
+    ) -> RegulateResult | None:
+        """Swap in `law`, bumplessly; the reference and the mode stay as they are.
+
+        Regulating, the new law is seeded as `regulate` seeds it -- from the output
+        held, against the setpoint now, by `transfer` -- and the output applied, so a
+        trajectory being followed goes on. In manual only the law changes: the next
+        `regulate` seeds it.
+
+        Returns:
+            What was applied, and the step it put through the output; None in manual.
+
+        Raises:
+            ConflictError: Regulating, and a latch is held on the controller or its output.
+        """
+        with self.lock:
+            if not self.mode.active():
+                self._set_law(law)
+                return None
+            if (refused := self.guard()) is not None:
+                raise ConflictError(refused)
+            time_ns = self.get_time_ns(time_ns)
+            held = self.expected if self.expected is not None else self.output_value
+            self._set_law(law)
+            setpoint = self.setpoint_at(time_ns)
+            if transfer is not Transfer.NONE:
+                self.clear_law(time_ns)
+                reading = self.last_value
+                if reading is None or transfer is Transfer.COLD:
+                    self.correction = 0.0
+                else:
+                    hold = (
+                        self.correction
+                        if transfer is Transfer.CARRY or held is None
+                        else held - self.feedforward(setpoint, self.rate_at(time_ns))
+                    )
+                    assert self.law is not None
+                    self.correction = self.law.resume(reading, setpoint, hold)
+            applied = self._apply_output(setpoint, self.rate_at(time_ns))
+            bump = 0.0 if held is None else applied.output_value - held
+        return RegulateResult(*applied, bump=bump)
+
     def manual(self) -> None:
         """Stop regulating: the output keeps its last value and takes demands directly."""
         with self.lock:

@@ -115,7 +115,7 @@ computes from an input with no value carries that input's quality: push
 inputs with `values_of(a, b)`, which raises the one that ranks first
 (`stale(device_*)`, then `pending`, then another `stale`, then `invalid`).
 
-Anything else that follows a signal holds a binding too: `rig.follow(address,
+Anything else that follows a signal holds a binding too: `rig.binding(address,
 owner=..., name=...)` makes one (a program step's, a controller's), which it
 reads, watches, and gives back with `rig.unbind(binding)`.
 `rig.consumers(signal)` answers the reverse: every binding that follows the

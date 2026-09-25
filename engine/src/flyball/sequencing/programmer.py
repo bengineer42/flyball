@@ -10,21 +10,24 @@ and detach bracket the wait in `Programmer._wait_out`, and teardown is one
 `finally` reached by completion, failure and cancellation alike.
 
 Locking:
-    The programmer's lock is never held while the rig's is taken: `_apply`
-    takes the programmer's lock, releases it, emits the step event with no lock
-    held, takes the rig's lock to run the step (unless the step takes it itself:
-    a device command, which may wait), then takes the programmer's lock again;
-    `_apply_atomics` on `start` does the same, step by step. So the only order
-    is rig, then programmer -- `on_revoke` -> `interrupt` from a thread holding
-    the rig's lock -- and it cannot deadlock against the other. No thread is
-    joined under the programmer's lock, and `cancel`/`interrupt` join the
-    worker for at most `END_JOIN_S`: a caller holding the rig's lock (which the
-    worker's next step needs) waits that long, not for ever, and a step still
-    running then is reported (`step_still_running`).
+    The programmer never takes the rig's lock: it is the rig's own (D-098). A
+    step is a client of the rig, and what it must do between two deliveries is
+    one rig operation (`rig.regulate`, `rig.follow`, `rig.manual`, `rig.write`,
+    `rig.run_command`), which takes the rig's lock inside and lets it go before
+    returning. The programmer's lock is never held while a step runs or any rig
+    call is made (`_apply` and `_apply_atomics` release it around each step). So
+    the one nesting there is is rig, then programmer -- the rig calling in with
+    its lock held: a latch's hook (`_latched` reads `running`), an operator
+    revoked under it (`on_revoke` -> `interrupt`) -- and nothing takes them the
+    other way round. No thread is joined under the programmer's lock, and
+    `cancel`/`interrupt` join the worker for at most `END_JOIN_S`: a caller
+    holding the rig's lock (which the worker's next rig operation needs) waits
+    that long, not for ever, and a step still running then is reported
+    (`step_still_running`).
 
-    [Inference, traced 23 Sep] Nothing revokes the programmer's operator today:
-    no step claims a resource and no `Arbiter` is built outside tests, so
-    `on_revoke` is not called. The order above is what keeps it safe when one is.
+    [Inference, traced 23 Sep; again 25 Sep] Nothing revokes the programmer's
+    operator today: no step claims a resource and no `Arbiter` is built outside
+    tests, so `on_revoke` is not called. The order above keeps it safe when one is.
 """
 
 from __future__ import annotations
@@ -385,7 +388,7 @@ class Programmer:
                 self._interrupted = None
 
     def _apply(self, command: Step) -> Activity | None:
-        """Apply one step: under the rig's lock, unless the step takes it itself (`locked`).
+        """Apply one step, holding no lock: the step calls the rig's operations.
 
         Returns:
             The activity to wait out before the next step, or `None` to move
@@ -401,11 +404,7 @@ class Programmer:
             f"step {step + 1}/{len(program) if program is not None else '?'}: {command.type}",
             {"index": step, "step": command.type},
         )
-        if command.locked:
-            with self.rig.lock:
-                activity = command.run(self.rig, self.operator)
-        else:
-            activity = command.run(self.rig, self.operator)
+        activity = command.run(self.rig, self.operator)
         with self.lock:
             self._activity = activity
             if self._abort and activity is not None:

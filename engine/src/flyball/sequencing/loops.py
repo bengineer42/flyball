@@ -2,7 +2,10 @@
 
 Each names a controller by its output address -- or a list of them, or none
 for the rig's default -- and does what the controller's own methods do, as a
-program step and as `POST /api/programs/command`.
+program step and as `POST /api/programs/command`. A step that changes
+controllers is one rig operation (`rig.regulate`, `rig.follow`, `rig.manual`):
+the rig takes its own lock, so every controller named changes between the same
+two deliveries, and a step never holds the lock itself.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from flyball.control.setpoint import LinearRampSetpoint
 from flyball.foundation import Operator
 from flyball.foundation.time import Duration, Speed
 from flyball.model.controller import Controller
+from flyball.model.errors import LastReadingNotAvailableError
 from flyball.rig import Rig
 
 from .activities import Settled, Timed
@@ -50,8 +54,7 @@ class Regulate(Step, type="regulate", primary="setpoint"):
 
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
         tuning = None if self.tuning is None else rig.tunings.get(self.tuning)
-        for controller in _controllers(rig, self.controllers):
-            controller.regulate(self.setpoint, tuning=tuning)
+        rig.regulate(self.controllers, self.setpoint, law=tuning)
         return None
 
     def missing(self, rig: Rig) -> list[str]:
@@ -77,27 +80,25 @@ class Ramp(Step, type="ramp", primary="to"):
     `settle` can wait for it later."""
 
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
-        now_ns = rig.clock.now_ns()
+        try:
+            starts = rig.follow(self.controllers, lambda: LinearRampSetpoint(self.pace, self.to))
+        except LastReadingNotAvailableError:
+            # Which one: the first named with neither a setpoint nor a reading.
+            for controller in _controllers(rig, self.controllers):
+                if controller.reference is None and controller.last_value is None:
+                    raise ValueError(
+                        f"controller {controller.name!r} has no reading yet to ramp from"
+                    ) from None
+            raise
         longest = 0.0
-        controllers = _controllers(rig, self.controllers)
-        for controller in controllers:
-            start = (
-                controller.setpoint_at(now_ns)
-                if controller.reference is not None
-                else controller.last_value
-            )
-            if start is None:
-                raise ValueError(f"controller {controller.name!r} has no reading yet to ramp from")
+        for start in starts.values():
             if isinstance(self.pace, Speed):
                 per_second = self.pace.per_second
                 duration_s = abs(self.to - start) / per_second if per_second else 0.0
             else:
                 duration_s = self.pace.seconds
-            controller.regulate(
-                start, generator=LinearRampSetpoint(self.pace, self.to), time_ns=now_ns
-            )
             longest = max(longest, duration_s)
-        names = ",".join(controller.name for controller in controllers)
+        names = ",".join(controller.name for controller in starts)
         if not self.wait:
             return None
         return Timed(
@@ -172,8 +173,7 @@ class Manual(Step, type="manual", primary="controllers"):
     controllers: ControllerNames = None
 
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
-        for controller in _controllers(rig, self.controllers):
-            controller.manual()
+        rig.manual(self.controllers)
         return None
 
     def missing(self, rig: Rig) -> list[str]:

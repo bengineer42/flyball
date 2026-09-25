@@ -207,8 +207,7 @@ async def read_tuning(rig: RigDep, name: str) -> SerializeAsAny[ControlLawConfig
 def set_tuning(rig: RigDep, name: str, body: LawConfig) -> Tuning:  # type: ignore[valid-type]
     """Store `body` under `name` on the live rig, replacing any tuning already there."""
     tuning = Tuning(name=name, config=body)
-    with rig.lock:
-        rig.tunings.add(tuning)
+    rig.store_tuning(tuning)
     return tuning
 
 

@@ -34,7 +34,7 @@ from flyball.interfaces.server.schemas import (
     writes_out,
 )
 from flyball.interfaces.server.wire import ArgumentsBase, wire_fields
-from flyball.rig import CommandRun, DeviceRun, Rig
+from flyball.rig import CommandRun, Rig
 
 _ARGUMENTS: dict[tuple[type[Device], str], type[ArgumentsBase]] = {}
 
@@ -226,29 +226,13 @@ def link_name(rig: Rig, device: Device) -> str | None:
     `link` is the built object too, unless the driver blanked it.
     """
     held = [*vars(device).values(), getattr(device.config, "link", None)]
-    return next((name for name, built in rig.links.items() if any(h is built for h in held)), None)
-
-
-def run_of(rig: Rig, name: str) -> DeviceRun | None:
-    """How the runtime is polling `name`; None when nothing on it is polled."""
-    return rig.polling.run(name) if name in rig.polling.by_name else None
+    links = list(rig.links.items())  # a snapshot: a link may be added meanwhile
+    return next((name for name, built in links if any(h is built for h in held)), None)
 
 
 def device_out(rig: Rig, device: Device) -> DeviceOut:
-    with rig.lock:
-        return DeviceOut.of(
-            device,
-            kind=rig.kind_of(device.name) or "device",
-            latest=rig.latest,
-            link=link_name(rig, device),
-            run=run_of(rig, device.name),
-            conditions=device.held_conditions(),
-            last_usable=rig.router.last_usable,
-            stale_after=rig.liveness.threshold_s,
-            consumers=rig.consumers,
-            sources=rig.values.source,
-            now_ns=rig.clock.now_ns(),
-        )
+    """`device` rendered from one snapshot the rig takes of it: consistent, and off its lock."""
+    return DeviceOut.of(rig.device_snapshot(device), link=link_name(rig, device))
 
 
 @router.get("/devices")

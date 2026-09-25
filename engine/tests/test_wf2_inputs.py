@@ -272,8 +272,8 @@ class TestPropagation:
 
     def test_values_of_carries_the_quality_that_ranks_first(self, rig, source, fresh):
         a, b = (
-            rig.follow(f"{source.name}.level", owner="t", name="a"),
-            rig.follow(f"{source.name}.other", owner="t", name="b"),
+            rig.binding(f"{source.name}.level", owner="t", name="a"),
+            rig.binding(f"{source.name}.other", owner="t", name="b"),
         )
         _push(rig, source.signals["level"], invalid("crc"))
         with pytest.raises(NotReadyError) as raised:
@@ -316,7 +316,7 @@ class TestTheBinding:
     def test_a_holder_that_is_not_a_device_watches_and_detaches(self, rig, source, derived):
         rig.bind_inputs(derived, {"x": f"{source.name}.level"})
         level = source.signals["level"]
-        binding = rig.follow(f"{source.name}.level", owner="settle", name="level")
+        binding = rig.binding(f"{source.name}.level", owner="settle", name="level")
         seen: list[object] = []
         unwatch = binding.watch(lambda b: seen.append(b.value))
         _push(rig, level, 5.0)
@@ -330,13 +330,13 @@ class TestTheBinding:
         assert binding.quality is Quality.PENDING and not binding.bound
 
     def test_a_watcher_that_raises_is_logged_and_the_delivery_goes_on(self, rig, source):
-        binding = rig.follow(f"{source.name}.level", owner="t", name="level")
+        binding = rig.binding(f"{source.name}.level", owner="t", name="level")
         binding.watch(lambda b: 1 / 0)
         _push(rig, source.signals["level"], 5.0)
         assert rig.latest[source.signals["level"]].value == 5.0
 
     def test_a_namespace_binding_s_quality_is_the_worst_under_it(self, rig, source):
-        binding = rig.follow(source.name, owner="t", name="all")
+        binding = rig.binding(source.name, owner="t", name="all")
         assert binding.quality is Quality.PENDING
         _push(rig, source.signals["level"], 1.0)
         _push(rig, source.signals["other"], 2.0)

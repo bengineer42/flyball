@@ -28,11 +28,13 @@ from flyball.foundation.device import (
     Code,
     CommandSpec,
     Committable,
+    Condition,
     Conditions,
     Device,
     DeviceEntry,
     Event,
     InputBinding,
+    InputState,
     Limit,
     LimitNotKnownError,
     LimitsInvertedError,
@@ -58,22 +60,25 @@ from flyball.foundation.keys import Keyed, canonical, humanise
 from flyball.foundation.router import RECENT_READINGS, Latest, Router, Topic
 from flyball.foundation.time import Timer, Timers
 from flyball.foundation.typing import OrderedSet
-from flyball.library.tunings import Tunings
+from flyball.library.tunings import Tuning, Tunings
 from flyball.model.catalog import get_catalog
-from flyball.model.controller import Controller, ControllerState
+from flyball.model.controller import Controller, ControllerState, FaultAction, ValueSource
+from flyball.model.errors import LastReadingNotAvailableError
 from flyball.model.feedforward import FeedforwardLike
-from flyball.model.law import ControlLawLike
+from flyball.model.generator import SetpointGenerator
+from flyball.model.law import ControlLaw, ControlLawLike, Transfer
 from flyball.runtime.writer import Writer
 
 from .bands import Bands
 from .controllers import Controllers
 from .faults import Faults
-from .latches import RIG_STOP
+from .latches import RIG_STOP, fault_cause
 from .liveness import Liveness
-from .polling import Polling, poll_period
+from .polling import DeviceRun, Polling, poll_period
 from .stopping import STOP_ACTOR, Stopping, resolve_output
 from .triggers import Triggers
 from .values import LiveValues
+from .values import ValueSource as SignalSource
 
 if TYPE_CHECKING:
     from flyball.foundation.device import Permissive
@@ -105,6 +110,32 @@ FRESH_READ_WAIT_S = 5.0
 another fresh read) before it is refused."""
 
 
+type Loops = str | Sequence[str] | None
+"""The controllers a loop command names: one by name, several, or None for the default."""
+
+
+def _one_each(law: ControlLawLike | None, controllers: Sequence[Controller]) -> None:
+    """Refuse one built law for several controllers: a law's state is its controller's."""
+    if isinstance(law, ControlLaw) and len(controllers) > 1:
+        raise ValueError("one built law per controller: pass its config or a tuning")
+
+
+def _profile_start(controller: Controller, start: float | ValueSource | None, now_ns: int) -> float:
+    """Where a profile starts: `start` resolved, else the setpoint now, else the last reading.
+
+    Raises:
+        LastReadingNotAvailableError: `start` omitted, and neither is available yet.
+    """
+    if start is not None:
+        return controller.resolve_value(start, now_ns)
+    if controller.reference is not None:
+        return controller.setpoint_at(now_ns)
+    value = controller.last_value
+    if value is None:
+        raise LastReadingNotAvailableError
+    return value
+
+
 def _held(lock: RLock) -> bool:
     """Whether the calling thread holds `lock` (an `RLock`, or a test's wrapper of one)."""
     return lock._is_owned()  # type: ignore[attr-defined]  # CPython's RLock has no public form
@@ -124,6 +155,36 @@ class CommandRun:
 
     result: Any
     interrupted: tuple[Interrupted, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceSnapshot:
+    """One device as the rig held it at one instant: taken under the rig's lock, read off it.
+
+    What a caller renders a device from ([device_snapshot][flyball.rig.rig.Rig.device_snapshot]):
+    every reading, write state, condition and input state in it is from the same instant,
+    between two deliveries. The device itself is the live object, for what does not change
+    while it is on the rig (its tree, its commands, its config).
+    """
+
+    device: Device
+    kind: str
+    """What claimed its name: "device", or a simulation's kind."""
+    now_ns: int
+    latest: Mapping[Signal, Reading]
+    last_usable: Mapping[Signal, Reading]
+    written: Mapping[Signal, WriteState]
+    stale_after_s: Mapping[Signal, float | None]
+    """Each signal's liveness threshold now; None where it is not judged."""
+    consumers: Mapping[Signal, tuple[str, ...]]
+    """Per signal something follows, where each follower is (`InputBinding.where`)."""
+    sources: Mapping[Signal, SignalSource]
+    """Per `driver: values` signal, where its value in force came from."""
+    conditions: tuple[Condition, ...]
+    inputs: Mapping[str, tuple[InputBinding, InputState]]
+    """Each bound input: the binding, and its state at `now_ns`."""
+    run: DeviceRun | None
+    """How it is being polled; None when nothing on it is."""
 
 
 def _not_writable(signal: Signal) -> str:
@@ -758,7 +819,7 @@ class Rig:
                 self._node_followers.setdefault(target, {})[binding] = None
             return binding
 
-    def follow(
+    def binding(
         self, source: str | float | Signal | Node, *, owner: object, name: str
     ) -> InputBinding:
         """A new binding of `owner`'s input `name` to `source`: for a holder that is not a device.
@@ -963,6 +1024,33 @@ class Rig:
                 raise NotReadyError(f"Nothing has been read on '{target.address}' yet")
             return sample
         return iter(list(self.router.samples_under(target)))
+
+    def device_snapshot(self, device: Device) -> DeviceSnapshot:
+        """`device` as the rig holds it now, all of it from one instant.
+
+        See [DeviceSnapshot][flyball.rig.rig.DeviceSnapshot]: a route renders it off the lock.
+        """
+        with self.lock:
+            signals = list(device.signals.values())
+            latest, usable = self.router.latest, self.router.last_usable
+            now = self.clock.now_ns()
+            consumers = {s: tuple(b.where for b in self.consumers(s)) for s in signals}
+            sources = {s: self.values.source(s) for s in signals}
+            polled = device.name in self.polling.by_name
+            return DeviceSnapshot(
+                device=device,
+                kind=self.kind_of(device.name) or "device",
+                now_ns=now,
+                latest={s: r for s in signals if (r := latest.get(s)) is not None},
+                last_usable={s: r for s in signals if (r := usable.get(s)) is not None},
+                written=dict(device.written),
+                stale_after_s={s: self.liveness.threshold_s(s) for s in signals},
+                consumers={s: where for s, where in consumers.items() if where},
+                sources={s: source for s, source in sources.items() if source is not None},
+                conditions=tuple(device.held_conditions()),
+                inputs={name: (b, b.state(now)) for name, b in list(device.bound.items())},
+                run=self.polling.run(device.name) if polled else None,
+            )
 
     def recent_readings(self, signal: Signal, n: int = RECENT_READINGS) -> list[Reading]:
         """The last `n` readings on `signal`, oldest first: a copy, so compute on it unlocked."""
@@ -2470,12 +2558,15 @@ class Rig:
     def detach_controller(self, name: str) -> Controller:
         """Take the controller off its output: manual demands may drive it again.
 
-        The controller is left in manual with nothing to write to.
+        One operation: the controller goes to manual first, while still wired, so its
+        output keeps its last value and nothing writes it after; then it is detached,
+        left in manual with nothing to write to.
 
         Raises:
             ControllerNotFoundError: No controller of that name.
         """
         with self.lock:
+            self.controllers.resolve(name).manual()
             controller = self.controllers.remove(name)
             self._fresh.pop(controller, None)
             self.faults.forget(controller)
@@ -2485,13 +2576,180 @@ class Rig:
             controller.on_reference = Controller._nothing
             controller.guard = Controller._never_refused
             controller.on_reseed = Controller._reseeded
-            controller.manual()
             controller.write = Controller._unwired
             controller.hold = Controller._never_held
             # A watcher primes from this cell; a name the rig no longer has must not be in it.
             self.controller_states.discard(name)
             self._changed(f"detached controller {name}")
             return controller
+
+    # The loop commands. Each is one operation under the lock: nothing -- a delivery, a stop,
+    # another request -- lands between its checks and its changes, and several controllers
+    # named together change between the same two deliveries. `which` is a controller's name,
+    # several, or None for the default.
+
+    def regulate(
+        self,
+        which: Loops,
+        at: float | ValueSource,
+        *,
+        law: ControlLawLike | None = None,
+        transfer: Transfer = Transfer.TRACK,
+        actor: Actor | None = None,
+    ) -> list[Controller]:
+        """Aim each controller at `at` and hand control to its law.
+
+        `law` is swapped in first, bumplessly, as [retune][flyball.rig.rig.Rig.retune]
+        would (what the API's `regulate` still takes as `tuning`). A person's (`actor.person`)
+        regulate first resets a controller's own `on_fault: manual` latch when that is the
+        only latch on it; any other latch refuses the whole command before anything changes.
+
+        Raises:
+            ControllerNotFoundError: A named controller is not on the rig.
+            ConflictError: A latch holds one of them.
+            ValueError: A built law for more than one controller (each needs its own).
+        """
+        with self.lock:
+            controllers = self._loops(which)
+            _one_each(law, controllers)
+            self._reset_own_faults(controllers, actor)
+            self._refuse_regulate(controllers)
+            for controller in controllers:
+                controller.regulate(at, tuning=law, transfer=transfer)
+            return controllers
+
+    def follow(
+        self,
+        which: Loops,
+        profile: SetpointGenerator | Callable[[], SetpointGenerator],
+        *,
+        start: float | ValueSource | None = None,
+        law: ControlLawLike | None = None,
+        transfer: Transfer = Transfer.TRACK,
+        actor: Actor | None = None,
+    ) -> dict[Controller, float]:
+        """Regulate each controller along a profile, started now from `start`.
+
+        `profile` is a generator for one controller, or what makes one per controller.
+        `start` omitted: the controller's setpoint now while it has one, else its last
+        reading (the rule the `ramp` step and the API share). `law`, `actor`: as
+        [regulate][flyball.rig.rig.Rig.regulate]. Returns each controller with the value
+        its profile started from.
+
+        Raises:
+            ControllerNotFoundError: A named controller is not on the rig.
+            LastReadingNotAvailableError: `start` omitted, and a controller has neither a
+                setpoint nor a reading yet.
+            ConflictError: A latch holds one of them.
+            ValueError: One built generator or law for more than one controller.
+        """
+        with self.lock:
+            controllers = self._loops(which)
+            _one_each(law, controllers)
+            if isinstance(profile, SetpointGenerator) and len(controllers) > 1:
+                raise ValueError("one profile per controller: pass what makes one")
+            now = self.clock.now_ns()
+            starts = {c: _profile_start(c, start, now) for c in controllers}
+            self._reset_own_faults(controllers, actor)
+            self._refuse_regulate(controllers)
+            for controller, value in starts.items():
+                generator = profile if isinstance(profile, SetpointGenerator) else profile()
+                controller.regulate(
+                    value, generator=generator, tuning=law, time_ns=now, transfer=transfer
+                )
+            return starts
+
+    def retune(
+        self, which: Loops, law: ControlLawLike, *, transfer: Transfer = Transfer.TRACK
+    ) -> list[Controller]:
+        """Swap `law` in on each controller, bumplessly; its reference and mode stay.
+
+        Raises:
+            ControllerNotFoundError: A named controller is not on the rig.
+            ConflictError: A latch holds one that is regulating.
+            ValueError: A built law for more than one controller.
+        """
+        with self.lock:
+            controllers = self._loops(which)
+            _one_each(law, controllers)
+            self._refuse_regulate([c for c in controllers if c.mode.active()])
+            for controller in controllers:
+                controller.retune(law, transfer=transfer)
+            return controllers
+
+    def manual(self, which: Loops) -> list[Controller]:
+        """Stop each controller regulating; its output keeps its last value.
+
+        Raises:
+            ControllerNotFoundError: A named controller is not on the rig.
+        """
+        with self.lock:
+            controllers = self._loops(which)
+            for controller in controllers:
+                controller.manual()
+            return controllers
+
+    def set_setpoint(
+        self,
+        name: str | None,
+        at: float | ValueSource | SetpointGenerator,
+        *,
+        start: float | ValueSource | None = None,
+    ) -> Controller:
+        """Move a controller's setpoint (None: the default's), or start it on a profile.
+
+        Its mode is left alone.
+
+        A profile starts from `start`, by [follow][flyball.rig.rig.Rig.follow]'s rule when
+        it is omitted.
+
+        Raises:
+            ControllerNotFoundError: No such controller.
+            LastReadingNotAvailableError: A profile with `start` omitted, and neither a
+                setpoint nor a reading yet.
+        """
+        with self.lock:
+            controller = self.controllers.resolve(name)
+            if isinstance(at, SetpointGenerator):
+                now = self.clock.now_ns()
+                value = _profile_start(controller, start, now)
+                controller.set_setpoint(value, generator=at, time_ns=now)
+            else:
+                controller.set_setpoint(at)
+            return controller
+
+    def store_tuning(self, tuning: Tuning) -> None:
+        """Keep `tuning` on the live rig by its name, replacing one already there."""
+        with self.lock:
+            self.tunings.add(tuning)
+
+    def _loops(self, which: Loops) -> list[Controller]:
+        names = [which] if which is None or isinstance(which, str) else list(which)
+        return [self.controllers.resolve(name) for name in names]
+
+    def _refuse_regulate(self, controllers: Iterable[Controller]) -> None:
+        """Raise before anything changes if a latch holds any of `controllers`."""
+        for controller in controllers:
+            if (refused := self.stopping.regulate_refusal(controller)) is not None:
+                raise ConflictError(refused)
+
+    def _reset_own_faults(self, controllers: Iterable[Controller], actor: Actor | None) -> None:
+        """A person's regulate resets each controller's own `on_fault: manual` latch.
+
+        Only where that latch is the only one on it: it holds nothing but the controller.
+        """
+        if actor is None or not actor.person:
+            return
+        latches = self.stopping.latches
+        for controller in controllers:
+            cause = fault_cause(controller.name)
+            latch = latches.get(cause)
+            if (
+                latch is not None
+                and latch.action == FaultAction.MANUAL.value
+                and len(latches.of_controller(controller)) == 1
+            ):
+                self.stopping.reset(cause, actor)
 
     def _reseeded(self, controller: Controller, was: float | None, now: float | None) -> None:
         """A controller resuming after a hold re-seeded its trajectory from the reading: say so."""

@@ -342,13 +342,18 @@ class TestNothingOnTheLoop:
 
 
 class Gated(Step, type="gated_for_wf2"):
-    """A step that does nothing, under the rig's lock, as most steps run."""
+    """A step that makes one rig operation with nothing to change: it takes the rig's lock.
+
+    As every step that changes the rig does, inside the operation (D-098); the step itself
+    holds no lock.
+    """
 
     def __init__(self) -> None:
         self.entered = threading.Event()
 
     def run(self, rig: Rig, operator: object = None) -> None:
         self.entered.set()
+        rig.manual(())
 
 
 class TestProgrammerLocks:
@@ -364,7 +369,7 @@ class TestProgrammerLocks:
             with rig.lock:
                 holding.set()
                 assert started.wait(2.0)
-                time.sleep(0.2)  # the start is now waiting for the rig's lock in its step
+                time.sleep(0.2)  # the start now waits for the rig's lock, in its step's operation
                 programmer.operator.revoke()  # on_revoke -> interrupt: the programmer's lock
                 revoked.set()
 
