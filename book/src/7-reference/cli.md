@@ -164,7 +164,8 @@ is stopped with `--pid` or `--front-dir`.
 | `rig check FILE... [--set KEY=VALUE] [--print]` | validate one or more rig files (later overlays earlier) against the embedded rig schema and the same hand-written cross-field rules `RigConfig` enforces; prints a one-line summary, and the merged document with `--print`. The schema holds the drivers and links of every first-party package (the engine, `flyball-sim`, `-modbus`, `-visa`, `-chips`, `-linux`, `-qcodes`, `-pymeasure`, and `examples/furnace`), not those of a package of your own; and a `board:` profile is not applied, so a device that names a `pin:` is refused here though the runner accepts it. It checks the schema only, so it cannot see a driver's `off`: what a stop would write to each output, and the warnings about it, are `GET /api/rig/stop` on a running rig and the runner's log at start |
 | `rig schema` | the rig file's JSON Schema, for an editor (`# yaml-language-server: $schema=`) |
 | `program schema` | the program file's JSON Schema |
-| `run RIG-FILE [--listen ADDR] [--uv] [--insecure-open] [flyball-runner flags...]` | [start a rig](#flyball-run) behind a front, in the foreground |
+| `init [--print]` | [make flyball's folders and its config file](#flyball-init); `--print` prints the file instead, writing nothing |
+| `run NAME\|RIG-FILE\|-p FILE [...] [--listen ADDR] [--uv] [--insecure-open] [flyball-runner flags...]` | [start a rig](#flyball-run) behind a front, in the foreground: NAME is the rig in `rigs/NAME/` |
 | `password [PASSWORD]` | hash a password for `runner.front.password` (or `password:` in `flyballd.yaml`); prompts if omitted |
 | `token create --name N --config PATH [--config PATH]... [--set KEY=VALUE]... [--daemon] [--scope S]... [--kind human\|service\|agent] [--expires D]` | [make a named token](#named-tokens) in the front's tokens file; prints it once |
 | `token list --config PATH [--daemon]` | the tokens in that file: id, name, scopes, kind, created, expires, last used -- never a secret |
@@ -182,9 +183,68 @@ is stopped with `--pid` or `--front-dir`.
 (`POST /api/programs/check`, the rig-addressed table above); there is
 no local, offline-against-installed-commands mode as `cli.py` had.
 
+### `flyball init`
+
+`flyball init` sets up a machine that has only the binary. It writes the
+binary's own config file, `~/.config/flyball/config.yaml`
+(`os.UserConfigDir`, so `$XDG_CONFIG_HOME` moves it; `FLYBALL_CONFIG`
+names another file), and makes the folders under the data dir:
+
+```
+~/.local/share/flyball/        $XDG_DATA_HOME/flyball; ~/Library/Application Support/flyball
+                               on macOS; %LOCALAPPDATA%\flyball on Windows
+├── envs/                      Python environments: envs/default/.venv is the one flyball run uses
+├── rigs/                      one folder per rig on this machine: rigs/NAME/rig.yaml is `flyball run NAME`
+└── devices/ links/ blocks/ trajectories/ actions/ conditions/ views/ quantities/
+                               the library, a folder per type
+```
+
+The library folders are made for what comes next: nothing reads them
+yet.
+
+The file has every key at its default, commented out, so as written it
+changes nothing; uncomment a line to change it. `flyball init --print`
+prints it as this binary knows it, to compare with a file written by an
+older one.
+
+```yaml
+#data_dir: ~/.local/share/flyball
+#venv: ~/.local/share/flyball/envs/default/.venv
+```
+
+| key | default | |
+| --- | --- | --- |
+| `data_dir` | as above | where the folders are. Run `flyball init` again after changing it: it makes them there |
+| `venv` | `envs/default/.venv` in `data_dir` | the venv [`flyball run`](#flyball-run) starts `flyball-runner` from. Named here, it must have `flyball-runner` in it (`bin/`, `Scripts\` on Windows), or the run is refused; left at the default and not made, `flyball-runner` is found on `PATH` |
+
+A path is absolute or starts `~/`. A key the file does not know, or a file
+that is not YAML, stops `init`, and `run` unless it goes through uv, naming the file and the line.
+
+Run it again at any time; it never overwrites or removes anything. An
+existing config file is kept as it is (`kept`), a folder that exists is
+left with everything in it (`exists`), and a file where a folder would go
+stops it, untouched. It ends by saying which venv `flyball run` will use,
+or how to make it:
+
+```
+python3 -m venv ~/.local/share/flyball/envs/default/.venv
+~/.local/share/flyball/envs/default/.venv/bin/pip install -e <checkout>/sim -e '<checkout>/engine[server]'
+```
+
 ### `flyball run`
 
-`flyball run RIG-FILE [RIG-FILE…]` starts the rig's front and runs `flyball-runner`
+`flyball run NAME` starts the rig called NAME on this machine, the one in
+`rigs/NAME/rig.yaml` under the [data dir](#flyball-init) (`-` and `_`
+alike); its store is kept beside it, in that folder. `flyball run
+RIG-FILE [RIG-FILE…]` starts the rig in those files instead. An argument
+is a name when it is one (lower-case letters, digits, `_` or `-`,
+starting with a letter: no `/`, no `.`) and a file otherwise, so
+`rig.yaml` and `./oven` are files and `oven` is a name, even with a file
+`oven` in the current directory; `-p FILE` (or `--path FILE`) makes any
+argument a file: `flyball run -p oven`. Names and files mix, later
+overlaying earlier: `flyball run chamber_a sim.yaml`.
+
+`flyball run` starts the rig's front and runs `flyball-runner`
 behind it, in the foreground, no daemon involved. The front serves the
 dashboard and passes `/api`, `/ws` and `/mcp` to the runner, which listens
 only on a socket in its [front-dir](../6-internals/front.md#the-front-dir).
@@ -209,6 +269,12 @@ flyball: serving rig oven on http://127.0.0.1:8000/ (local)
 | `--listen ADDR` | `runner.front.listen` | where the front listens: `host:port` or `unix:/path`; default `127.0.0.1:8000`. `--serve-ui ADDR` is the same flag's old name |
 | `--uv` | `runner.front.uv` | run `flyball-runner` via `uv run --project <the rig file's directory>`, for an application that keeps it in its own venv (`examples/humidity`, `examples/furnace`). a SIGINT or SIGTERM to `flyball run` goes on to the runner once |
 | `--insecure-open` | `FLYBALL_INSECURE_OPEN=1` | serve the `local` shape (no sign-in) on a non-loopback `listen`, for this run only; there is no file key. It then answers only an IP address, a loopback name, the machine's own name or `url`'s host, on every route ([DNS rebinding](../1-running/runner/access.md#when-a-setting-is-wrong)) |
+
+The `flyball-runner` it starts is, in order: `uv run` with `--uv` or
+`runner.front.uv`; else the one in the [config file's](#flyball-init)
+`venv`, by default `~/.local/share/flyball/envs/default/.venv`, and the
+first line says which; else, when that default venv has not been made, the
+one on `PATH`.
 
 Every other argument goes to `flyball-runner`. A flag beats the file.
 `runner.run` (`serve_ui`, `uv`) is still read for one release with a

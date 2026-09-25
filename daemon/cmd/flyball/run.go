@@ -23,6 +23,7 @@ import (
 	"flyballd/internal/front"
 	"flyballd/internal/frontwire"
 	"flyballd/internal/names"
+	"flyballd/internal/userconfig"
 )
 
 // runDirect is `flyball run RIG-FILE [RIG-FILE...] [--listen ADDR] [--uv]
@@ -58,9 +59,114 @@ func runDirect(args []string) error {
 	return run(args, sigs)
 }
 
-// runnerCommand is what a run execs when not going through uv; a variable
-// so a test can stand a fake runner in for it.
+// runnerCommand is what a run execs when not going through uv and the
+// config's venv has no flyball-runner (localRunner): the one on PATH. A
+// variable so a test can stand a fake runner in for it.
 var runnerCommand = "flyball-runner"
+
+// resolveRigArgs turns the leading rig arguments into rig files: a
+// bare name (the runner-name grammar, internal/names: no `/`, no `.`) is
+// the rig of that name on this machine, <data dir>/rigs/<name>/rig.yaml,
+// `-` and `_` alike; `-p FILE` / `--path FILE` is a file, whatever it looks
+// like; anything else (`rig.yaml`, `./oven`, `/etc/x.yaml`) is a file as
+// before. A name wins over a file of the same name in the current
+// directory: that one is `-p NAME`. Everything from the first other flag
+// on is left as it is, for the front and the runner.
+func resolveRigArgs(args []string) ([]string, error) {
+	var out []string
+	var cfg *userconfig.Config
+	i := 0
+	for ; i < len(args); i++ {
+		a := args[i]
+		if v, ok := strings.CutPrefix(a, "--path="); ok {
+			out = append(out, v)
+			continue
+		}
+		if a == "-p" || a == "--path" {
+			if i+1 >= len(args) || args[i+1] == "" {
+				return nil, fmt.Errorf("%s needs a rig file\n%s", a, runUsage)
+			}
+			i++
+			out = append(out, args[i])
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			break
+		}
+		if !names.Valid(a) {
+			out = append(out, a)
+			continue
+		}
+		if cfg == nil {
+			c, err := userconfig.Load()
+			if err != nil {
+				return nil, err
+			}
+			cfg = &c
+		}
+		file, err := namedRig(cfg.DataDir, a)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, file)
+	}
+	return append(out, args[i:]...), nil
+}
+
+// namedRig is the rig file of the rig called name: rig.yaml in its folder
+// under <data dir>/rigs, the folder found by either spelling of the name.
+func namedRig(dataDir, name string) (string, error) {
+	rigs := filepath.Join(dataDir, "rigs")
+	canon := names.Canonical(name)
+	var dir string
+	for _, n := range []string{canon, strings.ReplaceAll(canon, "_", "-")} {
+		if fi, err := os.Stat(filepath.Join(rigs, n)); err == nil && fi.IsDir() {
+			if dir != "" && dir != filepath.Join(rigs, n) {
+				return "", fmt.Errorf("rig %s: both %s and %s are in %s; keep one", name, canon, n, userconfig.Tilde(rigs))
+			}
+			dir = filepath.Join(rigs, n)
+		}
+	}
+	hint := ""
+	if _, err := os.Stat(name); err == nil {
+		hint = fmt.Sprintf("; for the file %s here: flyball run -p %s", name, name)
+	}
+	if dir == "" {
+		return "", fmt.Errorf("no rig called %s in %s%s", name, userconfig.Tilde(rigs), hint)
+	}
+	file := filepath.Join(dir, "rig.yaml")
+	if _, err := os.Stat(file); err != nil {
+		return "", fmt.Errorf("rig %s: %s has no rig.yaml%s", name, userconfig.Tilde(dir), hint)
+	}
+	return file, nil
+}
+
+// localRunner is the flyball-runner a run starts when not going through
+// uv: the one in the venv the user's config names (internal/userconfig),
+// by default <data dir>/envs/default/.venv; else, when that default venv
+// has not been made, runnerCommand from PATH. A venv the config names
+// without flyball-runner in it is an error, not a quiet fall back to
+// whatever PATH has.
+func localRunner() (string, error) {
+	cfg, err := userconfig.Load()
+	if err != nil {
+		return "", err
+	}
+	runner := userconfig.Runner(cfg.Venv)
+	if _, err := os.Stat(runner); err == nil {
+		return runner, nil
+	} else if cfg.VenvSet {
+		return "", fmt.Errorf("%s: venv: %s has no flyball-runner (%v): install flyball into it, or take the key out to use the flyball-runner on PATH", cfg.Path, userconfig.Tilde(cfg.Venv), err)
+	}
+	return runnerCommand, nil
+}
+
+// localConfigPath is the config file's path for the banner, "" when it
+// cannot be found (localRunner has already read it by then).
+func localConfigPath() string {
+	p, _ := userconfig.Path()
+	return p
+}
 
 // uvCommand is `uv`, a variable for the same reason.
 var uvCommand = "uv"
@@ -69,7 +175,7 @@ var uvCommand = "uv"
 // runner's exits); a variable for the tests.
 var runOut io.Writer = os.Stderr
 
-const runUsage = "usage: flyball run <rig-file> [<rig-file> ...] [--listen ADDR] [--uv] [--insecure-open] [--set KEY=VALUE ...] [flyball-runner flags...]"
+const runUsage = "usage: flyball run NAME|-p RIG-FILE [NAME|-p RIG-FILE ...] [--listen ADDR] [--uv] [--insecure-open] [--set KEY=VALUE ...] [flyball-runner flags...]"
 
 // run is runDirect with the stop signals given (SIGINT or SIGTERM, each a
 // press of Ctrl-C): the first goes on to the runner's group and ends the
@@ -77,6 +183,10 @@ const runUsage = "usage: flyball run <rig-file> [<rig-file> ...] [--listen ADDR]
 // second SIGINT), the third SIGKILLs the group (D-045). run returns only
 // once the runner has exited.
 func run(args []string, sigs <-chan os.Signal) error {
+	args, err := resolveRigArgs(args)
+	if err != nil {
+		return err
+	}
 	o := parseRunArgs(args)
 	if len(o.rest) < 1 || strings.HasPrefix(o.rest[0], "-") {
 		return errors.New(runUsage)
@@ -93,6 +203,12 @@ func run(args []string, sigs <-chan os.Signal) error {
 		bad = docErr // runner.front cannot be read: fall back, never serve open silently
 	}
 	useUV = useUV || o.uv
+	command := runnerCommand
+	if !useUV {
+		if command, err = localRunner(); err != nil {
+			return err
+		}
+	}
 
 	id, err := frontdir.FrontID(rig)
 	if err != nil {
@@ -142,12 +258,15 @@ func run(args []string, sigs <-chan os.Signal) error {
 		// A bare `flyball stop` goes to the refused address and gets its 503.
 		stop = "`flyball stop --front-dir " + dir + "`"
 	}
+	if command != runnerCommand {
+		fmt.Fprintf(out, "flyball: the runner is %s (%s)\n", userconfig.Tilde(command), userconfig.Tilde(localConfigPath()))
+	}
 	fmt.Fprintf(out, "flyball: closing this terminal does not stop the rig -- Ctrl-C or %s does; the log is %s; for a rig that survives reboots use flyballd\n", stop, rl.path)
 
 	s := &supervisor{
 		dir: dir, aud: "run-" + randomHex(4), rig: rig,
 		ep:         endpoint.Endpoint{Network: "unix", Address: filepath.Join(dir, frontdir.Sock)},
-		command:    runnerExec(useUV, rig, append(o.rest, "--front-dir", dir), rl.tee(os.Stdout), rl.tee(os.Stderr)),
+		command:    runnerExec(useUV, command, rig, append(o.rest, "--front-dir", dir), rl.tee(os.Stdout), rl.tee(os.Stderr)),
 		minBackoff: time.Second,
 		wake:       make(chan struct{}, 1),
 		out:        out,
@@ -228,14 +347,14 @@ func describeListen(p front.Plan, a net.Addr) string {
 // hear it either, so a stop goes to the group (supervisor.forward).
 // stdout/stderr are where the runner's own output goes (run's log tee);
 // stdin is not the terminal -- nothing the runner does needs it.
-func runnerExec(useUV bool, rig string, args []string, stdout, stderr io.Writer) func() *exec.Cmd {
+func runnerExec(useUV bool, runner, rig string, args []string, stdout, stderr io.Writer) func() *exec.Cmd {
 	return func() *exec.Cmd {
 		var cmd *exec.Cmd
 		if useUV {
 			uvArgs := append([]string{"run", "--project", filepath.Dir(rig), "flyball-runner"}, args...)
 			cmd = exec.Command(uvCommand, uvArgs...)
 		} else {
-			cmd = exec.Command(runnerCommand, args...)
+			cmd = exec.Command(runner, args...)
 		}
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Stdout, cmd.Stderr = stdout, stderr
