@@ -104,7 +104,10 @@ reading; nothing is copied onto the device:
 
 An input has **no default**: a rig file gives every declared input an
 address or a number, or it does not load (`Input(..., default=...)` is a
-`TypeError`). A device is told its inputs changed through
+`TypeError`). The one exception is an input declared `optional=True`,
+which a rig file may leave out: it is then unbound (`bound` false, `value`
+raises `NotReadyError`) and the driver does without it, as an EZO probe
+reads uncompensated with no `temperature`. It still never takes a default. A device is told its inputs changed through
 `inputs_changed(time_ns, changed)`, in the delivery that brought the
 readings, before the controllers step -- what it pushes there is delivered
 in the same chain, so a controller measuring an output computed from an
@@ -120,6 +123,20 @@ owner=..., name=...)` makes one (a program step's, a controller's), which it
 reads, watches, and gives back with `rig.unbind(binding)`.
 `rig.consumers(signal)` answers the reverse: every binding that follows the
 signal, or a namespace above it.
+
+A device whose readouts are computed from its inputs and nothing else --
+it reads no hardware and has no demands -- subclasses
+[`Derived`][flyball.foundation.device.derived.Derived]. It declares its
+inputs, binds its readouts, and returns each readout's value (or a
+no-value) from `compute(values)`, the inputs' values by name; the base
+reads them with `values_of` in `inputs_changed`, pushes the input's
+no-value on every readout while one has none, and pushes nothing while one
+is `pending`. `raw_of(signal)` names the one signal a readout calibrates,
+which the wire shows as `raw` / `raw_for`
+([Raw and engineering signals](../4-server/wire.md#raw-and-engineering-signals));
+the default is none, for an operator that is not a calibration of one
+signal. [`driver: curve`](../2-config/devices/drivers.md#curve) is the
+built-in one ([`Curve`][flyball.foundation.device.derived.Curve]).
 
 Structure is declared once, as descriptors in the class body (`Namespace`,
 `Demand`, `Readout`, `Setting`, `Input`), or built from config

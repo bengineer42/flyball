@@ -53,6 +53,8 @@ class SerialUart:
 class SerialConfig(Config[UartLink], type="uart"):
     """A kernel serial device: `port = "/dev/ttyUSB0"`."""
 
+    family = "uart"
+
     port: str
     baudrate: int = Field(default=9600, gt=0)
     timeout: float = Field(default=1.0, gt=0)

@@ -171,6 +171,35 @@ class TestNumbersAndNoDefaults:
         assert "inputs" in variant["required"], "rig check (the schema) says so too"
         assert variant["properties"]["inputs"]["required"] == ["x"]
 
+    def test_an_optional_input_may_be_left_out_and_is_then_unbound(self, fresh):
+        class Compensated(Readable):
+            """Reads alone; with `temperature` bound it compensates (an EZO probe's shape)."""
+
+            temperature = Input("temperature", "Temperature", HUMIDITY, optional=True)
+            level = Readout("level", "Level", HUMIDITY)
+
+            def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
+                yield self.sample(time_ns, level=1.0)
+
+        tag = _tag(fresh, Compensated)
+        rig = RigConfig.model_validate({"devices": {"p": {"driver": tag}}}).build(start=False)
+        binding = rig.devices["p"].bound["temperature"]
+        assert not binding.bound
+        with pytest.raises(NotReadyError):
+            _ = binding.value
+        from flyball.interfaces.server.schemas import InputOut
+
+        assert InputOut.of(binding).model_dump()["optional"] is True
+        schema = RigConfig.model_json_schema()
+        variants = schema["properties"]["devices"]["additionalProperties"]["oneOf"]
+        (variant,) = [v for v in variants if v.get("title") == tag]
+        assert "inputs" not in variant["required"]
+        assert "required" not in variant["properties"]["inputs"]
+        bound = RigConfig.model_validate({
+            "devices": {"p": {"driver": tag, "inputs": {"temperature": 21.5}}}
+        }).build(start=False)
+        assert bound.devices["p"].bound["temperature"].value == 21.5
+
     def test_bind_inputs_refuses_a_declared_input_left_out(self, rig, derived):
         with pytest.raises(ConflictError, match=r"input 'x' is neither bound nor a number"):
             rig.bind_inputs(derived, {})

@@ -36,6 +36,8 @@ class SpidevSpi:
 class SpiConfig(Config[SpiLink], type="spi"):
     """A kernel SPI device: `bus = 0, chip_select = 0` is `/dev/spidev0.0`."""
 
+    family = "spi"
+
     bus: int = Field(ge=0)
     chip_select: int = Field(ge=0)
     speed_hz: int = Field(default=1_000_000, gt=0)

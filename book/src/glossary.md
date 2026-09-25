@@ -74,6 +74,20 @@ feedforward in force are its `ControllerSpec`.
 **correction** — what the law produces: the offset added to the
 feedforward's output value.
 
+**criterion** — a test on one signal's value: `above`, `below`, both (a
+band), or `near` with `within`, optionally `from_start` (relative to its value when the test
+began); written `{signal: furnace.sample, below: 60}`. What `settle` waits
+for on a signal. A reading with no value meets it only if it is a fault
+(`invalid`, `stale`) and `on_no_value` is `fire`; whoever holds the
+criterion sets the default (`settle`: `ignore`). Not a **condition**, which
+is something the rig holds true of a device or signal.
+
+**curve** — a map from one number to another, known on a domain:
+`linear` (`scale * x + offset`) or `table` (straight lines between points,
+at most 1024). A `driver: curve` device puts a signal through one to make a
+**derived signal**, with no value outside the domain; a feedforward
+`table` is the same maths, held flat at its ends instead.
+
 **delivery** — one call to `rig.on_samples`: the input bindings whose
 source got a reading are told (their devices' `inputs_changed`, and marked
 touched), then controllers tick, then one commit per device touched, then
@@ -82,6 +96,13 @@ the recorder.
 **demand** — a signal whose writing takes control of the process
 (`Role.DEMAND`): it has one owner at a time, is the only thing a controller
 may drive, and is what a stop acts on. A value put on it is a **write**.
+
+**derived signal** — a readout computed from other devices' signals as
+their readings arrive, by a device that reads nothing itself (`driver:
+curve`: an ADC's raw volts to NTU). It carries its input's no-value when
+the input has none. The input is its **raw** signal and it the
+**engineering** one: on the wire the engineering signal names its raw one
+(`raw`) and the raw one its engineering ones (`raw_for`).
 
 **device** — a named thing in the rig with a tree of signals, commands and
 conditions.
@@ -330,8 +351,10 @@ not driven by a controller (`Role.SETTING`, `RP`); a `values` device's
 entries are settings an operator writes (`RPW`).
 
 **settle** — a program step: wait until the named controllers sit within a
-band of their setpoints for `count` consecutive readings, or time out.
-Registers as an **activity** named `settle:<controllers>`.
+band of their setpoints for `count` consecutive readings, or until a named
+signal's readings meet a **criterion** `count` times running; or time out.
+Registers as an **activity** named `settle:<controllers>` or
+`settle:<signal>`.
 
 **signal metadata** — a signal's descriptive and limiting fields (label,
 range, precision, warning, alarm, limits, poll_s, stale_after_s, max_rate,

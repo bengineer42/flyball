@@ -40,6 +40,8 @@ class FakeTextLink:
 class FakeTextLinkConfig(Config[TextLink], type="fake_text"):
     """A scripted instrument, for a rig file that runs without hardware."""
 
+    family = "text"
+
     replies: dict[str, str] = Field(default_factory=dict)
     blocking: bool = Field(
         default=False,
@@ -82,6 +84,8 @@ class VisaLink:
 class VisaLinkConfig(Config[TextLink], type="visa"):
     """`TCPIP::192.168.1.20::INSTR`, `USB0::…::INSTR`, `ASRL/dev/ttyUSB0::INSTR`."""
 
+    family = "text"
+
     resource: str
     timeout_ms: int = 2000
     backend: str = "@py"
@@ -115,6 +119,8 @@ class SerialLink:
 
 
 class SerialLinkConfig(Config[TextLink], type="serial"):
+    family = "text"
+
     port: str
     baud: int = 9600
     terminator: str = "\n"

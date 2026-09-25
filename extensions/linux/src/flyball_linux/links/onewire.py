@@ -40,6 +40,8 @@ class FakeOneWire:
 
 
 class FakeOneWireConfig(Config[OneWireLink], type="fake_onewire"):
+    family = "onewire"
+
     texts: dict[str, str | list[str]] = Field(default_factory=dict)
 
     def build(self) -> OneWireLink:
@@ -62,6 +64,8 @@ class SysfsOneWire:
 
 
 class OneWireConfig(Config[OneWireLink], type="onewire"):
+    family = "onewire"
+
     root: str = "/sys/bus/w1/devices"
 
     def build(self) -> OneWireLink:

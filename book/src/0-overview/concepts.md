@@ -28,7 +28,10 @@ blend's humidity with no flow, a device gone offline, a sensor that has
 stopped reporting -- and then it shows "—" and why (its **quality**:
 `invalid`, `n/a`, `stale`), never a number standing in; its chart breaks
 there. The rig decides when a reading is late, on its own clock, and says
-so itself.
+so itself. A **derived signal** is computed from another as it arrives: an
+ADC's raw volts through a calibration **curve** to NTU or pH, on a device
+of its own. The raw signal is shown beside it and left out of pickers by
+default.
 
 **A controller** -- a control loop, not a device -- holds one **measured**
 signal at a **setpoint** by writing an **output**, a demand on a device: the
@@ -38,7 +41,8 @@ It is in **manual** (the output keeps whatever was last written) or
 ramp). The name of a controller is the address of its output.
 
 **A program** is a list of steps run against the rig -- *regulate this to
-400*, *ramp to 800 at 2 °C/min*, *wait 30 min*, *prompt for the door* --
+400*, *ramp to 800 at 2 °C/min*, *wait 30 min*, *wait until the sample
+reads under 60*, *prompt for the door* --
 written as a file, shown as steps on the Programs page, run and cancelled
 from there, the CLI or the API. A single step from the CLI is a program
 of one step.

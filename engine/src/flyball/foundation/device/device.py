@@ -703,6 +703,9 @@ class DriverConfig[D: Device](Config[D]):
         default=None, description="A transport (or a simulated plant), by name."
     )
 
+    category: ClassVar[str | None] = None
+    """What kind of driver this is, for grouping in a list (`GET /api/drivers`); optional."""
+
     @classmethod
     def __pydantic_init_subclass__(cls, type: str | None = None, **kwargs: Any) -> None:
         if clash := ENVELOPE_KEYS.intersection(cls.model_fields):

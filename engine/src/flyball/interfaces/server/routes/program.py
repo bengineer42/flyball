@@ -110,9 +110,10 @@ def run_command(
         raise HTTPException(status_code=422, detail=str(e)) from e
     try:
         request = TypeAdapter(command_request(dialect.steps)).validate_python(body)
-    except ValidationError as e:
+        step = request.parse()
+    except ValueError as e:  # a ValidationError, or the step's own check on its arguments
         raise HTTPException(status_code=422, detail=str(e)) from e
-    programmer.start(request.parse(), cancel=cancel)
+    programmer.start(step, cancel=cancel)
     return programmer.state
 
 

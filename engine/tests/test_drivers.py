@@ -1,4 +1,4 @@
-"""Drivers from a directory: loaded, reloaded, listed; a text link queried."""
+"""Drivers from a directory: loaded, reloaded, listed with what each needs; a text link queried."""
 
 from __future__ import annotations
 
@@ -7,6 +7,9 @@ from pathlib import Path
 import pytest
 
 from conftest import TestClient
+from flyball.foundation.device import Device, DriverConfig, Input, Readout
+from flyball.foundation.quantities import Quantity
+from flyball.foundation.quantities.si import Percent
 from flyball.interfaces.server import create_app, set_rig
 from flyball.interfaces.server.deps import set_drivers_dir
 from flyball.rig import Rig
@@ -77,8 +80,8 @@ def test_the_routes_list_reload_and_query(drivers: Path) -> None:
     try:
         with TestClient(create_app()) as c:
             listed = c.get("/api/drivers").json()
-            assert "sim_daq" in listed and listed["sim_daq"]["role"] == "driver"
-            assert "sim_plant" in listed and listed["sim_plant"]["role"] == "link"
+            assert "sim_daq" in listed and listed["sim_daq"]["kind"] == "driver"
+            assert "sim_plant" in listed and listed["sim_plant"]["kind"] == "link"
             assert "properties" in listed["sim_daq"]["schema"]
             r = c.post("/api/drivers/reload")
             assert r.status_code == 200 and r.json()["registered"] == {"probe": ["test_probe_1"]}
@@ -97,3 +100,66 @@ def test_the_routes_list_reload_and_query(drivers: Path) -> None:
     finally:
         set_drivers_dir(None)
         set_rig(None)
+
+
+class Blend(Device):
+    """Two supplies in, a mix out."""
+
+    dry = Input("dry", "Dry supply", Quantity("humidity", Percent))
+    wet = Input("wet")
+    mix = Readout("mix", "Mix", Quantity("humidity", Percent))
+
+
+class BlendConfig(DriverConfig[Blend], type="test_blend"):
+    """Mixes two supplies, each another device's signal.
+
+    Nothing to talk to: no link.
+    """
+
+    category = "derived"
+
+    def build(self, name: str, label: str | None = None) -> Blend:
+        return Blend(name, label)
+
+
+def test_the_list_says_what_each_driver_requires(_catalog) -> None:
+    _catalog.register_device(BlendConfig)
+    set_rig(Rig("r"))
+    try:
+        with TestClient(create_app()) as c:
+            listed = c.get("/api/drivers").json()
+    finally:
+        set_rig(None)
+        _catalog.devices.unregister("test_blend")
+    blend = listed["test_blend"]
+    assert blend["summary"] == "Mixes two supplies, each another device's signal."
+    assert blend["category"] == "derived"
+    assert blend["requires"] == {
+        "link": [],
+        "family": None,
+        "inputs": [
+            {
+                "name": "dry",
+                "label": "Dry supply",
+                "kind": "signal",
+                "optional": False,
+                "quantity": "humidity",
+                "unit": "%",
+            },
+            {
+                "name": "wet",
+                "label": "wet",  # none declared: the name in words (D-086)
+                "kind": "signal",
+                "optional": False,
+                "quantity": "wet",
+                "unit": "",
+            },
+        ],
+    }
+    assert "addresses" not in blend
+    daq = listed["sim_daq"]
+    assert daq["requires"]["family"] == "plant" and "sim_plant" in daq["requires"]["link"]
+    assert daq["requires"]["inputs"] == [] and "category" not in daq
+    assert listed["sim_plant"]["family"] == "plant" and "requires" not in listed["sim_plant"]
+    assert listed["scpi"]["requires"]["link"] == ["fake_text", "serial", "visa"]
+    assert listed["modbus"]["requires"]["family"] == "modbus"

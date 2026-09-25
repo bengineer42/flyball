@@ -1,4 +1,4 @@
-"""Engine's own `flyball.configs` entry point: built-in laws, feedforwards, generators, `values`.
+"""Engine's own `flyball.configs` entry point: built-in laws, feedforwards, generators, devices.
 
 Engine registers its own built-ins through the same mechanism as every
 extension -- no special-cased "what's compiled in" path. Declared in
@@ -11,6 +11,7 @@ reachable from everywhere, so importing them here is no different from
 base from its old home.
 """
 
+from flyball.foundation.device.derived import CurveConfig
 from flyball.foundation.device.values import ValuesConfig
 from flyball.model.catalog import Catalogs
 from flyball.model.feedforward import Identity, NoFeedforward
@@ -38,3 +39,4 @@ def register(catalog: Catalogs) -> None:
     catalog.register_generator(LinearRampSetpoint)
     catalog.register_generator(Profile)
     catalog.register_device(ValuesConfig)
+    catalog.register_device(CurveConfig)

@@ -23,11 +23,27 @@ class FakePymodbusClient:
         pass
 
     def read_holding_registers(self, address: int, count: int, device_id: int):
-        self.calls.append(("read", address, count, device_id))
+        self.calls.append(("read_holding_registers", address, count, device_id))
         return type("Result", (), {"isError": lambda self: False, "registers": [42] * count})()
 
+    def read_input_registers(self, address: int, count: int, device_id: int):
+        self.calls.append(("read_input_registers", address, count, device_id))
+        return type("Result", (), {"isError": lambda self: False, "registers": [42] * count})()
+
+    def read_coils(self, address: int, count: int, device_id: int):
+        self.calls.append(("read_coils", address, count, device_id))
+        return type("Result", (), {"isError": lambda self: False, "bits": [True] * 8})()
+
+    def read_discrete_inputs(self, address: int, count: int, device_id: int):
+        self.calls.append(("read_discrete_inputs", address, count, device_id))
+        return type("Result", (), {"isError": lambda self: False, "bits": [False] * 8})()
+
     def write_registers(self, address: int, values: list[int], device_id: int):
-        self.calls.append(("write", address, values, device_id))
+        self.calls.append(("write_registers", address, values, device_id))
+        return type("Result", (), {"isError": lambda self: False})()
+
+    def write_coil(self, address: int, value: bool, device_id: int):
+        self.calls.append(("write_coil", address, value, device_id))
         return type("Result", (), {"isError": lambda self: False})()
 
 
@@ -36,13 +52,44 @@ class TestModbusLink:
         client = FakePymodbusClient()
         link = ModbusLink(client)
         assert link.read_registers(100, 2, unit=7) == [42, 42]
-        assert client.calls == [("read", 100, 2, 7)]
+        assert client.calls == [("read_holding_registers", 100, 2, 7)]
 
     def test_write_registers_passes_device_id_not_slave(self):
         client = FakePymodbusClient()
         link = ModbusLink(client)
         link.write_registers(100, [1, 2], unit=7)
-        assert client.calls == [("write", 100, [1, 2], 7)]
+        assert client.calls == [("write_registers", 100, [1, 2], 7)]
+
+    def test_holding_kind_uses_fc03_and_fc16(self):
+        client = FakePymodbusClient()
+        link = ModbusLink(client)
+        link.read_registers(100, 1, unit=1, kind="holding")
+        link.write_registers(100, [1], unit=1, kind="holding")
+        assert [call[0] for call in client.calls] == ["read_holding_registers", "write_registers"]
+
+    def test_input_kind_uses_fc04_and_is_read_only(self):
+        client = FakePymodbusClient()
+        link = ModbusLink(client)
+        assert link.read_registers(100, 1, unit=1, kind="input") == [42]
+        assert client.calls == [("read_input_registers", 100, 1, 1)]
+        with pytest.raises(ValueError, match="read-only"):
+            link.write_registers(100, [1], unit=1, kind="input")
+
+    def test_discrete_kind_uses_fc02_and_is_read_only(self):
+        client = FakePymodbusClient()
+        link = ModbusLink(client)
+        assert link.read_registers(100, 1, unit=1, kind="discrete") == [0]
+        assert client.calls == [("read_discrete_inputs", 100, 1, 1)]
+        with pytest.raises(ValueError, match="read-only"):
+            link.write_registers(100, [1], unit=1, kind="discrete")
+
+    def test_coil_kind_uses_fc01_and_fc05(self):
+        client = FakePymodbusClient()
+        link = ModbusLink(client)
+        assert link.read_registers(100, 1, unit=1, kind="coil") == [1]
+        link.write_registers(100, [1], unit=1, kind="coil")
+        assert [call[0] for call in client.calls] == ["read_coils", "write_coil"]
+        assert client.calls[1] == ("write_coil", 100, True, 1)
 
 
 class TestModbusRegister:
@@ -64,6 +111,75 @@ class TestModbusRegister:
     def test_an_input_register_cannot_be_written(self):
         with pytest.raises(ValidationError, match="input register cannot be written"):
             ModbusRegister(address=1, kind="input", unit="°C", write=True)
+
+    def test_a_discrete_register_cannot_be_written(self):
+        with pytest.raises(ValidationError, match="discrete register cannot be written"):
+            ModbusRegister(address=1, kind="discrete", unit="1", write=True)
+
+    def test_a_coil_or_discrete_register_takes_no_format_scale_or_offset(self):
+        with pytest.raises(ValidationError, match="no format, scale or offset"):
+            ModbusRegister(address=1, kind="coil", unit="1", format="u32")
+        with pytest.raises(ValidationError, match="no format, scale or offset"):
+            ModbusRegister(address=1, kind="discrete", unit="1", scale=2.0)
+        with pytest.raises(ValidationError, match="no format, scale or offset"):
+            ModbusRegister(address=1, kind="coil", unit="1", offset=1.0)
+
+
+class TestModbusRegisterCodec:
+    """Decode/encode round trips for each `format`, and `word_order` for the 32-bit ones."""
+
+    def test_u16_round_trip(self):
+        reg = ModbusRegister(address=1, unit="1", format="u16")
+        assert reg.word_count == 1
+        assert reg.decode([65535]) == 65535.0
+        assert reg.encode(65535.0) == [65535]
+
+    def test_i16_round_trip_negative(self):
+        reg = ModbusRegister(address=1, unit="1", format="i16")
+        assert reg.decode([0xFFFF]) == -1.0
+        assert reg.encode(-1.0) == [0xFFFF]
+        assert reg.decode([1234]) == 1234.0
+
+    def test_u32_round_trip_big_endian(self):
+        reg = ModbusRegister(address=1, unit="1", format="u32", word_order="big")
+        assert reg.word_count == 2
+        assert reg.decode([0x0001, 0x0000]) == 65536.0
+        assert reg.encode(65536.0) == [0x0001, 0x0000]
+
+    def test_u32_round_trip_little_endian(self):
+        reg = ModbusRegister(address=1, unit="1", format="u32", word_order="little")
+        assert reg.decode([0x0000, 0x0001]) == 65536.0
+        assert reg.encode(65536.0) == [0x0000, 0x0001]
+
+    def test_i32_round_trip_negative(self):
+        reg = ModbusRegister(address=1, unit="1", format="i32")
+        assert reg.decode([0xFFFF, 0xFFFF]) == -1.0
+        assert reg.encode(-1.0) == [0xFFFF, 0xFFFF]
+
+    def test_f32_round_trip_big_endian_alicat_style(self):
+        reg = ModbusRegister(address=1, unit="1", format="f32", word_order="big")
+        words = reg.encode(1.5)
+        assert words == [0x3FC0, 0x0000]
+        assert reg.decode(words) == pytest.approx(1.5)
+
+    def test_f32_round_trip_little_endian(self):
+        reg = ModbusRegister(address=1, unit="1", format="f32", word_order="little")
+        words = reg.encode(1.5)
+        assert words == [0x0000, 0x3FC0]
+        assert reg.decode(words) == pytest.approx(1.5)
+
+    def test_scale_and_offset_apply_after_decoding(self):
+        reg = ModbusRegister(address=1, unit="°C", format="i16", scale=0.1, offset=-40.0)
+        # raw 500 -> 500 * 0.1 - 40 = 10.0
+        assert reg.decode([500]) == pytest.approx(10.0)
+        assert reg.encode(10.0) == [500]
+
+    def test_coil_decodes_and_encodes_as_a_plain_bit(self):
+        reg = ModbusRegister(address=1, kind="coil", unit="1")
+        assert reg.decode([1]) == 1.0
+        assert reg.decode([0]) == 0.0
+        assert reg.encode(1.0) == [1]
+        assert reg.encode(0.0) == [0]
 
 
 class TestModbus:
@@ -111,6 +227,45 @@ class TestModbus:
     def test_blocking_is_true_for_a_real_bus_false_for_a_fake(self):
         dev = Modbus("d", FakeRegisterLink({}), {"a": ModbusRegister(address=1, unit="1")})
         assert dev.blocking is False
+
+    def test_read_and_write_pass_the_registers_own_kind_to_the_link(self):
+        link = FakeRegisterLink({100: 7})
+        dev = Modbus(
+            "d",
+            link,
+            {
+                "holding": ModbusRegister(address=100, unit="1"),
+                "input": ModbusRegister(address=200, kind="input", unit="1"),
+                "coil": ModbusRegister(address=300, kind="coil", unit="1", write=True),
+            },
+        )
+        list(dev.read(0))
+        assert {r[0] for r in link.reads} == {"holding", "input", "coil"}
+
+        coil = dev.signals["coil"]
+        dev.apply(coil, 1, 1.0)
+        dev.commit(1)
+        assert link.writes == [("coil", 300, [1])]
+
+    def test_f32_big_endian_round_trips_through_the_fake_link(self):
+        """Alicat-style MFCs: a big-endian float32 over two holding registers."""
+        link = FakeRegisterLink({})
+        mfc = Modbus(
+            "mfc",
+            link,
+            {"flow": ModbusRegister(address=10, unit="slm", format="f32", word_order="big")},
+        )
+        flow = mfc.signals["flow"]
+        mfc.apply(flow, 1, 2.5)
+        mfc.commit(1)
+        (sample,) = mfc.read(2)
+        assert sample.by_name() == pytest.approx({"flow": 2.5})
+
+    def test_input_kind_is_read_only_on_the_signal_spec(self):
+        dev = Modbus(
+            "d", FakeRegisterLink({}), {"a": ModbusRegister(address=1, kind="input", unit="1")}
+        )
+        assert dev.signals["a"].access == Access.RP
 
 
 # region A small rig, over a fake_registers link

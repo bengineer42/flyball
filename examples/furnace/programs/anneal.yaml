@@ -9,20 +9,30 @@
 # is taken up more gently and released first, so the steps show `controllers`
 # selecting a subset, `ramp ... wait: false` starting a ramp without waiting
 # for it, and `settle` waiting on only the controllers that matter.
-# About 6 h of furnace time.
+#
+# The sample has no controller: it lags zone 2 by minutes. `settle` on its
+# signal waits for it, so the soak is timed from when the sample is at 700,
+# not from a guess, and the program ends when the sample is cool enough to
+# unload. `manual` keeps a heater's last output, so each release is followed
+# by a `set` to 0 for that zone to coast.
+# About 7 h of furnace time.
 name: anneal
 description: >-
-  Up fast, a 90-minute soak at 700 °C, then a driven 2 °C/min cooldown to 300
-  and a coast to 50. The end zone is taken up more gently and released first.
+  Up fast, a 90-minute soak once the sample reads 700 °C, then a driven 2 °C/min
+  cooldown to 300 and a coast until the sample reads under 60. The end zone is
+  taken up more gently and released first.
 steps:
   - regulate: { controllers: [heaters.heater1, heaters.heater2, heaters.heater3], setpoint: 20 }
   - ramp: { controllers: [heaters.heater1, heaters.heater2], to: 700, per_minute: 15, wait: false }   # the hot zones go up fast...
   - ramp: { controllers: [heaters.heater3], to: 650, per_minute: 10 }                         # ...while the end zone follows; this one blocks
   - settle: { controllers: [heaters.heater1, heaters.heater2], within: 3, count: 10, timeout: { minutes: 30 } }
-  - wait: { duration: { minutes: 90 }, message: "soak at 700; the sample catches up" }
+  - settle: { signal: furnace.sample, near: 700, within: 5, count: 15, timeout: { hours: 1 }, message: "the sample catches up to 700" }
+  - wait: { duration: { minutes: 90 }, message: "soak: the sample at 700" }
   - ramp: { controllers: [heaters.heater1, heaters.heater2, heaters.heater3], to: 300, per_minute: 2 }     # 200 min, driven
   - wait: { duration: { minutes: 10 }, message: "at 300" }
-  - manual: [heaters.heater3]                                                        # the end zone coasts from here
+  - manual: [heaters.heater3]                                                        # the end zone coasts from here...
+  - set: { device: heaters, values: { heater3: 0 } }                                 # ...once its heater is off
   - ramp: { controllers: [heaters.heater1, heaters.heater2], to: 50, per_minute: 10 }               # faster than it can cool
   - manual: [heaters.heater1, heaters.heater2]
-  - prompt: { message: "unload when the sample reads under 60", timeout: { hours: 2 } }
+  - set: { device: heaters, values: { heater1: 0, heater2: 0 } }
+  - settle: { signal: furnace.sample, below: 60, timeout: { hours: 3 }, message: "cool enough to unload" }

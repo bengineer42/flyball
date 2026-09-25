@@ -134,7 +134,7 @@ same as it always has for a step that cannot even be applied.
 | `regulate` | `setpoint` (primary), `controllers?`, `tuning?` | aim a controller at `setpoint` and let its law drive; returns at once |
 | `ramp` | `to` (primary), `pace` as `per_minute: 5` or `minutes: 20` flat, `controllers?`, `wait=True` | walk the setpoint to `to`; waits for arrival unless `wait: false` |
 | `wait` | `duration` (primary, `minutes: 10` flat *without* `message`), `message?`, `timeout?` | keep everything as it is; controllers go on regulating |
-| `settle` | `controllers?` (primary), `within=1.0`, `count=3`, `timeout?`, `message?` | wait until the named controllers settle within `within` of their setpoints for `count` consecutive readings |
+| `settle` | `controllers?` (primary), `within=1.0`, `count=3`, `timeout?`, `message?`; or `signal`, `above` and/or `below`, or `near`+`within`, `from_start?`, `on_no_value?`, `count=3`, `timeout?`, `message?` | wait until the named controllers settle within `within` of their setpoints for `count` consecutive readings, or until a signal meets a test for `count` readings running: [Waiting on a signal](#waiting-on-a-signal) |
 | `manual` | `controllers?` (primary) | stop a controller regulating; its target keeps its last demand |
 | `set` | `device`, `values: {name: value}` | put `values` on `device`'s writable signals, as one demand |
 | `run` | `command`, `device`, `args?` | call one of `device`'s own commands, exactly as `POST /api/devices/{name}/commands/{command}` would |
@@ -158,6 +158,48 @@ it is set aside first, so `wait: {minutes: 20, timeout: {minutes: 30}}` folds
 only `duration` (`{minutes: 20}`) flat, and a step whose only time field is
 `timeout` -- `prompt`, `settle` -- takes no flat keys at all. `wait`'s flat
 folding stops the moment `message` is set: see [Time](#time) above.
+
+## Waiting on a signal
+
+`settle` names either controllers or a `signal`, never both. Named a
+signal, it waits until that signal's readings meet a **criterion** for
+`count` readings running -- a signal no controller need regulate:
+
+```yaml
+- settle: {signal: furnace.sample, near: 700, within: 5, count: 15, timeout: {hours: 1}}
+- settle: {signal: furnace.sample, below: 60, timeout: {hours: 3}, message: "cool enough to unload"}
+- settle: {signal: scale.mass, above: 36, from_start: true, count: 5}      # 36 g more than at the start
+```
+
+| key | means |
+| --- | --- |
+| `signal` | the address of a published signal |
+| `above: v` | met while the value is above `v` (not at it) |
+| `below: v` | met while the value is below `v` (not at it) |
+| `near: v`, `within: tol` | met while the value is within `tol` of `v`, either side, inclusive |
+| `from_start` | `v` is relative to the signal's value when the step starts: `above: 36` is 36 more than it was. With no value then, the first reading with one sets it (and is not judged itself) |
+| `count` | readings running that must meet it; one that does not resets the count (default 3) |
+| `on_no_value` | `ignore` (the default): a reading with no value is not met and resets the count, so a dead sensor waits for `timeout`. `fire`: a reading with no value because of a fault (`invalid`, `stale`) counts as met |
+
+Give `above`, `below`, both (a band: met strictly between them, `above`
+under `below`), or `near` alone, with `within` only beside `near`. Each reading is judged as it arrives, from the step's start: the
+reading already there when the step starts is not. A reading at a limit
+(the caveat `at_limit`: the sensor railed, so the true value may lie
+beyond it) resets the count, as it does for the controller form. `pending`
+and `not_applicable` never meet a criterion, even under `fire`.
+
+The signal is resolved once, when the step starts: an address that does not
+resolve, or names a namespace, fails the step. While the step waits, the
+device page lists it among the signal's consumers as `program.inputs.settle`;
+the step lets go of the signal when it ends, however it ends. Its activity
+is named `settle:<signal>`, and its message says the test
+(`furnace.sample below 60 for 3 readings`) unless `message` replaces it.
+A timeout ends the program `failed` with a `step_timed_out` event, exactly
+as the controller form's does.
+
+`settle: {controllers: …, signal: …}` is refused ("not both: write two
+steps"), and so are `above`, `below`, `near`, `from_start` and
+`on_no_value` without `signal`.
 
 `set` reaches a device directly rather than through a controller: it is
 `rig.write` in a step, and fails the same way a demand does -- 409 for a
@@ -197,4 +239,6 @@ program check programs/firing.yaml` validates it against a running rig;
 file's body runs it, at the file's 60× clock a two-hour firing in two
 minutes. The same directory's `step-test.yaml` and `load-sample.yaml` are
 worked examples of `regulate` used as a step change (autotuning) and of
-`prompt` used for an operator prompt.
+`prompt` used for an operator prompt; `anneal.yaml` times its soak from
+when `furnace.sample` -- a signal no controller regulates -- reaches 700,
+and ends when it reads under 60.

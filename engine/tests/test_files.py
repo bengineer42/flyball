@@ -69,6 +69,22 @@ def test_dumps_unknown_suffix_raises():
         dumps({}, ".ini")
 
 
+def test_a_yaml_merge_key_brings_in_an_anchor_and_a_written_key_overrides_it():
+    text = "base: &base {a: 1, b: 2}\nc:\n  <<: *base\n  b: 3\n"
+    assert loads(text, ".yaml") == {"base": {"a": 1, "b": 2}, "c": {"a": 1, "b": 3}}
+
+
+def test_a_yaml_merge_key_takes_a_list_of_anchors_the_first_winning():
+    text = "x: &x {a: 1, b: 1}\ny: &y {b: 2, c: 2}\nz:\n  <<: [*x, *y]\n  d: 4\n"
+    assert loads(text, ".yaml")["z"] == {"a": 1, "b": 1, "c": 2, "d": 4}
+
+
+def test_a_repeated_written_key_beside_a_merge_key_is_still_refused():
+    with pytest.raises(ValueError, match="'b'") as info:
+        loads("base: &base {a: 1}\nc:\n  <<: *base\n  b: 2\n  b: 3\n", ".yaml")
+    assert "line 5" in str(info.value)
+
+
 def test_atomic_write_keeps_an_existing_files_mode(tmp_path):
     import os
     import stat

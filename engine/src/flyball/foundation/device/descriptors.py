@@ -235,6 +235,11 @@ class Input(Descriptor["InputBinding"]):
     that binds it to nothing is refused at load. It has no `Role` and no
     access: an input is a binding, never a signal of this device, so it is
     told apart by its type and never becomes a `SignalSpec`.
+
+    An `optional` input may be left out of the rig file: it is then unbound
+    (`binding.bound` false, `value` raises `NotReadyError`) and the driver
+    does without it -- an EZO probe reads uncompensated with no `temperature`.
+    It still never takes a default value.
     """
 
     def __init__(
@@ -244,6 +249,7 @@ class Input(Descriptor["InputBinding"]):
         quantity: Quantity | None = None,
         vtype: Any = float,
         *,
+        optional: bool = False,
         parent: Namespace | None = None,
         **meta: Any,
     ) -> None:
@@ -253,6 +259,7 @@ class Input(Descriptor["InputBinding"]):
                 f" file instead (`inputs: {{{name}: 36.5}}`)"
             )
         super().__init__(name, label, quantity, vtype, access=Access(0), parent=parent, **meta)
+        self.optional = optional
 
     def on(self, device: Device) -> InputBinding:
         """What this input is on an instance: the binding the rig resolves."""

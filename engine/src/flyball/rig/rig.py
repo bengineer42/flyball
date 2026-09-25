@@ -52,6 +52,7 @@ from flyball.foundation.device import (
     normalised,
     stale,
 )
+from flyball.foundation.device.derived import Derived
 from flyball.foundation.device.values import Values
 from flyball.foundation.errors import ConflictError, NotFoundError, NotReadyError
 from flyball.foundation.keys import Keyed, canonical, humanise
@@ -682,12 +683,12 @@ class Rig:
             AddressNotFoundError: An address does not resolve; names it.
             ConflictError: A declared input left out, or a name the driver does
                 not declare; a signal that does not publish, or a node with
-                nothing published under it; a cycle through `inputs:`, named
-                (nothing of this call stays bound).
+                nothing published under it (any node, for a derived device); a
+                cycle through `inputs:`, named (nothing of this call stays bound).
         """
         declared = type(device).INPUTS
         if declared:
-            if missing := [name for name in declared if name not in inputs]:
+            if missing := [n for n, i in declared.items() if n not in inputs and not i.optional]:
                 raise ConflictError(
                     f"{device.name}: input {', '.join(repr(n) for n in missing)} is neither"
                     " bound nor a number: give `inputs: {"
@@ -725,8 +726,10 @@ class Rig:
         Raises:
             AddressNotFoundError: An address does not resolve.
             ConflictError: A signal that does not publish; a node with nothing
-                published under it; for a device's input, a cycle through
-                inputs back to that device, named (the binding is left unbound).
+                published under it, or any node for a derived device's input,
+                which computes from one signal's value; for a device's input, a
+                cycle through inputs back to that device, named (the binding is
+                left unbound).
             ValueError: A number that is not finite.
         """
         if isinstance(source, str):
@@ -743,6 +746,12 @@ class Rig:
                 if not any(Access.P in s.access for s in target.walk()):
                     raise ConflictError(
                         f"{binding.where}: nothing under '{target.address}' publishes"
+                    )
+                if isinstance(binding.owner, Derived):
+                    # It computes from each input's value, and a namespace has none.
+                    raise ConflictError(
+                        f"{binding.where}: '{target.address}' is a namespace; a derived"
+                        f" device's input follows one signal ('{target.address}.<signal>')"
                     )
             elif isinstance(target, bool) or not math.isfinite(float(target)):
                 raise ValueError(f"{binding.where}: {target!r} is not a finite number")

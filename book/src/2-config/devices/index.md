@@ -183,7 +183,11 @@ devices:
 - **No default.** Every input the driver declares must be given an address
   or a number; one left out, or a name the driver does not declare, is
   refused when the file loads, and `flyball rig check` says which
-  (`device 'blender': input 'dry' is neither bound nor a number`).
+  (`device 'blender': input 'dry' is neither bound nor a number`). The one
+  exception is an input the driver declares **optional** (an EZO probe's
+  `temperature`): it may be left out, and is then unbound -- the driver does
+  without it, and the device page says "not bound (optional)". It is still
+  never given a default, and once bound it behaves as any other input.
 - **A number** has its value from the start, and is always `ok`.
 - **An address** is resolved once, at build: to a signal that publishes, or
   to a namespace with something published under it. Until the signal's
@@ -347,8 +351,10 @@ closed: a signal with no reading yet, or none with a value (`stale`,
 `invalid`, `pending`), refuses the write. A write of the demand's resolved
 stop value is always permitted, and a stop ignores the permissive. A
 controller driving the demand is held (frozen, condition `not_permitted`)
-rather than refused, and resumes when the permissive allows it. Only
-`{signal, above, below}` is built; richer conditions are not.
+rather than refused, and resumes when the permissive allows it. The band is
+the same test a program's `settle` uses on a signal (a **criterion**, see
+[Waiting on a signal](../../1-running/programs/writing.md#waiting-on-a-signal)),
+without `near`, `from_start` or `on_no_value`: a permissive always fails closed.
 
 ## What a device gives you
 

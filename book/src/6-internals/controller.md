@@ -275,6 +275,13 @@ config, and `control/configs.py` registers the built-in tags on a
 | `affine` | `gain · setpoint + bias [+ rate_gain · rate]` | a plant that is linear near one point |
 | `table` | interpolated `(setpoint, output)` points, flat past the ends`[+ rate_gain · rate]` | a static curve measured at commissioning |
 
+`affine` and `table` hand their static part to a
+[`Linear`][flyball.foundation.quantities.curves.Linear] and a
+[`Table`][flyball.foundation.quantities.curves.Table] curve
+(`foundation/quantities/curves.py`), the same objects a calibration uses, so
+interpolation and inversion live in one place. That also sets their limits:
+every number is finite, and a table takes at most 1024 points.
+
 `Controller.__init__` refuses `feedforward=Setpoint()` when the units
 differ (`ConflictError`): handing a heater "300" meaning °C when it takes
 watts would run happily and do nonsense. Without a units mismatch to force

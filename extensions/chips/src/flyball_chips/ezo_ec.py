@@ -1,19 +1,18 @@
-r"""Atlas Scientific EZO-EC: one probe, one ASCII command/response cycle over UART.
+r"""Atlas Scientific EZO-EC: one probe, over UART or I2C, temperature-compensated.
 
 Built from Atlas Scientific's published protocol documentation ("EZO-EC Embedded
 Conductivity Circuit", datasheet v6.7: https://files.atlas-scientific.com/EC_EZO_Datasheet.pdf),
 not from a real device: this driver has never been run against a physical EZO-EC
 circuit or probe.
 
-Protocol, per the datasheet: default UART is 38400 8N1, no flow control (p.12-13,
-"Default state"/"UART mode"). Commands are ASCII strings terminated by a carriage
-return (`\\r`, decimal 13); a single reading is `R\\r`, answered 600ms later
-("Single reading mode", p.21; "EC reading time" p.1). The circuit's `O` command
-(p.28, UART quick reference) enables or disables which of four derived
-parameters the `R` reply carries, in a fixed order -- `EC,TDS,SAL,SG` -- and its
-factory default is **all four enabled** (`O ... default state: all enabled`,
-same quick-reference table). This driver decodes that default: a 4-field CSV
-reply, 3 decimal places (p.13's "Data format" table), e.g.
+**UART**, per the datasheet: default 38400 8N1, no flow control (p.12-13, "Default
+state"/"UART mode"). Commands are ASCII strings terminated by a carriage return (`\\r`,
+decimal 13); a single reading is `R\\r`, answered 600ms later ("Single reading mode",
+p.21; "EC reading time" p.1). The circuit's `O` command (p.28, UART quick reference)
+enables or disables which of four derived parameters the `R` reply carries, in a fixed
+order -- `EC,TDS,SAL,SG` -- and its factory default is **all four enabled** (`O ...
+default state: all enabled`, same quick-reference table). This driver decodes that
+default: a 4-field CSV reply, 3 decimal places (p.13's "Data format" table), e.g.
 `"1413.000,706.500,0.700,1.000\r"`.
 
 [Unverified]: p.21's own worked example under "Single reading mode" shows a
@@ -30,6 +29,28 @@ hardware, not something resolvable from the datasheet alone.
 to derive TDS in ppm) and separate enable/disable of each of the four
 parameters; none of that is modelled here -- this driver only decodes the
 factory-default, all-four-enabled reply.
+
+**I2C** (pp.29-51, "I2C mode"): the same commands, bare ASCII with no `\\r`, at the
+default address 100 (0x64, p.34). The reply is a status byte followed by a
+NULL-terminated string rather than a `<CR>`-terminated one; see `_ezo.py`. Which
+transport a circuit uses is picked from the kind of `link` it is built on
+(`_ezo.EzoTransport`).
+
+**Calibration** (`cal,dry`, `cal,low|high,<value>`, `cal,clear`, `K,<value>`; UART/I2C
+pp.44-47): `cal,dry` is a dry-probe zero point, `cal,low`/`cal,high` are two-point
+conductivity references, `cal,clear` deletes all of them; `K,<value>` sets the probe's
+own cell constant (K 0.1/1.0/10, printed on the probe) rather than a calibration point,
+but is grouped here because it too is a stored-on-the-circuit adjustment, not a
+demand. None of these are `writes=`: they change the probe's own calibration/constant, not
+an output of this device (EZO-EC has none). Each waits its own processing delay (600ms
+for a calibration point, 300ms for `clear`/`K`), so each is `long=True`.
+
+**Temperature compensation** (`T,<value>`/`RT,<value>`; UART/I2C pp.49-50): conductivity
+varies strongly with temperature. If this driver's optional `temperature` input is bound
+and has a value, the combined `RT,<value>` command (900ms: set the compensation
+temperature *and* take a reading in one round trip) replaces the plain `R` (600ms);
+left unbound (it is optional), the reading is uncompensated (the circuit's own default,
+25 C); bound with no value, every output carries the input's quality instead.
 """
 
 from __future__ import annotations
@@ -37,18 +58,44 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from flyball.foundation.config import resolve
-from flyball.foundation.device import DriverConfig, Node, Readable, Readout, Sample
-from flyball.foundation.errors import HardwareError
+from flyball.foundation.device import (
+    DriverConfig,
+    Input,
+    Node,
+    NoValueError,
+    Readable,
+    Readout,
+    Sample,
+    command,
+)
+from flyball.foundation.errors import HardwareError, NotReadyError
 from flyball.foundation.quantities import Quantity, Unit
 from flyball.foundation.quantities.dimensions import Fraction
+from flyball.foundation.quantities.si import Celsius
+from flyball.hardware.i2c import I2cLink
 from flyball.hardware.uart import UartLink
+from pydantic import Field
 
-from flyball_chips._links import UartLinkConfig
+from flyball_chips._links import EzoLinkConfig
 
-from ._ezo import decode_text, read_frame
+from ._ezo import READ_COMMAND, EzoTransport, compensation, decode_text
 
 READ_DELAY_S = 0.6
-"""The datasheet's single-reading mode: the EC,TDS,SAL,SG frame follows 600ms later (p.21)."""
+"""The datasheet's single-reading mode: the EC,TDS,SAL,SG frame follows 600ms later (UART
+p.21, I2C p.46)."""
+COMPENSATED_READ_DELAY_S = 0.9
+"""`RT,<value>`: set the compensation temperature and read, in one round trip (I2C p.50)."""
+TEMPERATURE_DELAY_S = 0.3
+"""`T,<value>` (UART/I2C p.49)."""
+CALIBRATE_DELAY_S = 0.6
+"""`cal,dry` / `cal,low` / `cal,high` (I2C p.46-47)."""
+CALIBRATE_CLEAR_DELAY_S = 0.3
+"""`cal,clear` (I2C p.47)."""
+CELL_CONSTANT_DELAY_S = 0.3
+"""`K,<value>` (I2C p.48)."""
+
+EC_I2C_ADDRESS = 0x64
+"""The default I2C address, 100 (EC datasheet p.34); irrelevant on UART."""
 
 CONDUCTIVITY = Quantity("conductivity", Unit.get("µS/cm"))
 TOTAL_DISSOLVED_SOLIDS = Quantity("total_dissolved_solids", Unit.get("ppm"))
@@ -56,6 +103,7 @@ salinity_unit = Fraction.unit("PSU", "PSU", 1.0, scale=(0.0, 42.0))
 SALINITY = Quantity("salinity", salinity_unit)
 specific_gravity_unit = Fraction.unit("specific gravity", "SG", 1.0, scale=(1.0, 1.3))
 SPECIFIC_GRAVITY = Quantity("specific_gravity", specific_gravity_unit)
+TEMPERATURE = Quantity("temperature", Celsius)
 
 
 def parse_ec(frame: bytes) -> tuple[float, float, float, float]:
@@ -83,23 +131,47 @@ def parse_ec(frame: bytes) -> tuple[float, float, float, float]:
 
 
 class EzoEcProbe:
-    """One EZO-EC circuit on its own UART: command, wait, read, decode."""
+    """One EZO-EC circuit, over UART or I2C: command, wait, read, decode."""
 
-    __slots__ = ("link", "sleep")
+    __slots__ = ("transport",)
 
-    def __init__(self, link: UartLink, sleep: bool = True) -> None:
-        self.link = link
-        self.sleep = sleep
-        """Whether to wait the datasheet's 600ms reading time; off against a fake."""
+    def __init__(
+        self, link: UartLink | I2cLink, i2c_address: int = EC_I2C_ADDRESS, sleep: bool = True
+    ) -> None:
+        self.transport = EzoTransport(link, "EZO-EC", i2c_address, sleep)
 
     def read(self) -> tuple[float, float, float, float]:
-        """`(ec, tds, sal, sg)`: one `R` command, one reading frame (after any `*OK`)."""
-        frame = read_frame(self.link, self.sleep, READ_DELAY_S)
-        return parse_ec(frame)
+        """`(ec, tds, sal, sg)`, uncompensated: one `R` command, one reading frame."""
+        return parse_ec(self.transport.read(READ_COMMAND, READ_DELAY_S))
+
+    def read_at_temperature(self, celsius: float) -> tuple[float, float, float, float]:
+        """`(ec, tds, sal, sg)`: `RT,<celsius>`, setting the compensation and reading in one."""
+        command = f"RT,{celsius}".encode("ascii")
+        return parse_ec(self.transport.read(command, COMPENSATED_READ_DELAY_S))
+
+    def calibrate_dry(self) -> None:
+        """`cal,dry`: the dry-probe zero point, before any wet calibration."""
+        self.transport.write(b"cal,dry", CALIBRATE_DELAY_S)
+
+    def calibrate_low(self, microsiemens: float) -> None:
+        """`cal,low,<microsiemens>`: a low conductivity reference."""
+        self.transport.write(f"cal,low,{microsiemens}".encode("ascii"), CALIBRATE_DELAY_S)
+
+    def calibrate_high(self, microsiemens: float) -> None:
+        """`cal,high,<microsiemens>`: a high conductivity reference."""
+        self.transport.write(f"cal,high,{microsiemens}".encode("ascii"), CALIBRATE_DELAY_S)
+
+    def calibrate_clear(self) -> None:
+        """`cal,clear`: deletes every calibration point."""
+        self.transport.write(b"cal,clear", CALIBRATE_CLEAR_DELAY_S)
+
+    def set_cell_constant(self, k: float) -> None:
+        """`K,<k>`: the probe's cell constant (K 0.1/1.0/10, printed on the probe body)."""
+        self.transport.write(f"K,{k}".encode("ascii"), CELL_CONSTANT_DELAY_S)
 
 
 class EzoEc(Readable):
-    """One EZO-EC probe on the device root: the four `O`-default outputs, one UART round trip."""
+    """One EZO-EC probe on the device root: the four `O`-default outputs; `temperature` optional."""
 
     conductivity = Readout(
         "conductivity", quantity=CONDUCTIVITY, range=(0.07, 500_000.0), precision=3
@@ -114,24 +186,46 @@ class EzoEc(Readable):
     specific_gravity = Readout(
         "specific_gravity", quantity=SPECIFIC_GRAVITY, range=(1.0, 1.3), precision=3
     )
+    temperature = Input("temperature", quantity=TEMPERATURE, optional=True)
+    """Bound and valued: `RT,<value>` replaces the plain `R`. Otherwise the reading is
+    uncompensated (the circuit's own default, 25 C) when unbound; bound with no value, every
+    output carries the input's quality."""
 
     def __init__(
         self,
         name: str,
-        link: UartLink,
+        link: UartLink | I2cLink,
+        i2c_address: int = EC_I2C_ADDRESS,
         sleep: bool = True,
         label: str | None = None,
     ) -> None:
         super().__init__(name, label)
         self.link = link
-        self.probe = EzoEcProbe(link, sleep)
+        self.probe = EzoEcProbe(link, i2c_address, sleep)
 
     @property
     def config(self) -> EzoEcConfig:
-        return EzoEcConfig(link="")
+        return EzoEcConfig(link="", i2c_address=self.probe.transport.i2c_address)
 
     def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
-        ec, tds, sal, sg = self.probe.read()
+        try:
+            given = compensation(self.temperature)
+        except NoValueError as error:  # bound, and what it follows has no value: nor do these
+            no_value = error.no_value
+            yield self.sample(
+                time_ns,
+                conductivity=no_value,
+                total_dissolved_solids=no_value,
+                salinity=no_value,
+                specific_gravity=no_value,
+            )
+            return
+        except NotReadyError:  # bound, nothing read yet: no reading this time
+            return
+        if "temperature" in given:
+            ec, tds, sal, sg = self.probe.read_at_temperature(given["temperature"])
+        else:
+            ec, tds, sal, sg = self.probe.read()
         yield self.sample(
             time_ns,
             conductivity=ec,
@@ -140,26 +234,78 @@ class EzoEc(Readable):
             specific_gravity=sg,
         )
 
+    @command(long=True)
+    def calibrate_dry(self) -> None:
+        """`cal,dry`: the dry-probe zero point, before any wet calibration.
+
+        Not `writes=`: it changes the probe's own stored calibration, not an output of
+        this device.
+        """
+        self.probe.calibrate_dry()
+
+    @command(long=True)
+    def calibrate_low(self, microsiemens: float) -> None:
+        """`cal,low,<microsiemens>`: a low conductivity reference.
+
+        Not `writes=`; see `calibrate_dry`.
+        """
+        self.probe.calibrate_low(microsiemens)
+
+    @command(long=True)
+    def calibrate_high(self, microsiemens: float) -> None:
+        """`cal,high,<microsiemens>`: a high conductivity reference.
+
+        Not `writes=`; see `calibrate_dry`.
+        """
+        self.probe.calibrate_high(microsiemens)
+
+    @command(long=True)
+    def calibrate_clear(self) -> None:
+        """`cal,clear`: deletes every calibration point. Not `writes=`; see `calibrate_dry`."""
+        self.probe.calibrate_clear()
+
+    @command(long=True)
+    def set_cell_constant(self, k: float) -> None:
+        """`K,<k>`: the probe's cell constant (K 0.1/1.0/10, printed on the probe body).
+
+        Not `writes=`: it changes the probe's own stored constant, not an output of this
+        device.
+        """
+        self.probe.set_cell_constant(k)
+
 
 class EzoEcConfig(DriverConfig[EzoEc], type="ezo_ec"):
-    """One EZO-EC circuit, alone on its UART."""
+    """One EZO-EC circuit, on its own UART or at an I2C `i2c_address` (default 0x64)."""
 
-    link: UartLinkConfig | str  # type: ignore[valid-type]
+    link: EzoLinkConfig | str  # type: ignore[valid-type]
+    i2c_address: int = Field(
+        default=EC_I2C_ADDRESS,
+        ge=0x03,
+        le=0x77,
+        description="The I2C address; ignored when the circuit is wired for UART.",
+    )
 
     def build(self, name: str, label: str | None = None) -> EzoEc:
         if isinstance(self.link, str):
             raise TypeError(f"link {self.link!r} must be resolved to a bus before building")
-        return EzoEc(name, resolve(self.link), label=label)
+        return EzoEc(name, resolve(self.link), self.i2c_address, label=label)
 
 
 EzoEc.config_type = EzoEcConfig  # the config is declared after the device it builds
 
 
 __all__ = [
+    "CALIBRATE_CLEAR_DELAY_S",
+    "CALIBRATE_DELAY_S",
+    "CELL_CONSTANT_DELAY_S",
+    "COMPENSATED_READ_DELAY_S",
     "CONDUCTIVITY",
+    "EC_I2C_ADDRESS",
     "READ_DELAY_S",
     "SALINITY",
     "SPECIFIC_GRAVITY",
+    "TEMPERATURE",
+    "TEMPERATURE_DELAY_S",
     "TOTAL_DISSOLVED_SOLIDS",
     "EzoEc",
     "EzoEcConfig",

@@ -220,7 +220,7 @@ Reading and saving are never gated. Attaching a controller
 | `GET` | `/api/rig/versions` | `[{id, time_ns, reason, files, parent, head}]`, newest first; `?limit=`. `parent`: the version this was made from (the head when it was saved; `null` for a first); `head`: the version the running rig is at, or is restarting to |
 | `GET` | `/api/rig/versions/{id}` | the same with `document` |
 | `POST` | `/api/rig/versions/{id}/restore` | make the rig that version again, whole: 202 `RigEditOut`, a new version `restored from {id}` on top of the head (its `parent`), built fresh at the restart; 404 no such version; 409 if the rig already is it |
-| `GET` | `/api/drivers` | every registered type: `{role: "driver" \| "link", module, description, schema}` (`schema_error` in place of `schema` if pydantic cannot build one) |
+| `GET` | `/api/drivers` | every registered type by its tag, a [`DriverOut`](wire.md#drivers-and-links): `{kind: "driver" \| "link", module, description, summary, schema}` (`schema_error` in place of `schema` if pydantic cannot build one); a link adds its `family`; a driver adds `requires: {link, family, inputs}` -- the link types it takes (fakes and simulations included), their family, and the inputs its device declares -- and, where it has them, `category` and `addresses` (the I²C address it defaults to). Needs only the `read` verb, so under `anonymous: read` anyone who can reach the door may list it: it lists what this runner can build, not the rig |
 | `POST` | `/api/drivers/reload` | re-import the runner's drivers directory (`--drivers`, default `drivers/` beside the first rig file): `{directory, registered: {file: [tags]}, errors: {file: message}}`; a file's earlier tags are dropped first, so an edited driver re-registers; 404 with no directory |
 | `POST` | `/api/probe` | `{report}`: the board's buses, GPIO chips and I²C addresses (flyball-linux); `?scan=false` for the list without a bus transaction; 404 where it is not installed. A `POST` because a scan drives every I²C bus |
 | `POST` | `/api/links/{name}/query` | body `{text}`; `{reply}` from a text link's `query()`; 409 for a link that is not one |
@@ -292,7 +292,7 @@ stopped, or that gave up (`reads.give_up_after_s`).
 A signal in the tree is `{name, address, access, role, tags, label,
 quantity, unit, dimension, dtype, shape, range, precision, warning, alarm,
 poll_s, stale_after_s, limits, initial, quality, readback, on_no_value,
-latest, last_usable, write}`: `stale_after_s` the liveness threshold the rig
+latest, last_usable, write, raw?, raw_for?}`: `stale_after_s` the liveness threshold the rig
 judges it by now (its own, else `max(3·poll_s, 5 s)` while its device is
 polled; null when it is not judged --
 [Liveness](../2-config/devices/index.md#liveness-a-signal-that-stops-arriving)), `access` is the set in force as letters (`rp`, `w`,
@@ -306,7 +306,10 @@ unbanded), `latest` `{time_ns, value, quality, reason?, caveats?}` once it
 has been read (null before; `value` null when the reading has none),
 `last_usable` the newest reading that had a value while `latest` has none
 (null otherwise), `write` a `WriteOut` for a writable signal once it has
-been set. A namespace is `{name, address, atomic, label,
+been set, and `raw` / `raw_for` pair a raw signal with the engineering
+signals computed from it
+([Raw and engineering signals](wire.md#raw-and-engineering-signals); absent
+on any other). A namespace is `{name, address, atomic, label,
 poll_s, signals: [...]}`, nesting the same shapes.
 
 A `WriteOut` is `{value, requested, at_limit, controller}`: what was last
