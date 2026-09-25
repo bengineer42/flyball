@@ -258,6 +258,7 @@ def _session_row(row: sqlite3.Row) -> SessionRow:
         pinned=bool(row["pinned"]),
         continues=row["continues"],
         bytes=row["bytes"],
+        packages=_loads(row["packages"]),
     )
 
 
@@ -679,6 +680,7 @@ class SqliteStore:
         rig_version_id: int | None = None,
         kind: SessionKind = "session",
         continues: int | None = None,
+        packages: Mapping[str, str] | None = None,
     ) -> SqliteSessionWriter:
         with self._transaction() as connection:
             session_id = self._insert_session(
@@ -691,6 +693,7 @@ class SqliteStore:
                 rig_version_id,
                 kind,
                 continues,
+                packages=packages,
             )
         return SqliteSessionWriter(self, self.session(session_id))
 
@@ -706,16 +709,19 @@ class SqliteStore:
         kind: SessionKind,
         continues: int | None,
         end_ns: int | None = None,
+        packages: Mapping[str, str] | None = None,
     ) -> int:
         """Within the caller's transaction."""
         cursor = connection.execute(
-            "INSERT INTO session (start_ns, origin_ns, end_ns, flyball_version, config, hardware,"
-            " details, rig_version_id, kind, continues) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO session (start_ns, origin_ns, end_ns, flyball_version, packages, config,"
+            " hardware, details, rig_version_id, kind, continues)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 start_ns,
                 start_ns,
                 end_ns,
                 flyball_version,
+                None if packages is None else _dumps(dict(packages)),
                 _dumps(config),
                 _dumps(hardware),
                 _dumps(details),
@@ -926,6 +932,7 @@ class SqliteStore:
                 kind,
                 None,
                 end_ns=end_ns,
+                packages=source.packages,
             )
             for table, columns in (
                 ("device", "id, address, driver, config, label"),

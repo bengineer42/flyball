@@ -1146,6 +1146,8 @@ export interface SessionRow {
   config: unknown;
   hardware: unknown;
   details: unknown;
+  /** Each installed distribution registering `flyball.configs` when it was recorded, name to version. */
+  packages?: Record<string, string> | null;
   /**
    * `"scratch"`: the rolling record the runner keeps while nothing is being
    * recorded (the last `keep` of the rig's clock, trimmed continuously),

@@ -125,7 +125,15 @@ class Store(Protocol):
         rig_version_id: int | None = None,
         kind: SessionKind = "session",
         continues: int | None = None,
-    ) -> SessionWriter: ...
+        packages: Mapping[str, str] | None = None,
+    ) -> SessionWriter:
+        """A new session, open.
+
+        `flyball_version` and `packages` (each installed distribution that registers
+        `flyball.configs`, by name, with its version) say what recorded it; `hardware` what
+        it ran on. The recorder fills all three at open.
+        """
+        ...
 
     def sessions(
         self, limit: int | None = None, kind: SessionKind | None = None
