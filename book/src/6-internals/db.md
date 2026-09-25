@@ -136,12 +136,21 @@ databroker consume. `write_jsonl` saves them as JSON lines.
 
 ## SQLite
 
-One connection per `SqliteStore`, and one `RLock` around it: every query
-and every transaction holds the lock for its whole length. `flyball-runner`
-opens one store and shares it — the recorder's thread writes through it, the
-server reads through it, the retention sweep deletes through it — so they
-take turns at that lock. Another process (a copy being read, `sqlite3` at a
-shell) can open the same file beside it, and WAL lets them overlap.
+One writing connection per `SqliteStore`, and one `RLock` around it: every
+write, and every read that is not history, holds the lock for its whole
+length. `flyball-runner` opens one store and shares it — the recorder's
+thread writes through it, the server reads through it, the retention sweep
+deletes through it — so they take turns at that lock. What a session
+recorded — `devices`, `signals`, `writes`, `controllers`, `series`,
+`samples`, `write_states`, `ticks`, `events`, `spans` — is read through a
+second connection, opened read-only (`mode=ro`) with a lock of its own:
+under WAL a reader works from the last commit and neither waits for a
+writer nor holds one up, so an unwindowed `series` of a week no longer
+stalls the recorder (D-029). An in-memory store (`":memory:"`) is one
+database per connection, so it reads through its one. Copies — `keep_range`,
+`backfill` — are writes, and still hold the writing lock for as long as they
+take. Another process (a copy being read, `sqlite3` at a shell) can open the
+same file beside it, and WAL lets them overlap.
 Declarations are interned in the writer so the hot path — a delivery — is one
 `executemany` per table with integer keys already known.
 

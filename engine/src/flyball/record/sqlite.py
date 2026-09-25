@@ -1,11 +1,14 @@
 """The SQLite store.
 
-One locked connection per [SqliteStore][flyball.record.sqlite.SqliteStore]. The
-runner shares one store between the recorder's thread, the retention sweep and
-the server, so every call waits for whoever holds the lock: nothing may call it
-from an event loop, and nothing holds it for long (`delete_session` goes in
-batches). Another process can open the same file beside it; WAL lets them
-overlap. Declarations are interned in the writer so a delivery is one
+One locked connection per [SqliteStore][flyball.record.sqlite.SqliteStore] for
+everything but history reads. The runner shares one store between the
+recorder's thread, the retention sweep and the server, so every call waits for
+whoever holds the lock: nothing may call it from an event loop, and nothing
+holds it for long (`delete_session` goes in batches). What a session recorded
+(`series`, `samples`, `ticks`, `events`, ...) is read through a second,
+read-only connection with a lock of its own, so under WAL a long read neither
+waits for a write nor holds one up. Another process can open the same file
+beside it; WAL lets them overlap. Declarations are interned in the writer so a delivery is one
 `executemany` per table.
 """
 
@@ -611,7 +614,7 @@ class SqliteSessionWriter:
 class SqliteStore:
     """A [Store][flyball.record.store.Store] on one SQLite file. `":memory:"` for tests."""
 
-    __slots__ = ("_connection", "_lock", "path")
+    __slots__ = ("_connection", "_lock", "_reader", "_reading", "path")
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path) if path != ":memory:" else path
@@ -626,6 +629,20 @@ class SqliteStore:
         except SchemaError as e:
             self._connection.close()
             raise SchemaError(f"{path}: {e}") from e
+        # History reads -- what a session recorded -- go through a second, read-only
+        # connection with a lock of its own: under WAL a long read neither waits for the
+        # writer nor holds it up (D-029). An in-memory store is one database per
+        # connection, so it reads through its one.
+        if isinstance(self.path, Path):
+            uri = f"{self.path.resolve().as_uri()}?mode=ro"
+            self._reader = sqlite3.connect(
+                uri, uri=True, check_same_thread=False, isolation_level=None
+            )
+            self._reader.row_factory = sqlite3.Row
+            self._reading = RLock()
+        else:
+            self._reader = self._connection
+            self._reading = self._lock
 
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
@@ -664,7 +681,18 @@ class SqliteStore:
             except sqlite3.Error as e:
                 _raise_classified(e, self.path)
 
+    def _history(self, sql: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:
+        """`_query` on the read-only connection: for what a session recorded, never a write."""
+        with self._reading:
+            try:
+                return self._reader.execute(sql, tuple(params)).fetchall()
+            except sqlite3.Error as e:
+                _raise_classified(e, self.path)
+
     def close(self) -> None:
+        with self._reading:
+            if self._reader is not self._connection:
+                self._reader.close()
         with self._lock:
             self._connection.close()
 
@@ -746,14 +774,15 @@ class SqliteStore:
             params.append(limit)
         return [_session_row(r) for r in self._query(sql, params)]
 
-    def _shift(self, session_id: int) -> int:
+    def _shift(self, session_id: int, history: bool = False) -> int:
         """How far the session's `start_ns` has moved past the origin its offsets count from.
 
         Zero for any session never trimmed. Trimming a scratch session moves
         `start_ns` up to the oldest row kept without rewriting every offset,
         so a read adds this to a window and takes it off what comes back.
         """
-        rows = self._query(
+        query = self._history if history else self._query
+        rows = query(
             "SELECT start_ns - origin_ns AS shift FROM session WHERE id = ?", (session_id,)
         )
         if not rows:
@@ -1099,7 +1128,7 @@ class SqliteStore:
     def devices(self, session_id: int) -> list[DeviceRow]:
         return [
             _device_row(r)
-            for r in self._query(
+            for r in self._history(
                 "SELECT * FROM device WHERE session_id = ? ORDER BY id", (session_id,)
             )
         ]
@@ -1107,13 +1136,13 @@ class SqliteStore:
     def signals(self, session_id: int) -> list[SignalRow]:
         return [
             _signal_row(r)
-            for r in self._query(
+            for r in self._history(
                 "SELECT * FROM signal WHERE session_id = ? ORDER BY device_id, id", (session_id,)
             )
         ]
 
     def _signal(self, session_id: int, address: str) -> SignalRow:
-        rows = self._query(
+        rows = self._history(
             "SELECT * FROM signal WHERE session_id = ? AND address = ?", (session_id, address)
         )
         if not rows:
@@ -1124,7 +1153,7 @@ class SqliteStore:
         signals = {s.id: s for s in self.signals(session_id)}
         return [
             WriteRow(signals[r["signal_id"]], r["driver"], _band(r["limits"]))
-            for r in self._query(
+            for r in self._history(
                 "SELECT * FROM write WHERE session_id = ? ORDER BY signal_id", (session_id,)
             )
         ]
@@ -1132,7 +1161,7 @@ class SqliteStore:
     def controllers(self, session_id: int) -> list[ControllerRow]:
         return [
             ControllerRow(r["name"], r["measured"], _loads(r["law"]), _loads(r["feedforward"]))
-            for r in self._query(
+            for r in self._history(
                 "SELECT * FROM controller WHERE session_id = ? ORDER BY name", (session_id,)
             )
         ]
@@ -1145,7 +1174,7 @@ class SqliteStore:
         downsample: Downsample | None = None,
     ) -> Series:
         signal = self._signal(session_id, address)
-        shift = self._shift(session_id)
+        shift = self._shift(session_id, history=True)
         where, params = _window_clause(window, "offset_ns", shift)
         # Every form below is one range scan of reading_by_signal: the index
         # carries offset_ns, value and flag, so neither the table nor sample is read.
@@ -1158,7 +1187,7 @@ class SqliteStore:
             # A mode, a record: every change, as it was. A downsample asked for
             # is not an error -- a page asks for every signal the same way --
             # it just does not apply; the series says so with `downsample` None.
-            rows = self._query(
+            rows = self._history(
                 "SELECT offset_ns AS t, value AS v, flag AS f" + base + " ORDER BY offset_ns", key
             )
             points = tuple(
@@ -1168,20 +1197,20 @@ class SqliteStore:
 
         match downsample:
             case None:
-                rows = self._query(
+                rows = self._history(
                     "SELECT offset_ns AS t, value AS v, flag AS f" + base + " ORDER BY offset_ns",
                     key,
                 )
             case Downsample(every=int(n)):
                 # Every nth, and every reading with no value: thinning never hides a break.
-                rows = self._query(
+                rows = self._history(
                     "SELECT offset_ns AS t, value AS v, flag AS f"
                     + base
                     + " AND (seq % ? = 0 OR value IS NULL) ORDER BY offset_ns",
                     [*key, n],
                 )
             case Downsample(max_points=int(max_points)):
-                bounds = self._query(
+                bounds = self._history(
                     "SELECT MIN(offset_ns) AS lo, MAX(offset_ns) AS hi" + base, key
                 )
                 lo, hi = bounds[0]["lo"], bounds[0]["hi"]
@@ -1194,7 +1223,7 @@ class SqliteStore:
                 # session's first bucket is not labelled before its start.
                 # A bucket with any reading that had no value is itself none, with
                 # the lowest no-value code in it: an average would bridge the break.
-                rows = self._query(
+                rows = self._history(
                     "SELECT ((offset_ns - ?) / ?) * ? + ? AS t,"
                     " CASE WHEN COUNT(value) < COUNT(*) THEN NULL ELSE AVG(value) END AS v,"
                     " MIN(CASE WHEN value IS NULL THEN flag END) AS f"
@@ -1216,11 +1245,11 @@ class SqliteStore:
         if device is None:
             raise NotFoundError(f"Device {name!r} not in session {session_id}")
         signals = {s.id: s for s in self.signals(session_id)}
-        shift = self._shift(session_id)
+        shift = self._shift(session_id, history=True)
         where, params = _window_clause(window, "s.offset_ns", shift)
         # A namespace's address selects the samples on it and under it.
         under = "" if address == name else " AND (node = ? OR node LIKE ?)"
-        rows = self._query(
+        rows = self._history(
             "SELECT s.seq, s.node, r.signal_id, r.offset_ns, r.value, r.flag FROM sample s"
             " JOIN reading r ON r.session_id = s.session_id AND r.device_id = s.device_id"
             " AND r.seq = s.seq WHERE s.session_id = ? AND s.device_id = ?"
@@ -1244,7 +1273,7 @@ class SqliteStore:
         self, session_id: int, address: str, window: Window | None = None
     ) -> list[WriteStateRow]:
         signal = self._signal(session_id, address)
-        shift = self._shift(session_id)
+        shift = self._shift(session_id, history=True)
         where, params = _window_clause(window, "offset_ns", shift)
         return [
             WriteStateRow(
@@ -1254,7 +1283,7 @@ class SqliteStore:
                 None if r["at_limit"] is None else Limit(r["at_limit"]),
                 r["controller"],
             )
-            for r in self._query(
+            for r in self._history(
                 "SELECT * FROM write_state WHERE session_id = ? AND signal_id = ?"
                 + where
                 + " ORDER BY offset_ns",
@@ -1269,7 +1298,7 @@ class SqliteStore:
         window: Window | None = None,
         every: int | None = None,
     ) -> list[Tick]:
-        shift = self._shift(session_id)
+        shift = self._shift(session_id, history=True)
         where, params = _window_clause(window, "offset_ns", shift)
         # Ticks have no sequence number of their own: number them in order and keep every nth.
         thin = "" if every is None or every <= 1 else f" AND (rn - 1) % {int(every)} = 0"
@@ -1286,7 +1315,7 @@ class SqliteStore:
                 delivered_correction=r["delivered_correction"],
                 reapplied=bool(r["reapplied"]),
             )
-            for r in self._query(
+            for r in self._history(
                 "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY offset_ns) AS rn"
                 " FROM tick WHERE session_id = ? AND controller = ?"
                 + where
@@ -1300,7 +1329,7 @@ class SqliteStore:
     def events(
         self, session_id: int, window: Window | None = None, code: str | None = None
     ) -> list[Event]:
-        shift = self._shift(session_id)
+        shift = self._shift(session_id, history=True)
         where, params = _window_clause(window, "offset_ns", shift)
         if code is not None:
             where += " AND code = ?"
@@ -1314,14 +1343,14 @@ class SqliteStore:
                 r["id"],
                 r["edge"],
             )
-            for r in self._query(
+            for r in self._history(
                 "SELECT * FROM event WHERE session_id = ?" + where + " ORDER BY offset_ns, id",
                 [session_id, *params],
             )
         ]
 
     def spans(self, session_id: int) -> list[Span]:
-        shift = self._shift(session_id)
+        shift = self._shift(session_id, history=True)
         return [
             Span(
                 r["id"],
@@ -1332,7 +1361,7 @@ class SqliteStore:
                 r["parent_id"],
                 _loads(r["details"]),
             )
-            for r in self._query(
+            for r in self._history(
                 "SELECT * FROM span WHERE session_id = ? ORDER BY start_ns, id", (session_id,)
             )
         ]
