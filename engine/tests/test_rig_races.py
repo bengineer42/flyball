@@ -1,4 +1,4 @@
-"""Races the rig's lock closes: a stop against a write (L1), a long command's device (L2).
+"""Races the rig's lock closes: a write is one step (L1, F3, F5); a long command's device (L2).
 
 And one lock order it no longer has to keep: a controller's own lock against the rig's (L4).
 
@@ -16,7 +16,15 @@ from typing import Any
 import pytest
 
 from flyball.control.laws import P
-from flyball.foundation.device import Code, Committable, Demand, Input, Sample, command
+from flyball.foundation.device import (
+    Code,
+    Committable,
+    Demand,
+    Input,
+    Permissive,
+    Sample,
+    command,
+)
 from flyball.foundation.errors import ConflictError
 from flyball.model.controller import ControllerMode
 from flyball.rig import Rig
@@ -36,47 +44,90 @@ def oven(rig: Rig, fresh: Any) -> Oven:
     return device
 
 
-def _between_check_and_commit(rig: Rig, monkeypatch: pytest.MonkeyPatch, act: Any) -> None:
-    """Run `act` on another thread once, the first time a write checks a permissive.
+def _during_the_checks(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch, act: Any
+) -> list[tuple[threading.Thread, list[object]]]:
+    """Start `act` on another thread the first time a write checks a permissive.
 
-    That check comes after the write's latch check and before it takes the rig's lock.
+    That check is part-way through the write's checks, under the rig's lock: `act` must
+    wait for the whole write, so it is asserted still waiting 0.3 s later. The started
+    thread is returned, for the test to join.
     """
     real = rig._not_permitted
-    done: list[bool] = []
+    started: list[tuple[threading.Thread, list[object]]] = []
 
     def checking(signal: Any, value: Any) -> Any:
-        if not done:
-            done.append(True)
-            thread = threading.Thread(target=act, daemon=True)
-            thread.start()
-            thread.join(5.0)
-            assert not thread.is_alive()
+        if not started:
+            started.append(_in_thread(act))
+            started[0][0].join(0.3)
+            assert started[0][0].is_alive(), "it waits for the write, checks and commit"
         return real(signal, value)
 
     monkeypatch.setattr(rig, "_not_permitted", checking)
+    return started
 
 
-class TestAStopAgainstAWrite:
-    def test_a_stop_landing_after_the_check_wins(self, rig, oven, monkeypatch):
-        _between_check_and_commit(rig, monkeypatch, lambda: RigStopper(rig).stop(BEN, "race"))
+class TestAWriteIsOneStep:
+    """Its checks, apply and commit are one step under the lock (F3); nothing lands between.
+
+    Before, the checks ran off the lock and only the latches were checked again under it:
+    a stop, a `regulate` or a delivery moving a permissive's source could land in between.
+    """
+
+    def test_a_stop_during_the_checks_lands_after_the_write(self, rig, oven, monkeypatch):
+        monkeypatch.setattr(stopping_mod, "LATCH_WAIT_S", 5.0)  # it waits for the lock
+        during = _during_the_checks(rig, monkeypatch, lambda: RigStopper(rig).stop(BEN, "x"))
+        rig.write(oven.root, {"h1": 50.0}, actor=AGENT)
+        thread, _ = during[0]
+        thread.join(5.0)
+        h1 = [value for name, value in oven.writes if name == "h1"]
+        assert h1[-2:] == [50.0, 0.0], "the write, then the stop"
         with pytest.raises(ConflictError, match="stopped"):
             rig.write(oven.root, {"h1": 50.0}, actor=AGENT)
-        assert ("h1", 50.0) not in oven.writes, "nothing reached the hardware after the stop"
-        assert ("h1", 0.0) in oven.writes, "the stop wrote its value"
 
-    def test_a_persons_write_goes_through_the_stop_and_says_so(self, rig, oven, monkeypatch):
-        _between_check_and_commit(rig, monkeypatch, lambda: RigStopper(rig).stop(BEN, "race"))
+    def test_a_regulate_during_a_persons_checks_lands_after(self, fresh, monkeypatch):
+        rig = Rig()
+        daq, drive = Daq(fresh("furnace")), Drive(fresh("heaters"))
+        rig.add_device(daq)
+        rig.add_device(drive)
+        deliver(rig, daq)
+        heater = rig.attach_controller(drive.signals["heater1"], daq.signals["zone1"], law=P(10))
+        written: list[float] = []
+        real = drive.write_signal
+
+        def logged(signal: Any, value: float) -> None:
+            written.append(value)
+            real(signal, value)
+
+        monkeypatch.setattr(drive, "write_signal", logged)
+        during = _during_the_checks(rig, monkeypatch, lambda: rig.regulate(heater.name, 60.0))
+        rig.write(drive.root, {"heater1": 999.0}, actor=BEN)
+        thread, out = during[0]
+        thread.join(2.0)
+        assert out == [[heater]] and heater.mode is ControllerMode.REGULATING
+        assert written[0] == 999.0 and len(written) >= 2, "the person's write, then the law's"
+        rig.close()
+
+    def test_a_permissive_moving_during_the_checks_lands_after(self, rig, oven, monkeypatch):
+        rig.permit(oven.signals["h1"], Permissive(signal=f"{oven.name}.zone1", below=50.0))
+        hot = Sample(oven.root, rig.clock.now_ns(), {oven.signals["zone1"]: 80.0})
+        during = _during_the_checks(rig, monkeypatch, lambda: rig.on_samples([hot]))
+        rig.write(oven.root, {"h1": 40.0}, actor=BEN)  # permitted when it was checked
+        during[0][0].join(2.0)
+        assert oven.writes[-1] == ("h1", 40.0)
+        with pytest.raises(ConflictError, match="not permitted"):
+            rig.write(oven.root, {"h1": 40.0}, actor=BEN)
+
+    def test_a_reset_during_the_checks_leaves_no_false_record(self, rig, oven, monkeypatch):
+        """F5: a write forced through the rig stop says so only while the stop holds."""
+        RigStopper(rig).stop(BEN, "test")
+        during = _during_the_checks(rig, monkeypatch, lambda: rig.stopping.reset("stop", BEN))
         rig.write(oven.root, {"h1": 50.0}, actor=BEN)
-        assert oven.writes[-1] == ("h1", 50.0), "a person's write passes the rig stop"
-        said = [e for e in rig.recent if e.code == Code.WRITTEN_WHILE_STOPPED]
-        assert len(said) == 1, "logged as written while stopped, as it is after a stop"
-
-    def test_a_controllers_write_is_held(self, rig, oven, monkeypatch):
-        controller = rig.attach_controller(oven.signals["h1"], oven.signals["zone1"])
-        _between_check_and_commit(rig, monkeypatch, lambda: RigStopper(rig).stop(BEN, "race"))
-        before = list(oven.writes)
-        assert rig.write(oven.root, {"h1": 50.0}, by=controller) == {}
-        assert ("h1", 50.0) not in oven.writes[len(before) :]
+        during[0][0].join(2.0)
+        codes = [e.code for e in rig.recent if e.code in (Code.WRITTEN_WHILE_STOPPED, Code.RESET)]
+        assert codes == [Code.WRITTEN_WHILE_STOPPED, Code.RESET], "the write held, then reset"
+        rig.write(oven.root, {"h1": 60.0}, actor=BEN)
+        assert len([e for e in rig.recent if e.code == Code.WRITTEN_WHILE_STOPPED]) == 1
 
 
 class TestLatchesUnderTheLock:

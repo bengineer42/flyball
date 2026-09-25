@@ -300,11 +300,13 @@ a stop waits at most `LATCH_WAIT_S`, 0.2 s, for a stuck lock, once, then
 latches without it -- every commit checks the latches first -- and puts the
 controllers in manual without it too; `RigStopper` cancels long commands
 before any of that). A stop's manual is one step under the lock, so a
-`regulate` lands wholly before or after it. `write` checks
-them again under the lock just before it applies, so a stop that lands
-between a write's first checks and its commit wins: an automatic writer is
-refused, a controller held, a person's write goes through the rig stop and
-says so (`written_while_stopped`).
+`regulate` lands wholly before or after it. `write` makes every check --
+the latches, the long command's claim, the permissive, the driving
+controller, the limits -- under the lock, with the apply and the commit, so a
+stop, a `regulate` or a delivery that moves a permissive's source lands
+wholly before the write or after it: after a stop an automatic writer is
+refused, a controller held, and a person's write goes through the rig stop
+and says so (`written_while_stopped`) only while the stop holds.
 
 `which` names one controller, several (changed between the same two
 deliveries), or None for the default. The HTTP API is unchanged: `POST

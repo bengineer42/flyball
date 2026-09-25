@@ -434,8 +434,9 @@ All five run the same stop, in this order:
 1. **Every running long command is cancelled**: a dose or a move ends now,
    before anything else waits, and its own clean-up still runs.
 2. **The rig is latched** (the condition `stopped` on the rig), so nothing
-   automatic writes from here on ([the latch](#the-latch)): a write already
-   past its checks is checked again before it is applied, and refused.
+   automatic writes from here on ([the latch](#the-latch)): a write is
+   checked and committed under the same lock the latch is set under, so it
+   lands wholly before the latch or is refused by it.
 3. **Every controller goes to manual**, with an `interrupted` event each.
 4. **The program is interrupted**, with a bounded wait for it to unwind
    (and every controller to manual again, for what its last step did).

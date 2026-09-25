@@ -1102,10 +1102,11 @@ class Rig:
         everyone; the rig stop refuses every automatic writer and lets a
         person's write (`actor.person`) through, logged
         (`written_while_stopped`), the latch kept. A controller's write under a
-        latch is held, not refused. The latches are checked again under the
-        rig's lock, where they are set, just before the write is applied: a
-        stop that lands after the first check wins. A `permissive` that does not hold refuses
-        it too (a write of the signal's resolved stop value excepted).
+        latch is held, not refused. A `permissive` that does not hold refuses
+        it too (a write of the signal's resolved stop value excepted). Every
+        check is made under the rig's lock, with the apply and the commit: a
+        stop, a `regulate`, a delivery that moves a permissive's source or a
+        long command's claim lands wholly before the write or after it.
 
         Raises:
             AddressNotFoundError: A name does not resolve under `node`.
@@ -1127,8 +1128,6 @@ class Rig:
         device = node.device
         if not isinstance(device, Committable):
             raise ConflictError(f"'{device.name}' has nothing to commit: no demands")
-        if by is not None and self.hold_reason(by) is not None:
-            return {}
         person = actor is not None and actor.person
         resolved: dict[Signal, float] = {}
         for key, value in values.items():
@@ -1147,58 +1146,52 @@ class Rig:
             if not math.isfinite(resolved[signal]):
                 # NaN slips through every comparison: the limits, the rate clamp.
                 raise ValueError(f"Demand on '{signal.address}' is not finite: {value!r}")
-        clamped: dict[Signal, float] = {}
-        requested: dict[Signal, float] = {}
-        now_ns = self.clock.now_ns()
-        forced = None
-        for signal, value in resolved.items():
-            if Access.W not in signal.access:
-                raise ConflictError(_not_writable(signal))
-            refused, through = self.stopping.refusal(signal, by=by, person=person)
-            if refused is not None:
-                if by is not None:
-                    return {}  # a controller under a latch is held, not failed
-                raise ConflictError(refused)
-            forced = forced or through
-            if (why := self._not_permitted(signal, value)) is not None:
-                raise ConflictError(why)
-            holder = self.controllers.driving(signal)
-            if holder is not None and holder is not by and holder.mode.active():
-                # As a command: refused while the controller drives it; in
-                # manual the output takes demands directly.
-                raise ConflictError(
-                    f"'{signal.address}' is driven by controller {holder.name!r}:"
-                    " set its reference, put it in manual, or detach it"
-                )
-            original = value
-            try:
-                value = signal.clamp(value)
-            except (LimitNotKnownError, LimitsInvertedError) as e:
-                if by is None:
-                    raise
-                self._limit_unknown(by, e)
-                return {}
-            if (max_rate := signal.spec.max_rate) is not None:
-                value = self._rate_clamped(signal, value, max_rate, now_ns, by)
-            if value != original:
-                requested[signal] = original
-            clamped[signal] = value
         with self.lock:
+            # Every check here, under the lock with the apply and the commit: nothing -- a
+            # stop, a regulate, a delivery moving a permissive's source, a long command's
+            # claim -- lands between a check and what it guards.
+            if by is not None and self.hold_reason(by) is not None:
+                return {}
             if (claimed := self._claimed(device)) is not None:
                 if by is not None:
                     return {}  # held, as under a latch
                 raise ConflictError(claimed)
-            if self.stopping.latches.any():
-                # Again, where no latch can be set meanwhile (a stop sets it under this lock):
-                # a stop that landed since the checks above wins.
-                forced = None
-                for signal in clamped:
-                    refused, through = self.stopping.refusal(signal, by=by, person=person)
-                    if refused is not None:
-                        if by is not None:
-                            return {}
-                        raise ConflictError(refused)
-                    forced = forced or through
+            clamped: dict[Signal, float] = {}
+            requested: dict[Signal, float] = {}
+            now_ns = self.clock.now_ns()
+            forced = None
+            for signal, value in resolved.items():
+                if Access.W not in signal.access:
+                    raise ConflictError(_not_writable(signal))
+                refused, through = self.stopping.refusal(signal, by=by, person=person)
+                if refused is not None:
+                    if by is not None:
+                        return {}  # a controller under a latch is held, not failed
+                    raise ConflictError(refused)
+                forced = forced or through
+                if (why := self._not_permitted(signal, value)) is not None:
+                    raise ConflictError(why)
+                holder = self.controllers.driving(signal)
+                if holder is not None and holder is not by and holder.mode.active():
+                    # As a command: refused while the controller drives it; in
+                    # manual the output takes demands directly.
+                    raise ConflictError(
+                        f"'{signal.address}' is driven by controller {holder.name!r}:"
+                        " set its reference, put it in manual, or detach it"
+                    )
+                original = value
+                try:
+                    value = signal.clamp(value)
+                except (LimitNotKnownError, LimitsInvertedError) as e:
+                    if by is None:
+                        raise
+                    self._limit_unknown(by, e)
+                    return {}
+                if (max_rate := signal.spec.max_rate) is not None:
+                    value = self._rate_clamped(signal, value, max_rate, now_ns, by)
+                if value != original:
+                    requested[signal] = original
+                clamped[signal] = value
             time_ns = self.clock.now_ns()
             thread = self._writer_for(device)
             for signal, value in clamped.items():
