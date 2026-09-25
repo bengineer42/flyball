@@ -360,6 +360,37 @@ def test_a_store_made_before_the_baseline_is_refused_unread(tmp_path):
     connection.close()
 
 
+def older_baseline_store(path) -> None:
+    """A store made by the baseline as it was before `session.packages` was added in place."""
+    from flyball.record import migrate
+
+    (baseline,) = migrate.available().values()
+    older = "".join(
+        line
+        for line in baseline.read_text(encoding="utf-8").splitlines(keepends=True)
+        if not line.lstrip().startswith("packages ")
+    )
+    connection = sqlite3.connect(path, isolation_level=None)
+    connection.executescript(
+        "BEGIN;\n" + older + "\n;\nINSERT INTO schema_version (version) VALUES (1);\nCOMMIT;"
+    )
+    connection.execute("INSERT INTO session (start_ns, origin_ns) VALUES (1, 1)")
+    connection.close()
+
+
+def test_a_store_an_older_baseline_made_is_refused_unread(tmp_path):
+    """Same stamp, same version, a column short: refused at open, not at its first read."""
+    from flyball.record.errors import SchemaError
+
+    path = tmp_path / "older.sqlite"
+    older_baseline_store(path)
+    with pytest.raises(SchemaError, match=r"older flyball: session has no packages; move it"):
+        SqliteStore(path)
+    connection = sqlite3.connect(path)
+    assert connection.execute("SELECT COUNT(*) FROM session").fetchone() == (1,), "left as it was"
+    connection.close()
+
+
 def test_a_database_flyball_did_not_make_is_refused(tmp_path):
     from flyball.record.errors import SchemaError
 

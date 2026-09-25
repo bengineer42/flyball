@@ -83,6 +83,19 @@ def test_a_store_from_before_the_baseline_is_a_message_not_a_traceback(
     assert f"{store}: this store was made by a pre-reset flyball" in err and "delete it" in err
 
 
+def test_a_store_an_older_baseline_made_is_a_message_not_a_traceback(tmp_path, capsys, monkeypatch):
+    from test_recorder import older_baseline_store
+
+    rig_file = tmp_path / "lab.yaml"
+    rig_file.write_text("name: lab\n")
+    store = tmp_path / "older.sqlite"
+    older_baseline_store(store)
+    monkeypatch.setattr("flyball.runner.entrypoint.serve", lambda *a, **kw: pytest.fail("served"))
+    assert runner.main([str(rig_file), "--store", str(store)]) == 2
+    err = capsys.readouterr().err
+    assert f"{store}: this store was made by an older flyball" in err and "delete it" in err
+
+
 def test_a_missing_server_extra_is_one_line_not_a_traceback(monkeypatch, capsys, tmp_path):
     monkeypatch.setitem(sys.modules, "fastapi", None)
     with pytest.raises(SystemExit) as excinfo:

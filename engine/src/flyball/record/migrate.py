@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from functools import cache
 from importlib import resources
 from pathlib import Path
 
@@ -75,6 +76,58 @@ def check(connection: sqlite3.Connection) -> None:
     raise SchemaError("not a flyball store: it holds tables flyball did not make")
 
 
+OLDER = (
+    "this store was made by an older flyball: {missing}; move it aside or delete it:"
+    " nothing in it needs keeping (D-064)"
+)
+"""Why a stamped store whose tables lack columns the baseline now makes is refused."""
+
+
+@cache
+def _expected() -> dict[str, frozenset[str]]:
+    """Each table's columns as the migrations shipped here make them, from an empty database."""
+    scratch = sqlite3.connect(":memory:")
+    try:
+        for version in sorted(available()):
+            scratch.executescript(available()[version].read_text(encoding="utf-8"))
+        return _columns(scratch)
+    finally:
+        scratch.close()
+
+
+def _columns(connection: sqlite3.Connection) -> dict[str, frozenset[str]]:
+    tables = [
+        name
+        for (name,) in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )
+    ]
+    return {
+        table: frozenset(row[1] for row in connection.execute(f'PRAGMA table_info("{table}")'))
+        for table in tables
+    }
+
+
+def check_columns(connection: sqlite3.Connection) -> None:
+    """Refuse a store at this version whose tables lack columns this flyball's baseline makes.
+
+    Until release the baseline is edited in place (D-064), so a store made by the
+    baseline as it was carries the same version and stamp and would open, then fail on
+    its first read or write of a new column.
+
+    Raises:
+        SchemaError: A table, or a column of one, is missing.
+    """
+    have = _columns(connection)
+    missing = [
+        f"no table {table}" if table not in have else f"{table} has no {', '.join(sorted(cols))}"
+        for table, wanted in sorted(_expected().items())
+        if (cols := wanted - have.get(table, frozenset())) or table not in have
+    ]
+    if missing:
+        raise SchemaError(OLDER.format(missing="; ".join(missing)))
+
+
 def migrate(connection: sqlite3.Connection) -> int:
     """Bring `connection` up to the newest migration. Returns the version now in force.
 
@@ -82,7 +135,9 @@ def migrate(connection: sqlite3.Connection) -> int:
         SchemaError: The store was made before the baseline, or is not a flyball store
             ([check][flyball.record.migrate.check]); or it is at a version newer than any
             shipped here: a newer flyball wrote it, and this one would misread what it
-            cannot know.
+            cannot know; or its tables lack columns the baseline makes: an older flyball
+            made it before the baseline was edited
+            ([check_columns][flyball.record.migrate.check_columns]).
     """
     check(connection)
     applied = current(connection)
@@ -109,4 +164,5 @@ def migrate(connection: sqlite3.Connection) -> int:
                 )
         except sqlite3.Error as e:
             raise SchemaError(f"migration {version:04d} failed: {e}") from e
+    check_columns(connection)
     return current(connection)
