@@ -1,8 +1,8 @@
 """The rig's lock is its own (D-098): nothing outside `flyball.rig` takes it.
 
 A source scan, over the engine and every package beside it in this repository, for an
-attribute `lock` read off something named as the rig (`rig.lock`, `self.rig.lock`,
-`self._rig.lock`); comments and strings are not code, so they may still name it. And the
+attribute `_lock` read off something named as the rig (`rig._lock`, `self.rig._lock`,
+`self._rig._lock`); comments and strings are not code, so they may still name it. And the
 programmer, the one client that used to take it around its steps, runs them holding no lock.
 """
 
@@ -40,7 +40,7 @@ def _rig_like(token: tokenize.TokenInfo) -> bool:
 
 
 def _takes_the_rig_lock(source: str) -> list[int]:
-    """The lines on which code reads `lock` off a name for the rig (`.lock`, or by `getattr`)."""
+    """The lines on which code reads `_lock` off a name for the rig (`._lock`, or by `getattr`)."""
     tokens = [
         t
         for t in tokenize.generate_tokens(io.StringIO(source).readline)
@@ -49,14 +49,14 @@ def _takes_the_rig_lock(source: str) -> list[int]:
     lines = []
     for i, token in enumerate(tokens):
         after = [t.string for t in tokens[i + 1 : i + 5]]
-        if _rig_like(token) and after[:2] == [".", "lock"]:
+        if _rig_like(token) and after[:2] == [".", "_lock"]:
             lines.append(token.start[0])
         if (
             token.string == "getattr"
             and after[:1] == ["("]
             and len(tokens) > i + 4
             and _rig_like(tokens[i + 2])
-            and after[2:4] in ([",", '"lock"'], [",", "'lock'"])
+            and after[2:4] in ([",", '"_lock"'], [",", "'_lock'"])
         ):
             lines.append(token.start[0])
     return lines
@@ -70,25 +70,25 @@ def test_nothing_outside_the_rig_takes_its_lock():
         for path in sources
         for line in _takes_the_rig_lock(path.read_text(encoding="utf-8"))
     ]
-    assert not offenders, "rig.lock taken outside flyball.rig (use a rig operation):\n" + "\n".join(
-        offenders
+    assert not offenders, (
+        "rig._lock taken outside flyball.rig (use a rig operation):\n" + "\n".join(offenders)
     )
 
 
 def test_the_scan_sees_what_it_is_for():
-    assert _takes_the_rig_lock("with rig.lock:\n    pass\n") == [1]
-    assert _takes_the_rig_lock("x = self.rig.lock\n") == [1]
-    assert _takes_the_rig_lock("self._rig.lock.acquire()\n") == [1]
-    assert _takes_the_rig_lock("# rig.lock in a comment\ns = 'rig.lock'\n") == []
-    assert _takes_the_rig_lock('getattr(rig, "lock")\n') == [1]
+    assert _takes_the_rig_lock("with rig._lock:\n    pass\n") == [1]
+    assert _takes_the_rig_lock("x = self.rig._lock\n") == [1]
+    assert _takes_the_rig_lock("self._rig._lock.acquire()\n") == [1]
+    assert _takes_the_rig_lock("# rig._lock in a comment\ns = 'rig._lock'\n") == []
+    assert _takes_the_rig_lock('getattr(rig, "_lock")\n') == [1]
     assert _takes_the_rig_lock('getattr(rig, "name")\n') == []
-    assert _takes_the_rig_lock("self.lock = RLock()\nprogrammer.lock\nrig.locked\n") == []
+    assert _takes_the_rig_lock("self._lock = RLock()\nprogrammer._lock\nrig._locked\n") == []
 
 
 def test_a_program_applies_its_steps_without_the_rig_lock():
     """A step that changes nothing waits for nothing: another thread holding the lock is no bar.
 
-    Before, every step but a device command ran under `rig.lock`, and the programmer took it
+    Before, every step but a device command ran under `rig._lock`, and the programmer took it
     around the step; so a `wait` or a `prompt` queued behind a delivery (and the programmer
     was one side of a lock-order pair with the rig).
     """
@@ -97,7 +97,7 @@ def test_a_program_applies_its_steps_without_the_rig_lock():
     holding, release = threading.Event(), threading.Event()
 
     def hold() -> None:
-        with rig.lock:
+        with rig._lock:
             holding.set()
             release.wait(5.0)
 

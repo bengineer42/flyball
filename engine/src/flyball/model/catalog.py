@@ -183,12 +183,12 @@ class Catalogs:
 
         loaded = []
         for entry in entry_points(group=group):
-            before = [(c, dict(c._by_type)) for c in self._catalogs()]
+            before = [(c, dict(c._by_type)) for c in self._catalogs()]  # ruff: ignore[private-member-access]
             try:
                 entry.load().register(self)
             except Exception as e:
                 for catalog, by_type in before:
-                    catalog._by_type = by_type
+                    catalog._by_type = by_type  # ruff: ignore[private-member-access]
                 self.discovery_errors[entry.name] = f"{type(e).__name__}: {e}"
                 log.error(
                     "%s entry point %r (%s) skipped, none of its types are registered: %s",

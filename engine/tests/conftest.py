@@ -94,7 +94,7 @@ def _store_off_the_loop(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 @pytest.fixture(autouse=True)
 def _rig_lock_off_the_loop(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Fail any test in which the app's event loop took `rig.lock` (ENG-26).
+    """Fail any test in which the app's event loop took `rig._lock` (ENG-26).
 
     A delivery holds it for as long as it runs; the loop that waits for it
     stalls every request and websocket the runner serves.
@@ -102,7 +102,7 @@ def _rig_lock_off_the_loop(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     seen: list[str] = []
     monkeypatch.setattr(flyball.rig.rig, "RLock", lambda: _LoopGuardedLock(seen))
     yield
-    assert not seen, "rig.lock was taken on the event loop:\n" + seen[0]
+    assert not seen, "rig._lock was taken on the event loop:\n" + seen[0]
 
 
 @pytest.fixture

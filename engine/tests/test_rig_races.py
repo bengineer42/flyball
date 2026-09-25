@@ -133,7 +133,9 @@ class TestAWriteIsOneStep:
 class TestLatchesUnderTheLock:
     def test_a_latch_is_set_and_reset_under_the_rigs_lock(self, rig, oven):
         held: list[tuple[bool, bool]] = []
-        rig.stopping.latches.on_change.append(lambda _, on: held.append((on, rig.lock._is_owned())))
+        rig.stopping.latches.on_change.append(
+            lambda _, on: held.append((on, rig._lock._is_owned()))
+        )
         RigStopper(rig).stop(BEN, "test")
         rig.stopping.reset("stop", BEN)
         assert held == [(True, True), (False, True)]
@@ -144,7 +146,7 @@ class TestLatchesUnderTheLock:
         holding, release = threading.Event(), threading.Event()
 
         def stuck() -> None:
-            with rig.lock:
+            with rig._lock:
                 holding.set()
                 release.wait(5.0)
 
@@ -360,7 +362,7 @@ def test_a_stop_under_a_stuck_lock_waits_for_it_once(dosing, monkeypatch):
     holding, release = threading.Event(), threading.Event()
 
     def stuck() -> None:
-        with rig.lock:
+        with rig._lock:
             holding.set()
             release.wait(10.0)
 
@@ -441,7 +443,7 @@ def test_a_direct_regulate_and_a_reapply_do_not_deadlock(rig, fresh):
     holding = threading.Event()
 
     def reapply_under_the_rig_lock() -> None:
-        with rig.lock:
+        with rig._lock:
             holding.set()
             time.sleep(0.2)  # the direct regulate is now waiting for the rig's lock
             controller.reapply(rig.clock.now_ns())

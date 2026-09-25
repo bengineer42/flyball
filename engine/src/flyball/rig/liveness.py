@@ -244,7 +244,7 @@ class Liveness:
 
     def _due(self, watch: Watch) -> None:
         """A watch's one-shot came up: re-arm for the true deadline, or declare it stale."""
-        with self.rig.lock:
+        with self.rig._lock:
             if self.watches.get(watch.signal) is not watch:
                 return  # dropped meanwhile
             watch.timer = None

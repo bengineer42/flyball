@@ -272,7 +272,7 @@ removed meanwhile is not an error. `/api/health` is lock-free. What must take
 the lock (`Rig.document`, `attach_controller`, `recent_readings`, the loop
 commands, `device_snapshot`) is reached only from plain `def` routes, on the
 threadpool. A test fixture (`tests/conftest.py`) fails any test in which a
-thread running an event loop took `rig.lock`, as another does for the store's.
+thread running an event loop took `rig._lock`, as another does for the store's.
 
 ### The rig's lock
 

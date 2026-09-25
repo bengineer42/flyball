@@ -374,14 +374,14 @@ class Rig:
         self.devices = Keyed()
         self._claims = Keyed()
         self._writers = {}
-        self.lock = RLock()
+        self._lock = RLock()
         self.triggers = Triggers(lambda: self.clock)
         self.events = Topic()
         self.recent = deque(maxlen=500)
         self.conditions = Conditions(
             now_ns=lambda: self.clock.now_ns(), describe=self._describe, emit=self._publish
         )
-        self.bands = Bands(self.conditions, lambda: self.clock.now_ns(), self.after, self.lock)
+        self.bands = Bands(self.conditions, lambda: self.clock.now_ns(), self.after, self._lock)
         self.liveness = Liveness(self)
         self.faults = Faults(self)
         self.stopping = Stopping(self)
@@ -639,7 +639,7 @@ class Rig:
             timers, self._timers = self._timers, None
         if timers is not None:  # first: nothing armed fires while the rig comes down
             timers.close()
-        with self.lock:  # copies: a delivery or a request may add to them meanwhile
+        with self._lock:  # copies: a delivery or a request may add to them meanwhile
             running = list(self._running)
             writers = list(self._writers.values())
             links = list(self.links.items())
@@ -685,7 +685,7 @@ class Rig:
         """
         from flyball.runtime.recorder import Recorder
 
-        with self.lock:
+        with self._lock:
             self._stop_recording()
             start_ns = session.pop("start_ns", None)
             writer = store.open_session(
@@ -711,7 +711,7 @@ class Rig:
 
         A `recording_failed` condition on the rig until the next recording starts.
         """
-        with self.lock:
+        with self._lock:
             recorder, self.recorder = self.recorder, None
         self.conditions.set(
             self,
@@ -730,7 +730,7 @@ class Rig:
 
     def _stop_recording(self) -> bool:
         """Close the open session; whether there was one."""
-        with self.lock:
+        with self._lock:
             if (recorder := self.recorder) is None:
                 return False
             self.recorder = None
@@ -779,7 +779,7 @@ class Rig:
                     f"{device.name}: {', '.join(repr(n) for n in unknown)} is not an input of"
                     f" its driver; it has {', '.join(repr(n) for n in declared)}"
                 )
-        with self.lock:
+        with self._lock:
             bound: list[InputBinding] = []
             try:
                 for name, source in inputs.items():
@@ -813,7 +813,7 @@ class Rig:
             target: Signal | Node | float = self.resolve(source)
         else:
             target = source
-        with self.lock:
+        with self._lock:
             if isinstance(target, Signal):
                 if Access.P not in target.access:
                     raise ConflictError(
@@ -851,7 +851,7 @@ class Rig:
 
     def unbind(self, binding: InputBinding) -> None:
         """Stop `binding` following what it follows: it is unbound (`pending`) until bound again."""
-        with self.lock:
+        with self._lock:
             followed = binding.follows
             if isinstance(followed, Signal):
                 followers = self._followers.get(followed)
@@ -873,7 +873,7 @@ class Rig:
         The reverse of each device's `bound`: "who uses this signal". Devices'
         inputs, and any other holder's (a controller, a program step).
         """
-        with self.lock:
+        with self._lock:
             found = list(self._followers.get(signal, ()))
             node: Node | None = signal.node
             while node is not None:
@@ -989,11 +989,11 @@ class Rig:
         if isinstance(target, Sequence):
             if fresh:
                 self._read_fresh(target)
-            with self.lock:
+            with self._lock:
                 return [self._read_known(t) for t in target]
         if fresh:
             self._read_fresh((target,))
-        with self.lock:
+        with self._lock:
             return self._read_known(target)
 
     def _read_fresh(self, targets: Iterable[Node | Signal]) -> None:
@@ -1002,7 +1002,7 @@ class Rig:
         Each read under its device's `read_lock`, off the rig lock; the
         delivery under it. What a device removed meanwhile read is dropped.
         """
-        if _held(self.lock):
+        if _held(self._lock):
             raise ConflictError("a fresh read cannot run while the rig lock is held")
         nodes: dict[Device, Node | None] = {}
         for target in targets:
@@ -1027,7 +1027,7 @@ class Rig:
                 read.append((device, list(device.read(self.clock.now_ns(), node))))
             finally:
                 device.read_lock.release()
-        with self.lock:
+        with self._lock:
             live = [s for d, samples in read if self.devices.get(d.name) is d for s in samples]
             self.on_samples(live)
 
@@ -1049,7 +1049,7 @@ class Rig:
 
         See [DeviceSnapshot][flyball.rig.rig.DeviceSnapshot]: a route renders it off the lock.
         """
-        with self.lock:
+        with self._lock:
             signals = list(device.signals.values())
             latest, usable = self.router.latest, self.router.last_usable
             now = self.clock.now_ns()
@@ -1073,7 +1073,7 @@ class Rig:
 
     def recent_readings(self, signal: Signal, n: int = RECENT_READINGS) -> list[Reading]:
         """The last `n` readings on `signal`, oldest first: a copy, so compute on it unlocked."""
-        with self.lock:
+        with self._lock:
             return self.router.recent_readings(signal, n)
 
     def start_polling(self, device: Device) -> None:
@@ -1162,7 +1162,7 @@ class Rig:
             if not math.isfinite(resolved[signal]):
                 # NaN slips through every comparison: the limits, the rate clamp.
                 raise ValueError(f"Demand on '{signal.address}' is not finite: {value!r}")
-        with self.lock:
+        with self._lock:
             # Every check here, under the lock with the apply and the commit: nothing -- a
             # stop, a regulate, a delivery moving a permissive's source, a long command's
             # claim -- lands between a check and what it guards.
@@ -1291,7 +1291,7 @@ class Rig:
                 f"permissive on '{signal.address}': '{source.address}' [{source.access}] is not"
                 " published"
             )
-        with self.lock:
+        with self._lock:
             self.permissives[signal] = (permissive, source)
 
     def hold_reason(self, controller: Controller) -> Code | None:
@@ -1457,7 +1457,7 @@ class Rig:
         Returns whether it had the lock.
         """
         locked = (
-            self.lock.acquire(timeout=wait_s) if wait_s > 0 else self.lock.acquire(blocking=False)
+            self._lock.acquire(timeout=wait_s) if wait_s > 0 else self._lock.acquire(blocking=False)
         )
         if not locked:
             log.warning("a stop could not take the rig's lock to drop staged values")
@@ -1472,7 +1472,7 @@ class Rig:
                 self._drop_staged(device, held)
             return True
         finally:
-            self.lock.release()
+            self._lock.release()
 
     def _drop_staged(self, device: Device, signals: set[Signal] | None) -> None:
         if not isinstance(device, Committable):
@@ -1675,14 +1675,14 @@ class Rig:
 
         Its echo demands go stale, and a retry is armed.
         """
-        with self.lock:
+        with self._lock:
             if self.devices.get(device.name) is device:
                 self._writes_failing(device, signals)
                 self._retry_later(device)
 
     def resent(self, device: Device, sent: Iterable[tuple[Signal, float, int | None]]) -> None:
         """A blocking device's writer committed values a failed write had kept: say so."""
-        with self.lock:
+        with self._lock:
             if self.devices.get(device.name) is device:
                 retry = self._retries.pop(device, None)
                 if retry is not None and retry.timer is not None:
@@ -1734,7 +1734,7 @@ class Rig:
 
     def _retry_due(self, device: Device, retry: _Retry) -> None:
         """The retry came up: drop what is too old, then commit what is kept, if anything."""
-        with self.lock:
+        with self._lock:
             if (
                 self._retries.get(device) is not retry
                 or self.devices.get(device.name) is not device
@@ -1806,7 +1806,7 @@ class Rig:
 
     def writes_recovered(self, device: Device) -> None:
         """A blocking device's writer wrote again after failing: its echo demands are known."""
-        with self.lock:
+        with self._lock:
             if self.devices.get(device.name) is device:
                 retry = self._retries.pop(device, None)
                 if retry is not None and retry.timer is not None:
@@ -1886,7 +1886,7 @@ class Rig:
         self._device_down(device, Reason.DEVICE_HUNG)
 
     def _device_down(self, device: Device, reason: Reason) -> None:
-        with self.lock:
+        with self._lock:
             if self.devices.get(device.name) is not device:
                 return
             gone = stale(reason)
@@ -2034,7 +2034,7 @@ class Rig:
         A device removed while the write was in flight is not the rig's any
         more: its states are dropped.
         """
-        with self.lock:
+        with self._lock:
             if self.devices.get(device.name) is not device:
                 return
             self._touched = {}  # the context for the readbacks `_states` pushes
@@ -2069,7 +2069,7 @@ class Rig:
         Raises:
             ConflictError: The name is already a link's.
         """
-        with self.lock:
+        with self._lock:
             if name in self.links:
                 raise ConflictError(f"Link {name!r} already exists")
             self.links[name] = built = config.build()
@@ -2084,7 +2084,7 @@ class Rig:
             NotFoundError: No such link.
             ConflictError: A device was built on it.
         """
-        with self.lock:
+        with self._lock:
             if name not in self.links:
                 raise NotFoundError(f"Link {name!r} not found")
             built = self.links[name]
@@ -2109,7 +2109,7 @@ class Rig:
             NotFoundError: The driver or a link is not known.
             AddressNotFoundError: A bound address does not resolve.
         """
-        with self.lock:
+        with self._lock:
             if name in self.devices:
                 raise ConflictError(f"Device {name!r} already exists")
             device = entry.build(name, self.links)
@@ -2137,7 +2137,7 @@ class Rig:
         Raises:
             NotFoundError: No such device.
         """
-        with self.lock:
+        with self._lock:
             device = self.devices.get(name)
             if device is None:
                 raise NotFoundError(f"Device {name!r} not found")
@@ -2215,7 +2215,7 @@ class Rig:
         """
         from flyball.runtime.config import ControllerEntry, render_document
 
-        with self.lock:  # a consistent view: nothing added or removed while it is read
+        with self._lock:  # a consistent view: nothing added or removed while it is read
             controllers = {
                 name: ControllerEntry(
                     label=c.declared_label,
@@ -2327,11 +2327,11 @@ class Rig:
         if spec.demand_of is not None:
             signal = device.signals[spec.demand_of]
             return CommandRun(self.write(signal.node, {signal: given["value"]}, actor=actor))
-        if spec.long and _held(self.lock):
+        if spec.long and _held(self._lock):
             raise ConflictError(
                 f"{device.name}.{command} waits: it cannot run while the rig lock is held"
             )
-        with self.lock:
+        with self._lock:
             forced = self._latched_command(device, spec, actor)
             linked, displaced = self._command_checks(device, spec, command, given)
             if not spec.long:
@@ -2350,9 +2350,9 @@ class Rig:
         try:
             result = spec.method(device, **given)
         finally:
-            with self.lock:
+            with self._lock:
                 self._running.pop(device, None)
-        with self.lock:
+        with self._lock:
             held_back = device in self._held_back
             self._held_back.discard(device)
             if self.devices.get(device.name) is not device:
@@ -2610,7 +2610,7 @@ class Rig:
             states = self.write(output.node, {output: value}, by=controller)
             return None if (state := states.get(output)) is None else state.value
 
-        with self.lock:  # not while a delivery is looking controllers up
+        with self._lock:  # not while a delivery is looking controllers up
             controller = Controller(
                 self.clock,
                 output,
@@ -2641,7 +2641,7 @@ class Rig:
         Raises:
             ControllerNotFoundError: No controller of that name.
         """
-        with self.lock:
+        with self._lock:
             self.controllers.resolve(name).manual()
             controller = self.controllers.remove(name)
             self._fresh.pop(controller, None)
@@ -2689,7 +2689,7 @@ class Rig:
             ValueError: An aim that is not finite; a built law for more than one
                 controller (each needs its own).
         """
-        with self.lock:
+        with self._lock:
             controllers = self._loops(which)
             now = self.clock.now_ns()
             laws = _laws(law, controllers)
@@ -2729,7 +2729,7 @@ class Rig:
             ValueError: A start that is not finite; one built generator or law for more
                 than one controller.
         """
-        with self.lock:
+        with self._lock:
             controllers = self._loops(which)
             if isinstance(profile, SetpointGenerator) and len(controllers) > 1:
                 raise ValueError("one profile per controller: pass what makes one")
@@ -2763,7 +2763,7 @@ class Rig:
             ConflictError: A latch holds one that is regulating.
             ValueError: A built law for more than one controller.
         """
-        with self.lock:
+        with self._lock:
             controllers = self._loops(which)
             laws = _laws(law, controllers)
             self._regulate_checks([c for c in controllers if c.mode.active()], None)
@@ -2778,7 +2778,7 @@ class Rig:
         Raises:
             ControllerNotFoundError: A named controller is not on the rig.
         """
-        with self.lock:
+        with self._lock:
             controllers = self._loops(which)
             for controller in controllers:
                 controller.manual()
@@ -2803,7 +2803,7 @@ class Rig:
             LastReadingNotAvailableError: A profile with `start` omitted, and neither a
                 setpoint nor a reading yet.
         """
-        with self.lock:
+        with self._lock:
             controller = self.controllers.resolve(name)
             if isinstance(at, SetpointGenerator):
                 now = self.clock.now_ns()
@@ -2815,7 +2815,7 @@ class Rig:
 
     def store_tuning(self, tuning: Tuning) -> None:
         """Keep `tuning` on the live rig by its name, replacing one already there."""
-        with self.lock:
+        with self._lock:
             self.tunings.add(tuning)
 
     def _loops(self, which: Loops) -> list[Controller]:
@@ -2907,10 +2907,10 @@ class Rig:
             if (timer := self._reapplying.pop(controller, None)) is not None:
                 timer.cancel()
             if controller.mode.active():
-                with self.lock:
+                with self._lock:
                     self.faults.regulating(controller)
             return
-        with self.lock:
+        with self._lock:
             if self.controllers.find(controller.measured_signal) is not controller:
                 return  # detached
             self.faults.regulating(controller)
@@ -2931,7 +2931,7 @@ class Rig:
         the controller's state and a tick recorded with no reading. Once the setpoint stops
         moving (the generator finished, MANUAL, detached), it cancels itself.
         """
-        with self.lock:
+        with self._lock:
             timer = self._reapplying.get(controller)
             now = self.clock.now_ns()
             if timer is None or not controller.follows(now):
@@ -2986,7 +2986,7 @@ class Rig:
             self._check_sample(sample)
         if not samples:
             return
-        with self.lock:
+        with self._lock:
             if self._touched is not None:
                 # Pushed from inside a delivery (a commit's readbacks, a
                 # mode): known at once, so the driver reads what it just

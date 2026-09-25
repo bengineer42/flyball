@@ -214,7 +214,7 @@ The controller tells the rig when its reference or mode changes
 `set_setpoint` and `manual`); the rig arms the periodic call then, and
 cancels it off a moving setpoint without taking its lock (a stop puts every
 controller in `MANUAL` without waiting behind a delivery). The call itself is
-serialised like a delivery: under `rig.lock`, in its own `_touched`, one
+serialised like a delivery: under `rig._lock`, in its own `_touched`, one
 commit, `controller_states` updated, and a tick recorded with `reapplied`
 and no reading. A re-apply at the same instant as a reading's tick gives
 way to it in the store.

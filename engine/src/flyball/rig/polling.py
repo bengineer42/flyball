@@ -191,7 +191,7 @@ class Polling:
             self._policies[device.name] = self.policy(device)
             self.periodic[device.name] = loop
             self._update(device, period_s=period_s, running=True, next_retry_ns=None)
-        with self.rig.lock:  # its signals are judged on its period from now (liveness)
+        with self.rig._lock:  # its signals are judged on its period from now (liveness)
             if self.rig.devices.get(device.name) is device:
                 self.rig.liveness.watch(device, polled=True)
         loop.start()
@@ -305,7 +305,7 @@ class Polling:
         as read.
         """
         try:
-            with self.rig.lock:
+            with self.rig._lock:
                 if not self._polled(device):
                     return  # removed while it was being read
                 self.rig.note_read(device, samples)

@@ -295,7 +295,7 @@ class Stopping:
         before it writes -- and nothing in it waits for the lock again (what was staged is
         dropped only if the lock is free at once).
         """
-        lock = self.rig.lock
+        lock = self.rig._lock
         locked = lock.acquire(timeout=wait_s) if wait_s > 0 else lock.acquire(blocking=False)
         if not locked:
             log.warning("latch %s: set without the rig's lock (held too long)", latch.cause)
@@ -349,7 +349,7 @@ class Stopping:
         Raises:
             NotFoundError: No latch holds for `cause`.
         """
-        with self.rig.lock:
+        with self.rig._lock:
             return self._reset(cause, actor)
 
     def _reset(self, cause: str, actor: Actor) -> Latch:
@@ -508,7 +508,7 @@ class Stopping:
         locked = deadline is None
         if not locked:
             assert deadline is not None
-            if not rig.lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
+            if not rig._lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
                 return {
                     "state": "failed",
                     "message": "the rig's lock was held throughout the stop's time (a delivery"
@@ -548,7 +548,7 @@ class Stopping:
                 }
         finally:
             if not locked:
-                rig.lock.release()
+                rig._lock.release()
         report: DeviceStop = {
             "state": "stopped",
             "message": _written_message(values, plan),
@@ -630,7 +630,7 @@ class Stopping:
                     continue
                 only = [s for s in self._held_signals(latch) if s.device is device] or None
                 if only is not None:
-                    with rig.lock:
+                    with rig._lock:
                         devices[device.name] = self.stop_locked(device, only)
                 else:
                     devices[device.name] = self.stop_device(device, deadline)
@@ -860,7 +860,7 @@ def _manual(rig: Rig, why: str | None, wait_s: float) -> dict[str, str]:
     Under the rig's lock, so no `regulate` lands part-way through, waiting at most `wait_s`
     for it (none at 0); a lock held longer than that (a stuck delivery) is gone without.
     """
-    lock = rig.lock
+    lock = rig._lock
     locked = lock.acquire(timeout=wait_s) if wait_s > 0 else lock.acquire(blocking=False)
     if not locked:
         log.warning("stop: controllers put in manual without the rig's lock (held too long)")

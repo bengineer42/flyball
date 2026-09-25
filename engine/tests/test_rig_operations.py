@@ -298,7 +298,7 @@ def test_an_answer_comes_from_the_snapshot_not_under_the_lock(served, daq, monke
     held: list[bool] = []
 
     def rendering(snapshot: Any, *, link: Any) -> Any:
-        held.append(rig.lock._is_owned())
+        held.append(rig._lock._is_owned())
         return real(snapshot, link=link)
 
     monkeypatch.setattr(schemas.DeviceOut, "of", rendering)
