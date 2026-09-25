@@ -41,6 +41,7 @@ from flyball.foundation.device import (
     Signal,
     WriteState,
 )
+from flyball.foundation.device.derived import Derived
 from flyball.foundation.schema import Titled
 from flyball.foundation.time import Clock
 from flyball.model.controller import Controller, ControllerState, ControllerView
@@ -318,7 +319,8 @@ class SignalOut(BaseModel):
     `sensed`); `on_no_value` a banded signal's, as in force. `stale_after_s` is the threshold
     the rig judges it by now -- its own, or `max(3·poll_s, 5 s)` while its device is polled --
     or null: it is not judged (a push, a setting, an echo demand). Past it with nothing
-    arriving, the rig pushes `stale` on it.
+    arriving, the rig pushes `stale` on it. `raw` and `raw_for` pair a raw signal with the
+    engineering signals computed from it (a `curve` on it), and are left out on any other.
     """
 
     name: str
@@ -355,6 +357,16 @@ class SignalOut(BaseModel):
     last_usable: LatestOut | None = None
     """With no value now: the newest reading that had one."""
     write: WriteOut | None = None
+    raw: str | None = None
+    """An engineering signal's: the address of the raw signal it is computed from."""
+    raw_for: list[str] | None = None
+    """A raw signal's: the engineering signals computed from it, by address. A client shows
+    the two in one row and leaves the raw one out of pickers by default."""
+
+    @model_serializer(mode="wrap")
+    def _sparse(self, handler: SerializerFunctionWrapHandler):
+        """`raw` and `raw_for` only on a signal that has them."""
+        return _without_none(handler(self), ("raw", "raw_for"))
 
     @classmethod
     def of(
@@ -364,8 +376,10 @@ class SignalOut(BaseModel):
         write: WriteState | None,
         last_usable: Reading | None = None,
         stale_after_s: float | None = None,
+        lineage: Lineage | None = None,
     ) -> SignalOut:
         spec = signal.spec
+        raw, raw_for = (None, []) if lineage is None else lineage(signal)
         banded = spec.warning is not None or spec.alarm is not None
         return cls(
             name=signal.name,
@@ -395,7 +409,39 @@ class SignalOut(BaseModel):
             if latest is None or latest.usable or last_usable is None
             else LatestOut.of(last_usable),
             write=None if write is None else WriteOut.of(write),
+            raw=raw,
+            raw_for=raw_for or None,
         )
+
+
+type Lineage = Callable[[Signal], tuple[str | None, list[str]]]
+"""A signal's raw pairing: the raw signal's address if it is an engineering one, and the
+engineering signals' if it is a raw one."""
+
+
+def lineage(consumers: Callable[[Signal], list[InputBinding]] | None = None) -> Lineage:
+    """Each signal's raw pairing, worked out when asked: nothing is stored twice.
+
+    An engineering signal names its raw one from its device's resolved input
+    ([Derived.raw_of][flyball.foundation.device.derived.Derived.raw_of]); a raw
+    signal finds its engineering ones through `consumers` (the rig's reverse
+    lineage), the derived devices whose input follows it. Without `consumers`,
+    only the first.
+    """
+
+    def of(signal: Signal) -> tuple[str | None, list[str]]:
+        device = signal.node.device
+        raw = device.raw_of(signal) if isinstance(device, Derived) else None
+        engineering = [
+            out.address
+            for binding in (() if consumers is None else consumers(signal))
+            if isinstance(owner := binding.owner, Derived)
+            for out in owner.published.values()
+            if owner.raw_of(out) is signal
+        ]
+        return (None if raw is None else raw.address), engineering
+
+    return of
 
 
 class NamespaceOut(BaseModel):
@@ -416,10 +462,12 @@ def tree_out(
     written: dict[Signal, WriteState],
     last_usable: Mapping[Signal, Reading] | None = None,
     stale_after: Callable[[Signal], float | None] | None = None,
+    lineage: Lineage | None = None,
 ) -> list[SignalOut | NamespaceOut]:
     """The signals and namespaces directly under `node`, recursing into the namespaces.
 
-    `stale_after`: each signal's liveness threshold now (the rig's `liveness.threshold_s`).
+    `stale_after`: each signal's liveness threshold now (the rig's `liveness.threshold_s`);
+    `lineage`: each signal's raw pairing.
     """
     usable = last_usable or {}
     out: list[SignalOut | NamespaceOut] = [
@@ -429,6 +477,7 @@ def tree_out(
             written.get(signal),
             usable.get(signal),
             None if stale_after is None else stale_after(signal),
+            lineage,
         )
         for signal in node.signals.values()
     ]
@@ -439,7 +488,7 @@ def tree_out(
             atomic=child.atomic,
             label=child.label,
             poll_s=child.poll_s,
-            signals=tree_out(child, latest, written, last_usable, stale_after),
+            signals=tree_out(child, latest, written, last_usable, stale_after, lineage),
         )
         for child in node.children.values()
     )
@@ -524,11 +573,14 @@ class InputOut(BaseModel):
     """The source's reason for having no value, when it gives one."""
     age_s: float | None = None
     """Seconds since the rig received the source's newest reading with a value."""
+    optional: bool | None = None
+    """True when the driver declares it optional: left out, it is unbound by choice
+    ("not bound (optional)"), not an error. Absent otherwise."""
 
     @model_serializer(mode="wrap")
     def _sparse(self, handler: SerializerFunctionWrapHandler):
-        """`constant`, `reason` and `age_s` only when set."""
-        return _without_none(handler(self), ("constant", "reason", "age_s"))
+        """`constant`, `reason`, `age_s` and `optional` only when set."""
+        return _without_none(handler(self), ("constant", "reason", "age_s", "optional"))
 
     @classmethod
     def of(cls, binding: InputBinding, now_ns: int | None = None) -> InputOut:
@@ -547,6 +599,7 @@ class InputOut(BaseModel):
             quality=binding.quality,
             reason=binding.reason or None,
             age_s=binding.age_s(now_ns),
+            optional=True if declared is not None and declared.optional else None,
         )
 
 
@@ -665,7 +718,14 @@ class DeviceOut(BaseModel):
             class_name=type(device).__name__,
             link=link,
             poll_s=device.poll_s,
-            signals=tree_out(device.root, latest, device.written, last_usable, stale_after),
+            signals=tree_out(
+                device.root,
+                latest,
+                device.written,
+                last_usable,
+                stale_after,
+                lineage(consumers),
+            ),
             commands=[CommandOut.of(spec) for spec in device.commands.values()],
             inputs={name: InputOut.of(b, now_ns) for name, b in device.bound.items()},
             consumers={

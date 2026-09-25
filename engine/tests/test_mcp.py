@@ -518,7 +518,7 @@ class TestDriverTools:
         listed = names(tools_for(client, "operate"))
         assert {"list_drivers", "reload_drivers", "probe_hardware", "link_query"} <= listed
         drivers = self.tool(client, "list_drivers", "read").run(client, {})
-        assert drivers["sim_drive"]["role"] == "driver" and "schema" in drivers["sim_drive"]
+        assert drivers["sim_drive"]["kind"] == "driver" and "schema" in drivers["sim_drive"]
         with pytest.raises(RigError, match="no drivers directory"):
             self.tool(client, "reload_drivers").run(client, {})
 

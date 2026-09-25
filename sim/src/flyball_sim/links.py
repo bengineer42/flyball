@@ -97,6 +97,8 @@ class FakeI2c:
 class FakeI2cConfig(Config[I2cLink], type="fake_i2c"):
     """A scripted bus, for a rig file that runs without hardware."""
 
+    family = "i2c"
+
     registers: dict[int, dict[int, list[int]]] = Field(default_factory=dict)
     replies: dict[int, list[list[int]]] = Field(default_factory=dict)
     blocking: bool = Field(
@@ -144,6 +146,8 @@ class FakeSpi:
 
 
 class FakeSpiConfig(Config[SpiLink], type="fake_spi"):
+    family = "spi"
+
     replies: list[list[int]] = Field(default_factory=list)
 
     def build(self) -> SpiLink:
@@ -201,6 +205,8 @@ class FakeGpio:
 
 
 class FakeGpioConfig(Config[GpioLink], type="fake_gpio"):
+    family = "gpio"
+
     levels: dict[int, bool] = Field(default_factory=dict, description="Input levels by line.")
 
     def build(self) -> GpioLink:
@@ -256,6 +262,8 @@ class FakeUart:
 
 class FakeUartConfig(Config[UartLink], type="fake_uart"):
     """A scripted port, for a rig file that runs without hardware."""
+
+    family = "uart"
 
     replies: list[bytes] = Field(default_factory=list)
 

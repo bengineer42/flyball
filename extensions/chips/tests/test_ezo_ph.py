@@ -49,9 +49,14 @@ class TestEzoPh:
         probe = ezo_ph.EzoPh("water", FakeUart(), sleep=False)
         assert {p: str(s.access) for p, s in probe.signals.items()} == {
             "ph": "rp",
+            "last.calibrate_mid": "rp",
+            "last.calibrate_low": "rp",
+            "last.calibrate_high": "rp",
+            "last.calibrate_clear": "rp",
+            "last.calibration_status": "rp",
         }
         assert probe.signals["ph"].unit.symbol == "pH"
-        assert probe.nodes == {}
+        assert set(probe.nodes) == {"last"}
 
     def test_read_collects_one_sample(self):
         uart = FakeUart([b"6.850\r"])

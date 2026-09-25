@@ -270,7 +270,13 @@ def program_from_document(document: Any, dialect: Dialect) -> Program:
     """A loaded program document -> a [Program][flyball.sequencing.program.Program] of commands."""
     normalised = normalise_program(document, dialect)
     adapter = TypeAdapter(command_request(dialect.steps))
-    commands = [adapter.validate_python(step["command"]).parse() for step in normalised["steps"]]
+    commands = []
+    for index, step in enumerate(normalised["steps"]):
+        request = adapter.validate_python(step["command"])
+        try:
+            commands.append(request.parse())
+        except ValueError as e:  # the step's own check: `settle` naming controllers and a signal
+            raise StepError(f"step {index}: {e}") from e
     return Program(commands, name=normalised.get("name"), description=normalised.get("description"))
 
 

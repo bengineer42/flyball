@@ -1091,12 +1091,13 @@ def rig_model(catalogs: Catalogs | None = None) -> type[RigConfig]:
 def _check_inputs(name: str, entry: DeviceEntry, device: type[Device] | None) -> None:
     """Every input the driver declares is bound to an address or a number, and no other name.
 
-    An input has no default (C12): one left out is refused here, so `rig check` says so.
+    An input has no default (C12): one left out is refused here, so `rig check` says so --
+    unless the driver declares it `optional`, when it is simply unbound.
     """
     declared = {} if device is None else device.INPUTS
     if not declared:
         return
-    if missing := [n for n in declared if n not in entry.inputs]:
+    if missing := [n for n, i in declared.items() if n not in entry.inputs and not i.optional]:
         raise ValueError(
             f"device {name!r}: input {', '.join(repr(n) for n in missing)} is neither bound nor"
             " a number: give `inputs: {"
@@ -1169,7 +1170,9 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
         )
         defs.update(driver_schema.pop("$defs", {}))
         device = driver.device_class()
-        declared = [] if device is None else list(device.INPUTS)
+        inputs = {} if device is None else device.INPUTS
+        declared = list(inputs)
+        needed = [n for n, i in inputs.items() if not i.optional]
         properties = {
             **envelope,
             "driver": {"const": driver.type_name},
@@ -1178,7 +1181,7 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
         if declared:  # no default: each is bound to an address or a number (C12)
             properties["inputs"] = {
                 **envelope["inputs"],
-                "required": declared,
+                **({"required": needed} if needed else {}),
                 "propertyNames": {"enum": declared},
             }
         variants.append({
@@ -1189,7 +1192,7 @@ def _devices_schema(catalogs: Catalogs) -> tuple[dict[str, Any], dict[str, Any]]
             "required": [
                 "driver",
                 *driver_schema.get("required", []),
-                *(["inputs"] if declared else []),
+                *(["inputs"] if needed else []),
             ],
             "not": {"required": ["config"]},
         })

@@ -1,33 +1,59 @@
 # yaml-language-server: $schema=../rig.schema.json
 # Generic analog turbidity sensor (e.g. DFRobot SEN0189-style infrared
-# scatter module): an analog-out board, ~4.1-4.2 V in clear water, falling
+# scatter module): an analog-out board, ~4.1 V in clear water, falling
 # as suspended solids scatter the beam. As with pH there is no digital
 # protocol to cite -- it is a bare voltage into an ADC.
+#
+# The channel is read once, as volts (`turbidity_adc.raw_v`), and a `curve`
+# device turns that into NTU (`turbidity.value`). Reading it once matters:
+# each ADS1115 conversion is ~9 ms, per declared signal.
 #
 # NTU is per-sensor and per-liquid: the datasheet gives only a rough,
 # non-linear voltage/NTU curve for a reference liquid (usually a
 # formazin standard), and real turbid samples rarely match it. Calibrate
 # with your own standards:
 #
-#   1. Read `turbidity.raw_v` in clear (0 NTU) water/calibration fluid.
+#   1. Read `turbidity_adc.raw_v` in clear (0 NTU) water/calibration fluid.
 #   2. Read it again in one or more known-NTU standards (formazin
 #      standards, or a supplier's calibration kit).
-#   3. Fit a line (or the datasheet's curve, if two points aren't enough)
-#      through the points: NTU = scale * volts + offset for a linear fit.
+#   3. Put each (volts, NTU) pair in `points` below: the table interpolates
+#      straight between neighbours, so more standards follow the bend better.
 #   4. Re-check periodically -- the optics foul with biofilm/scale.
 #
-# `raw_v` is exposed so recalibration doesn't require editing this file
-# until new numbers are known. Swap `mcp3008`/`spi1` in for `ads1115`/`i2c1`
-# if wired to an MCP3008 instead -- same `channels:` shape.
+# A reading outside the table's first and last volts has no value
+# (`invalid`, reason `out_of_domain`): the curve is never extrapolated, so
+# the table has to reach a little past the clear-water voltage. `raw_v` is
+# `record: false`: it is live, and shown beside `turbidity.value`, for
+# calibration, but the store keeps only NTU; drop that line to keep the
+# volts too. Swap `mcp3008`/`spi1` in for `ads1115`/`i2c1` if wired to an
+# MCP3008 instead -- same `channels:` shape.
 
 devices:
-  turbidity:
+  turbidity_adc:
     driver: ads1115
-    label: Turbidity
+    label: Turbidity sensor
     poll_s: 2
     link: i2c1
     i2c_address: 0x49                # ADDR strapped to VDD: second ADS1115 on the bus
     gain: 1                          # +-4.096 V full scale covers the ~0-4.2 V clear-water reading
     channels:
       raw_v: { channel: 0, unit: V }
-      ntu: { channel: 0, unit: NTU, scale: 1.0, offset: 0.0 }   # PLACEHOLDER: replace via calibration above
+    signals:
+      raw_v: { record: false }
+  turbidity:
+    driver: curve
+    label: Turbidity
+    inputs: { x: turbidity_adc.raw_v }
+    unit: NTU
+    # PLACEHOLDER until you calibrate (steps above): not a measured calibration
+    # of any probe. It is DFRobot's typical SEN0189 curve, "the relationship
+    # between turbidity and voltage", y = -1120.4x^2 + 5742.3x - 4352.9 (x in V
+    # on a 5 V supply, y in NTU), fitted to three points over 2.5-4.2 V and
+    # tabulated here every 0.25 V:
+    # https://raw.githubusercontent.com/DFRobot/DFRobotMediaWikiImage/master/Image/_relationship_diagram.jpg
+    # DFRobot say the module is for qualitative use, not accurate quantitative
+    # work, and give clear water as 4.1 +- 0.3 V at 10-50 C: a probe reading over
+    # 4.2 V in clear water has no value on this table.
+    curve:
+      type: table
+      points: [[2.5, 3000], [2.75, 2965], [3.0, 2790], [3.25, 2475], [3.5, 2020], [3.75, 1425], [4.0, 690], [4.2, 0]]

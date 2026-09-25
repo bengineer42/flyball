@@ -18,5 +18,7 @@ I2cLinkConfig = Config.union(FakeI2cConfig)
 SpiLinkConfig = Config.union(FakeSpiConfig)
 GpioLinkConfig = Config.union(FakeGpioConfig)
 UartLinkConfig = Config.union(FakeUartConfig)
+EzoLinkConfig = Config.union(FakeI2cConfig, FakeUartConfig)
+"""Either transport an EZO circuit may be wired on; the driver picks by what `link` resolves to."""
 
-__all__ = ["GpioLinkConfig", "I2cLinkConfig", "SpiLinkConfig", "UartLinkConfig"]
+__all__ = ["EzoLinkConfig", "GpioLinkConfig", "I2cLinkConfig", "SpiLinkConfig", "UartLinkConfig"]

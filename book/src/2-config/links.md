@@ -15,7 +15,10 @@ links:
 
 Every real link has a `fake_*` twin that answers from a script, so the same
 devices run with nothing plugged in; see [Simulation](simulation.md#the-overlay-pattern).
-`GET /api/drivers` lists every type the running runner can build.
+`GET /api/drivers` lists every type the running runner can build, each link
+with its **family** (`i2c`, `spi`, `gpio`, `pwm`, `onewire`, `uart`, `modbus`,
+`text`, `plant`): a link and its `fake_*` twin share one, and a driver takes
+any link of its family ([the wire shape](../4-server/wire.md#drivers-and-links)).
 
 ## Text instruments
 

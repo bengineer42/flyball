@@ -68,6 +68,8 @@ class PlantConfig(Config[Plant], type="sim_plant"):
     silently mean the default model.
     """
 
+    family = "plant"
+
     model_config = ConfigDict(extra="forbid")
 
     model: Literal["lag", "integrator", "fopdt"] = "lag"

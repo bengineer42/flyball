@@ -21,9 +21,9 @@ model an actual plant.
 
 from __future__ import annotations
 
-from bisect import bisect_left
-from itertools import pairwise
-
+from flyball.foundation.quantities.curves import Linear
+from flyball.foundation.quantities.curves import Table as TableCurve
+from flyball.foundation.quantities.errors import CurveNotInvertibleError
 from flyball.model.errors import FeedforwardNotInvertibleError
 
 # Re-exported for anyone importing the base/defaults from their old home.
@@ -41,26 +41,35 @@ class Affine(Feedforward, type="affine"):
 
     The two-number model that fits most plants nearby, plus an optional
     third for one with capacity: `rate_gain` is actuator unit per
-    channel-unit-per-second, e.g. extra watts per °C/min of ramp.
+    channel-unit-per-second, e.g. extra watts per °C/min of ramp. The line
+    itself is a [Linear][flyball.foundation.quantities.curves.Linear] curve.
     """
 
     def __init__(self, gain: float, bias: float = 0.0, rate_gain: float | None = None) -> None:
-        self.gain = gain
-        self.bias = bias
+        self._curve = Linear(scale=gain, offset=bias)
         self.rate_gain = rate_gain
 
+    @property
+    def gain(self) -> float:
+        return self._curve.scale
+
+    @property
+    def bias(self) -> float:
+        return self._curve.offset
+
     def __call__(self, setpoint: float, rate: float = 0.0) -> float:
-        demand = self.gain * setpoint + self.bias
+        demand = self._curve(setpoint)
         if self.rate_gain is not None:
             demand += self.rate_gain * rate
         return demand
 
     def invert(self, demand: float, rate: float = 0.0) -> float:
-        if not self.gain:
-            raise FeedforwardNotInvertibleError(self.type, "gain is 0")
         if self.rate_gain is not None:
             demand -= self.rate_gain * rate
-        return (demand - self.bias) / self.gain
+        try:
+            return self._curve.invert(demand)
+        except CurveNotInvertibleError as e:
+            raise FeedforwardNotInvertibleError(self.type, "gain is 0") from e
 
 
 class Table(Feedforward, type="table"):
@@ -68,47 +77,29 @@ class Table(Feedforward, type="table"):
 
     Held flat beyond the ends. `rate_gain` adds the same plant-capacity term
     as [Affine][flyball.control.feedforward.Affine]'s, on top of the curve.
+    The breakpoints are a [Table][flyball.foundation.quantities.curves.Table]
+    curve, which interpolates and inverts them.
     """
 
     def __init__(self, points: list[tuple[float, float]], rate_gain: float | None = None) -> None:
-        if not points:
-            raise ValueError("at least one point")
-        self.points = sorted(points)
-        self._x = [x for x, _ in self.points]
+        self._curve = TableCurve(tuple((x, y) for x, y in points))
         self.rate_gain = rate_gain
 
+    @property
+    def points(self) -> list[tuple[float, float]]:
+        """The breakpoints, sorted by setpoint."""
+        return list(self._curve.points)
+
     def __call__(self, setpoint: float, rate: float = 0.0) -> float:
-        demand = self._interpolate(setpoint)
+        demand = self._curve(setpoint)
         if self.rate_gain is not None:
             demand += self.rate_gain * rate
         return demand
 
-    def _interpolate(self, setpoint: float) -> float:
-        i = bisect_left(self._x, setpoint)
-        if i == 0:
-            return self.points[0][1]
-        if i == len(self.points):
-            return self.points[-1][1]
-        (x0, y0), (x1, y1) = self.points[i - 1], self.points[i]
-        return y0 if x1 == x0 else y0 + (y1 - y0) * (setpoint - x0) / (x1 - x0)
-
     def invert(self, demand: float, rate: float = 0.0) -> float:
         if self.rate_gain is not None:
             demand -= self.rate_gain * rate
-        ys = [y for _, y in self.points]
-        ascending = all(a <= b for a, b in pairwise(ys))
-        descending = all(a >= b for a, b in pairwise(ys))
-        if not (ascending or descending):
-            raise FeedforwardNotInvertibleError(self.type, "not monotonic")
-        # Re-sort by demand: for a monotonic table this is either `points`
-        # unchanged (ascending) or reversed (descending), and the inverse of
-        # each linear segment is itself linear.
-        by_demand = self.points if ascending else list(reversed(self.points))
-        y_sorted = [y for _, y in by_demand]
-        i = bisect_left(y_sorted, demand)
-        if i == 0:
-            return by_demand[0][0]
-        if i == len(by_demand):
-            return by_demand[-1][0]
-        (x0, y0), (x1, y1) = by_demand[i - 1], by_demand[i]
-        return x0 if y1 == y0 else x0 + (x1 - x0) * (demand - y0) / (y1 - y0)
+        try:
+            return self._curve.invert(demand)
+        except CurveNotInvertibleError as e:
+            raise FeedforwardNotInvertibleError(self.type, "not monotonic") from e

@@ -106,6 +106,8 @@ class GpiodChip:
 class GpioConfig(Config[GpioLink], type="gpio"):
     """A kernel GPIO chip: `chip = "gpiochip4"` is `/dev/gpiochip4`."""
 
+    family = "gpio"
+
     chip: str = "gpiochip0"
 
     def build(self) -> GpioLink:

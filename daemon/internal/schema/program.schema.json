@@ -691,9 +691,16 @@
                         "title": "controllers"
                       },
                       "within": {
-                        "default": 1.0,
-                        "title": "within",
-                        "type": "number"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "within"
                       },
                       "count": {
                         "default": 3,
@@ -765,6 +772,70 @@
                         ],
                         "default": null,
                         "title": "message"
+                      },
+                      "signal": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "signal"
+                      },
+                      "above": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "above"
+                      },
+                      "below": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "below"
+                      },
+                      "near": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "title": "near"
+                      },
+                      "from_start": {
+                        "default": false,
+                        "title": "from start",
+                        "type": "boolean"
+                      },
+                      "on_no_value": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/OnNoValue"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null
                       }
                     },
                     "title": "SettleRequest",
@@ -777,7 +848,7 @@
               "settle"
             ],
             "additionalProperties": false,
-            "description": "Wait until the named controllers have settled within `within` of their setpoints.\n\nJudged on `count` consecutive readings per controller; a ramp started\nwith `wait: false` is waited out here, against where the ramp is at each\nreading. The other controllers carry on regulating meanwhile."
+            "description": "Wait until controllers have settled at their setpoints, or until a signal meets a test.\n\nEither form, never both. Named `controllers` (or none, for the rig's\ndefault): each must read within `within` of its own setpoint (default 1)\nfor `count` consecutive readings; a ramp started with `wait: false` is\nwaited out here, against where the ramp is at each reading. Named a\n`signal`: its readings must meet one of `above`, `below`, or `near` with\n`within` for `count` readings running -- a signal with no controller\n(a sample, a weight, a count). With `from_start`, the number is relative\nto the signal's value when the step starts. A reading at a limit resets\nthe count; one with no value is not met unless `on_no_value` is `fire`.\nThe controllers carry on regulating meanwhile. `timeout` gives up and\nfails the program."
           },
           {
             "type": "object",
@@ -895,6 +966,15 @@
         }
       ],
       "title": "TimeUnit",
+      "type": "string"
+    },
+    "OnNoValue": {
+      "description": "What a banded signal does when it has no value because of a fault (`invalid`, `stale`).",
+      "enum": [
+        "fire",
+        "ignore"
+      ],
+      "title": "OnNoValue",
       "type": "string"
     }
   }

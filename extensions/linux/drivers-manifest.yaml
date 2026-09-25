@@ -313,6 +313,78 @@ sensors:
       - label: caveat
         url: "Gain/channel pulse counts (25/26/27) confirmed against the Avia HX711 datasheet's Serial Interface section and Table 3/Fig.2 -- but the fake used for tests only exercises decode logic, not real GPIO bit-bang timing (no hardware, ever)"
 
+  - type: max6675
+    part_number: MAX6675
+    manufacturer: Maxim Integrated / Analog Devices
+    category: temp
+    interface: spi
+    support: bespoke_driver
+    file: extensions/chips/src/flyball_chips/max6675.py
+    loc_estimate: "50-100"
+    loc_actual: 71
+    status: done
+    datasheet_checked: true
+    hardware_tested: false
+    price_approx: "~$8-12 module [Unverified]"
+    domains: [brewing, industrial_process]
+    links:
+      - label: note
+        url: "K-type only, positive Celsius only (unsigned 12-bit field, no cold-junction linearisation choice); max31855/max31856 supersede it for anything else"
+
+  - type: max31855
+    part_number: MAX31855
+    manufacturer: Maxim Integrated / Analog Devices
+    category: temp
+    interface: spi
+    support: bespoke_driver
+    file: extensions/chips/src/flyball_chips/max31855.py
+    loc_estimate: "80-120"
+    loc_actual: 108
+    status: done
+    datasheet_checked: true
+    hardware_tested: false
+    price_approx: "~$8-15 module [Unverified]"
+    domains: [brewing, distillery, industrial_process]
+    links:
+      - label: note
+        url: "Register map (14-bit thermocouple, 12-bit cold junction, D16 fault + OC/SCG/SCV bits) matches the Adafruit MAX31855 library's decode"
+
+  - type: max31856
+    part_number: MAX31856
+    manufacturer: Maxim Integrated / Analog Devices
+    category: temp
+    interface: spi
+    support: bespoke_driver
+    file: extensions/chips/src/flyball_chips/max31856.py
+    loc_estimate: "150-250"
+    loc_actual: 230
+    status: done
+    datasheet_checked: partial
+    hardware_tested: false
+    price_approx: "~$12-18 module [Unverified]"
+    domains: [espresso, dyno, industrial_process]
+    links:
+      - label: caveat
+        url: "Register map and fault bits confirmed against the Adafruit MAX31856 library's constants; one-shot conversion time (~143ms/60Hz, ~169ms/50Hz for averaging=1) is [Unverified] beyond one sample -- this driver's own linear-with-averaging approximation, not a datasheet table"
+
+  - type: max31865
+    part_number: MAX31865
+    manufacturer: Maxim Integrated / Analog Devices
+    category: temp
+    interface: spi
+    support: bespoke_driver
+    file: extensions/chips/src/flyball_chips/max31865.py
+    loc_estimate: "150-250"
+    loc_actual: 229
+    status: done
+    datasheet_checked: partial
+    hardware_tested: false
+    price_approx: "~$10-15 module [Unverified]"
+    domains: [cryostat, uhv, industrial_process]
+    links:
+      - label: caveat
+        url: "Register map confirmed against the Adafruit MAX31865 library's constants. Callendar-Van Dusen coefficients (A=3.9083e-3, B=-5.775e-7, C=-4.183e-12) are the standard IEC 60751 platinum values; the below-0degC solve is Newton's method (8 iterations) from the T>=0 closed-form quadratic, the two-region approach Maxim's/TI's RTD app notes describe -- round-tripped at 0/100/-50degC in the tests, not checked against real hardware"
+
   - type: tsl2591
     part_number: TSL2591
     manufacturer: ams

@@ -23,6 +23,10 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`sht4x`](#sht4x), [`sht4x_set`](#sht4x_set) | Sensirion humidity / temperature | `i2c` | `flyball-chips` | hardware-tested |
 | [`ads1115`](#ads1115) | TI 16-bit ADC | `i2c` | `flyball-chips` | — |
 | [`mcp3008`](#mcp3008) | Microchip 10-bit ADC | `spi` | `flyball-chips` | — |
+| [`max6675`](#max6675) | Maxim K-type thermocouple | `spi` | `flyball-chips` | — |
+| [`max31855`](#max31855) | Maxim thermocouple + cold junction | `spi` | `flyball-chips` | — |
+| [`max31856`](#max31856) | Maxim precision thermocouple | `spi` | `flyball-chips` | — |
+| [`max31865`](#max31865) | Maxim PT100/PT1000 RTD | `spi` | `flyball-chips` | — |
 | [`gpio_line`](#gpio_line) | a relay, a switch | `gpio` | `flyball-linux` | datasheet-checked |
 | [`pwm_channel`](#pwm_channel) | a PWM output | `pwm` | `flyball-linux` | — |
 | [`ds18b20`](#ds18b20) | 1-Wire thermometers | `onewire` | `flyball-linux` | — |
@@ -33,7 +37,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`sgp30`](#sgp30), [`sgp40`](#sgp40) | Sensirion eCO₂ / TVOC / VOC index | `i2c` | `flyball-chips` | partial |
 | [`ccs811`](#ccs811) | ams eCO₂ / TVOC | `i2c` | `flyball-chips` | partial |
 | [`mhz19`](#mhz19) | Winsen CO₂ | `uart` | `flyball-chips` | datasheet-checked |
-| [`ezo_ph`](#ezo_ph), [`ezo_ec`](#ezo_ec), [`ezo_orp`](#ezo_orp), [`ezo_do`](#ezo_do) | Atlas Scientific pH / EC / ORP / dissolved-oxygen circuits | `uart` | `flyball-chips` | partial (`ezo_ec`) |
+| [`ezo_ph`](#ezo_ph), [`ezo_ec`](#ezo_ec), [`ezo_orp`](#ezo_orp), [`ezo_do`](#ezo_do) | Atlas Scientific pH / EC / ORP / dissolved-oxygen circuits | `uart` or `i2c` | `flyball-chips` | partial (`ezo_ec`) |
 | [`hx711`](#hx711) | a load cell amplifier | two `gpio_line`s | `flyball-chips` | partial |
 | [`current_loop`](#current_loop) | a 4-20 mA instrument, over an existing ADC | `ads1115`/`mcp3008` | `flyball-linux` | partial |
 | [`pulse_counter`](#pulse_counter) | a hall-effect flow meter | `gpio` | `flyball-linux` | datasheet-checked |
@@ -41,6 +45,7 @@ one of the board drivers; a simulation the two `sim_*`. If none fits,
 | [`mcp4725`](#mcp4725) | a 0-10 V-class analog control signal (a VFD, a dimmable ballast, a damper) | `i2c` | `flyball-chips` | — |
 | [`stepper`](#stepper) | a step/direction stepper motor: a motorized valve, damper or vent | two `gpio_line`s | `flyball-linux` | — |
 | [`values`](#values) | numbers an operator enters, for other devices' inputs to follow | none | `flyball` | — |
+| [`curve`](#curve) | another device's signal through a calibration curve: volts to NTU, pH, kPa | none (an input) | `flyball` | — |
 | [`dual_pump_blender`](#dual_pump_blender) | [the humidity rig](https://bengineer42.github.io/humctrl/)'s split-range blender | `pwm`, `sim_humidity_chamber` | `examples/humidity` | hardware-tested |
 
 `—` means not in `drivers-manifest.yaml` (the generic/wrapped-library drivers
@@ -84,6 +89,10 @@ driver here follows it:
 | `sim_daq` | `fail(signal)` → `invalid("sensor_failed")` on that channel | `fail(signal, raises=true)`: every read of it |
 | `sim_drive`, `pwm_channel`, `mcp4725`, `dosing_pump`, `stepper` | n/a: write-only, or internal state | the bus |
 | `i2c_table`, `ads1115`, `mcp3008`, `gpio_line`, `pulse_counter`, `hx711` | none: every read is a number | the bus; `hx711` a conversion not ready |
+| `max6675` | an open thermocouple → `invalid("open_circuit")` | the bus |
+| `max31855` | a fault (open circuit, or a short to VCC/GND) → `temperature` `invalid`, naming every fault bit set; `cold_junction` always reads | the bus |
+| `max31856` | a fault bit in the status register → that signal's own `invalid(reason)` | the bus |
+| `max31865` | an RTD/reference fault → both signals `invalid(reason)` | the bus |
 | `sht4x`, `sht4x_set`, `sht31`, `htu21d`, `scd30`, `scd4x`, `sgp40`, `mhz19`, `ms5611` | none (humidity is cropped to 0-100 %, as the datasheets say) | a CRC failure, a short frame, a sensor not ready in time; in an `sht4x_set` one sensor's failure fails that read of the set |
 | `bme280` | a BMP280 has no `humidity` signal at all | the bus |
 | `ezo_*` | none | a `*` status reply, a malformed one |
@@ -92,6 +101,7 @@ driver here follows it:
 | `ds18b20` | none: the kernel's CRC line decides [Unverified: whether the kernel reports the 85 °C power-on value as a reading] | a failed CRC |
 | `current_loop` | a NAMUR fault current → `invalid("ne43_low"/"ne43_high")`, low or high; 3.6-3.8 / 20.5-21 mA → the value, `at_limit` | the ADC's own failure |
 | `dual_pump_blender` | `expected_humidity`: `not_applicable("no_flow")` with no flow, `invalid("supply")` while a supply has no value | the PWM bus |
+| `curve` | its input's no-value, as it is; outside a table's domain `invalid("out_of_domain")`, low or high | n/a: reads nothing |
 
 A demand's reading is the value the rig committed (`readback: echo`)
 unless the driver reads it back: `scpi` with a `query`, and `qcodes` /
@@ -142,13 +152,24 @@ rig file gives it a `stop:` value.
 
 ### `modbus`
 
-One device per unit, a register per signal. `value = raw * scale`.
+One device per unit, a register per signal. `value = decode(words) * scale + offset`.
+`kind` picks the Modbus table, and so the function code: `holding` (FC03 read, FC16
+write -- the default), `input` (FC04, read-only), `coil` (FC01 read, FC05 write) and
+`discrete` (FC02, read-only). Coils and discrete inputs are plain booleans (0/1): they
+take no `format`, `scale` or `offset`.
 
 | field | default | |
 | --- | --- | --- |
 | `link` | required | a [register link](../links.md#register-instruments) |
-| `registers` | required | `{signal: {address, kind?, unit, scale?, write?, role?}}` -- `kind` is `holding` (default), `input` or `coil`; `write: true` makes a `holding` register `[RPW]`, a demand (refused on `input`); `role: setting` makes a writable register a setting (a configuration register) rather than a demand, so no controller can drive it |
+| `registers` | required | `{signal: {address, kind?, format?, word_order?, unit, scale?, offset?, write?, role?}}` -- `kind` is `holding` (default), `input`, `coil` or `discrete`; `write: true` makes a `holding` or `coil` register `[RPW]`, a demand (refused on `input`/`discrete`); `role: setting` makes a writable register a setting (a configuration register) rather than a demand, so no controller can drive it |
 | `unit_id` | `1` | the Modbus unit (slave) id |
+
+`format` is `u16` (default: today's one-word unsigned reading), `i16`, or one of the
+32-bit `u32`/`i32`/`f32`, which span two registers at `address` and `address + 1`.
+`word_order` (`big`, the default, or `little`) says which of the two holds the high
+word -- `big` is the convention Alicat-style mass-flow controllers and most Modbus
+float32 instruments use. It is named `format`, not `type`, so it cannot clash with a
+device config's own `type:` discriminator.
 
 ```yaml
 chiller:
@@ -157,6 +178,12 @@ chiller:
   registers:
     temperature: { address: 100, scale: 0.1, unit: "°C" }
     setpoint:    { address: 101, scale: 0.1, unit: "°C", write: true }
+    valve_open:  { address: 0, kind: coil, unit: "1", write: true }
+mfc:
+  driver: modbus
+  link: mfc
+  registers:
+    flow: { address: 10, format: f32, word_order: big, unit: "slm" }   # Alicat-style
 ```
 
 ## Wrapped instrument libraries
@@ -292,15 +319,24 @@ MCP9808, INA219, LM75.
 | --- | --- | --- |
 | `link` | required | an `i2c` link |
 | `i2c_address` | required | the chip's bus address |
-| `registers` | required | `{signal: {address, length, signed?, byteorder?, shift?, scale?, offset?, unit, write?, role?}}` -- `write: true` makes a register a demand; `role: setting` makes a writable one a setting instead (a configuration register), which no controller can drive |
+| `init` | none | `[{address, value, length?, byteorder?, signed?}]` -- writes sent once, in order, when the device is built: a mode or reset register no signal reads back |
+| `registers` | required | `{signal: {address, length, signed?, byteorder?, shift?, mask?, sign_bit?, scale?, offset?, unit, write?, role?}}` -- `write: true` makes a register a demand; `role: setting` makes a writable one a setting instead (a configuration register), which no controller can drive |
+
+`mask` (ANDed in after `shift`) and `sign_bit` (that masked value's own sign bit,
+two's-complemented at that width) decode a bit-field inside a wider register --
+a status byte's fault flags, or a field narrower than its register. A register
+with either is read-only: there is no safe read-modify-write of the bits around it.
 
 ```yaml
 board_temp:
   driver: i2c_table
   link: i2c1
   i2c_address: 0x48
+  init:
+    - { address: 0x01, value: 0x60 }   # one-shot mode, per the datasheet
   registers:
     temperature: { address: 0, length: 2, signed: true, scale: 0.0078125, unit: "°C" }
+    fault:        { address: 2, length: 1, mask: 0x0F, sign_bit: 3 }
 ```
 
 ### `sht4x`
@@ -359,6 +395,79 @@ Microchip 10-bit ADC, eight channels, over SPI.
 | `link` | required | an `spi` link |
 | `vref` | `3.3` | the reference voltage on VREF |
 | `channels` | required | `{signal: {channel, scale?, unit?}}` |
+
+### `max6675`
+
+Maxim K-type thermocouple to digital, SPI, read-only: `temperature [RP]` in
+°C, 0.25 °C steps. No cold-junction linearisation and no negative
+temperatures -- for either, use `max31855` or `max31856` instead.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `spi` link |
+
+**Stop:** `temperature` is read-only, so a rig stop does nothing to this
+device; `stop:` values are refused on it.
+
+### `max31855`
+
+Maxim cold-junction-compensated thermocouple to digital, SPI, read-only:
+`temperature [RP]` (the thermocouple, 0.25 °C steps) and `cold_junction
+[RP]` (the chip's own junction, 0.0625 °C steps), both in °C. A fault (open
+circuit, or a short to VCC/GND) reads `temperature` `invalid`, naming every
+fault bit that is set; `cold_junction` has no fault bit of its own and is
+always published.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `spi` link |
+
+**Stop:** both signals are read-only, so a rig stop does nothing to this
+device; `stop:` values are refused on it.
+
+### `max31856`
+
+Maxim precision thermocouple to digital, SPI (mode 1 or 3 -- set on the
+link's own `spi_mode:`), register-addressed: `temperature [RP]` (linearised
+and cold-junction-compensated, 2⁻⁷ °C steps) and `cold_junction [RP]`
+(2⁻⁶ °C steps), both in °C.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `spi` link |
+| `thermocouple_type` | `K` | `B`, `E`, `J`, `K`, `N`, `R`, `S` or `T` |
+| `averaging` | `1` | samples averaged per conversion: `1`, `2`, `4`, `8` or `16` |
+| `filter_hz` | `60` | mains frequency to reject: `50` or `60` |
+| `conversion` | `continuous` | `continuous` (the chip free-runs) or `one_shot` (a conversion is triggered and waited out on every read) |
+
+A fault reads its own signal `invalid(reason)` -- `temperature`:
+`open_circuit`, `over_under_voltage`, `low`, `high`, `range`;
+`cold_junction`: `low`, `high`, `range` -- never a raise: the chip
+answered.
+
+**Stop:** both signals are read-only, so a rig stop does nothing to this
+device; `stop:` values are refused on it.
+
+### `max31865`
+
+Maxim single-channel RTD (PT100/PT1000) to digital, SPI, register-addressed:
+`resistance [RP]` (Ω) and `temperature [RP]` (°C, by the Callendar-Van
+Dusen equation). Continuous automatic conversion, VBIAS always on.
+
+| field | default | |
+| --- | --- | --- |
+| `link` | required | an `spi` link |
+| `rtd_type` | `pt100` | `pt100` or `pt1000` |
+| `ref_resistor` | `430.0` | the precision bias resistor in Ω (`430` for a PT100 board, `4300` for a PT1000 one) |
+| `wires` | `2` | `2`, `3` or `4` -- only `3` changes the chip's own config bit |
+| `filter_hz` | `60` | mains frequency to reject: `50` or `60` |
+
+A fault (an open or shorted RTD, an out-of-range reference) reads both
+signals `invalid(reason)`, never a raise: the chip answered. The fault
+latch is cleared on the next read.
+
+**Stop:** both signals are read-only, so a rig stop does nothing to this
+device; `stop:` values are refused on it.
 
 ### `gpio_line`
 
@@ -544,14 +653,34 @@ ASCII -- a request/reply pair per read, checksummed.
 
 ### `ezo_ph`
 
-Atlas Scientific EZO-pH circuit: `ph`, `[RP]`. ASCII command/response,
-`\r`-terminated, a ~1 s wait per reading. Handles the circuit's
-default-enabled `*OK` acknowledgement frame -- the shared shape every
-`ezo_*` driver below builds on.
+Atlas Scientific EZO-pH circuit: `ph`, `[RP]`. **Transport picked by `link`**:
+a `uart` link (38400 8N1, `\r`-terminated ASCII, ~1 s wait per reading) or an
+`i2c` link (bare ASCII, a status byte then a NULL-terminated reply, no clock
+stretching); handles the circuit's default-enabled `*OK` acknowledgement
+frame either way -- the shared shape every `ezo_*` driver below builds on.
 
 | field | default | |
 | --- | --- | --- |
-| `link` | required | a `uart` link, 38400 8N1 |
+| `link` | required | a `uart` link (38400 8N1) or an `i2c` link |
+| `i2c_address` | `0x63` | I²C address; ignored on UART |
+
+**Calibration** (`@command`s, each `long` -- they wait): `calibrate_mid(ph)`
+(`cal,mid,<ph>`, required first), `calibrate_low(ph)`/`calibrate_high(ph)`
+(`cal,low`/`cal,high`, pH 1-6 / 8-14), `calibrate_clear()` (`cal,clear`),
+`calibration_status()` (`cal,?`, returns 0-3 points set). None declares
+`writes=`: they change the probe's own stored calibration, not an output.
+
+**Temperature compensation**: an optional `temperature` input
+(`inputs: {temperature: <address>}` or a number, in °C). Bound and valued,
+`T,<value>` is sent before each read; unbound, the read is uncompensated
+(the circuit's own 25 °C default). Bound but with no value (`stale`,
+`invalid`), `ph` has none either and carries the input's quality -- it never
+quietly falls back to uncompensated; bound and not yet read, the probe skips
+that read.
+
+**Stop:** none -- EZO-pH has no demand for a controller to drive, so it is
+not stoppable; the calibration commands above are its only writes, and they
+run only when asked.
 
 ### `ezo_ec`
 
@@ -560,30 +689,79 @@ factory-default CSV reply (`EC,TDS,SAL,SG`) per the datasheet's
 quick-reference table. [Unverified] the same datasheet's own worked
 example shows a bare single value instead -- looks like a stale example
 from an older revision; worth checking against real hardware before
-trusting the CSV assumption.
+trusting the CSV assumption. **Transport picked by `link`**: a `uart` link
+or an `i2c` link (bare ASCII, a status byte then a NULL-terminated reply).
 
 | field | default | |
 | --- | --- | --- |
-| `link` | required | a `uart` link, 38400 8N1 |
+| `link` | required | a `uart` link (38400 8N1) or an `i2c` link |
+| `i2c_address` | `0x64` | I²C address; ignored on UART |
+
+**Calibration** (`@command`s, each `long`): `calibrate_dry()` (`cal,dry`),
+`calibrate_low(microsiemens)`/`calibrate_high(microsiemens)` (`cal,low`/
+`cal,high`), `calibrate_clear()` (`cal,clear`), `set_cell_constant(k)`
+(`K,<k>` -- the probe's own cell constant, not a calibration point but
+grouped here). None declares `writes=`: they change the probe's own
+calibration/constant, not an output.
+
+**Temperature compensation**: an optional `temperature` input (°C). Bound
+and valued, the combined `RT,<value>` command replaces the plain `R`
+(setting the compensation and reading in one round trip); unbound, the read
+is uncompensated (25 °C default). Bound but with no value, every output
+carries the input's quality instead.
+
+**Stop:** none -- EZO-EC has no demand for a controller to drive, so it is
+not stoppable; the calibration commands above are its only writes.
 
 ### `ezo_orp`
 
-Atlas Scientific EZO-ORP circuit: a single mV reading, `[RP]`.
+Atlas Scientific EZO-ORP circuit: a single mV reading, `[RP]`. **Transport
+picked by `link`**: a `uart` link or an `i2c` link (bare ASCII, a status
+byte then a NULL-terminated reply). No temperature compensation -- unlike
+its siblings, the datasheet has no `T`/`RT` command: ORP mV readings are
+not temperature-corrected by the circuit.
 
 | field | default | |
 | --- | --- | --- |
-| `link` | required | a `uart` link, 38400 8N1 |
+| `link` | required | a `uart` link (38400 8N1) or an `i2c` link |
+| `i2c_address` | `0x62` | I²C address; ignored on UART |
+
+**Calibration** (`@command`s, each `long`): `calibrate(mv)` (`cal,<mv>`,
+a single reference point -- no low/mid/high split), `calibrate_clear()`
+(`cal,clear`). Neither declares `writes=`: it changes the probe's own
+stored calibration, not an output.
+
+**Stop:** none -- EZO-ORP has no demand for a controller to drive, so it is
+not stoppable; the calibration commands above are its only writes.
 
 ### `ezo_do`
 
 Atlas Scientific EZO-DO circuit: dissolved oxygen in mg/L, `[RP]`.
 Decodes the factory-default single-value reply; raises rather than
 guessing if the circuit was reconfigured to also report % saturation
-(a comma in the reply).
+(a comma in the reply). **Transport picked by `link`**: a `uart` link or an
+`i2c` link (bare ASCII, a status byte then a NULL-terminated reply).
 
 | field | default | |
 | --- | --- | --- |
-| `link` | required | a `uart` link, 38400 8N1 |
+| `link` | required | a `uart` link (38400 8N1) or an `i2c` link |
+| `i2c_address` | `0x61` | I²C address; ignored on UART |
+
+**Calibration** (`@command`s, each `long`): `calibrate()` (`cal`, one-point
+atmospheric-saturation calibration), `calibrate_zero()` (`cal,0`, a
+separate, optional zero-oxygen point), `calibrate_clear()` (`cal,clear`).
+None declares `writes=`: they change the probe's own stored calibration,
+not an output.
+
+**Compensation**: three optional inputs. `temperature` (°C) -- bound and
+valued, the combined `RT,<value>` command replaces the plain `R`; unbound,
+the read is uncompensated (25 °C default). `salinity` (conductivity, µS/cm, `S,<value>`) and
+`pressure` (kPa, `P,<value>`) are sent before the read when bound and
+valued -- Atlas has no combined form for either. Any of the three bound but
+with no value leaves the D.O. with none, carrying that input's quality.
+
+**Stop:** none -- EZO-DO has no demand for a controller to drive, so it is
+not stoppable; the calibration commands above are its only writes.
 
 ### `hx711`
 
@@ -624,17 +802,52 @@ consulted.]
 
 ### `pulse_counter`
 
-A hall-effect flow meter (YF-S201-class): `rate` (L/min) and `count`
-(cumulative pulses), both `[RP]`. Native `gpiod` edge-event detection and
-debounce -- no hand-rolled polling loop.
+A pulse-train sensor: a hall-effect flow meter (YF-S201-class), a
+tachometer, any device whose pulse frequency is proportional to what it
+measures. Two `[RP]` signals: `rate` (in `unit`, since the previous read)
+and `count` (cumulative pulses, always a plain count regardless of `unit`).
+Native `gpiod` edge-event detection and debounce -- no hand-rolled polling
+loop.
 
 | field | default | |
 | --- | --- | --- |
 | `link` | required | a `gpio` link |
 | `line` | required | |
-| `pulses_per_litre` | required | the sensor's own calibration constant, e.g. 450 for a YF-S201 |
+| `unit` | required | `rate`'s unit: a plain frequency (`Hz`, `rpm`) or written `amount/time` (`L/min`, `mL/s`) |
+| `per_pulse` | required | the amount one pulse represents, in `unit`'s own terms -- see below |
 | `debounce_s` | `0` | passed straight to `gpiod`'s native debounce |
 | `pull_up` | omitted | the line's bias: `true` pulls up, `false` pulls down, omitted leaves it as the board has it |
+
+A plain frequency unit (`Hz`, `rpm`, ...) has a dimensionless numerator, so
+`per_pulse` is itself dimensionless -- a whole pulse (`1.0`), or a fraction
+of a revolution for a multi-pulse-per-turn encoder (`0.5` for two pulses a
+turn). Any other unit must be written `amount/time` (`L/min`, `mL/s`):
+`per_pulse` is then in the amount's own unit -- litres, millilitres. A unit
+written neither way (`L`, or a single-symbol flow such as `sccm`) is refused
+when the rig loads. Either
+way, the division by elapsed time is by whichever time unit `unit` names --
+a minute for `rpm` or `L/min`, a second for `Hz` or `mL/s` -- so a flow
+meter reads naturally in litres/minute and a tachometer in rpm from the
+same driver:
+
+```yaml
+flow:
+  driver: pulse_counter
+  link: gpio0
+  line: 21
+  unit: L/min
+  per_pulse: 0.002222   # 1/450, a YF-S201's calibration constant
+tacho:
+  driver: pulse_counter
+  link: gpio0
+  line: 22
+  unit: rpm
+  per_pulse: 0.5        # two pulses per revolution
+```
+
+**Breaking (this release):** `pulses_per_litre` is gone, replaced by
+`unit`/`per_pulse` above; a rig file using it needs `unit: L/min` and
+`per_pulse: <1 / pulses_per_litre>`.
 
 ### `dosing_pump`
 
@@ -771,6 +984,74 @@ devices:
 - **Where it came from**: the device page shows each value's source --
   "rig file", "restored, written by X at T", or written in this run --
   from `sources` on [`GET /api/devices/{name}`](../../4-server/api.md).
+
+### `curve`
+
+A **derived signal**: another device's signal through a calibration curve,
+volts from an ADC channel to NTU, pH or kPa. The ADC reads its channel
+once, as raw volts, and the `curve` device computes the engineering value
+from it, in the same delivery: a controller that regulates on the
+output steps on the value computed from the newest reading, not the one
+before. Any driver's signal can be the input, so a sensor that needs a
+non-linear or per-probe calibration needs no driver change.
+
+```yaml
+devices:
+  turbidity_adc:
+    driver: ads1115
+    link: i2c1
+    i2c_address: 0x49
+    channels: { raw_v: { channel: 0, unit: V } }
+    signals: { raw_v: { record: false } }     # live, not stored
+  turbidity:
+    driver: curve
+    label: Turbidity
+    inputs: { x: turbidity_adc.raw_v }
+    unit: NTU
+    curve:
+      type: table
+      points: [[2.5, 3000], [3.0, 2790], [3.5, 2020], [4.0, 690], [4.2, 0]]   # the vendor's typical curve: calibrate your own
+  line_pressure:                              # a 0.5-4.5 V transducer over 0-100 kPa
+    driver: curve
+    inputs: { x: pressure_adc.raw_v }
+    unit: kPa
+    curve: { type: linear, scale: 25, offset: -12.5 }
+```
+
+| field | | |
+| --- | --- | --- |
+| `inputs.x` | address or number | the signal it calibrates, required: one signal's address, not a namespace's (a number gives a constant) |
+| `curve` | `{type: linear, scale, offset}` | `scale * x + offset`; `offset` defaults to 0 |
+| | `{type: table, points: [[x, y], ...]}` | straight lines between the points, in any order; at most 1024, each finite |
+| `unit` | string | the unit symbol of `value` (`NTU`, `pH`, `kPa`); omit for none |
+| `quantity` | string | what `value` is (`turbidity`); default: the device's name |
+
+It has one readout, `value` (`rp`); `signals: {value: {...}}` sets its
+label, range, bands and so on like any other signal's. A curve that does
+not build is refused at load: a table with no point or more than 1024, a
+point, `scale` or `offset` that is not finite, a `unit` that is not known.
+So is a cycle through `inputs:` (a curve on its own output, or two curves
+on each other's), and an `x` that names a namespace or a device (`adc`)
+rather than one signal (`adc.raw_v`).
+
+- **No value outside the table.** A reading of `x` before the first
+  point's `x` or past the last one gives `value` no value --
+  `invalid("out_of_domain")`, side `low` or `high` -- and a controller
+  regulating on it holds. The curve is never extrapolated, nor held at
+  its end: a table has to span every reading the sensor can give in use,
+  a little past the ends for noise. A `linear` curve has no ends.
+- **The input's no-value, carried.** While `x` has no value (`stale`,
+  `invalid`, `not_applicable`), `value` has the same one, reason and all;
+  before its first reading, nothing.
+- **Raw and engineering, paired.** `value` names its raw signal (`raw:
+  turbidity_adc.raw_v`) and the raw signal names each curve on it (`raw_for`)
+  on [the wire](../../4-server/wire.md#raw-and-engineering-signals), so a
+  client shows the two in one row and hides the raw one by default. Mark the
+  raw signal `record: false` to keep only the calibrated value in the
+  store; it stays live, and bands, alarms and reads still see it.
+
+**Stop:** not stoppable. It has no demands and nothing to write; a stop
+leaves it alone and the stop report does not list it.
 
 ## From an application
 

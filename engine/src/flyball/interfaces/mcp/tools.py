@@ -1103,7 +1103,9 @@ DRIVERS: tuple[Tool, ...] = (
     Tool(
         "list_drivers",
         "Every type the runner can build -- drivers and links -- with its config schema, "
-        "description and the module it came from.",
+        "description, one-line summary and the module it came from. A link has its `family` "
+        "(i2c, spi, gpio, uart, modbus, text, plant, ...); a driver its `requires`: the link "
+        "types it takes, their family, and the inputs its device declares.",
         _object(),
         Tier.READ,
         lambda rig, a: rig.get("/api/drivers"),

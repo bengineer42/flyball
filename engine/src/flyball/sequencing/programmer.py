@@ -305,8 +305,10 @@ class Programmer:
             while True:
                 if activity is not None:
                     with self.lock:
-                        if self._abort:
-                            break
+                        aborted = self._abort
+                    if aborted:  # ended before its wait: never attached, so never detached
+                        activity.release(self.rig)
+                        break
                     if not self._wait_out(activity, program[step]):
                         self._ended_early(program, step, activity)
                         break
@@ -337,13 +339,17 @@ class Programmer:
                 program rather than treating the step as done.
         """
         name = activity.name or command.type
-        self.rig.triggers.register(
-            name,
-            activity,
-            activity.message,
-            activity.timeout_s,
-            prompt=isinstance(activity, Prompted),
-        )
+        try:
+            self.rig.triggers.register(
+                name,
+                activity,
+                activity.message,
+                activity.timeout_s,
+                prompt=isinstance(activity, Prompted),
+            )
+        except Exception:
+            activity.release(self.rig)
+            raise
         activity.attach(self.rig)
         try:
             activity.wait()

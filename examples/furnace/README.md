@@ -33,7 +33,7 @@ Five programs in `programs/`, each a different lesson:
 | --- | --- | --- |
 | `firing.yaml` | 2.5 h | all three to 600, the middle to 900 — the ends get dragged above their setpoints with heaters off |
 | `gradient.yaml` | 4 h | 800 / 600 / 400 along the tube — conduction makes the hot end saturate and the cold end's heater idle |
-| `anneal.yaml` | 8 h | a driven 2 °C/min cooldown — the drive falls smoothly until the programmed rate exceeds the natural one |
+| `anneal.yaml` | 7 h | a driven 2 °C/min cooldown — the drive falls smoothly until the programmed rate exceeds the natural one; the soak and the unload wait on `furnace.sample`, which no controller regulates |
 | `step-test.yaml` | 5 h | identification steps on zone 2 at 300 and at 700 — the same 30 °C step, a different response: the case for a gain schedule |
 | `load-sample.yaml` | a few minutes | the operator in the loop: two `prompt` steps with a timeout, for trying the go button |
 
@@ -49,7 +49,18 @@ flyball watch controllers
 
 `flyball program run programs/firing.yaml` starts a firing; `flyball
 program status` says where it is; `flyball activity fire prompt` answers the
-operator prompt at the end. With `clock: { stepped: true }` instead of a
+operator prompt at the end.
+
+`anneal.yaml` waits on the sample itself rather than on a guessed time:
+`settle: {signal: furnace.sample, near: 700, within: 5, count: 15}` before
+the 90-minute soak, so the soak starts when the sample (which lags zone 2 by
+minutes) is at 700, and `settle: {signal: furnace.sample, below: 60}` as its
+last step, so the program ends when the sample can be unloaded. Each zone is
+switched off (`set` to 0) when it is released to `manual`, which otherwise
+keeps its last output. Break the sample's thermocouple mid-wait (`flyball
+invoke furnace fail signal=sample`) and the settle is not met: it reads
+`invalid`, which a settle counts as not met unless it says
+`on_no_value: fire`, so its `timeout` ends the program. With `clock: { stepped: true }` instead of a
 speed, the same firing runs to completion in the time the arithmetic takes
 — every poll, tick and wait in order — which is how
 `tests/test_plant.py` tests it.

@@ -9,37 +9,30 @@ one query, for finding out what an instrument answers.
 
 from __future__ import annotations
 
-import inspect
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from flyball.foundation.errors import ConflictError, NotFoundError
-from flyball.foundation.schema import Titled
 from flyball.interfaces.server.deps import CatalogDep, RigDep, current_drivers_dir
-from flyball.runtime.drivers import load_drivers
+from flyball.runtime.drivers import describe, load_drivers
 
 router = APIRouter(prefix="/api", tags=["drivers"])
 
 
 @router.get("/drivers")
 def read_drivers(catalog: CatalogDep) -> dict[str, Any]:
-    """Every registered config, by type: its role, module, description and config schema."""
-    out: dict[str, Any] = {}
-    for role, sub in (("driver", catalog.devices), ("link", catalog.links)):
-        for name, config in sorted(sub.items()):
-            entry: dict[str, Any] = {
-                "role": role,
-                "module": config.__module__,
-                "description": inspect.getdoc(config),
-            }
-            try:
-                entry["schema"] = config.model_json_schema(schema_generator=Titled)
-            except Exception as e:  # a schema pydantic cannot build: say so, keep the rest
-                entry["schema_error"] = f"{type(e).__name__}: {e}"
-            out[name] = entry
-    return out
+    """Every registered config, by type: its kind, module, description, summary and schema.
+
+    A link's `family`; a driver's `requires` (`link`, `family`, `inputs`), and its `category`
+    and default I²C `addresses` where it has them ([describe][flyball.runtime.drivers.describe]).
+    """
+    return {
+        name: describe(config, catalog)
+        for sub in (catalog.devices, catalog.links)
+        for name, config in sorted(sub.items())
+    }
 
 
 @router.post("/drivers/reload")

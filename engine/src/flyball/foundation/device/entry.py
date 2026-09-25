@@ -7,13 +7,22 @@ from collections.abc import Mapping
 from dataclasses import MISSING, fields
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from flyball.model.catalog import Catalogs, get_catalog
 
 from ..errors import NotFoundError
 from ..keys import canonical, check_address, check_key
 from ..time.clock import Rate
+from .criterion import Criterion
 from .device import Device, DriverConfig
 from .novalue import OnNoValue
 from .signal import KEEP, Access, Bounds, Keep, Node, NodeSpec, Role, Signal, SignalSpec
@@ -214,25 +223,31 @@ class Permissive(BaseModel):
     above: float | None = Field(default=None, description="Permit only above this value.")
     below: float | None = Field(default=None, description="Permit only below this value.")
 
+    _criterion: Criterion = PrivateAttr()
+
     @model_validator(mode="after")
     def _a_bound(self) -> Permissive:
         if self.above is None and self.below is None:
             raise ValueError(f"permissive on {self.signal!r}: give `above`, `below` or both")
-        for name in ("above", "below"):
-            value = getattr(self, name)
-            if value is not None and not math.isfinite(value):
-                raise ValueError(f"permissive {name} {value!r}: must be finite")
-        if self.above is not None and self.below is not None and self.above >= self.below:
-            raise ValueError(
-                f"permissive on {self.signal!r}: above {self.above} is not below {self.below}"
-            )
+        try:  # the band's own checks: finite, `above` under `below`
+            self._criterion = Criterion(signal=self.signal, above=self.above, below=self.below)
+        except ValidationError as e:
+            message = e.errors()[0]["msg"].removeprefix("Value error, ")
+            raise ValueError(message.replace("criterion on", "permissive on", 1)) from None
         return self
+
+    @property
+    def criterion(self) -> Criterion:
+        """The band as a [Criterion][flyball.foundation.device.criterion.Criterion].
+
+        A permissive is a criterion that fails closed: any reading with no value refuses,
+        whatever `on_no_value` would say, so the rig tests only numbers against it.
+        """
+        return self._criterion
 
     def holds(self, value: float) -> bool:
         """Whether `value` permits the write."""
-        return (self.above is None or value > self.above) and (
-            self.below is None or value < self.below
-        )
+        return self._criterion.passes(value)
 
     def describe(self) -> str:
         parts = [f"> {self.above:g}" if self.above is not None else ""]

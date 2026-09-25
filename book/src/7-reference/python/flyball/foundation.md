@@ -9,6 +9,8 @@
 
 ::: flyball.foundation.device.conditions
 
+::: flyball.foundation.device.criterion
+
 ::: flyball.foundation.device.commands
 
 ::: flyball.foundation.device.descriptors
@@ -26,6 +28,8 @@
 ::: flyball.foundation.device.novalue
 
 ::: flyball.foundation.device.values
+
+::: flyball.foundation.device.derived
 
 ::: flyball.foundation.time.clock
 

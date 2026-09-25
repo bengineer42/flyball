@@ -57,6 +57,8 @@ class SmbusI2c:
 class I2cConfig(Config[I2cLink], type="i2c"):
     """A kernel I2C bus: `bus = 1` is `/dev/i2c-1`."""
 
+    family = "i2c"
+
     bus: int = Field(ge=0)
 
     def build(self) -> I2cLink:

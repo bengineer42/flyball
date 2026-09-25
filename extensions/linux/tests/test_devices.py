@@ -5,7 +5,7 @@ from flyball.foundation.device import Access, Role
 from flyball.foundation.errors import ConflictError, HardwareError
 
 from flyball_linux.devices.gpio import GpioLine
-from flyball_linux.devices.i2c_table import I2cTable, Register
+from flyball_linux.devices.i2c_table import I2cTable, InitWrite, Register
 from flyball_linux.devices.onewire import Ds18b20, parse_w1_slave
 from flyball_linux.devices.pwm import PwmChannel
 from flyball_linux.links.gpio import FakeGpio
@@ -46,6 +46,29 @@ class TestRegister:
         assert Register(address=0).signal_role is Role.READOUT
         with pytest.raises(ValueError, match="only a writable register"):
             Register(address=0, role="setting")
+
+    def test_mask_extracts_a_bit_field(self):
+        r = Register(address=0, length=1, mask=0x0F)
+        assert r.decode(b"\xad") == 0x0D  # low nibble only, unsigned
+
+    def test_sign_bit_two_complements_within_the_masked_width(self):
+        r = Register(address=0, length=1, mask=0x0F, sign_bit=3)
+        assert r.decode(b"\xad") == -3.0  # 0b1101 as a signed 4-bit field
+
+    def test_sign_bit_without_its_sign_set_stays_positive(self):
+        r = Register(address=0, length=1, mask=0x0F, sign_bit=3)
+        assert r.decode(b"\x03") == 3.0
+
+    def test_mask_and_sign_bit_apply_after_shift(self):
+        r = Register(address=0, length=1, shift=2, mask=0x0F, sign_bit=3)
+        # 0xb4 >> 2 = 0x2d, & 0x0f = 0x0d (0b1101), sign bit 3 set -> -3
+        assert r.decode(b"\xb4") == -3.0
+
+    def test_a_masked_register_cannot_be_written(self):
+        with pytest.raises(ValueError, match="mask or sign_bit is read-only"):
+            Register(address=0, mask=0x0F, write=True)
+        with pytest.raises(ValueError, match="mask or sign_bit is read-only"):
+            Register(address=0, sign_bit=3, write=True)
 
 
 class TestI2cTable:
@@ -95,6 +118,23 @@ class TestI2cTable:
     def test_no_registers_is_refused(self):
         with pytest.raises(ValueError, match="at least one register"):
             I2cTable("c", FakeI2c(), 0x48, {})
+
+    def test_init_writes_are_sent_in_order_at_build(self):
+        bus = FakeI2c()
+        I2cTable(
+            "c",
+            bus,
+            0x48,
+            {"a": Register(address=0)},
+            init=[
+                InitWrite(address=0x01, value=0x60),
+                InitWrite(address=0x02, value=0xFF, length=2),
+            ],
+        )
+        assert bus.written == [
+            (0x48, 0x01, [0x60]),
+            (0x48, 0x02, [0x00, 0xFF]),
+        ]
 
 
 class TestGpioLine:

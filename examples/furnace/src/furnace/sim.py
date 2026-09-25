@@ -17,6 +17,8 @@ class FurnaceConfig(Config[Furnace], type="sim_furnace"):
     outputs `zoneN` and `sample` (temperatures in °C).
     """
 
+    family = "plant"
+
     model_config = ConfigDict(extra="forbid")
 
     zones: int = Field(default=3, ge=1)

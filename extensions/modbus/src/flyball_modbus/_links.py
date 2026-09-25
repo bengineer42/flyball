@@ -6,29 +6,47 @@ import threading
 from typing import Any
 
 from flyball.foundation.config import Config
-from flyball.hardware.links import RegisterLink
+from flyball.hardware.links import RegisterKind, RegisterLink
 from pydantic import Field
+
+Kind = RegisterKind
+"""Which Modbus table a register lives in, and so which function code reads/writes it:
+`holding` (FC03/FC16), `input` (FC04, read-only), `coil` (FC01/FC05) and `discrete`
+(FC02, read-only). Coils and discrete inputs are booleans (0/1)."""
+
+READ_ONLY_KINDS: tuple[Kind, ...] = ("input", "discrete")
+BOOLEAN_KINDS: tuple[Kind, ...] = ("coil", "discrete")
 
 
 class FakeRegisterLink:
-    """A dict of registers."""
+    """A dict of registers, keyed by address; `kind` is recorded per call, not per address."""
 
     def __init__(self, registers: dict[int, int] | None = None, blocking: bool = False) -> None:
         self.registers = dict(registers or {})
         self.blocking = blocking
         """Whether a device built over this link should run its writes on the Writer thread."""
-        self.writes: list[tuple[int, list[int]]] = []
+        self.reads: list[tuple[Kind, int, int]] = []
+        self.writes: list[tuple[Kind, int, list[int]]] = []
 
-    def read_registers(self, address: int, count: int = 1, unit: int = 1) -> list[int]:
+    def read_registers(
+        self, address: int, count: int = 1, unit: int = 1, kind: Kind = "holding"
+    ) -> list[int]:
+        self.reads.append((kind, address, count))
         return [self.registers.get(address + i, 0) for i in range(count)]
 
-    def write_registers(self, address: int, values: list[int], unit: int = 1) -> None:
+    def write_registers(
+        self, address: int, values: list[int], unit: int = 1, kind: Kind = "holding"
+    ) -> None:
+        if kind in READ_ONLY_KINDS:
+            raise ValueError(f"{kind} registers are read-only")
         for i, value in enumerate(values):
             self.registers[address + i] = value
-        self.writes.append((address, list(values)))
+        self.writes.append((kind, address, list(values)))
 
 
 class FakeRegisterLinkConfig(Config[RegisterLink], type="fake_registers"):
+    family = "modbus"
+
     registers: dict[int, int] = Field(default_factory=dict)
     blocking: bool = Field(
         default=False,
@@ -61,21 +79,40 @@ class ModbusLink:
 
         return cls(ModbusSerialClient(port, baudrate=baud))
 
-    def read_registers(self, address: int, count: int = 1, unit: int = 1) -> list[int]:
+    def read_registers(
+        self, address: int, count: int = 1, unit: int = 1, kind: Kind = "holding"
+    ) -> list[int]:
+        reader = {
+            "holding": self._client.read_holding_registers,
+            "input": self._client.read_input_registers,
+            "coil": self._client.read_coils,
+            "discrete": self._client.read_discrete_inputs,
+        }[kind]
         with self._lock:
-            result = self._client.read_holding_registers(address, count=count, device_id=unit)
+            result = reader(address, count=count, device_id=unit)
         if result.isError():
             raise OSError(f"Modbus read at {address} failed: {result}")
+        if kind in ("coil", "discrete"):
+            return [int(bit) for bit in result.bits[:count]]
         return list(result.registers)
 
-    def write_registers(self, address: int, values: list[int], unit: int = 1) -> None:
+    def write_registers(
+        self, address: int, values: list[int], unit: int = 1, kind: Kind = "holding"
+    ) -> None:
+        if kind in READ_ONLY_KINDS:
+            raise ValueError(f"{kind} registers are read-only")
         with self._lock:
-            result = self._client.write_registers(address, values, device_id=unit)
+            if kind == "coil":
+                result = self._client.write_coil(address, bool(values[0]), device_id=unit)
+            else:
+                result = self._client.write_registers(address, values, device_id=unit)
         if result.isError():
             raise OSError(f"Modbus write at {address} failed: {result}")
 
 
 class ModbusTcpConfig(Config[RegisterLink], type="modbus_tcp"):
+    family = "modbus"
+
     host: str
     port: int = 502
     timeout_s: float = Field(default=3.0, description="Socket timeout for the pymodbus client.")
@@ -85,6 +122,8 @@ class ModbusTcpConfig(Config[RegisterLink], type="modbus_tcp"):
 
 
 class ModbusRtuConfig(Config[RegisterLink], type="modbus_rtu"):
+    family = "modbus"
+
     port: str
     baud: int = 9600
 
@@ -97,9 +136,12 @@ RegisterLinkConfig = Config.union(*REGISTER_LINKS)
 """What `modbus`'s `link` field admits: one of these, or a name declared under `links`."""
 
 __all__ = [
+    "BOOLEAN_KINDS",
+    "READ_ONLY_KINDS",
     "REGISTER_LINKS",
     "FakeRegisterLink",
     "FakeRegisterLinkConfig",
+    "Kind",
     "ModbusLink",
     "ModbusRtuConfig",
     "ModbusTcpConfig",

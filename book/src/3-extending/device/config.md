@@ -49,6 +49,26 @@ a law's `type:` and a program step's key each collision-check against their
 own catalog, explicitly, through a `register(catalog)` entry point rather
 than as a side effect of importing the module.
 
+## Families
+
+A link config says which **family** of transport it is, as a class
+attribute: `family = "i2c"` on both the kernel bus and `fake_i2c`, `"text"`
+on `visa`, `serial` and `fake_text`. The links of one family are
+interchangeable to a driver, so a driver whose `link` field names only the
+fake still takes the real bus. A driver's family is read off the configs
+its `link` field names. It declares its own only when the field names none.
+`GET /api/drivers` lists each driver's `requires`: every registered link of
+its family, its family, and the inputs its device declares. A driver may
+also set `category`, a word that groups it in a list.
+
+```python
+class ScopeLinkConfig(Config[TextLink], type="scope_lan"):
+    """A scope's LAN socket."""
+
+    family = "text"
+    host: str
+```
+
 ## Envelope keys are reserved
 
 `driver label poll_s signals inputs` belong to the rig file's envelope, the
