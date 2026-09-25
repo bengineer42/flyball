@@ -1303,7 +1303,6 @@ export interface Span {
 /** Body for `POST /api/recording`. */
 export interface StartRecording {
   details?: unknown;
-  flyball_version?: string;
   config?: unknown;
   hardware?: unknown;
   /** Backfill the new session with this much of the scratch record, in the rig's clock, so what was just watched is kept. */

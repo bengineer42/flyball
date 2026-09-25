@@ -10,6 +10,7 @@ import pytest
 
 from flyball.control.laws import P
 from flyball.foundation.device import Node, Sample, Severity, Signal, WriteState
+from flyball.foundation.errors import ConflictError
 from flyball.model.law import Transfer
 from flyball.rig.sink import Delivered, Marker, Published, Row, tick_row
 from test_rig_devices import Furnace
@@ -118,13 +119,35 @@ class TestTheSink:
         assert before.seq < seq < after.seq
         assert [r.time_ns for r in (before, after) if isinstance(r, Delivered)] == [5, 6]
 
-    def test_detach_leaves_a_newer_sink_alone(self, rig, sink):
-        newer = FakeSink()
-        assert rig.attach_sink(newer) is sink
-        assert rig.detach_sink(sink) is None and rig.sink is newer
-        assert rig.detach_sink() is newer and rig.sink is None
+    def test_one_sink_at_a_time_and_detach_leaves_another_alone(self, rig, sink):
+        other = FakeSink()
+        with pytest.raises(ConflictError, match="one recorder per rig"):
+            rig.attach_sink(other)
+        rig.attach_sink(sink)  # the one attached: nothing to do
+        assert rig.detach_sink(other) is None and rig.sink is sink
+        assert rig.detach_sink() is sink and rig.sink is None
         rig.event(Severity.INFO, "rig", "x", "quiet", "nobody listening")
-        assert newer.events == []
+        assert sink.events == []
+
+    def test_an_event_off_the_lock_is_numbered_and_put_in_one_step(self, rig):
+        """A slow sink holds up the next row, so the sink sees numbers in order (B1)."""
+        seen: list[int] = []
+
+        class Slow(FakeSink):
+            def put(self, row: Row) -> None:
+                if isinstance(row, Published) and row.event.code == "slow":
+                    time.sleep(0.1)
+                seen.append(row.seq)
+
+        rig.attach_sink(Slow())
+        thread = threading.Thread(
+            target=lambda: rig.event(Severity.INFO, "rig", "x", "slow", "off the lock")
+        )
+        thread.start()
+        time.sleep(0.03)
+        rig.mark("meanwhile")
+        thread.join()
+        assert len(seen) == 2 and seen == sorted(seen)
 
 
 class Slow(Furnace):
@@ -245,7 +268,10 @@ def test_stop_ends_polling_writers_and_recording(rig, fresh, sink):
     rig.add_device(slow)
     rig.write(slow.root, {"heater1": 1.0})
     assert rig.polling.run(polled.name).running is True
+    before = len(sink.rows)
     rig.close()
     assert rig.polling.run(polled.name).running is False
-    assert rig.sink is None, "let go: the recorder closes its session"
+    assert rig.sink is None, "recording ended: the sink is let go"
+    rig.event(Severity.INFO, "rig", "x", "late", "after close")
+    assert all(e.code != "late" for e in sink.events[before:]), "nothing reaches it after"
     assert not rig._writers[slow]._thread.is_alive()

@@ -32,9 +32,11 @@ class StartRecording(BaseModel):
     """What to note about the session; ``details`` is free-form (a name, notes, tags)."""
 
     details: Any = None
-    flyball_version: str | None = None
     config: Any = None
-    hardware: Any = None
+    hardware: Any = Field(
+        default=None,
+        description="Added to what the rig says of its hardware, never in its place.",
+    )
     include_ns: int | None = Field(
         default=None,
         ge=0,

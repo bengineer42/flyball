@@ -1,10 +1,11 @@
 """What the rig hands its history to: one ordered stream of immutable rows (D-095, D-096).
 
 The rig does not record. It makes a row of each thing worth keeping -- a
-delivery's published samples, its controllers' ticks and its write states; an
-event; the signals of a device added -- at the moment it happens, under its
-lock, stamps each with the next number of one counter, and puts it to the one
-[RecordSink][flyball.rig.sink.RecordSink] attached, if any. It knows nothing of
+delivery's published samples, its controllers' ticks and its write states
+(under its lock); an event (under its lock or off it); the signals of a device
+added -- at the moment it happens, and numbers it and puts it to the one
+[RecordSink][flyball.rig.sink.RecordSink] attached, if any, in one step: the sink
+sees every row in the order of its number. It knows nothing of
 sessions or stores: the recorder (`flyball.runtime.recorder.Recorder`) is the
 sink, and a [Marker][flyball.rig.sink.Marker] it puts through
 [Rig.mark][flyball.rig.rig.Rig.mark] -- to open, switch or end a session --
@@ -104,10 +105,10 @@ type Row = Delivered | Published | Declared | Marker
 
 
 class RecordSink(Protocol):
-    """Takes the rig's rows, in `seq` order for everything made under the rig's lock.
+    """Takes the rig's rows, in `seq` order.
 
-    `put` may be called under the rig's lock: it must not block (buffer, never write).
-    An event raised off the lock takes its number when it is published.
+    `put` is called under the rig's small numbering lock, often under its main lock too:
+    it must not block (buffer, never write) and must not call back into the rig.
     """
 
     def put(self, row: Row) -> None: ...

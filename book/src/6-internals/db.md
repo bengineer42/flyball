@@ -75,14 +75,20 @@ which it owns). What an earlier run left -- a delete cut off, a session never
 ended -- is finished by `recover(store)` before anything reads the store.
 
 **How the rig feeds it.** The rig does not record. It has one record sink
-(`Rig.attach_sink`, `detach_sink`; the protocol is `flyball.rig.sink.RecordSink`)
-and puts immutable rows to it, each made at the moment it happens, under the
-rig's lock, and numbered from one counter: a `Delivered` (the published
+(`Rig.attach_sink`, `detach_sink`; the protocol is `flyball.rig.sink.RecordSink`;
+attaching a second sink is refused, so a rig has one recorder) and puts
+immutable rows to it, each made at the moment it happens: a `Delivered` (the published
 samples, a `TickRow` per controller tick -- the controller's mode, correction,
 setpoint and output *taken then*, not read later -- and the write states, at
-the commit's time), a `Published` event, a `Declared` device. A `Marker`
-(`Rig.mark(message)`) travels in the same stream: it is how the recorder
-switches sessions. `start_session` opens the new session and declares what it
+the commit's time), a `Published` event, a `Declared` device. A delivery's
+rows are made under the rig's lock; an event may be raised off it (a poll
+thread's `gave_up`, a `recording_failed`). Either way a row is numbered and
+put in one step, under a small lock of the rig's own (`Rig._put`), so the
+sink sees every row, events included, in the order of their numbers. A
+`Marker` (`Rig.mark(message)`) travels in the same stream: it is how the
+recorder switches sessions, and the recorder hands a row to its session and
+applies a switch under one routing lock, so no row reaches a session after
+the switch away from it. `start_session` opens the new session and declares what it
 records first, off the rig's lock; the switch is the marker, so every row
 before it is the old session's and every row after it the new one's; then the
 old one is closed and, for `include_ns`, the scratch record's rows are copied
@@ -111,8 +117,8 @@ included, asked for or not. Declaring (`declare_device`, `declare_signal`,
 the signals and controllers given — which the recorder defaults to every signal
 that publishes or is written, on every device, and every controller.
 
-Deliveries are buffered on the delivery path — appends to four lists under
-one lock — and written by the session recorder's own thread in one transaction
+Deliveries are buffered on the delivery path — appends to five lists (samples,
+ticks, write states, events, signals declared) under one lock — and written by the session recorder's own thread in one transaction
 every `flush_s`: a transaction costs milliseconds on an SD card whether it
 holds one row or a hundred, and none of those milliseconds are the
 delivery's. The lists are unbounded: a store slower than the rig grows them
@@ -180,7 +186,12 @@ the stamp is refused with a `SchemaError` before anything is read: one with a
 the R1 rename); delete it: nothing in it needs keeping (D-064)"), or any
 other ("not a flyball store"). A store at a version newer than any this
 flyball ships is refused too, not opened and misread: a newer flyball wrote
-it. `flyball-runner` exits 2 with the message, so its supervisor does not
+it. So is a stamped store whose tables lack a column the baseline now makes
+("made by an older flyball: … move it aside or delete it"): until release the
+baseline is edited in place (D-064), so such a store has the same stamp and
+version, and would otherwise open and fail at its first read of the new column
+(`flyball.record.migrate.check_columns`, which compares every table with an
+empty database built from the migrations). `flyball-runner` exits 2 with the message, so its supervisor does not
 start it again. `":memory:"` for tests.
 
 Every statement goes through one of two helpers, `_query` (reads) and

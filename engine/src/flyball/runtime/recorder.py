@@ -286,13 +286,19 @@ class SessionRecorder:
                 return
 
     def close(self, end_ns: int) -> None:
-        """Stop the writer, write what is left, end the session."""
+        """Stop the writer, write what is left, end the session -- even when the write fails.
+
+        Raises:
+            Exception: What the last flush raised; the session is ended all the same.
+        """
         self._stop.set()
         if self._thread is not current_thread():
             self._thread.join()
-        if self.failed is None:
-            self.flush()
-        self.writer.end(end_ns)
+        try:
+            if self.failed is None:
+                self.flush()
+        finally:
+            self.writer.end(end_ns)
 
 
 # region The recorder
@@ -356,13 +362,14 @@ def recover(store: Store) -> None:
             log.warning("closed session %d, left open by an earlier run", orphan.id)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class _Switch:
-    """A marker: from here on the stream goes to `to` (None: nowhere), if `was` is current.
+    """A marker: from here on `owner`'s stream goes to `to` (None: nowhere), if `was` is current.
 
-    `was` None matches whatever is current.
+    `was` None matches whatever is current. A switch another recorder made is not this one's.
     """
 
+    owner: Recorder
     to: SessionRecorder | None
     was: SessionRecorder | None = None
 
@@ -373,8 +380,8 @@ class Recorder:
     Every session on a rig is opened here, and each says what produced it: the
     engine's `flyball_version`, the `packages` installed, and the rig's `hardware`
     ([provenance][flyball.runtime.recorder.Recorder.provenance]). A client's posted
-    `hardware` is added to the rig's, never put in its place; a posted
-    `flyball_version` is not what recorded the session, so it is not kept.
+    `hardware` is added to the rig's, never put in its place; `flyball_version` is
+    always the engine's own.
 
     **How it is fed.** While anything is being recorded the recorder is the rig's
     record sink ([attach_sink][flyball.rig.rig.Rig.attach_sink]): the rig puts
@@ -408,6 +415,10 @@ class Recorder:
         # One change of session at a time. Never held while a session recorder closes: its
         # thread may be failing, and `_failed` takes this lock.
         self._lock = RLock()
+        # Held while a row is handed to the session and while a switch changes the session:
+        # no row goes to a session after it was switched away from. Taken under the rig's
+        # locks (a row is put under them); nothing under it takes them.
+        self._route = Lock()
         self._session: SessionRecorder | None = None
         self._retired: list[SessionRecorder] = []
         self._applied: _Switch | None = None  # the last switch the stream carried
@@ -457,13 +468,14 @@ class Recorder:
     # region The stream
 
     def put(self, row: Row) -> None:
-        """A row of the rig's stream, under the rig's lock: to the session, or a switch."""
-        if isinstance(row, Marker):
-            if isinstance(switch := row.message, _Switch):
-                self._apply(switch)
-            return
-        if (session := self._session) is not None:
-            session.put(row)
+        """A row of the rig's stream, in its order: to the current session, or a switch."""
+        with self._route:
+            if isinstance(row, Marker):
+                if isinstance(switch := row.message, _Switch) and switch.owner is self:
+                    self._apply(switch)
+                return
+            if (session := self._session) is not None:
+                session.put(row)
 
     def _switch(self, to: SessionRecorder | None, was: SessionRecorder | None = None) -> None:
         """Make `to` current at one point in the rig's stream. Under `_lock`.
@@ -472,14 +484,16 @@ class Recorder:
         """
         if to is not None:
             self.rig.attach_sink(self)
-        switch = _Switch(to, was)
+        switch = _Switch(self, to, was)
         self.rig.mark(switch)
         if self._applied is not switch:  # the rig let go of the recorder (it closed): no stream
-            self._apply(switch)
+            with self._route:
+                self._apply(switch)
         if self._session is None:
             self.rig.detach_sink(self)
 
     def _apply(self, switch: _Switch) -> None:
+        """Under `_route`."""
         if switch.was is None or switch.was is self._session:
             if self._session is not None:
                 self._retired.append(self._session)
@@ -491,7 +505,10 @@ class Recorder:
         with self._lock:
             retired, self._retired = self._retired, []
         for session in retired:
-            session.close(self.rig.clock.now_ns())
+            try:
+                session.close(self.rig.clock.now_ns())
+            except Exception:  # its rows are lost; the session is ended and the rest go on
+                log.exception("session %d: its last write failed", session.writer.session.id)
 
     # endregion
 
@@ -600,14 +617,20 @@ class Recorder:
         replaces is retired, for the caller to close once the lock is let go.
         """
         rig = self.rig
+        rig.attach_sink(self)  # first: a second recorder on the rig is refused before it opens
         start_ns = fields.pop("start_ns", None)
         own = self.provenance()
         fields["flyball_version"] = own["flyball_version"]
         fields["packages"] = {**(fields.get("packages") or {}), **own["packages"]}
         fields["hardware"] = _merged(own["hardware"], fields.get("hardware"))
-        writer = self.store.open_session(
-            rig.clock.now_ns() if start_ns is None else start_ns, **fields
-        )
+        try:
+            writer = self.store.open_session(
+                rig.clock.now_ns() if start_ns is None else start_ns, **fields
+            )
+        except BaseException:
+            if self._session is None:
+                rig.detach_sink(self)
+            raise
         chosen = signals is not None
 
         def failed(error: Exception) -> None:
@@ -637,22 +660,31 @@ class Recorder:
     def _failed(self, session: SessionRecorder, error: Exception) -> None:
         """From the session recorder's thread: switch away from it, so the edge is not sent to it.
 
-        A `recording_failed` condition on the rig until the next session starts.
+        A `recording_failed` condition on the rig until the next session starts -- raised only
+        if this session was still the one being recorded: one that had been replaced already
+        says nothing about the recording now. Ended here unless whoever replaced it is
+        closing it.
         """
         with self._lock:
-            if self._session is session:
+            current = self._session is session
+            if current:
                 self._switch(None, was=session)
-            with suppress(ValueError):
-                self._retired.remove(session)  # ended here, not closed: its thread is this one
+            try:
+                self._retired.remove(session)  # this thread ends it: it cannot be joined here
+                mine = True
+            except ValueError:
+                mine = False
         rig = self.rig
-        rig.conditions.set(
-            rig,
-            Code.RECORDING_FAILED,
-            Severity.ERROR,
-            f"recording stopped: {type(error).__name__}: {error}",
-        )
-        with suppress(Exception):  # the store already failed once
-            session.writer.end(rig.clock.now_ns())
+        if current:
+            rig.conditions.set(
+                rig,
+                Code.RECORDING_FAILED,
+                Severity.ERROR,
+                f"recording stopped: {type(error).__name__}: {error}",
+            )
+        if mine:
+            with suppress(Exception):  # the store already failed once
+                session.writer.end(rig.clock.now_ns())
 
     # endregion
 

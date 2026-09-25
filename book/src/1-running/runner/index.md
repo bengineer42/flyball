@@ -270,7 +270,7 @@ Every session records what produced it, whoever started it:
 that registers `flyball.configs` -- the engine, `flyball-sim`, an extension
 -- with its version) and `hardware` (what the rig can say about what it runs
 on; nothing yet). A client that posts `hardware` adds to the rig's, never
-replaces it; a posted `flyball_version` is not kept.
+replaces it.
 
 ## The scratch record
 

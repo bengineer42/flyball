@@ -252,7 +252,7 @@ tick — is arithmetic under the lock. What leaves it:
 
 `rig.close()` stops all of it: the timers first (nothing armed fires while
 the rig comes down; a call in progress is waited on for at most 1 s), then
-polling, writers, lets go of the record sink (the recorder ends its own session), then closes the rig's links. It waits for reads in progress for `STOP_JOIN_S` (2 s) in
+polling, writers, lets go of the record sink, then closes the rig's links. It does not end a session: that is the recorder's (`recorder.stop()`, which the runner calls before it closes the rig); until then the session stays open in the store, with nothing more coming to it. It waits for reads in progress for `STOP_JOIN_S` (2 s) in
 total; a poll thread still in its driver's `read` after that is abandoned
 -- it is a daemon thread -- and logged once by device name. A link whose
 `close` raises is logged and skipped; the rest still close.
@@ -367,9 +367,10 @@ unwind.
 
 ## The recorder
 
-The rig does not record: it makes immutable rows under its lock -- a
-delivery, a tick taken then, an event -- numbers them from one counter, and
-puts them to the one sink attached ([attach_sink][flyball.rig.rig.Rig.attach_sink]).
+The rig does not record: it makes immutable rows -- a delivery (under its
+lock), a tick taken then, an event (under its lock or off it) -- numbers each
+and puts it to the one sink attached ([attach_sink][flyball.rig.rig.Rig.attach_sink])
+in one step, so the sink sees them in the order of their numbers.
 The recorder (`flyball.runtime.recorder.Recorder`) is that sink while it
 records, and the only thing that opens sessions; it switches from one session
 to the next with a marker in the same stream ([mark][flyball.rig.rig.Rig.mark]),

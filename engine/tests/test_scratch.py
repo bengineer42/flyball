@@ -306,8 +306,12 @@ def test_the_scratch_record_opens_on_start_and_again_after_a_recording(
         assert store.session(started.id).end_ns is not None
     finally:
         recorder.stop()
-    recorder.end_session()
+    assert store.session(again.id).end_ns is not None, "stopping ends the scratch record"
+    # A recording after the sweeps stopped ends into nothing: scratch is not reopened.
+    after = recorder.start_session().writer.session
+    assert recorder.end_session().id == after.id
     assert recorder.scratch is None and recorder.session is None, "stopped: not reopened"
+    assert not [s for s in store.sessions() if s.open]
 
 
 def test_keep_zero_keeps_no_scratch(rig, store, recorder):

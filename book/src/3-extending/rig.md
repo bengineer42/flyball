@@ -54,7 +54,7 @@ When a device delivers — a poll, a push, or a fresh read —
 
 Nothing is reordered: samples reach observers, controllers and the recorder
 in the order the device delivered them, and every row the rig hands the
-recorder carries a number from one counter. See
+recorder carries a number from one counter and reaches it in that order. See
 [The delivery loop](../6-internals/runtime.md) for the full sequence.
 
 ## Recording

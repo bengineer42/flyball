@@ -71,7 +71,7 @@ from .faults import Faults
 from .latches import RIG_STOP
 from .liveness import Liveness
 from .polling import Polling, poll_period
-from .sink import Declared, Delivered, Marker, Published, RecordSink, tick_row
+from .sink import Declared, Delivered, Marker, Published, RecordSink, Row, tick_row
 from .stopping import STOP_ACTOR, Stopping, resolve_output
 from .triggers import Triggers
 from .values import LiveValues
@@ -207,6 +207,9 @@ class Rig:
     """Where the rows of what happens go: the recorder, while it records (`attach_sink`)."""
     _record_seq: Iterator[int]
     """One counter for every row and marker put to the sink, so they have one order."""
+    _putting: Lock
+    """Held while a row is numbered and put: rows reach the sink in the order of their numbers,
+    an event raised off the rig's lock included. Taken after the rig's lock, never before."""
     controllers: Controllers
     polling: Polling
     router: Router
@@ -311,6 +314,7 @@ class Rig:
         self.tunings = Tunings()
         self._sink = None
         self._record_seq = count(1)
+        self._putting = Lock()
         self.controllers = Controllers()
         self.polling = Polling(self)
         self.router = Router()
@@ -527,8 +531,7 @@ class Rig:
         )
         self.recent.append(event)
         self.events.publish(event)
-        if (sink := self._sink) is not None:
-            sink.put(Published(next(self._record_seq), event))
+        self._put(lambda seq: Published(seq, event))
         if event.edge is not None and event.subject_kind == SubjectKind.DEVICE:
             self.polling.touch(event.subject)
         elif event.edge is not None and event.subject_kind == SubjectKind.SIGNAL:
@@ -567,7 +570,7 @@ class Rig:
         self.polling.stop_all()
         for writer in writers:  # joined outside the lock: a write in flight reports under it
             writer.stop()
-        self.detach_sink()  # nothing more is recorded; the recorder closes its session
+        self.detach_sink()  # nothing more is recorded; the session is the recorder's to end
         self.conditions.close()
         for name, link in links:
             close = getattr(link, "close", None)
@@ -585,28 +588,45 @@ class Rig:
         """What each row is put to, if anything: the recorder, while it records."""
         return self._sink
 
-    def attach_sink(self, sink: RecordSink) -> RecordSink | None:
-        """Put every row to `sink` from the next one on; the sink it replaces, if any.
+    def attach_sink(self, sink: RecordSink) -> None:
+        """Put every row to `sink` from the next one on.
 
-        Under the rig's lock, so each delivery goes wholly to one sink or the other. The
-        rig does not close what it replaces. The recorder attaches itself while it records
+        One sink at a time: the recorder attaches itself while it records
         ([Recorder][flyball.runtime.recorder.Recorder]) and switches sessions with
-        [mark][flyball.rig.rig.Rig.mark], not by attaching another sink.
+        [mark][flyball.rig.rig.Rig.mark], not by attaching another sink. Attaching the one
+        already attached does nothing.
+
+        Raises:
+            ConflictError: Another sink is attached: a second recorder on the rig.
         """
-        with self.lock:
-            previous, self._sink = self._sink, sink
-            return previous
+        with self.lock, self._putting:
+            if self._sink is not None and self._sink is not sink:
+                raise ConflictError(
+                    "the rig already has a record sink: one recorder per rig; stop the other"
+                )
+            self._sink = sink
 
     def mark(self, message: object) -> int:
         """Put `message` in the sink's stream after every row made so far; its number.
 
         Under the rig's lock, so no delivery is half before it: the recorder's way to switch
-        sessions at one point in the stream. Nothing happens without a sink.
+        sessions at one point in the stream. Nothing is put without a sink.
         """
         with self.lock:
+            return self._put(lambda seq: Marker(seq, message), always=True)
+
+    def _put(self, make: Callable[[int], Row], always: bool = False) -> int:
+        """Number a row and put it to the sink, as one step; its number (0: no sink, no row).
+
+        `always` takes a number without a sink too.
+        """
+        with self._putting:
+            sink = self._sink
+            if sink is None and not always:
+                return 0
             seq = next(self._record_seq)
-            if (sink := self._sink) is not None:
-                sink.put(Marker(seq, message))
+            if sink is not None:
+                sink.put(make(seq))
             return seq
 
     def _record(
@@ -620,24 +640,21 @@ class Rig:
 
         A tick's row is the controller as it is now: whoever reads it later sees this tick.
         """
-        if (sink := self._sink) is None:
+        if self._sink is None:
             return
-        sink.put(
-            Delivered(
-                next(self._record_seq),
-                time_ns,
-                tuple(samples),
-                tuple(tick_row(controller, reading, time_ns) for controller, reading in ticks),
-                tuple(states.items()),
-            )
+        row = (
+            tuple(samples),
+            tuple(tick_row(controller, reading, time_ns) for controller, reading in ticks),
+            tuple(states.items()),
         )
+        self._put(lambda seq: Delivered(seq, time_ns, *row))
 
     def detach_sink(self, sink: RecordSink | None = None) -> RecordSink | None:
         """Stop feeding `sink` (whatever is attached, for None); what was detached, if anything.
 
-        A `sink` that is no longer the attached one is left alone: a newer one replaced it.
+        A `sink` that is not the attached one is left alone.
         """
-        with self.lock:
+        with self.lock, self._putting:
             if self._sink is None or (sink is not None and self._sink is not sink):
                 return None
             detached, self._sink = self._sink, None
@@ -1972,9 +1989,8 @@ class Rig:
             self.entries[name] = entry
             if start:
                 self.start_polling(device)
-            if (sink := self._sink) is not None:
-                recorded = tuple(s for s in device.signals.values() if s.spec.record)
-                sink.put(Declared(next(self._record_seq), recorded))
+            recorded = tuple(s for s in device.signals.values() if s.spec.record)
+            self._put(lambda seq: Declared(seq, recorded))
             self._changed(f"added device {name}")
             return device
 
