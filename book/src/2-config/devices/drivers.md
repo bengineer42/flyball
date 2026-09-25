@@ -1020,7 +1020,7 @@ devices:
 
 | field | | |
 | --- | --- | --- |
-| `inputs.x` | address or number | the signal it calibrates, required (a number gives a constant) |
+| `inputs.x` | address or number | the signal it calibrates, required: one signal's address, not a namespace's (a number gives a constant) |
 | `curve` | `{type: linear, scale, offset}` | `scale * x + offset`; `offset` defaults to 0 |
 | | `{type: table, points: [[x, y], ...]}` | straight lines between the points, in any order; at most 1024, each finite |
 | `unit` | string | the unit symbol of `value` (`NTU`, `pH`, `kPa`); omit for none |
@@ -1031,7 +1031,8 @@ label, range, bands and so on like any other signal's. A curve that does
 not build is refused at load: a table with no point or more than 1024, a
 point, `scale` or `offset` that is not finite, a `unit` that is not known.
 So is a cycle through `inputs:` (a curve on its own output, or two curves
-on each other's).
+on each other's), and an `x` that names a namespace or a device (`adc`)
+rather than one signal (`adc.raw_v`).
 
 - **No value outside the table.** A reading of `x` before the first
   point's `x` or past the last one gives `value` no value --

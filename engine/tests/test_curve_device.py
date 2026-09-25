@@ -31,6 +31,7 @@ from flyball.foundation.device import (
     stale,
 )
 from flyball.foundation.device.derived import Curve, CurveConfig
+from flyball.foundation.errors import ConflictError
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.curves import Linear, Table
 from flyball.foundation.quantities.si import Volt, Watt
@@ -204,6 +205,15 @@ class TestRefusedAtLoad:
             match=r"a cycle through inputs: a\.inputs\.x <- b\.value; b\.inputs\.x <- a\.value",
         ):
             RigConfig.model_validate({"devices": {"a": entry("b.value"), "b": entry("a.value")}})
+
+    def test_an_input_bound_to_a_namespace(self, adc_tag):
+        """A namespace has no value to put through a curve: refused, not a TypeError per reading."""
+        with pytest.raises(
+            ConflictError,
+            match=r"turbidity\.inputs\.x: 'adc' is a namespace; a derived device's input"
+            r" follows one signal \('adc\.<signal>'\)",
+        ):
+            _rig(adc_tag, inputs={"x": "adc"})
 
 
 # endregion
