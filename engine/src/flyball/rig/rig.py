@@ -305,6 +305,8 @@ class Rig:
     what its commits pushed; None outside one. A controller steps at most once in that chain:
     a commit that pushes back its own measured signal would otherwise step it again, for ever."""
     _running: dict[Device, str]
+    _held_back: set[Device]
+    """Devices a commit skipped while their long command ran: committed once it ends."""
     _write_lost: dict[Device, set[Signal]]
     """Per device, the demands whose last commit failed and has not been made good since: they
     stay `stale(write_failed)` after the device's writes recover, until a demand of theirs
@@ -390,6 +392,7 @@ class Rig:
         self._stepped = None
         self._ignored = set()
         self._running = {}
+        self._held_back = set()
         self._write_lost = {}
         self._read_path = {}
         self._fresh = {}
@@ -1593,6 +1596,9 @@ class Rig:
                     continue
                 if held := latches.signals_held(device):
                     self.replace_staged([], held)
+            if device in self._running and device not in self._forcing:
+                self._held_back.add(device)  # claimed: what is staged waits for the command
+                continue
             if (writer := self._writer_for(device)) is not None:
                 writer.request(time_ns)
                 continue
@@ -1727,6 +1733,9 @@ class Rig:
                 return
             if self.conditions.get(device, Code.WRITE_FAILED) is None:
                 del self._retries[device]
+                return
+            if device in self._running:
+                self._retry_later(device)  # claimed by a long command: after it
                 return
             now = self.clock.now_ns()
             cutoff = now - round(self.retry_max_age_s(device) * 1e9)
@@ -2157,6 +2166,7 @@ class Rig:
                 owner.bound.pop(binding.name, None)  # a name only the rig file gave
         self._write_lost.pop(device, None)
         self._read_path.pop(device, None)
+        self._held_back.discard(device)
         self.liveness.unwatch(device)
         if (retry := self._retries.pop(device, None)) is not None and retry.timer is not None:
             retry.timer.cancel()
@@ -2334,18 +2344,39 @@ class Rig:
             with self.lock:
                 self._running.pop(device, None)
         with self.lock:
+            held_back = device in self._held_back
+            self._held_back.discard(device)
             if self.devices.get(device.name) is not device:
                 return CommandRun(result)  # removed while it ran: nothing of it is the rig's
             interrupted = self._displace(displaced, device, command)
             self._touched = {}
+            time_ns = self.clock.now_ns()
             try:
-                self._command_ran(
-                    device, spec, command, given, linked, before, self.clock.now_ns(), outer=None
-                )
+                self._command_ran(device, spec, command, given, linked, before, time_ns, outer=None)
             finally:
                 self._touched = None
                 self._flush_pushed()
+            if held_back and not spec.commit:
+                self._commit_held_back(device, time_ns)
         return CommandRun(result, interrupted)
+
+    def _commit_held_back(self, device: Device, time_ns: int) -> None:
+        """Commit what a claimed device's commits left staged, now its long command has ended.
+
+        As a retry commits: a failure is the device's `write_failed` and its retry, never the
+        command's; the states are delivered and recorded.
+        """
+        self._touched = {}
+        failed: dict[Signal, WriteState] = {}
+        try:
+            states = self._commit((device,), time_ns, failed)
+        finally:
+            self._touched = None
+        self._deliver(failed)
+        self._deliver(states)
+        if states and self.recorder is not None:
+            self.recorder.record((), (), states, time_ns=time_ns)
+        self._flush_pushed()
 
     def _latched_command(self, device: Device, spec: CommandSpec, actor: Actor | None) -> bool:
         """Whether a latch refuses `spec` on `device` (raised), or it goes through the rig stop.
@@ -2783,6 +2814,8 @@ class Rig:
         From its claim to its end, a long command (a dose, a move) is all that drives its
         device: a write, a command that drives it and a controller's `regulate` on it are
         refused; its own `stops=True` command, and a command that drives nothing, are not.
+        No commit reaches it meanwhile: `_commit` holds it back (`_held_back`) and it is
+        committed once the command ends; a retry due meanwhile is put off.
         """
         if (running := self._running.get(device)) is None:
             return None

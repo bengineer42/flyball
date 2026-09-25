@@ -16,13 +16,13 @@ from typing import Any
 import pytest
 
 from flyball.control.laws import P
-from flyball.foundation.device import Code, Committable, Demand, Sample, command
+from flyball.foundation.device import Code, Committable, Demand, Input, Sample, command
 from flyball.foundation.errors import ConflictError
 from flyball.model.controller import ControllerMode
 from flyball.rig import Rig
 from flyball.rig import stopping as stopping_mod
 from flyball.rig.stopping import RigStopper
-from test_server import Daq, Drive, deliver
+from test_server import TEMP, Daq, Drive, deliver
 from test_wf2_lock import _in_thread
 from test_wf3_stop import AGENT, BEN, POWER, Oven
 
@@ -111,7 +111,7 @@ class TestLatchesUnderTheLock:
             rig.write(oven.root, {"h1": 50.0}, actor=AGENT)
 
 
-# region A long command claims its device (L2)
+# region A long command claims its device (L2, F2)
 
 
 class Pump(Committable):
@@ -224,6 +224,73 @@ class TestALongCommandClaimsItsDevice:
         thread.join(2.0)
         assert not thread.is_alive() and time.monotonic() - began < 1.0
         assert pump.ended_early is True, "the stop cancelled the dose"
+
+
+# endregion
+
+
+class Fed(Pump):
+    """A pump whose commit reads an input (`supply`), and that counts its commits."""
+
+    supply = Input("supply", "Supply", TEMP)
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.commits: list[bool] = []
+        self.dosing = False
+        self.fail_next = False
+
+    def commit(self, time_ns: int) -> None:
+        self.commits.append(self.dosing)
+        if self.fail_next:
+            self.fail_next = False
+            raise OSError("bus down")
+        super().commit(time_ns)
+
+    @command(long=True, writes=("rate",))
+    def feed(self, seconds: float) -> None:
+        """Feed for `seconds`, or until stopped."""
+        self.dosing = True
+        self.started.set()
+        try:
+            self.ended_early = self.wait(seconds)
+        finally:
+            self.dosing = False
+
+
+class TestNoCommitDuringALongCommand:
+    def test_an_input_landing_mid_command_commits_after_it(self, dosing, fresh):
+        rig, _, daq, _ = dosing
+        fed = Fed(fresh("fed"))
+        rig.add_device(fed)
+        rig.bind_inputs(fed, {"supply": f"{daq.name}.zone1"})
+        thread, _ = _in_thread(rig.invoke, fed, "feed", {"seconds": 30.0})
+        assert fed.started.wait(2.0)
+        fed.commits.clear()
+        deliver(rig, daq)  # the input lands: the device is touched
+        assert fed.commits == [], "no commit while the command runs"
+        rig.run_command(fed, "stop")
+        thread.join(2.0)
+        assert fed.commits == [False], "committed once, after the command"
+
+    def test_a_retry_due_mid_command_waits_for_it(self, rig, fresh):
+        """On a stepped clock: the retry comes up during the command, and is put off."""
+        fed = Fed(fresh("fed"))
+        rig.add_device(fed)
+        fed.fail_next = True
+        with pytest.raises(OSError):
+            rig.write(fed.root, {"rate": 0.4}, actor=BEN)
+        gate = threading.Event()
+        fed.wait = lambda seconds: gate.wait(seconds)  # type: ignore[method-assign]
+        thread, _ = _in_thread(rig.invoke, fed, "feed", {"seconds": 10.0})
+        assert fed.started.wait(2.0)
+        fed.commits.clear()
+        rig.clock.advance(6.0)  # past the first retry (5 s)
+        assert True not in fed.commits, "nothing committed during the command"
+        gate.set()
+        thread.join(2.0)
+        rig.clock.advance(20.0)  # the retry, put off, comes up again
+        assert fed.commits and fed.commits[-1] is False and 0.4 in fed.writes
 
 
 # endregion
