@@ -21,6 +21,14 @@ A third, `on_reference`, is called after the reference or the mode changes
 (`regulate`, `set_setpoint`, `manual`): the rig arms or cancels
 [reapply][flyball.model.controller.Controller.reapply] on its clock, which
 follows a moving setpoint's feedforward between readings (E25).
+
+A controller has no lock of its own: the rig serialises it. Its tick runs in a
+delivery and its re-apply on the rig's timer, both under the rig's lock, and on a rig
+every command reaches it through a rig operation (`Rig.regulate`, `follow`, `retune`,
+`manual`, `set_setpoint`), under the same lock. Called directly -- a script before its
+rig runs, a test -- it is the caller's to serialise. (It had one, which a tick never
+took; `regulate` held it across its write, which takes the rig's lock, while a re-apply
+took the two the other way round.)
 """
 
 from __future__ import annotations
@@ -29,7 +37,6 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from threading import RLock
 from typing import NamedTuple
 
 from flyball.foundation import (
@@ -264,7 +271,6 @@ class Controller:
     delivered_correction: float | None = None
     mode: ControllerMode = ControllerMode.MANUAL
     _on_tick: dict[ControllerTickCallback, None]
-    lock: RLock
     _base: float | None = None
     """The feedforward's part of the last output, so a deferred delivery can split the rest."""
     held: Code | None = None
@@ -330,7 +336,6 @@ class Controller:
         self.law = None
         if law is not None:
             self._set_law(law)
-        self.lock = RLock()
         self._on_tick = {}
         self.min_period_s: float | None = min_period_s
         self._last_step_ns: int | None = None
@@ -511,38 +516,37 @@ class Controller:
                 stop, an `on_fault` action): only a person's Reset clears it,
                 and this changes nothing until then.
         """
-        with self.lock:
-            if (refused := self.guard()) is not None:
-                raise ConflictError(refused)
-            time_ns = self.get_time_ns(time_ns)
-            held = self.expected if self.expected is not None else self.output_value
-            setpoint = _finite_aim(self.resolve_value(at, time_ns), at)
+        if (refused := self.guard()) is not None:
+            raise ConflictError(refused)
+        time_ns = self.get_time_ns(time_ns)
+        held = self.expected if self.expected is not None else self.output_value
+        setpoint = _finite_aim(self.resolve_value(at, time_ns), at)
 
-            if tuning is not None:
-                self._set_law(tuning)
+        if tuning is not None:
+            self._set_law(tuning)
 
-            self.reference = setpoint
-            if generator is not None:
-                generator.start(self.clock.from_start_s(time_ns), setpoint)
-                self.reference = generator
+        self.reference = setpoint
+        if generator is not None:
+            generator.start(self.clock.from_start_s(time_ns), setpoint)
+            self.reference = generator
 
-            if transfer is not Transfer.NONE:
-                self.clear_law(time_ns)
-                setpoint = self.setpoint_at(time_ns)
-                reading = self.last_value
-                if reading is None or transfer is Transfer.COLD:
-                    self.correction = 0.0
-                else:
-                    hold = (
-                        self.correction
-                        if transfer is Transfer.CARRY or held is None
-                        else held - self.feedforward(setpoint, self.rate_at(time_ns))
-                    )
-                    if self.law is not None:
-                        self.correction = self.law.resume(reading, setpoint, hold)
-            self.mode = ControllerMode.REGULATING
-            applied = self._apply_output(setpoint, self.rate_at(time_ns))
-            bump = 0.0 if held is None else applied.output_value - held
+        if transfer is not Transfer.NONE:
+            self.clear_law(time_ns)
+            setpoint = self.setpoint_at(time_ns)
+            reading = self.last_value
+            if reading is None or transfer is Transfer.COLD:
+                self.correction = 0.0
+            else:
+                hold = (
+                    self.correction
+                    if transfer is Transfer.CARRY or held is None
+                    else held - self.feedforward(setpoint, self.rate_at(time_ns))
+                )
+                if self.law is not None:
+                    self.correction = self.law.resume(reading, setpoint, hold)
+        self.mode = ControllerMode.REGULATING
+        applied = self._apply_output(setpoint, self.rate_at(time_ns))
+        bump = 0.0 if held is None else applied.output_value - held
         self.on_reference()
         return RegulateResult(*applied, bump=bump)
 
@@ -565,37 +569,35 @@ class Controller:
         Raises:
             ConflictError: Regulating, and a latch is held on the controller or its output.
         """
-        with self.lock:
-            if not self.mode.active():
-                self._set_law(law)
-                return None
-            if (refused := self.guard()) is not None:
-                raise ConflictError(refused)
-            time_ns = self.get_time_ns(time_ns)
-            held = self.expected if self.expected is not None else self.output_value
+        if not self.mode.active():
             self._set_law(law)
-            setpoint = self.setpoint_at(time_ns)
-            if transfer is not Transfer.NONE:
-                self.clear_law(time_ns)
-                reading = self.last_value
-                if reading is None or transfer is Transfer.COLD:
-                    self.correction = 0.0
-                else:
-                    hold = (
-                        self.correction
-                        if transfer is Transfer.CARRY or held is None
-                        else held - self.feedforward(setpoint, self.rate_at(time_ns))
-                    )
-                    assert self.law is not None
-                    self.correction = self.law.resume(reading, setpoint, hold)
-            applied = self._apply_output(setpoint, self.rate_at(time_ns))
-            bump = 0.0 if held is None else applied.output_value - held
+            return None
+        if (refused := self.guard()) is not None:
+            raise ConflictError(refused)
+        time_ns = self.get_time_ns(time_ns)
+        held = self.expected if self.expected is not None else self.output_value
+        self._set_law(law)
+        setpoint = self.setpoint_at(time_ns)
+        if transfer is not Transfer.NONE:
+            self.clear_law(time_ns)
+            reading = self.last_value
+            if reading is None or transfer is Transfer.COLD:
+                self.correction = 0.0
+            else:
+                hold = (
+                    self.correction
+                    if transfer is Transfer.CARRY or held is None
+                    else held - self.feedforward(setpoint, self.rate_at(time_ns))
+                )
+                assert self.law is not None
+                self.correction = self.law.resume(reading, setpoint, hold)
+        applied = self._apply_output(setpoint, self.rate_at(time_ns))
+        bump = 0.0 if held is None else applied.output_value - held
         return RegulateResult(*applied, bump=bump)
 
     def manual(self) -> None:
         """Stop regulating: the output keeps its last value and takes demands directly."""
-        with self.lock:
-            self.mode = ControllerMode.MANUAL
+        self.mode = ControllerMode.MANUAL
         self.on_reference()
 
     def set_setpoint(
@@ -604,12 +606,11 @@ class Controller:
         generator: SetpointGenerator | None = None,
         time_ns: int | None = None,
     ) -> None:
-        with self.lock:
-            setpoint = _finite_aim(self.resolve_value(at), at)
-            self.reference = setpoint
-            if generator is not None:
-                generator.start(self.clock.from_start_s(self.get_time_ns(time_ns)), setpoint)
-                self.reference = generator
+        setpoint = _finite_aim(self.resolve_value(at), at)
+        self.reference = setpoint
+        if generator is not None:
+            generator.start(self.clock.from_start_s(self.get_time_ns(time_ns)), setpoint)
+            self.reference = generator
         self.on_reference()
 
     def get_time_ns(self, time_ns: int | None = None) -> int:
@@ -619,17 +620,16 @@ class Controller:
         return (time_ns - self.offset_ns) / 1e9
 
     def attach_on_tick(self, callback: ControllerTickCallback | None) -> None:
-        with self.lock:
-            if callback is not None:
-                self._on_tick[callback] = None
+        if callback is not None:
+            self._on_tick[callback] = None
 
     def detach_on_tick(self, callback: ControllerTickCallback | None) -> None:
-        with self.lock:
-            if callback is not None:
-                self._on_tick.pop(callback)
+        if callback is not None:
+            self._on_tick.pop(callback)
 
     def _run_on_tick(self, reading: Reading | None) -> None:
-        for callback in self._on_tick:
+        # A copy: a program's activity attaches from its own thread while a delivery ticks.
+        for callback in list(self._on_tick):
             callback(self, reading)
 
     def on_reading(self, reading: Reading) -> None:
@@ -722,19 +722,18 @@ class Controller:
         the law's clock are left alone, so the next reading steps as it would
         have. Returns whether it wrote.
         """
-        with self.lock:
-            if not self.follows(time_ns) or self.held is not None:
-                return False
-            if self.measured_value is not None and not self.measured_value.usable:
-                return False
-            if self.hold() is not None:
-                return False
-            setpoint = self.setpoint_at(time_ns)
-            rate = self.rate_at(time_ns)
-            if self.feedforward(setpoint, rate) + self.correction == self.output_value:
-                return False
-            self._apply_output(setpoint, rate)
-            return True
+        if not self.follows(time_ns) or self.held is not None:
+            return False
+        if self.measured_value is not None and not self.measured_value.usable:
+            return False
+        if self.hold() is not None:
+            return False
+        setpoint = self.setpoint_at(time_ns)
+        rate = self.rate_at(time_ns)
+        if self.feedforward(setpoint, rate) + self.correction == self.output_value:
+            return False
+        self._apply_output(setpoint, rate)
+        return True
 
     def _skip_outage(self, time_ns: int, *, resumed: bool = False) -> None:
         """Keep a gap in the readings out of the law's time.

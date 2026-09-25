@@ -1,4 +1,6 @@
-"""Races the rig's lock closes: a stop against a write's checks (L1); a long command's device (L2).
+"""Races the rig's lock closes: a stop against a write (L1), a long command's device (L2).
+
+And one lock order it no longer has to keep: a controller's own lock against the rig's (L4).
 
 Each test lands the other thread's action exactly between a check and what it guards, by
 running it from inside the first thread's check.
@@ -222,6 +224,42 @@ class TestALongCommandClaimsItsDevice:
         thread.join(2.0)
         assert not thread.is_alive() and time.monotonic() - began < 1.0
         assert pump.ended_early is True, "the stop cancelled the dose"
+
+
+# endregion
+
+
+# region A controller has no lock of its own (L4)
+
+
+def test_a_direct_regulate_and_a_reapply_do_not_deadlock(rig, fresh):
+    """The controller's own lock is gone, and with it the order it made against the rig's.
+
+    `Controller.regulate` held the controller's lock across its write, which takes the rig's;
+    a re-apply, on the rig's timer, holds the rig's and took the controller's.
+    """
+    daq, drive = Daq(fresh("furnace")), Drive(fresh("heaters"))
+    rig.add_device(daq)
+    rig.add_device(drive)
+    controller = rig.attach_controller(drive.signals["heater1"], daq.signals["zone1"], law=P(1))
+    deliver(rig, daq)
+    holding = threading.Event()
+
+    def reapply_under_the_rig_lock() -> None:
+        with rig.lock:
+            holding.set()
+            time.sleep(0.2)  # the direct regulate is now waiting for the rig's lock
+            controller.reapply(rig.clock.now_ns())
+
+    timer = threading.Thread(target=reapply_under_the_rig_lock, daemon=True)
+    timer.start()
+    assert holding.wait(2.0)
+    direct = threading.Thread(target=controller.regulate, args=(30.0,), daemon=True)
+    direct.start()
+    timer.join(2.0)
+    direct.join(2.0)
+    assert not timer.is_alive() and not direct.is_alive(), "deadlocked"
+    assert controller.mode is ControllerMode.REGULATING
 
 
 # endregion
