@@ -9,9 +9,10 @@ import pytest
 
 from conftest import TestClient
 from flyball.interfaces.server import create_app, set_rig
-from flyball.interfaces.server.deps import get_rig, set_store
+from flyball.interfaces.server.deps import set_store
 from flyball.record.sqlite import SqliteStore
 from flyball.rig import Rig
+from flyball.runtime.recorder import Recorder
 
 
 @pytest.fixture
@@ -90,15 +91,24 @@ def test_end_session_route_closes_live_and_orphaned(client):
 
 
 def test_two_starts_at_once_open_one_session(client, monkeypatch):
+    """Two first starts at once: one recorder is made for the rig, and it opens one session."""
     c, store = client
-    rig = get_rig()
-    start = rig.start_recording
+    made_init = Recorder.__init__
+    start = Recorder.start_session
 
-    def slow_start(*args, **kwargs):
+    made: list[Recorder] = []
+
+    def slow_init(self, *args, **kwargs):
+        time.sleep(0.2)  # widen the gap between looking for the recorder and making it
+        made.append(self)
+        made_init(self, *args, **kwargs)
+
+    def slow_start(self, *args, **kwargs):
         time.sleep(0.2)  # widen the gap between the 409 check and the open
-        return start(*args, **kwargs)
+        return start(self, *args, **kwargs)
 
-    monkeypatch.setattr(rig, "start_recording", slow_start)
+    monkeypatch.setattr(Recorder, "__init__", slow_init)
+    monkeypatch.setattr(Recorder, "start_session", slow_start)
     results: list[int] = []
     threads = [
         threading.Thread(target=lambda: results.append(c.post("/api/recording").status_code))
@@ -109,4 +119,9 @@ def test_two_starts_at_once_open_one_session(client, monkeypatch):
     for t in threads:
         t.join()
     assert sorted(results) == [201, 409], "the second start sees the first's session"
-    assert [s for s in store.sessions() if s.kind == "session"][-1].end_ns is None
+    assert len(made) == 1, "one recorder for the rig"
+    assert [s.id for s in store.sessions() if s.open] == [
+        [s for s in store.sessions() if s.kind == "session"][-1].id
+    ], "one session open"
+    assert c.post("/api/recording/end").status_code == 200
+    assert not [s for s in store.sessions() if s.open], "and ending it ends everything"

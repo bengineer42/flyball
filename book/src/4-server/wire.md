@@ -198,7 +198,12 @@ config or the name of a stored tuning instead.
 ## Sessions
 
 A `SessionRow` is `{id, start_ns, end_ns, flyball_version, config, hardware,
-details, rig_version_id, kind, pinned, continues, bytes}`. `kind` is
+details, rig_version_id, kind, pinned, continues, bytes, packages}`.
+`flyball_version` is the engine that recorded it and `packages` every
+installed distribution that registers `flyball.configs` (the engine,
+`flyball-sim`, an extension), `{name: version}`; the recorder sets both when
+it opens the session, and `hardware` with whatever the rig can say about what
+it runs on (nothing yet, so `null` unless a client posted one). `kind` is
 `"session"` (a recording) or `"scratch"` (the runner's rolling record);
 `pinned` exempts it from ageing out; `continues` is the id of the session
 this one carried on from at a rotation boundary, else `null`; `bytes` is an

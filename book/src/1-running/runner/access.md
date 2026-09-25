@@ -431,12 +431,26 @@ holding `operate` can do it:
 
 All five run the same stop, in this order:
 
-1. **The rig is latched** (the condition `stopped` on the rig), so nothing
-   automatic writes from here on ([the latch](#the-latch)).
-2. **Every running long command is cancelled**: a dose or a move ends now,
-   and its own clean-up still runs.
-3. **The program is interrupted**, with a bounded wait for it to unwind.
-4. **Every controller goes to manual**, with an `interrupted` event each.
+1. **Every running long command is cancelled**: a dose or a move ends now,
+   before anything else waits, and its own clean-up still runs.
+2. **The rig is latched** (the condition `stopped` on the rig), so nothing
+   automatic writes from here on ([the latch](#the-latch)): a write is
+   checked and committed under the same lock the latch is set under, so it
+   lands wholly before the latch or after it -- an automatic writer's
+   refused, a person's put through the stop and logged.
+3. **Every controller goes to manual**, with an `interrupted` event each.
+4. **The program is interrupted**, with a bounded wait for it to unwind
+   (and every controller to manual again, for what its last step did).
+
+Steps 2, 3 and 4's second manual each wait for the rig's lock -- a delivery
+or a command in progress -- at most 0.2 s: 0.6 s at worst, before any
+device is stopped. A stop that finds the lock stuck when it latches latches
+without it, and puts the controllers in manual without it, waiting no more.
+A manual made without the lock is made once more under it as soon as it is
+free, within the 5 s of step 5 (whose device stops wait for the same lock),
+so a `regulate` in progress when the stop began cannot leave a controller
+regulating after it.
+
 5. **Every device is stopped at once**, each on its own thread, all within
    5 s. A device whose driver has a stop command runs it (the humidity
    blender's `stop`, `mcp4725`'s `power_down`); any other device has each

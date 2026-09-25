@@ -860,7 +860,8 @@ off the rig lock: polling and control carry on during the dose, and the
 `dispensed_ml` with what ran. The dose is timed on the rig's clock, so a
 scaled or stepped sim doses in its own time. The pump underneath is the
 dosing pump's own, not a device of the rig, so nothing else can drive it
-while it doses. Stepper-driven
+while it doses; the dosing pump itself is claimed by the dispense until it
+ends (another dispense is refused; `stop` is not). Stepper-driven
 pumps (step/direction) aren't supported directly here -- pair a `stepper`
 with your own dispense logic instead.
 

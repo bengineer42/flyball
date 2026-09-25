@@ -355,7 +355,7 @@ class TestTheStop:
         held, release = threading.Event(), threading.Event()
 
         def stuck() -> None:
-            with rig.lock:
+            with rig._lock:
                 held.set()
                 release.wait(5)
 

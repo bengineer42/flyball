@@ -1,0 +1,1 @@
+{"layers": ["machine.yaml"], "document": {"name": "machine", "links": {"bus": {"type": "sim_plant", "rate": 3}}}}

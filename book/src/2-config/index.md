@@ -90,6 +90,13 @@ same without serving.
 The same keys in several files merge, later files winning, mappings key by
 key and everything else whole; a `null` deletes what an earlier file set,
 and one with nothing earlier to delete is simply dropped.
+Each file is merged once, where it is first reached: a file that two
+`extends` lists share (a machine file extending `[variant.yaml,
+project.yaml]` where `variant.yaml` itself extends `project.yaml`) is laid
+once, underneath both, so it cannot come back over the variant's changes.
+The names under `links:`, `devices:` and `controllers:` are merged in either
+spelling (`dry-air` in one file and `dry_air` in the next are one device);
+both spellings in one section of one file are refused.
 Three ways to lay a rig out:
 
 ```

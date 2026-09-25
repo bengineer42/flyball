@@ -12,11 +12,11 @@ from flyball.foundation.device import Access, Committable, Node, Readable, Role,
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.interfaces.server import create_app, set_rig
-from flyball.interfaces.server.deps import set_retention, set_runner, set_store
+from flyball.interfaces.server.deps import set_recorder, set_runner, set_store
 from flyball.record import SpanKind, SqliteStore, Window
 from flyball.record.types import Event
 from flyball.runtime.config import RunnerConfig, parse_duration_ns, parse_size_bytes
-from flyball.runtime.retention import Retention
+from flyball.runtime.recorder import Recorder
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -51,6 +51,13 @@ def store(tmp_path):
     store = SqliteStore(tmp_path / "s.sqlite")
     yield store
     store.close()
+
+
+@pytest.fixture
+def recorder(rig, store):
+    recorder = Recorder(rig, store)
+    yield recorder
+    recorder.stop()
 
 
 def feed(rig, oven, clock, seconds: int, step_s: float = 1.0) -> None:
@@ -133,13 +140,13 @@ def test_set_session_name_keeps_the_rest_of_details(store):
     assert cleared.details == {"note": "kept"}
 
 
-def test_trimming_moves_the_start_up_and_offsets_stay_true(rig, oven, clock, store):
+def test_trimming_moves_the_start_up_and_offsets_stay_true(rig, oven, clock, store, recorder):
     """After a trim the row's start is the oldest kept and every read counts from there."""
     address = f"{oven.name}.zone"
-    rig.start_recording(store, kind="scratch")
-    session_id = rig.recorder.writer.session.id
+    recorder.start_session(kind="scratch")
+    session_id = recorder.session.writer.session.id
     feed(rig, oven, clock, 10)  # readings at t = 1..10 s, valued t
-    rig.recorder.flush()
+    recorder.session.flush()
     row = store.trim_session(session_id, 4 * S)
     assert row.start_ns == 4 * S and row.end_ns is None
     assert values(store, session_id, address) == [4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
@@ -154,24 +161,24 @@ def test_trimming_moves_the_start_up_and_offsets_stay_true(rig, oven, clock, sto
     assert [(p.offset_ns, p.value) for p in bucketed.points] == [(0, 5.5), (4 * S, 9.0)]
     # The writer carries on unaware: what it writes next still lines up.
     feed(rig, oven, clock, 2)
-    rig.recorder.flush()
+    recorder.session.flush()
     assert values(store, session_id, address)[-2:] == [11.0, 12.0]
     assert store.samples(session_id, oven.name)[-1].offset_ns == 12 * S - 4 * S
     # Trimming to before the start, or twice, changes nothing; a closed row never past its end.
     assert store.trim_session(session_id, 2 * S).start_ns == 4 * S
-    rig.stop_recording()
+    recorder.end_session()
     assert store.trim_session(session_id, 99 * S).start_ns == store.session(session_id).end_ns
     assert values(store, session_id, address) == [12.0], "at the end itself: not before it"
 
 
-def test_trimming_takes_ticks_states_events_and_closed_spans_too(rig, oven, clock, store):
+def test_trimming_takes_ticks_states_events_and_closed_spans_too(rig, oven, clock, store, recorder):
     controller = rig.attach_controller(oven.signals["heater"], oven.signals["zone"], law=PI(kp=1.0))
     controller.regulate(50.0)
-    rig.start_recording(store, kind="scratch")
-    writer = rig.recorder.writer
+    recorder.start_session(kind="scratch")
+    writer = recorder.session.writer
     session_id = writer.session.id
     feed(rig, oven, clock, 6)
-    rig.recorder.flush()
+    recorder.session.flush()
     writer.write_event(Event(2 * S, "note", "x"))
     writer.write_event(Event(5 * S, "note", "y"))
     done = writer.open_span(SpanKind.NOTE, "early", S)
@@ -183,18 +190,18 @@ def test_trimming_takes_ticks_states_events_and_closed_spans_too(rig, oven, cloc
     assert [e.offset_ns for e in store.events(session_id)] == [S]
     (span,) = store.spans(session_id)
     assert span.id == still and span.start_ns == -3 * S, "an open span stays, dated from the start"
-    rig.stop_recording()
+    recorder.end_session()
 
 
-def test_keep_range_is_a_closed_copy_rebased_to_its_start(rig, oven, clock, store):
+def test_keep_range_is_a_closed_copy_rebased_to_its_start(rig, oven, clock, store, recorder):
     address = f"{oven.name}.zone"
-    rig.start_recording(store, kind="scratch", config={"name": "lab"})
-    scratch_id = rig.recorder.writer.session.id
+    recorder.start_session(kind="scratch", config={"name": "lab"})
+    scratch_id = recorder.session.writer.session.id
     feed(rig, oven, clock, 10)
     clock.advance(0.5)
     rig.write(oven.root, {"heater": 40.0})
-    rig.recorder.flush()
-    rig.recorder.writer.write_event(Event(int(6.5 * S), "note", "x", "kept"))
+    recorder.session.flush()
+    recorder.session.writer.write_event(Event(int(6.5 * S), "note", "x", "kept"))
     kept = store.keep_range(scratch_id, 3 * S, 8 * S, details={"name": "the middle"})
     assert (kept.start_ns, kept.end_ns, kept.kind) == (3 * S, 8 * S, "session")
     assert kept.details == {"name": "the middle"} and kept.config == {"name": "lab"}
@@ -216,7 +223,7 @@ def test_keep_range_is_a_closed_copy_rebased_to_its_start(rig, oven, clock, stor
     store.trim_session(scratch_id, 4 * S)
     with pytest.raises(ValueError, match="nothing before"):
         store.keep_range(scratch_id, 3 * S, 8 * S)
-    rig.stop_recording()
+    recorder.end_session()
     with pytest.raises(ValueError, match="ended at"):
         store.keep_range(scratch_id, 5 * S, 99 * S)
     # A kept session copies well after a trim too: the shift is undone on the way over.
@@ -224,20 +231,20 @@ def test_keep_range_is_a_closed_copy_rebased_to_its_start(rig, oven, clock, stor
     assert values(store, again.id, address) == [6.0, 7.0, 8.0]
 
 
-def test_backfill_puts_scratch_rows_under_a_recording_s_own(rig, oven, clock, store):
+def test_backfill_puts_scratch_rows_under_a_recording_s_own(rig, oven, clock, store, recorder):
     address = f"{oven.name}.zone"
-    rig.start_recording(store, kind="scratch")
-    scratch_id = rig.recorder.writer.session.id
+    recorder.start_session(kind="scratch")
+    scratch_id = recorder.session.writer.session.id
     feed(rig, oven, clock, 10)
-    rig.recorder.flush()
+    recorder.session.flush()
     now = clock.now_ns()
     # The recording starts 4 s back; the recorder declares, then the scratch rows come over.
-    recorder = rig.start_recording(store, start_ns=now - 4 * S)
-    session_id = recorder.writer.session.id
+    opened = recorder.start_session(start_ns=now - 4 * S)
+    session_id = opened.writer.session.id
     assert store.session(scratch_id).end_ns == now
     assert store.backfill(session_id, scratch_id, now - 4 * S, now + 99 * S) == 5, "to its end"
     feed(rig, oven, clock, 3)
-    rig.stop_recording()
+    recorder.end_session()
     assert values(store, session_id, address) == [6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0]
     seqs = [s.seq for s in store.samples(session_id, oven.name)]
     assert seqs == [-5, -4, -3, -2, -1, 1, 2, 3], "backfilled rows sit below the writer's count"
@@ -246,27 +253,27 @@ def test_backfill_puts_scratch_rows_under_a_recording_s_own(rig, oven, clock, st
     assert store.backfill(session_id, scratch_id, now + S, now + 2 * S) == 0
 
 
-def test_measure_and_used_bytes(rig, oven, clock, store):
-    rig.start_recording(store, kind="scratch")
-    session_id = rig.recorder.writer.session.id
+def test_measure_and_used_bytes(rig, oven, clock, store, recorder):
+    recorder.start_session(kind="scratch")
+    session_id = recorder.session.writer.session.id
     assert store.session(session_id).bytes is None
     feed(rig, oven, clock, 100)
-    rig.recorder.flush()
+    recorder.session.flush()
     size = store.measure_session(session_id)
     assert size == 100 * 56 and store.session(session_id).bytes == size
     before = store.used_bytes()
     feed(rig, oven, clock, 5000)
-    rig.recorder.flush()
+    recorder.session.flush()
     assert store.used_bytes() > before
-    rig.stop_recording()
+    recorder.end_session()
 
 
-def test_end_session_after_a_trim_ends_at_the_last_sample(rig, oven, clock, store):
-    rig.start_recording(store, kind="scratch")
-    session_id = rig.recorder.writer.session.id
+def test_end_session_after_a_trim_ends_at_the_last_sample(rig, oven, clock, store, recorder):
+    recorder.start_session(kind="scratch")
+    session_id = recorder.session.writer.session.id
     feed(rig, oven, clock, 10)
-    rig.recorder.flush()
-    rig.recorder._stop.set()  # leave the row open, as a runner that died would
+    recorder.session.flush()
+    recorder.session._stop.set()  # leave the row open, as a runner that died would
     store.trim_session(session_id, 4 * S)
     assert store.end_session(session_id).end_ns == 10 * S
 
@@ -280,80 +287,86 @@ def settings(**keys):
     return RunnerConfig(**keys)
 
 
-def test_the_scratch_record_opens_on_start_and_again_after_a_recording(rig, oven, clock, store):
-    retention = Retention(rig, store, settings(), period_s=3600)
-    assert rig.recorder is None
-    retention.start()
+def test_the_scratch_record_opens_on_start_and_again_after_a_recording(
+    rig, oven, clock, store, recorder
+):
+    policy = settings()
+    assert recorder.session is None
+    recorder.start(policy, period_s=3600)
     try:
-        scratch = retention.scratch
-        assert scratch is not None and scratch.scratch and rig.recording is None
+        scratch = recorder.scratch
+        assert scratch is not None and scratch.scratch and recorder.recording is None
         assert scratch.config == {"name": rig.name} if rig.name else scratch.config is None
-        started = rig.start_recording(store, details="run").writer.session
-        assert rig.recording is not None and retention.scratch is None
+        started = recorder.start_session(details="run").writer.session
+        assert recorder.recording is not None and recorder.scratch is None
         assert store.session(scratch.id).end_ns is not None, "replaced, so closed"
-        rig.stop_recording()
-        again = retention.scratch
+        recorder.end_session()
+        again = recorder.scratch
         assert again is not None and again.id not in (scratch.id, started.id)
         assert store.session(started.id).end_ns is not None
     finally:
-        retention.stop()
-    rig.stop_recording()
-    assert retention.scratch is None and rig.recorder is None, "stopped: not reopened"
+        recorder.stop()
+    assert store.session(again.id).end_ns is not None, "stopping ends the scratch record"
+    # A recording after the sweeps stopped ends into nothing: scratch is not reopened.
+    after = recorder.start_session().writer.session
+    assert recorder.end_session().id == after.id
+    assert recorder.scratch is None and recorder.session is None, "stopped: not reopened"
+    assert not [s for s in store.sessions() if s.open]
 
 
-def test_keep_zero_keeps_no_scratch(rig, store):
-    retention = Retention(rig, store, settings(keep="0"), period_s=3600)
-    retention.start()
+def test_keep_zero_keeps_no_scratch(rig, store, recorder):
+    policy = settings(keep="0")
+    recorder.start(policy, period_s=3600)
     try:
-        assert rig.recorder is None
-        rig.start_recording(store)
-        rig.stop_recording()
-        assert rig.recorder is None
+        assert recorder.session is None
+        recorder.start_session()
+        recorder.end_session()
+        assert recorder.session is None
     finally:
-        retention.stop()
+        recorder.stop()
 
 
-def test_a_sweep_trims_scratch_to_keep_in_the_rig_s_clock(rig, oven, clock, store):
+def test_a_sweep_trims_scratch_to_keep_in_the_rig_s_clock(rig, oven, clock, store, recorder):
     address = f"{oven.name}.zone"
-    retention = Retention(rig, store, settings(keep="5s"), period_s=3600)
-    retention.start()
+    policy = settings(keep="5s")
+    recorder.start(policy, period_s=3600)
     try:
         feed(rig, oven, clock, 12)
-        rig.recorder.flush()
-        retention.sweep()
-        scratch = retention.scratch
+        recorder.session.flush()
+        recorder.sweep()
+        scratch = recorder.scratch
         assert scratch.start_ns == 7 * S and scratch.bytes == 6 * 56
         assert values(store, scratch.id, address) == [7.0, 8.0, 9.0, 10.0, 11.0, 12.0]
     finally:
-        retention.stop()
+        recorder.stop()
 
 
-def test_a_sweep_trims_scratch_under_keep_size(rig, oven, clock, store):
-    retention = Retention(rig, store, settings(keep="1h", keep_size="2800"), period_s=3600)
-    retention.start()
+def test_a_sweep_trims_scratch_under_keep_size(rig, oven, clock, store, recorder):
+    policy = settings(keep="1h", keep_size="2800")
+    recorder.start(policy, period_s=3600)
     try:
         feed(rig, oven, clock, 100)  # 100 readings ~ 5600 bytes by the estimate
-        rig.recorder.flush()
-        retention.sweep()
-        scratch = retention.scratch
+        recorder.session.flush()
+        recorder.sweep()
+        scratch = recorder.scratch
         assert scratch.bytes <= 2800 and 40 <= scratch.bytes // 56 <= 50
     finally:
-        retention.stop()
+        recorder.stop()
 
 
-def test_an_old_run_s_scratch_ages_out_whole(rig, oven, clock, store):
+def test_an_old_run_s_scratch_ages_out_whole(rig, oven, clock, store, recorder):
     old = store.open_session(0, kind="scratch")
     old.end(2 * S)
     clock.advance(100)
-    retention = Retention(rig, store, settings(keep="10s"), period_s=3600)
-    retention.start()
+    policy = settings(keep="10s")
+    recorder.start(policy, period_s=3600)
     try:
-        assert [s.id for s in store.sessions(kind="scratch")] == [retention.scratch.id]
+        assert [s.id for s in store.sessions(kind="scratch")] == [recorder.scratch.id]
     finally:
-        retention.stop()
+        recorder.stop()
 
 
-def test_retain_deletes_ended_unpinned_recordings_only(rig, clock, store):
+def test_retain_deletes_ended_unpinned_recordings_only(rig, clock, store, recorder):
     a = store.open_session(0)
     a.end(S)
     b = store.open_session(0)
@@ -361,62 +374,66 @@ def test_retain_deletes_ended_unpinned_recordings_only(rig, clock, store):
     store.set_pinned(b.session.id, True)
     c = store.open_session(0)  # still open: not retention's to close
     clock.advance(100)
-    retention = Retention(rig, store, settings(keep="0", retain="10s"), period_s=3600)
-    retention.start()
+    policy = settings(keep="0", retain="10s")
+    recorder.start(policy, period_s=3600)
     try:
         assert {s.id for s in store.sessions()} == {b.session.id, c.session.id}
-        rig.start_recording(store)
+        recorder.start_session()
         clock.advance(100)
-        retention.sweep()
-        assert rig.recording is not None, "the recording in progress is never retained"
+        recorder.sweep()
+        assert recorder.recording is not None, "the recording in progress is never retained"
     finally:
-        retention.stop()
-        rig.stop_recording()
+        recorder.stop()
+        recorder.end_session()
 
 
-def test_rotate_continues_a_recording_at_the_boundary(rig, oven, clock, store):
-    retention = Retention(rig, store, settings(keep="0", rotate="10s"), period_s=3600)
-    retention.start()
+def test_rotate_continues_a_recording_at_the_boundary(rig, oven, clock, store, recorder):
+    policy = settings(keep="0", rotate="10s")
+    recorder.start(policy, period_s=3600)
     try:
-        first = rig.start_recording(store, details={"name": "long"}).writer.session
+        first = recorder.start_session(details={"name": "long"}).writer.session
         feed(rig, oven, clock, 8)
-        retention.sweep()
-        assert rig.recording.writer.session.id == first.id, "before the boundary"
+        recorder.sweep()
+        assert recorder.recording.writer.session.id == first.id, "before the boundary"
         feed(rig, oven, clock, 3)
-        retention.sweep()
-        second = rig.recording.writer.session
+        recorder.sweep()
+        second = recorder.recording.writer.session
         assert second.id != first.id and second.continues == first.id
         assert second.details == {"name": "long"} and store.session(first.id).end_ns is not None
         assert len(store.signals(second.id)) == len(store.signals(first.id))
     finally:
-        retention.stop()
-        rig.stop_recording()
+        recorder.stop()
+        recorder.end_session()
 
 
-def test_max_store_deletes_the_oldest_data_first_whatever_its_kind(rig, oven, clock, store):
+def test_max_store_deletes_the_oldest_data_first_whatever_its_kind(
+    rig, oven, clock, store, recorder
+):
     address = f"{oven.name}.zone"
-    retention = Retention(rig, store, settings(keep="1h", max_store="1"), period_s=3600)
+    policy = settings(keep="1h", max_store="1")
     # An old recording, an old pinned one, then scratch from the rig's start.
     old = store.open_session(-100 * S)
     old.end(-90 * S)
     pinned = store.open_session(-80 * S)
     pinned.end(-70 * S)
     store.set_pinned(pinned.session.id, True)
-    retention.start()  # the first sweep already runs over the cap: the old recording goes
+    recorder.start(
+        policy, period_s=3600
+    )  # the first sweep already runs over the cap: the old recording goes
     try:
         assert store.sessions(kind="session") and {s.id for s in store.sessions()} == {
             pinned.session.id,
-            retention.scratch.id,
+            recorder.scratch.id,
         }
         feed(rig, oven, clock, 20)
-        rig.recorder.flush()
-        retention.sweep()
-        scratch = retention.scratch
+        recorder.session.flush()
+        recorder.sweep()
+        scratch = recorder.scratch
         assert scratch.start_ns > 0, "then scratch's oldest tenths, never the pinned session"
         assert len(values(store, scratch.id, address)) < 20
         assert store.session(pinned.session.id).pinned
     finally:
-        retention.stop()
+        recorder.stop()
 
 
 # endregion
@@ -425,19 +442,18 @@ def test_max_store_deletes_the_oldest_data_first_whatever_its_kind(rig, oven, cl
 
 
 @pytest.fixture
-def client(rig, oven, clock, store):
+def client(rig, oven, clock, store, recorder):
     set_rig(rig)
     set_store(store)
     policy = settings(keep="30s", rotate="1h")
-    retention = Retention(rig, store, policy, period_s=3600)
-    set_retention(retention)
+    set_recorder(recorder)
     set_runner(FakeRunner(policy))
-    retention.start()
+    recorder.start(policy, period_s=3600)
     with TestClient(create_app()) as c:
         yield c
-    retention.stop()
+    recorder.stop()
     set_runner(None)
-    set_retention(None)
+    set_recorder(None)
     set_store(None)
     set_rig(None)
 
@@ -451,7 +467,7 @@ def test_the_runner_reports_the_policy(client):
     assert (runner["max_store"], runner["max_bytes"]) == ("0", 0)
 
 
-def test_scratch_is_listed_but_is_not_the_recording(client, rig, oven, clock, store):
+def test_scratch_is_listed_but_is_not_the_recording(client, rig, oven, clock, store, recorder):
     assert client.get("/api/recording").json() is None
     assert client.get("/api/health").json()["recording"] is False
     (row,) = client.get("/api/history/sessions").json()
@@ -459,7 +475,7 @@ def test_scratch_is_listed_but_is_not_the_recording(client, rig, oven, clock, st
     assert row["continues"] is None and "bytes" in row
     assert client.get("/api/history/sessions?kind=session").json() == []
     feed(rig, oven, clock, 3)
-    rig.recorder.flush()
+    recorder.session.flush()
     series = client.get(f"/api/history/sessions/{row['id']}/series/{oven.name}.zone").json()
     assert len(series["points"]) == 3, "read like any other session"
     # It cannot be ended or deleted from under the runner.
@@ -467,10 +483,10 @@ def test_scratch_is_listed_but_is_not_the_recording(client, rig, oven, clock, st
     assert client.delete(f"/api/history/sessions/{row['id']}").status_code == 409
 
 
-def test_keep_over_the_api(client, rig, oven, clock, store):
+def test_keep_over_the_api(client, rig, oven, clock, store, recorder):
     scratch = client.get("/api/history/sessions").json()[0]
     feed(rig, oven, clock, 10)
-    rig.recorder.flush()
+    recorder.session.flush()
     kept = client.post(
         f"/api/history/sessions/{scratch['id']}/keep",
         json={"start_ns": 2 * S, "end_ns": 6 * S, "details": {"name": "kept"}},
@@ -516,11 +532,13 @@ def test_rename_over_the_api(client, store):
     assert body["details"] == {"name": "renamed"} and body["pinned"]
 
 
-def test_recording_with_include_ns_is_backfilled_from_scratch(client, rig, oven, clock, store):
+def test_recording_with_include_ns_is_backfilled_from_scratch(
+    client, rig, oven, clock, store, recorder
+):
     address = f"{oven.name}.zone"
     scratch = client.get("/api/history/sessions").json()[0]
     feed(rig, oven, clock, 10)
-    rig.recorder.flush()
+    recorder.session.flush()
     started = client.post("/api/recording", json={"details": "x", "include_ns": 4 * S})
     assert started.status_code == 201, started.text
     session = started.json()
@@ -573,7 +591,7 @@ def test_flushes_from_two_threads_write_one_after_the_other():
 
     from flyball.foundation.device import Event as RigEvent
     from flyball.foundation.device import Severity
-    from flyball.runtime.recorder import Recorder
+    from flyball.runtime.recorder import SessionRecorder
 
     first_inside = threading.Event()
     second_inside = threading.Event()
@@ -614,7 +632,7 @@ def test_flushes_from_two_threads_write_one_after_the_other():
         return RigEvent(1, Severity.INFO, "rig", "rig", kind, kind)
 
     writer = Writer()
-    recorder = Recorder(writer, (), flush_s=3600)  # type: ignore[arg-type]  # never flushes itself
+    recorder = SessionRecorder(writer, (), flush_s=3600)  # type: ignore[arg-type]  # never flushes itself
     try:
         recorder.event(note("first"))
         one = threading.Thread(target=recorder.flush, daemon=True)

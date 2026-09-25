@@ -24,7 +24,7 @@ from flyball.foundation.device import (
 from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.record import Downsample, NotDeclaredError, SqliteStore, Window
-from flyball.runtime.recorder import Recorder
+from flyball.runtime.recorder import Recorder, SessionRecorder
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -77,12 +77,13 @@ def test_deliveries_are_buffered_and_written_on_close(rig, furnace, clock):
     )
     controller.regulate(10.0)
     store = SqliteStore(":memory:")
-    recorder = rig.start_recording(store)
+    history = Recorder(rig, store)
+    recorder = history.start_session()
     for i in range(50):
         clock.advance(0.01)
         rig.on_samples([_sample(furnace, clock.now_ns(), float(i))])
     assert len(recorder._ticks) == 50, "nothing flushed inside the interval"
-    rig.stop_recording()
+    history.end_session()
     session = store.sessions()[0]
     assert len(store.ticks(session.id, controller.name)) == 50
     assert len(store.series(session.id, f"{furnace.name}.zone1").points) == 50
@@ -95,9 +96,10 @@ def test_declarations_carry_the_device_and_signal_metadata(rig, furnace, clock):
         furnace.signals["heater"], furnace.signals["zone1"], law=PI(kp=1.0)
     )
     store = SqliteStore(":memory:")
-    rig.start_recording(store)
+    history = Recorder(rig, store)
+    history.start_session()
     rig.on_samples([_sample(furnace, clock.now_ns(), 1.0)])
-    rig.stop_recording()
+    history.end_session()
     session = store.sessions()[0]
     (device,) = store.devices(session.id)
     assert (device.address, device.driver, device.label) == (furnace.name, "Furnace", "Furnace A")
@@ -126,10 +128,11 @@ def test_declarations_carry_the_device_and_signal_metadata(rig, furnace, clock):
 
 def test_a_manual_demand_is_a_write_state_row(rig, furnace, clock):
     store = SqliteStore(":memory:")
-    rig.start_recording(store)
+    history = Recorder(rig, store)
+    history.start_session()
     clock.advance(1.0)
     rig.write(furnace.root, {"heater": 3000.0, "setpoint": 200.0})
-    rig.stop_recording()
+    history.end_session()
     session = store.sessions()[0]
     (state,) = store.write_states(session.id, f"{furnace.name}.heater")
     assert state.offset_ns == 1_000_000_000
@@ -148,12 +151,13 @@ def test_a_manual_demand_is_a_write_state_row(rig, furnace, clock):
 
 def test_samples_are_keyed_by_device_and_node_with_seq_per_device(rig, furnace, clock):
     store = SqliteStore(":memory:")
-    rig.start_recording(store, signals=[furnace.signals["zone1"], furnace.signals["zone2"]])
+    history = Recorder(rig, store)
+    history.start_session(signals=[furnace.signals["zone1"], furnace.signals["zone2"]])
     clock.advance(1.0)
     rig.on_samples([_sample(furnace, clock.now_ns(), 20.5, zone2=30.0)])
     clock.advance(1.0)
     rig.on_samples([_sample(furnace, clock.now_ns(), 21.0)])
-    rig.stop_recording()
+    history.end_session()
     session = store.sessions()[0]
     rows = store.samples(session.id, furnace.name)
     assert [(r.seq, r.offset_ns, r.node) for r in rows] == [
@@ -172,7 +176,8 @@ def test_samples_are_keyed_by_device_and_node_with_seq_per_device(rig, furnace, 
 def test_the_writer_thread_flushes_off_the_delivery_path(rig, furnace, clock):
     rig.attach_controller(furnace.signals["heater"], furnace.signals["zone1"], law=PI(kp=1.0))
     store = SqliteStore(":memory:")
-    recorder = rig.start_recording(store)
+    history = Recorder(rig, store)
+    recorder = history.start_session()
     recorder.flush_s = 0.01
     rig.on_samples([_sample(furnace, clock.now_ns(), 1.0)])
     assert recorder._samples, "buffered on delivery, not written"
@@ -181,13 +186,14 @@ def test_the_writer_thread_flushes_off_the_delivery_path(rig, furnace, clock):
         time.sleep(0.005)
     assert recorder._samples == [] and recorder._ticks == [], "the thread wrote it"
     assert recorder.running
-    rig.stop_recording()
+    history.end_session()
     assert not recorder.running
 
 
 def test_a_failing_store_stops_recording_and_raises_an_event(rig, furnace, clock):
     store = SqliteStore(":memory:")
-    recorder = rig.start_recording(store, signals=[furnace.signals["zone1"]])
+    history = Recorder(rig, store)
+    recorder = history.start_session(signals=[furnace.signals["zone1"]])
     recorder.flush_s = 0.01
 
     class Broken:  # a session writer whose disk has filled
@@ -206,7 +212,7 @@ def test_a_failing_store_stops_recording_and_raises_an_event(rig, furnace, clock
     while recorder.failed is None and time.monotonic() < deadline:
         time.sleep(0.005)
     assert isinstance(recorder.failed, OSError)
-    assert rig.recorder is None, "detached: control goes on unrecorded"
+    assert history.session is None and rig.sink is None, "detached: control goes on unrecorded"
     assert rig.recent[-1].code == "recording_failed" and "disk full" in rig.recent[-1].message
     rig.on_samples([_sample(furnace, clock.now_ns(), 2.0)])  # still delivers
 
@@ -220,7 +226,7 @@ class TestRecorder:
     def test_only_publishing_values_are_kept_from_a_sample(self, furnace):
         store = SqliteStore(":memory:")
         writer = store.open_session(1_000)
-        recorder = Recorder(writer, [furnace.signals["zone1"], furnace.signals["setpoint"]])
+        recorder = SessionRecorder(writer, [furnace.signals["zone1"], furnace.signals["setpoint"]])
         recorder.record([_sample(furnace, 2_000, 20.0, setpoint=150.0)], (), {})
         (kept,) = recorder._samples
         assert kept.values == {furnace.signals["zone1"]: 20.0}, "the RW setting's read is dropped"
@@ -235,7 +241,7 @@ class TestRecorder:
         store = SqliteStore(":memory:")
         writer = store.open_session(1_000)
         heater = furnace.signals["heater"]
-        recorder = Recorder(writer, [heater])
+        recorder = SessionRecorder(writer, [heater])
         recorder.record((), (), {heater: WriteState(value=5.0)}, time_ns=1_500)
         recorder.record([_sample(furnace, 2_000, 20.0)], (), {heater: WriteState(value=6.0)})
         recorder.record((), (), {heater: WriteState(value=7.0)})  # no time: the last seen
@@ -351,6 +357,37 @@ def test_a_store_made_before_the_baseline_is_refused_unread(tmp_path):
     connection = sqlite3.connect(path)
     assert connection.execute("SELECT version FROM schema_version").fetchall() == [(25,)]
     assert connection.execute("PRAGMA application_id").fetchone() == (0,), "nothing written"
+    connection.close()
+
+
+def older_baseline_store(path) -> None:
+    """A store made by the baseline as it was before `session.packages` was added in place."""
+    from flyball.record import migrate
+
+    (baseline,) = migrate.available().values()
+    older = "".join(
+        line
+        for line in baseline.read_text(encoding="utf-8").splitlines(keepends=True)
+        if not line.lstrip().startswith("packages ")
+    )
+    connection = sqlite3.connect(path, isolation_level=None)
+    connection.executescript(
+        "BEGIN;\n" + older + "\n;\nINSERT INTO schema_version (version) VALUES (1);\nCOMMIT;"
+    )
+    connection.execute("INSERT INTO session (start_ns, origin_ns) VALUES (1, 1)")
+    connection.close()
+
+
+def test_a_store_an_older_baseline_made_is_refused_unread(tmp_path):
+    """Same stamp, same version, a column short: refused at open, not at its first read."""
+    from flyball.record.errors import SchemaError
+
+    path = tmp_path / "older.sqlite"
+    older_baseline_store(path)
+    with pytest.raises(SchemaError, match=r"older flyball: session has no packages; move it"):
+        SqliteStore(path)
+    connection = sqlite3.connect(path)
+    assert connection.execute("SELECT COUNT(*) FROM session").fetchone() == (1,), "left as it was"
     connection.close()
 
 

@@ -2,70 +2,43 @@
 
 from __future__ import annotations
 
-import sys
 import threading
 import time
-import types
 from collections.abc import Iterator, Mapping
 
 import pytest
 
 from flyball.control.laws import P
-from flyball.foundation.device import Access, Node, Sample, Severity, Signal, SignalSpec, WriteState
+from flyball.foundation.device import Node, Sample, Severity, Signal, WriteState
+from flyball.foundation.errors import ConflictError
 from flyball.model.law import Transfer
-from test_rig_devices import TEMP, Furnace
+from flyball.rig.sink import Delivered, Marker, Published, Row, tick_row
+from test_rig_devices import Furnace
 
 
-class FakeWriter:
+class FakeSink:
+    """The record sink, as the rig puts to it; keeps every row."""
+
     def __init__(self) -> None:
-        self.ended: list[int] = []
+        self.rows: list[Row] = []
 
-    def end(self, end_ns: int) -> None:
-        self.ended.append(end_ns)
+    def put(self, row: Row) -> None:
+        self.rows.append(row)
 
+    @property
+    def delivered(self) -> list[Delivered]:
+        return [r for r in self.rows if isinstance(r, Delivered)]
 
-class FakeStore:
-    def __init__(self) -> None:
-        self.sessions: list[tuple[int, dict]] = []
-
-    def open_session(self, start_ns: int, **session) -> FakeWriter:
-        self.sessions.append((start_ns, session))
-        return FakeWriter()
-
-
-class FakeRecorder:
-    """The recorder contract, as the rig calls it; records every call."""
-
-    made: list[FakeRecorder] = []
-
-    def __init__(self, writer, signals, controllers, flush_s=0.1, on_failure=None) -> None:
-        self.writer = writer
-        self.signals = list(signals)
-        self.controllers = list(controllers)
-        self.on_failure = on_failure
-        self.records: list[tuple[list, list, dict, int | None]] = []
-        self.events: list = []
-        self.closed: list[int] = []
-        FakeRecorder.made.append(self)
-
-    def record(self, samples, ticks, states, *, time_ns=None) -> None:
-        self.records.append((list(samples), list(ticks), dict(states), time_ns))
-
-    def event(self, event) -> None:
-        self.events.append(event)
-
-    def close(self, end_ns: int) -> None:
-        self.closed.append(end_ns)
+    @property
+    def events(self) -> list:
+        return [r.event for r in self.rows if isinstance(r, Published)]
 
 
 @pytest.fixture
-def recorder_module(monkeypatch) -> type[FakeRecorder]:
-    """`flyball.runtime.recorder` as the rig imports it, replaced by the fake."""
-    module = types.ModuleType("flyball.runtime.recorder")
-    module.Recorder = FakeRecorder  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "flyball.runtime.recorder", module)
-    FakeRecorder.made.clear()
-    return FakeRecorder
+def sink(rig) -> FakeSink:
+    sink = FakeSink()
+    rig.attach_sink(sink)
+    return sink
 
 
 @pytest.fixture
@@ -75,90 +48,106 @@ def furnace(rig, fresh) -> Furnace:
     return furnace
 
 
-def test_an_event_is_kept_and_recorded(rig, clock, recorder_module):
+def test_an_event_is_kept_and_recorded(rig, clock):
     clock.advance(2.0)
     event = rig.event(Severity.WARNING, "device", "x", "slow", "read took 3 s", {"took": 3})
     assert rig.recent[-1] is event and event.time_ns == clock.now_ns()
     assert (
         event.severity is Severity.WARNING and event.code == "slow" and event.details == {"took": 3}
     )
-    rig.start_recording(FakeStore())
+    sink = FakeSink()
+    rig.attach_sink(sink)
     other = rig.event(Severity.INFO, "rig", "x", "restarted", "polling again")
-    assert recorder_module.made[-1].events == [other]
+    assert sink.events == [other]
 
 
-class TestRecording:
-    def test_start_records_every_p_or_w_signal_and_every_controller_by_default(
-        self, rig, fresh, clock, recorder_module
-    ):
-        class WithSerial(Furnace):
-            # A literal TREE now adds to the parent's; no need to splice `*Furnace.TREE` in.
-            TREE = (SignalSpec(name="serial", quantity=TEMP, access=Access.R),)
+class TestTheSink:
+    """What the rig puts to its one sink: rows made under its lock, numbered in one order."""
 
-        furnace = WithSerial(fresh("furnace"))
-        rig.add_device(furnace)
-        heater1, zone1 = furnace.signals["heater1"], furnace.signals["zone1"]
-        controller = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
-        store = FakeStore()
-        clock.advance(1.0)
-        recorder = rig.start_recording(store, name="run 1")
-        assert rig.recorder is recorder and store.sessions == [(clock.now_ns(), {"name": "run 1"})]
-        assert recorder.signals == [s for s in furnace.signals.values() if s.name != "serial"], (
-            "what publishes or is written; an R-only signal is neither"
-        )
-        assert recorder.controllers == [controller]
-        assert recorder.on_failure == rig._recording_failed
-
-        chosen = rig.start_recording(store, signals=[zone1], controllers=[])
-        assert recorder.closed == [clock.now_ns()], "replaced: the first session is closed"
-        assert chosen.signals == [zone1] and chosen.controllers == []
-        rig.stop_recording()
-        assert rig.recorder is None and chosen.closed == [clock.now_ns()]
-        rig.stop_recording()  # nothing running: nothing to do
-
-    def test_a_delivery_records_what_published_the_ticks_and_the_states(
-        self, rig, furnace, recorder_module
+    def test_a_delivery_is_one_row_of_what_published_the_ticks_and_the_states(
+        self, rig, furnace, sink
     ):
         heater1, zone1 = furnace.signals["heater1"], furnace.signals["zone1"]
         setting = furnace.signals["setpoint"]
         controller = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
-        recorder = rig.start_recording(FakeStore())
         rig.on_samples([Sample(furnace.root, 5, {zone1: 40.0, setting: 1.0})])
-        assert recorder.records == [
-            ([Sample(furnace.root, 5, {zone1: 40.0})], [(controller, rig.latest[zone1])], {}, 5)
-        ], "manual: the tick wrote nothing; the setting is not published"
+        (first,) = sink.delivered
+        assert first.samples == (Sample(furnace.root, 5, {zone1: 40.0}),), "only what published"
+        assert first.ticks == (tick_row(controller, rig.latest[zone1], 5),) and first.time_ns == 5
+        assert first.states == (), "manual: the tick wrote nothing"
         controller.regulate(50.0, transfer=Transfer.COLD)
         rig.on_samples([Sample(furnace.root, 6, {zone1: 40.0})])
         # The delivery itself, then a follow-up delivery for heater1's own readback (it
         # publishes now: the rig pushes what the driver did not).
-        samples, ticks, states, time_ns = recorder.records[-2]
-        assert time_ns == 6 and [c for c, _ in ticks] == [controller]
-        assert states == {
-            heater1: WriteState(value=100.0, controller=controller.name),
-        }
+        row = sink.delivered[-2]
+        assert row.time_ns == 6 and [t.controller for t in row.ticks] == [controller.name]
+        assert row.states == ((heater1, WriteState(value=100.0, controller=controller.name)),)
         rig.on_samples([Sample(furnace.root, 7, {setting: 2.0})])
-        assert recorder.records[-1] == ([], [], {}, 7), "nothing published, nothing written"
+        last = sink.delivered[-1]
+        assert (last.samples, last.ticks, last.states, last.time_ns) == ((), (), (), 7)
+        seqs = [r.seq for r in sink.rows]
+        assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs), "one order"
 
-    def test_a_manual_demand_records_its_states_at_once(self, rig, furnace, clock, recorder_module):
+    def test_a_tick_row_is_the_controller_as_it_was_then(self, rig, furnace, sink):
+        heater1, zone1 = furnace.signals["heater1"], furnace.signals["zone1"]
+        controller = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
+        controller.regulate(50.0, transfer=Transfer.COLD)
+        rig.on_samples([Sample(furnace.root, 5, {zone1: 40.0})])
+        (tick,) = next(r for r in sink.delivered if r.ticks).ticks
+        assert (tick.mode, tick.setpoint, tick.output_value) == ("regulating", 50.0, 100.0)
+        controller.manual()
+        assert (tick.mode, tick.output_value) == ("regulating", 100.0), "taken then, not later"
+
+    def test_a_manual_demand_is_a_row_at_once(self, rig, furnace, clock, sink):
         heater2 = furnace.signals["heater2"]
-        recorder = rig.start_recording(FakeStore())
         clock.advance(3.0)
         rig.write(furnace.root, {"heater2": 7000.0})
-        assert recorder.records[0] == (
-            [],
-            [],
-            {heater2: WriteState(value=6000.0, requested=7000.0, at_limit="high")},
-            3_000_000_000,
+        first = sink.delivered[0]
+        assert first.states == (
+            (heater2, WriteState(value=6000.0, requested=7000.0, at_limit="high")),
         )
-        assert len(recorder.records) == 2, "heater2's own readback is recorded as a follow-up"
+        assert first.time_ns == 3_000_000_000 and (first.samples, first.ticks) == ((), ())
+        assert len(sink.delivered) == 2, "heater2's own readback is a follow-up row"
 
-    def test_a_failed_recorder_is_detached_and_reported(self, rig, clock, recorder_module):
-        recorder = rig.start_recording(FakeStore())
-        recorder.on_failure(OSError("disk full"))
-        assert rig.recorder is None
-        assert rig.recent[-1].code == "recording_failed" and "disk full" in rig.recent[-1].message
-        assert recorder.writer.ended == [clock.now_ns()] and recorder.closed == []
-        assert recorder.events == [], "the event did not go back to the failed recorder"
+    def test_a_marker_keeps_its_place_in_the_stream(self, rig, furnace, sink):
+        zone1 = furnace.signals["zone1"]
+        rig.on_samples([Sample(furnace.root, 5, {zone1: 40.0})])
+        seq = rig.mark("switch here")
+        rig.on_samples([Sample(furnace.root, 6, {zone1: 41.0})])
+        before, marker, after = sink.rows
+        assert isinstance(marker, Marker) and (marker.seq, marker.message) == (seq, "switch here")
+        assert before.seq < seq < after.seq
+        assert [r.time_ns for r in (before, after) if isinstance(r, Delivered)] == [5, 6]
+
+    def test_one_sink_at_a_time_and_detach_leaves_another_alone(self, rig, sink):
+        other = FakeSink()
+        with pytest.raises(ConflictError, match="one recorder per rig"):
+            rig.attach_sink(other)
+        rig.attach_sink(sink)  # the one attached: nothing to do
+        assert rig.detach_sink(other) is None and rig.sink is sink
+        assert rig.detach_sink() is sink and rig.sink is None
+        rig.event(Severity.INFO, "rig", "x", "quiet", "nobody listening")
+        assert sink.events == []
+
+    def test_an_event_off_the_lock_is_numbered_and_put_in_one_step(self, rig):
+        """A slow sink holds up the next row, so the sink sees numbers in order (B1)."""
+        seen: list[int] = []
+
+        class Slow(FakeSink):
+            def put(self, row: Row) -> None:
+                if isinstance(row, Published) and row.event.code == "slow":
+                    time.sleep(0.1)
+                seen.append(row.seq)
+
+        rig.attach_sink(Slow())
+        thread = threading.Thread(
+            target=lambda: rig.event(Severity.INFO, "rig", "x", "slow", "off the lock")
+        )
+        thread.start()
+        time.sleep(0.03)
+        rig.mark("meanwhile")
+        thread.join()
+        assert len(seen) == 2 and seen == sorted(seen)
 
 
 class Slow(Furnace):
@@ -265,7 +254,7 @@ class TestBlockingDevices:
         assert furnace.inputs == {"heater1": 100.0} and rig._writers == {}
 
 
-def test_stop_ends_polling_writers_and_recording(rig, fresh, recorder_module):
+def test_stop_ends_polling_writers_and_recording(rig, fresh, sink):
     class Polled(Furnace):
         def read(self, time_ns: int, node: Node | None = None) -> Iterator[Sample]:
             yield from super().read(time_ns, node)
@@ -278,9 +267,11 @@ def test_stop_ends_polling_writers_and_recording(rig, fresh, recorder_module):
     slow.gate.set()
     rig.add_device(slow)
     rig.write(slow.root, {"heater1": 1.0})
-    recorder = rig.start_recording(FakeStore())
     assert rig.polling.run(polled.name).running is True
+    before = len(sink.rows)
     rig.close()
     assert rig.polling.run(polled.name).running is False
-    assert rig.recorder is None and recorder.closed
+    assert rig.sink is None, "recording ended: the sink is let go"
+    rig.event(Severity.INFO, "rig", "x", "late", "after close")
+    assert all(e.code != "late" for e in sink.events[before:]), "nothing reaches it after"
     assert not rig._writers[slow]._thread.is_alive()

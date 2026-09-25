@@ -1,8 +1,10 @@
 """Start and stop recording on the live rig; what is being recorded now.
 
 Everything *about* a session once it exists is under ``/api/history``, which
-reads the store. This is the one place the rig and the store meet: opening a
-session needs both.
+reads the store. Sessions themselves are the recorder's
+(`flyball.runtime.recorder.Recorder`): these routes ask it to open and end
+them, and it fills in what produced each (`flyball_version`, `packages`,
+`hardware`).
 
 The runner's scratch record (the rolling last `keep`, kept while nothing is
 being recorded) is not a recording: ``GET`` answers null while only it runs,
@@ -15,12 +17,13 @@ from __future__ import annotations
 from threading import Lock
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from flyball.foundation.errors import ConflictError
-from flyball.interfaces.server.deps import RigDep, StoreDep, get_store
+from flyball.interfaces.server.deps import RecorderDep, RigDep, StoreDep, current_recorder
 from flyball.record import SessionRow
+from flyball.runtime.recorder import Recorder
 
 router = APIRouter(prefix="/api/recording", tags=["recording"])
 
@@ -29,9 +32,11 @@ class StartRecording(BaseModel):
     """What to note about the session; ``details`` is free-form (a name, notes, tags)."""
 
     details: Any = None
-    flyball_version: str | None = None
     config: Any = None
-    hardware: Any = None
+    hardware: Any = Field(
+        default=None,
+        description="Added to what the rig says of its hardware, never in its place.",
+    )
     include_ns: int | None = Field(
         default=None,
         ge=0,
@@ -40,21 +45,18 @@ class StartRecording(BaseModel):
     )
 
 
-def _current(rig: RigDep) -> SessionRow | None:
+def _current(recorder: Recorder | None) -> SessionRow | None:
     """The open session, re-read from the store: the writer's row is as it was at open."""
-    recorder = rig.recording
-    if recorder is None:
+    session = None if recorder is None else recorder.recording
+    if recorder is None or session is None:
         return None
-    try:
-        return get_store().session(recorder.writer.session.id)
-    except HTTPException:  # no store attached: the row we have
-        return recorder.writer.session
+    return recorder.store.session(session.writer.session.id)
 
 
 @router.get("")
 def read_recording(rig: RigDep) -> SessionRow | None:
     """The open session, or null when not recording."""
-    return _current(rig)
+    return _current(current_recorder())
 
 
 _starting = Lock()
@@ -62,14 +64,16 @@ _starting = Lock()
 
 
 @router.post("", status_code=201)
-def start_recording(rig: RigDep, store: StoreDep, body: StartRecording | None = None) -> SessionRow:
+def start_recording(
+    rig: RigDep, store: StoreDep, recorder: RecorderDep, body: StartRecording | None = None
+) -> SessionRow:
     """Open a session and record into it. 409 while one is already open: end it first."""
     with _starting:
-        return _start(rig, store, body)
+        return _start(rig, recorder, body)
 
 
-def _start(rig: RigDep, store: StoreDep, body: StartRecording | None) -> SessionRow:
-    if _current(rig) is not None:
+def _start(rig: RigDep, recorder: Recorder, body: StartRecording | None) -> SessionRow:
+    if _current(recorder) is not None:
         raise ConflictError("already recording; end the open session first")
     fields = (body or StartRecording()).model_dump(exclude_none=True)
     # A runner started with `--record` stores the whole rig file as `config`,
@@ -78,24 +82,14 @@ def _start(rig: RigDep, store: StoreDep, body: StartRecording | None) -> Session
     # name, so it doesn't look unnamed next to a runner-recorded session.
     if "config" not in fields and rig.name:
         fields["config"] = {"name": rig.name}
-    include_ns = fields.pop("include_ns", None)
-    scratch = rig.recorder.writer.session if rig.recorder is not None else None
-    if include_ns and scratch is not None:
-        held_from = store.session(scratch.id).start_ns  # trimmed since it was opened
-        fields["start_ns"] = max(rig.clock.now_ns() - include_ns, held_from)
-    recorder = rig.start_recording(store, **fields)  # closes the scratch record
-    session = recorder.writer.session
-    if include_ns and scratch is not None:
-        closed = store.session(scratch.id)  # ended just now, at the new session's first instant
-        store.backfill(session.id, scratch.id, session.start_ns, (closed.end_ns or 0) + 1)
-    return session
+    return recorder.start_session(**fields).writer.session  # replaces the scratch record
 
 
 @router.post("/end")
-def end_recording(rig: RigDep, store: StoreDep) -> SessionRow:
+def end_recording(store: StoreDep, recorder: RecorderDep) -> SessionRow:
     """Close the open session. 409 when nothing is recording."""
-    session = _current(rig)
-    if session is None:
+    if _current(recorder) is None:
         raise ConflictError("not recording")
-    rig.stop_recording()
-    return store.session(session.id)  # re-read: the row we held was taken before it closed
+    ended = recorder.end_session()
+    assert ended is not None
+    return ended

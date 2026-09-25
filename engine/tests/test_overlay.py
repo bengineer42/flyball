@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from flyball.runtime.overlay import apply_set, merge, parse_set, resolve_layers
@@ -158,3 +161,46 @@ def test_a_deletion_with_nothing_beneath_leaves_nothing_behind(tmp_path) -> None
     added.write_text("devices:\n  probe: null\n")
     document, _ = resolve_layers([rig, added])
     assert document == {"name": "lab", "devices": {}}
+
+
+FIXTURES = Path(__file__).parent / "fixtures" / "layers"
+
+
+class TestSharedFixtures:
+    """The cases `fixtures/layers` shares with the Go implementation (`rigfile/overlay_test.go`)."""
+
+    @pytest.mark.parametrize("case", sorted(p.name for p in FIXTURES.iterdir() if p.is_dir()))
+    def test_the_merged_document_is_the_expected_one(self, case):
+        spec = json.loads((FIXTURES / case / "expected.json").read_text())
+        document, _ = resolve_layers([FIXTURES / case / layer for layer in spec["layers"]])
+        assert document == spec["document"]
+
+
+class TestEachFileOnce:
+    def test_a_file_two_bases_share_is_merged_once_under_both(self, tmp_path):
+        (tmp_path / "project.yaml").write_text("links: {bus: {type: sim_plant, rate: 1}}\n")
+        (tmp_path / "variant.yaml").write_text("extends: [project.yaml]\nlinks: {bus: {rate: 3}}\n")
+        (tmp_path / "machine.yaml").write_text("extends: [variant.yaml, project.yaml]\n")
+        document, files = resolve_layers([tmp_path / "machine.yaml"])
+        assert document["links"]["bus"]["rate"] == 3, "the project came back over the variant"
+        assert files == [tmp_path / f"{n}.yaml" for n in ("project", "variant", "machine")]
+
+
+class TestNameSpellings:
+    def test_both_spellings_of_a_name_are_one_entry_across_layers(self, tmp_path):
+        (tmp_path / "a.yaml").write_text("devices: {dry-air: {driver: values}}\n")
+        (tmp_path / "b.yaml").write_text("devices: {dry_air: {poll_s: 2}}\n")
+        document, _ = resolve_layers([tmp_path / "a.yaml", tmp_path / "b.yaml"])
+        assert document["devices"] == {"dry_air": {"driver": "values", "poll_s": 2}}
+
+    def test_both_spellings_in_one_file_are_refused(self, tmp_path):
+        (tmp_path / "a.yaml").write_text(
+            "links: {bus-1: {type: sim_plant}, bus_1: {type: sim_plant}}\n"
+        )
+        with pytest.raises(ValueError, match="one name, given twice"):
+            resolve_layers([tmp_path / "a.yaml"])
+
+    def test_a_set_reaches_the_entry_in_either_spelling(self, tmp_path):
+        (tmp_path / "a.yaml").write_text("devices: {dry_air: {driver: values, poll_s: 1}}\n")
+        document, _ = resolve_layers([tmp_path / "a.yaml"], ["devices.dry-air.poll_s=5"])
+        assert document["devices"] == {"dry_air": {"driver": "values", "poll_s": 5}}

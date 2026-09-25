@@ -28,7 +28,7 @@ from flyball.foundation.device import (
     WriteState,
 )
 from flyball.interfaces.server import create_app, set_rig
-from test_rig import FakeRecorder, FakeStore, recorder_module  # noqa: F401  a fixture
+from test_rig import FakeSink
 from test_rig_devices import POWER, TEMP, Furnace
 from test_server import Daq
 
@@ -88,16 +88,14 @@ class TestCommitFailure:
         rig.bind_inputs(flaky, {"in": f"{furnace.name}.zone1"})
         return flaky
 
-    @pytest.mark.usefixtures("recorder_module")
     def test_the_rest_of_the_delivery_goes_on(self, rig, clock, fresh, furnace, flaky):
         rig.add_device(good := Good(fresh("good")))
         rig.bind_inputs(good, {"in": f"{furnace.name}.zone1"})
-        recorder = rig.start_recording(FakeStore())
-        assert isinstance(recorder, FakeRecorder)
+        rig.attach_sink(sink := FakeSink())
         flaky.fail = True
         _deliver(rig, furnace)  # does not raise
         assert good.commits == 1, "the other device still committed"
-        assert len(recorder.records) == 1, "the recorder still got the delivery"
+        assert len(sink.delivered) == 1, "the recorder still got the delivery"
         (event,) = _events(rig, Code.WRITE_FAILED)
         assert event.subject_kind == SubjectKind.DEVICE and event.subject == flaky.name
         assert event.severity is Severity.ERROR and "bus gone" in event.message

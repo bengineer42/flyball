@@ -148,7 +148,7 @@ class Resource:
         self.raise_if_in(seen, ClaimAlreadyRequiredError)
         parents.add(self)
         for resource in self._requires:
-            resource._required_descendants(seen, parents)
+            resource._required_descendants(seen, parents)  # ruff: ignore[private-member-access]
             seen.add(resource)
         parents.remove(self)
 

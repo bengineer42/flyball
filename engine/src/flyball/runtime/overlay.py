@@ -17,8 +17,38 @@ from pathlib import Path
 from typing import Any
 
 from flyball.foundation.files import load_document, yaml_loader
+from flyball.foundation.keys import canonical
 
 __all__ = ["apply_set", "delta", "merge", "parse_set", "resolve_layers"]
+
+NAMED = ("links", "devices", "controllers")
+"""The sections keyed by names, whose `-` and `_` spellings are one key (D-079)."""
+
+
+def _canonical_names(document: dict[str, Any], source: object) -> dict[str, Any]:
+    """`document` with the names under `links`, `devices` and `controllers` in canonical form.
+
+    Done to every layer before it is merged, so `dry-air` in one file and `dry_air` in the
+    next are one entry, not two.
+
+    Raises:
+        ValueError: One section of one layer names the same thing in both spellings.
+    """
+    result = document
+    for section in NAMED:
+        entries = document.get(section)
+        if not isinstance(entries, dict) or all(canonical(k) == k for k in entries):
+            continue
+        renamed: dict[str, Any] = {}
+        for key, value in entries.items():
+            name = canonical(key)
+            if name in renamed:
+                raise ValueError(
+                    f"{source}: {section}: {key!r} and {name!r} are one name, given twice"
+                )
+            renamed[name] = value
+        result = {**result, section: renamed}
+    return result
 
 
 def merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -91,6 +121,8 @@ def apply_set(document: dict[str, Any], path: list[str], value: Any) -> dict[str
     """
     if not path:
         raise ValueError("empty path")
+    if len(path) > 1 and path[0] in NAMED:
+        path = [path[0], canonical(path[1]), *path[2:]]
     head, *rest = path
     if not rest:
         result = dict(document)
@@ -127,17 +159,28 @@ def _lay(below: dict[str, Any], layer: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _load_layer(path: Path, stack: tuple[Path, ...]) -> tuple[dict[str, Any], list[Path]]:
+def _load_layer(
+    path: Path, stack: tuple[Path, ...], seen: set[Path]
+) -> tuple[dict[str, Any], list[Path]]:
     """`path`, with its own `extends` resolved and stripped, and the files that contributed.
 
     `extends` is applied *under* `path` -- a base, in the order the list
     names them, each recursively resolved the same way -- then `path`'s own
     keys are merged on top.
+
+    Each file is merged once, where it is first reached (depth first): a file two bases share
+    is laid once, under both, so a later base cannot bring it back over an earlier one's
+    changes (a machine file extending `[variant, project]` where `variant` extends `project`
+    keeps the variant's values). `seen` holds the files already merged in this resolution; a
+    file in it contributes nothing.
     """
     resolved = path.resolve()
     if resolved in stack:
         cycle = " -> ".join(str(p) for p in (*stack, resolved))
         raise ValueError(f"extends cycle: {cycle}")
+    if resolved in seen:
+        return {}, []
+    seen.add(resolved)
     document = load_document(path)
     if not isinstance(document, dict):
         raise ValueError(f"{path}: a rig file is a mapping")
@@ -147,10 +190,10 @@ def _load_layer(path: Path, stack: tuple[Path, ...]) -> tuple[dict[str, Any], li
     base: dict[str, Any] = {}
     contributed: list[Path] = []
     for name in extends:
-        base_doc, base_files = _load_layer(path.parent / name, (*stack, resolved))
+        base_doc, base_files = _load_layer(path.parent / name, (*stack, resolved), seen)
         base = merge(base, base_doc)
         contributed.extend(f for f in base_files if f not in contributed)
-    own = {k: v for k, v in document.items() if k != "extends"}
+    own = _canonical_names({k: v for k, v in document.items() if k != "extends"}, path)
     contributed.append(path)
     return merge(base, own), contributed
 
@@ -165,8 +208,10 @@ def resolve_layers(
 
     Later files in `paths` overlay earlier ones -- and, since each file's
     `extends` is resolved before it is merged with the rest, a base named by
-    `extends` always loses to whatever the command line itself lists. Every
-    `--set` in `sets` is applied last, in order.
+    `extends` always loses to whatever the command line itself lists. Each file is merged
+    once, where it is first reached (see `_load_layer`). The names under `links`, `devices`
+    and `controllers` are merged in canonical form, `-` as `_`. Every `--set` in `sets` is
+    applied last, in order.
 
     Returns:
         The merged document (`extends` stripped throughout) and every file
@@ -177,9 +222,12 @@ def resolve_layers(
     """
     document: dict[str, Any] = {}
     contributed: list[Path] = []
+    seen: set[Path] = set()
     for index, path in enumerate(paths):
         layer, files = (
-            (dict(path), []) if isinstance(path, Mapping) else _load_layer(Path(path), ())
+            (_canonical_names(dict(path), "a layer"), [])
+            if isinstance(path, Mapping)
+            else _load_layer(Path(path), (), seen)
         )
         document = layer if index == 0 else _lay(document, layer)
         contributed.extend(f for f in files if f not in contributed)

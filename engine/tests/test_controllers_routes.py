@@ -502,3 +502,23 @@ def test_a_registered_generator_is_offered_and_accepted_over_http(
     clock.advance(61.0)
     deliver(rig, daq)
     assert client.get(f"/api/controllers/{target}").json()["setpoint"] == 35.0
+
+
+def test_removing_a_controller_leaves_its_output_where_it_was(client, rig, daq, drive, clock):
+    """`DELETE` puts the loop in manual, then detaches it, as one change.
+
+    A pin for the core refactor (Part A, D-098): the output keeps its last value and nothing
+    writes it afterwards.
+    """
+    heater1, zone1 = drive.signals["heater1"], daq.signals["zone1"]
+    controller = rig.attach_controller(heater1, zone1, law=P(kp=10.0))
+    deliver(rig, daq)
+    controller.regulate(60.0, transfer=Transfer.COLD)
+    clock.advance(1.0)
+    deliver(rig, daq)
+    held = drive.inputs["heater1"]
+    assert client.delete(f"/api/controllers/{heater1.address}").status_code == 204
+    assert heater1.address not in {c.name for _, c in rig.controllers.items()}
+    clock.advance(1.0)
+    deliver(rig, daq)
+    assert drive.inputs["heater1"] == held, "something wrote the output after the loop went"

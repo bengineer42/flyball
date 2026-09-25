@@ -1,0 +1,3 @@
+# `dry_air` is the same device as `dry-air` in base.yaml: one entry, overlaid.
+devices:
+  dry_air: {values: {flow: 2.0}}

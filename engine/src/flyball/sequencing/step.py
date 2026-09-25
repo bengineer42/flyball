@@ -68,10 +68,6 @@ class Step:
 
     type: ClassVar[str] = ""
     primary: ClassVar[str | None] = None
-    locked: ClassVar[bool] = True
-    """`run` runs under the rig lock, so what the step reads and writes lands between two
-    deliveries. False for a step that takes the lock itself where it needs it: a device
-    command, which may wait (a dose, a move) and must not wait under it."""
 
     def __init_subclass__(
         cls,
@@ -91,7 +87,12 @@ class Step:
 
     @abstractmethod
     def run(self, rig: Rig, operator: Operator | None = None) -> Activity | None:
-        """Do the work; return an activity if the program must wait on it, else None."""
+        """Do the work; return an activity if the program must wait on it, else None.
+
+        Runs holding no lock. A step is a client of the rig: what must happen between two
+        deliveries is one rig operation (`rig.regulate`, `rig.follow`, `rig.manual`,
+        `rig.write`, `rig.run_command`), which takes the rig's lock itself.
+        """
 
     def missing(self, rig: Rig) -> list[str]:
         """What this command names that `rig` lacks right now: a controller, a tuning, a device.

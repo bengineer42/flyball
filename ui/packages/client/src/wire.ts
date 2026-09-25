@@ -1158,6 +1158,8 @@ export interface SessionRow {
   config: unknown;
   hardware: unknown;
   details: unknown;
+  /** Each installed distribution registering `flyball.configs` when it was recorded, name to version. */
+  packages?: Record<string, string> | null;
   /**
    * `"scratch"`: the rolling record the runner keeps while nothing is being
    * recorded (the last `keep` of the rig's clock, trimmed continuously),
@@ -1313,7 +1315,6 @@ export interface Span {
 /** Body for `POST /api/recording`. */
 export interface StartRecording {
   details?: unknown;
-  flyball_version?: string;
   config?: unknown;
   hardware?: unknown;
   /** Backfill the new session with this much of the scratch record, in the rig's clock, so what was just watched is kept. */

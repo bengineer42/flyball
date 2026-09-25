@@ -42,6 +42,9 @@ class SessionRow:
     """The session this one carried on from when the runner rotated at a boundary."""
     bytes: int | None = None
     """What a scratch session holds on disk, as last estimated; None where not measured."""
+    packages: dict[str, str] | None = None
+    """What recorded it besides flyball itself: each installed distribution that registers
+    `flyball.configs` (the engine, `flyball-sim`, an extension), by name, with its version."""
 
     @property
     def open(self) -> bool:

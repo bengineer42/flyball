@@ -1,12 +1,14 @@
-"""The runner's housekeeping over the store: the scratch record, rotation, retention, the cap.
+"""The runner's housekeeping over the store: rotation, retention, the cap, the scratch record.
 
-The rig records into at most one session at a time. While nobody has
-started one, the runner records into a *scratch* session of its own
+The recorder ([Recorder][flyball.runtime.recorder.Recorder]) records a rig into
+at most one session at a time. While nobody has started one, the runner has it
+record into a *scratch* session of its own
 ([SessionKind][flyball.record.types.SessionKind] `"scratch"`), so a chart has
 the last `keep` of history on a rig nobody is recording, and any part of
 it can be kept as a session proper (`Store.keep_range`) or folded into the
 recording that follows (`Store.backfill`). A recording someone starts
 replaces the scratch session; when it ends, a fresh scratch session opens.
+The recorder does both; this module sweeps.
 
 A sweep runs every `period_s` of wall time and, in the rig's clock:
 
@@ -31,11 +33,11 @@ import logging
 from threading import Event, Lock, Thread
 from typing import TYPE_CHECKING
 
-from flyball.record import SessionRow, Store
+from flyball.record import SessionRow
 
 if TYPE_CHECKING:
-    from flyball.rig import Rig
     from flyball.runtime.config import RunnerConfig
+    from flyball.runtime.recorder import Recorder
 
 log = logging.getLogger("flyball.retention")
 
@@ -44,63 +46,48 @@ FIT_STEPS = 50
 
 
 class Retention:
-    """Runs the sweeps on a thread and reopens the scratch record when a recording ends.
+    """Runs the sweeps on a thread, for the recorder that owns it (`Recorder.start`).
 
     Args:
-        rig: The rig; its clock sets the windows and its recorder is what is swept around.
-        store: The store the runner records into.
+        recorder: Whose sessions are swept around: its rig's clock sets the windows, its
+            recording is never retained, and it rotates and reopens the scratch record.
         settings: The `runner:` section: `keep`, `keep_size`, `retain`, `rotate`, `max_store`.
         period_s: Wall seconds between sweeps.
     """
 
-    def __init__(
-        self, rig: Rig, store: Store, settings: RunnerConfig, period_s: float = 30.0
-    ) -> None:
-        self.rig = rig
-        self.store = store
+    def __init__(self, recorder: Recorder, settings: RunnerConfig, period_s: float = 30.0) -> None:
+        self.recorder = recorder
+        self.store = recorder.store
         self.keep_ns = settings.keep_ns
         self.keep_bytes = settings.keep_bytes
         self.retain_ns = settings.retain_ns
         self.rotate_ns = settings.rotate_ns
         self.max_bytes = settings.max_bytes
         self.period_s = period_s
-        self._lock = Lock()  # one sweep or reopen at a time
+        self._lock = Lock()  # one sweep at a time
         self._stop = Event()
         self._thread = Thread(target=self._run, daemon=True, name="retention")
-        self._stopped = False
 
     def start(self) -> None:
-        """Sweep once, open the scratch record, and keep sweeping until `stop`."""
-        self.rig.on_recording_stopped = self._reopen
+        """Sweep once, which opens the scratch record, and keep sweeping until `stop`."""
         self.sweep()
         self._thread.start()
 
     def stop(self) -> None:
-        """Stop sweeping. The scratch session stays open for the rig to close with the rest."""
-        self._stopped = True
+        """Stop sweeping. The scratch session stays open for the recorder to close."""
         self._stop.set()
-        if self.rig.on_recording_stopped == self._reopen:
-            self.rig.on_recording_stopped = None
         if self._thread.is_alive():
             self._thread.join()
-
-    @property
-    def scratch(self) -> SessionRow | None:
-        """The scratch session being written now, as the store has it; None while recording."""
-        recorder = self.rig.recorder
-        if recorder is None or not recorder.writer.session.scratch:
-            return None
-        return self.store.session(recorder.writer.session.id)
 
     def sweep(self) -> None:
         """One pass: rotate, retain, trim, fit, reopen. Safe from any thread."""
         with self._lock:
-            now = self.rig.clock.now_ns()
-            self._rotate(now)
+            now = self.recorder.rig.clock.now_ns()
+            self._rotate()
             self._retain(now)
             self._trim(now)
             self._fit(now)
-            self._ensure_scratch()
+            self.recorder.ensure_scratch()
 
     def _run(self) -> None:
         while not self._stop.wait(self.period_s):
@@ -109,43 +96,19 @@ class Retention:
             except Exception:
                 log.exception("sweep failed; trying again in %gs", self.period_s)
 
-    def _reopen(self) -> None:
-        """A recording ended: open the scratch record again."""
-        if self._stopped:
-            return
-        with self._lock:
-            self._ensure_scratch()
-
     # region The steps
 
-    def _ensure_scratch(self) -> None:
-        if not self.keep_ns or self._stopped or self.rig.recorder is not None:
+    def _rotate(self) -> None:
+        if not self.rotate_ns:
             return
-        rig = self.rig
-        config = {"name": rig.name} if rig.name else None
-        recorder = rig.start_recording(self.store, kind="scratch", config=config)
-        log.info("scratch record: session %d", recorder.writer.session.id)
-
-    def _rotate(self, now: int) -> None:
-        recorder = self.rig.recording
-        if not self.rotate_ns or recorder is None:
-            return
-        previous = recorder.writer.session
-        if now - previous.start_ns < self.rotate_ns:
-            return
-        continued = self.rig.start_recording(
-            self.store,
-            signals=recorder.signals,
-            controllers=recorder.controllers,
-            kind="session",
-            continues=previous.id,
-            flyball_version=previous.flyball_version,
-            config=previous.config,
-            hardware=previous.hardware,
-            details=previous.details,
-            rig_version_id=previous.rig_version_id,
-        )
-        log.info("rotated session %d into %d", previous.id, continued.writer.session.id)
+        previous = self.recorder.recording
+        continued = self.recorder.rotate(self.rotate_ns)
+        if previous is not None and continued is not None:
+            log.info(
+                "rotated session %d into %d",
+                previous.writer.session.id,
+                continued.writer.session.id,
+            )
 
     def _retain(self, now: int) -> None:
         if not self.retain_ns:
@@ -191,7 +154,8 @@ class Retention:
     def _fit(self, now: int) -> None:
         if not self.max_bytes:
             return
-        live = None if self.rig.recording is None else self.rig.recording.writer.session.id
+        recording = self.recorder.recording
+        live = None if recording is None else recording.writer.session.id
         for _ in range(FIT_STEPS):
             used = self.store.used_bytes()
             if used <= self.max_bytes:

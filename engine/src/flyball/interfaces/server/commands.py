@@ -44,7 +44,7 @@ def request_model(command: type[Step]) -> type[CommandBase]:
     fields: dict[str, Any] = {"type": (Literal[command.type], command.type)}
     fields.update(wire_fields(command))
     model = create_model(f"{command.__name__}Request", __base__=CommandBase, **fields)
-    model._command_cls = command
+    model._command_cls = command  # ruff: ignore[private-member-access]
     return model
 
 

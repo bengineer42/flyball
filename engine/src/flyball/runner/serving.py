@@ -1,4 +1,4 @@
-"""Serving a built rig: the API, the MCP mount, retention, and the process handle."""
+"""Serving a built rig: the API, the MCP mount, the recorder's sweeps, and the process handle."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from flyball.record.store import Store
 from flyball.rig import Rig
 from flyball.runtime.config import Exposure, RigConfig, RunnerConfig, settle_exposure
 from flyball.runtime.edits import Origin
-from flyball.runtime.retention import Retention
+from flyball.runtime.recorder import Recorder
 
 from . import logs
 from .locking import redacted
@@ -268,6 +268,7 @@ def serve(
     *,
     simulation: Simulation | None = None,
     store: Store | None = None,
+    recorder: Recorder | None = None,
     config: RigConfig | None = None,
     insecure_open: bool = False,
     front: FrontDir | None = None,
@@ -283,12 +284,15 @@ def serve(
             imported before serving (a missing directory is fine) and its
             `token`, `mcp`, `root_path`, `compose`, `allow_save` and
             `allow_shutdown` are what the API is let do; its `keep`, `keep_size`,
-            `retain`, `rotate` and `max_store` are how the store is swept
-            (`flyball.runtime.retention.Retention`).
+            `retain`, `rotate` and `max_store` are how the recorder keeps the scratch
+            record and sweeps the store (`flyball.runtime.recorder.Recorder.start`).
         simulation: The knobs of a simulated rig, for `/api/sim`; None for hardware.
         store: Where sessions are kept, for `/api/history` and `/api/recording`,
             and where the scratch record goes while nothing is being recorded;
             None leaves those routes answering 503 and keeps no scratch.
+        recorder: The recorder on `store` that `start_with_store` made, with any session
+            `--record` opened; None makes one on `store`. It is started with `settings`
+            and stopped (its session ended) when serving ends.
         config: What the rig was built from, for `/api/rig/config`.
         insecure_open: Serve an open runner (no token) on the address
             asked for even beyond loopback (`--insecure-open`). Without it such a
@@ -316,7 +320,7 @@ def serve(
         set_compose,
         set_drivers_dir,
         set_programs_dir,
-        set_retention,
+        set_recorder,
         set_rig_config,
         set_runner,
         set_store,
@@ -399,10 +403,11 @@ def serve(
 
     handle = Handle(settings, rig.files, stop, exposure, origin)
     set_runner(handle)
-    retention = None if store is None else Retention(rig, store, settings)
-    set_retention(retention)
-    if retention is not None:
-        retention.start()
+    if recorder is None and store is not None:
+        recorder = Recorder(rig, store)
+    set_recorder(recorder)
+    if recorder is not None:
+        recorder.start(settings)
     from flyball.interfaces.server.deps import current_stopper
     from flyball.runner.stopping import install_break_glass
 
@@ -423,9 +428,9 @@ def serve(
         if bound is not None:
             _remove_socket(*bound)
         programmer.interrupt("the runner shut down")
-        if retention is not None:
-            retention.stop()
-        set_retention(None)
+        if recorder is not None:
+            recorder.stop()
+        set_recorder(None)
         set_runner(None)
         set_compose(False)
         set_rig_config(None)

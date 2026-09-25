@@ -75,7 +75,7 @@ def load_tunings(rig: Rig, directory: Path) -> list[str]:
         if not path.is_file() or path.suffix.lower() not in SUFFIXES:
             continue
         config = adapter.validate_python(loads(path.read_text(encoding="utf-8"), path.suffix))
-        rig.tunings.add(Tuning(name=path.stem, config=config))
+        rig.store_tuning(Tuning(name=path.stem, config=config))
         loaded.append(path.stem)
     return loaded
 

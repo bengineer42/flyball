@@ -134,6 +134,7 @@ select = [
     "SIM", # simplify
     "RUF",
     "D",   # pydocstyle
+    "private-member-access",  # SLF001
 ]
 
 # Docstrings are Google style. The missing-docstring rules stay off: the house
@@ -148,7 +149,17 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 # Tests compare against exact literals on purpose; ``pytest.approx`` is used where a value is computed.
-"tests/*" = ["magic-value-comparison", "RUF"]
+# They also reach into private state (a lock, a retry set, a step interval) to assert on it directly.
+"tests/*" = ["magic-value-comparison", "RUF", "private-member-access"]
+
+# The rig's own module: its files reach into each other's and its collaborators' private state
+# by design (the lock, the latches, the timers), per D-098 -- `flyball.rig` is the one place
+# allowed to take the rig's `_lock` directly.
+"src/flyball/rig/*" = ["private-member-access"]
+
+# Its own module-level functions take the store's `_transaction()` directly rather than
+# duplicating it as a public method.
+"src/flyball/record/sqlite.py" = ["private-member-access"]
 
 # Enforces the layering by hand rather than by splitting into separate
 # distributions: packages on one line are mutually independent, and nothing

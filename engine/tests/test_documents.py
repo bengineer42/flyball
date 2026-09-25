@@ -11,6 +11,7 @@ from flyball.foundation.quantities import Quantity
 from flyball.foundation.quantities.si import Celsius, Watt
 from flyball.record.documents import documents, write_jsonl
 from flyball.record.sqlite import SqliteStore
+from flyball.runtime.recorder import Recorder
 
 
 class Oven(Readable, Committable):
@@ -38,11 +39,12 @@ def _record(rig, oven, clock, n=5):
     )
     controller.regulate(10.0)
     store = SqliteStore(":memory:")
-    rig.start_recording(store)
+    recorder = Recorder(rig, store)
+    recorder.start_session()
     for i in range(n):
         clock.advance(0.5)
         rig.on_samples([Sample(oven.root, clock.now_ns(), {oven.signals["temperature"]: 20.0 + i})])
-    rig.stop_recording()
+    recorder.end_session()
     return store, store.sessions()[0]
 
 

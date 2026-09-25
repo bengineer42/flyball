@@ -222,6 +222,7 @@ def export_session(
                     "start": _stamp(session.start_ns, 0)[1],
                     "end": None if session.end_ns is None else _stamp(session.end_ns, 0)[1],
                     "flyball_version": session.flyball_version,
+                    "packages": session.packages,
                     "config": session.config,
                     "hardware": session.hardware,
                     "details": session.details,

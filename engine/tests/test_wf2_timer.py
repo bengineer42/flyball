@@ -45,6 +45,7 @@ from flyball.record.sqlite import SqliteStore
 from flyball.rig import Rig
 from flyball.rig.faults import Outage
 from flyball.runtime.config import ControllerEntry
+from flyball.runtime.recorder import Recorder
 
 TEMP = Quantity("temperature", Celsius)
 POWER = Quantity("power", Watt)
@@ -414,11 +415,12 @@ class TestLiveness:
     def test_the_stale_reading_is_stored_as_a_break(self, rig, clock, probe, tmp_path):
         store = SqliteStore(tmp_path / "s.db")
         rig.start_polling(probe)
-        session = rig.start_recording(store).writer.session.id
+        recorder = Recorder(rig, store)
+        session = recorder.start_session().writer.session.id
         clock.advance(1.0)
         probe.mute = True
         clock.advance(6.0)
-        rig.stop_recording()
+        recorder.end_session()
         points = store.series(session, probe.signals["a"].address).points
         assert (points[0].value, points[-1].value) == (20.0, None)
         assert points[-1].flag == Flag.STALE and points[-1].offset_ns == 6 * S
@@ -567,7 +569,7 @@ class TestFaultTime:
         probe.a = invalid("crc")
         clock.advance(5.0)
         assert released == []
-        with rig.lock:
+        with rig._lock:
             controller.regulate(25.0)
         (outage,) = released
         assert outage.controller is controller
@@ -784,7 +786,7 @@ class TestReapply:
             )
             rig.start_polling(heater)
             until(lambda: heater.signals["zone"] in rig.router.latest)
-            with rig.lock:
+            with rig._lock:
                 _ramp(controller, end=1000.0, per_second=5.0)
             until(lambda: len(heater.targets) > 40)
             assert rig.timers.errors == 0
@@ -799,10 +801,11 @@ class TestReapply:
             heater.signals["target"], heater.signals["zone"], law=P(kp=0.0)
         )
         clock.advance(2.0)
-        session = rig.start_recording(store).writer.session.id
+        recorder = Recorder(rig, store)
+        session = recorder.start_session().writer.session.id
         _ramp(controller)
         clock.advance(2.0)
-        rig.stop_recording()
+        recorder.end_session()
         ticks = store.ticks(session, controller.name)
         assert [(t.offset_ns / S, t.reapplied) for t in ticks] == [
             (0.5, True),

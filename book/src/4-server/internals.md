@@ -18,7 +18,10 @@ under the prefix so Starlette routes and links as at the root; 404 / 4404
 elsewhere; lifespan passes through). `app` is a module-level instance for
 `uvicorn flyball.interfaces.server:app`. Routes take the rig and store
 through dependencies (`RigDep`, `StoreDep`), which raise `NotReadyError`
-(503) when nothing is attached.
+(503) when nothing is attached. The recording routes open and end sessions
+through the recorder (`RecorderDep`: the one `set_recorder` attached, else a
+plain `Recorder` made for the rig and store set), never on the store or the
+rig directly.
 
 The door puts one principal on every request (`request.state.principal`,
 a `principal.Claims`, and how it got in on `request.state.scheme`) and
@@ -66,8 +69,14 @@ behind a long one wait on the loop, not on worker threads. `async def` is for
 routes and websockets that never reach the store or the rig's lock: they
 read the rig's dicts through C-level `list(...)` copies instead (`/api/health`,
 the controllers routes, the websockets' first frame), and the simulation's
-reads, which do take it, are plain `def`. The suite fails any test in which
-the app's loop took the rig's lock, as it does for the store's. The
+reads, which do take it, are plain `def`. No route takes the rig's lock
+itself: one that changes the rig, or needs a consistent view of it, calls one
+rig operation that takes the lock inside -- `Rig.regulate`, `follow`,
+`manual`, `set_setpoint`, `detach_controller`, `store_tuning`, and
+`device_snapshot` for a device's page, rendered off the lock
+([The rig's lock](../6-internals/runtime.md#the-rigs-lock)). The suite fails
+any test in which the app's loop took the rig's lock, as it does for the
+store's. The
 same holds for any other slow, blocking work. `POST /api/rig/stop` runs its
 stop on a limiter of its own (four threads), so a stop never queues behind
 the worker threads other routes share.

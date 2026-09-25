@@ -125,7 +125,7 @@ def test_the_rig_reads_and_changes_its_composition_under_its_lock(rig, furnace, 
     held, release, done = threading.Event(), threading.Event(), threading.Event()
 
     def hold() -> None:
-        with rig.lock:
+        with rig._lock:
             held.set()
             release.wait(2.0)
 
