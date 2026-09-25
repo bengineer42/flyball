@@ -214,10 +214,26 @@ The controller tells the rig when its reference or mode changes
 `set_setpoint` and `manual`); the rig arms the periodic call then, and
 cancels it off a moving setpoint without taking its lock (a stop puts every
 controller in `MANUAL` without waiting behind a delivery). The call itself is
-serialised like a delivery: under `rig.lock`, in its own `_touched`, one
+serialised like a delivery: under `rig._lock`, in its own `_touched`, one
 commit, `controller_states` updated, and a tick recorded with `reapplied`
 and no reading. A re-apply at the same instant as a reading's tick gives
 way to it in the store.
+
+A controller has no lock of its own: the rig serialises it. Its tick runs in
+a delivery and its re-apply on the rig's timer, both under the rig's lock,
+and on a rig every command reaches it through a rig operation
+(`Rig.regulate`, `follow`, `retune`, `manual`, `set_setpoint`), under the
+same lock ([The rig's lock](runtime.md#the-rigs-lock)). A stop puts every
+controller in manual under it too, but waits for it at most 0.2 s at a time:
+a stop that finds the lock stuck (a delivery hung in a driver) goes on
+without it rather than wait, and does it again under the lock once the lock
+is free, within the devices' stop time. Called directly -- a
+script before its rig runs, a test -- it is the caller's to serialise. It
+used to hold a lock of its own, which a tick never took; `regulate` held it
+across its write, which takes the rig's lock, while a re-apply took the two
+the other way round. The rig also gives it the check `regulate` makes first
+(`guard`): a latch on it or its output, or a long command running on its
+output's device.
 
 ## Fault time
 

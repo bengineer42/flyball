@@ -248,7 +248,7 @@ tick — is arithmetic under the lock. What leaves it:
 | a device's `read` | the poll loop's thread, or the fresh reader's (`rig.read(..., fresh=True)`), under the device's `read_lock` and never the rig's; the delivery after it takes the rig's. A fresh read asked for by a caller already holding the rig lock is refused |
 | a simulated device's `commit` | in the delivery — it is arithmetic, and a stepped clock stays deterministic |
 | a deadline on the rig clock: a signal's liveness, a hung read's watchdog, a write retry, a fault's wait, a band's `invalid` grace, a controller's re-apply | the rig's [Timers][flyball.foundation.time.timer.Timers] (`rig.timers`, `rig.after`, `rig.every`): one thread, waiting on the rig's clock, for wall time and a scaled sim; on a stepped clock, whoever advances it. Each call is short and takes the rig lock itself if it needs it; one that raises is logged and counted (`rig.timers.errors`), never the end of the thread |
-| a long command (`@command(long=True)`: `dosing_pump.dispense`, `stepper.move`) | the caller's thread, off the lock: `Rig.run_command` makes its checks and claims the device's one long-command slot under it (a second is refused), runs the method without it, and takes it back to push `mode`, the linked readings and `last.<command>` and to commit. The method waits with `Device.wait`, on the rig's clock and an event `Device.cancel` sets, so the device's `stop` (a short command, under the lock) ends it at once. A caller already holding the lock is refused rather than made to wait under it; a program's `command` step runs without it (`Step.locked = False`). Removing the device, or closing the rig, cancels it |
+| a long command (`@command(long=True)`: `dosing_pump.dispense`, `stepper.move`) | the caller's thread, off the lock: `Rig.run_command` makes its checks and claims the device under it -- until the command ends, a second long command, a write to the device, a command that drives it and a `regulate` of a controller on it are refused (`Rig._claimed`; its `stops=True` command and a command that drives nothing are not), and a commit it would get meanwhile (an input landing, a failed write's retry) is held back and made once the command ends, whether it returned or raised, in the same step under the lock as the claim's end -- runs the method without it, and takes it back to push `mode`, the linked readings and `last.<command>` and to commit. The method waits with `Device.wait`, on the rig's clock and an event `Device.cancel` sets, so the device's `stop` (a short command, under the lock) ends it at once. A caller already holding the lock is refused rather than made to wait under it; a program's `command` step holds no lock (no step does). Removing the device, or closing the rig, cancels it |
 
 `rig.close()` stops all of it: the timers first (nothing armed fires while
 the rig comes down; a call in progress is waited on for at most 1 s), then
@@ -269,19 +269,68 @@ take the lock, which a delivery may hold for a bus transaction: they iterate a
 `list(...)` snapshot of the rig's dicts (`Polling.snapshot()` for the runs,
 `Controllers.get` for one controller), so a device or controller added or
 removed meanwhile is not an error. `/api/health` is lock-free. What must take
-the lock (`Rig.document`, `attach_controller`, `recent_readings`) is reached
-only from plain `def` routes, on the threadpool. A test fixture
-(`tests/conftest.py`) fails any test in which a thread running an event loop
-took `rig.lock`, as another does for the store's.
+the lock (`Rig.document`, `attach_controller`, `recent_readings`, the loop
+commands, `device_snapshot`) is reached only from plain `def` routes, on the
+threadpool. A test fixture (`tests/conftest.py`) fails any test in which a
+thread running an event loop took `rig._lock`, as another does for the store's.
 
-The programmer's lock is never held while the rig's is taken: each step is
-applied with the programmer's released, on `start` as on the worker. So the
-only nesting is rig, then programmer (an operator's `on_revoke` calls
-`Programmer.interrupt` from whoever revoked it, perhaps under the rig's lock),
-and it cannot meet the reverse. `cancel`/`interrupt` join the worker for at
-most `END_JOIN_S` (5 s), since a caller may hold the rig's lock the worker's
-next step needs; a step still running then is a `step_still_running` event,
-and the call returns False.
+### The rig's lock
+
+The lock is the rig's own (D-098): no module outside `flyball.rig` takes
+it, and a test (`tests/test_rig_lock_private.py`) scans the source for one
+that does. It exists so that a check and the change it guards are one step
+across threads: a latch checked then a write committed, a controller's step
+and its commit, a stop across every output, a device added and its inputs
+bound. What the rest of the engine needs done atomically is one rig method,
+which takes the lock inside and lets it go before it returns:
+
+| operation | what is one step |
+| --- | --- |
+| `regulate(which, at, law=, transfer=, actor=)` | all or nothing: for every controller named (each once), first the refusals (a latch, or a long command on its output's device; a person's regulate leaves out the controller's own `on_fault: manual` latch when it is the only one), the aim resolved and the law built; then that latch reset; then each law swapped in and each aim taken, their writes staged in one `_touched`; then one commit, as a re-apply's: a commit that raises is its device's `write_failed` and retry, and each controller on it is told nothing was set -- never an error after some controllers changed |
+| `follow(which, profile, start=, ...)` | the same, with each controller's profile started from `start`, or by the rule (its setpoint now, else its last reading) read in the same step; returns each start |
+| `retune(which, law, transfer=)` | a law swapped in bumplessly: the reference and the mode stay; in manual only the law changes; the writes committed once, as `regulate`'s |
+| `manual(which)`, `set_setpoint(name, at, start=)` | the mode, or the reference, of each controller named |
+| `detach_controller(name)` | the controller to manual while still wired (its output keeps its last value), then off its output |
+| `attach_controller`, `add_entry`, `remove_device`, `store_tuning` | the composition, or the tunings, changed |
+| `write`, `invoke`/`run_command` | a demand or a command: checks, apply, commit (a long command's body runs off the lock) |
+| `device_snapshot(device)` | a read: every reading, write state, condition, input state and poll run of one device from one instant, copied, for a route to render off the lock |
+
+Latches are set and reset under the lock (`Stopping.latch`, `Stopping.reset`;
+a stop waits at most `LATCH_WAIT_S`, 0.2 s, for the lock at each of its
+latch, its manual and its second manual after a program interrupt -- 0.6 s
+at worst; found stuck at the latch, it latches without it -- every commit
+checks the latches first -- and puts the controllers in manual without it
+too; `RigStopper` cancels long commands before any of that). A manual made
+without the lock is made once more under it when the lock is next free,
+within `DEVICE_STOP_S`, before the device stops (which wait for the same
+lock to the same deadline). So a stop's last manual is one step under the
+lock, and a `regulate` lands wholly before or after it; only a lock stuck
+past `DEVICE_STOP_S`, which fails every device stop too, leaves the
+lockless manual the last. `write` makes every check --
+the latches, the long command's claim, the permissive, the driving
+controller, the limits -- under the lock, with the apply and the commit, so a
+stop, a `regulate` or a delivery that moves a permissive's source lands
+wholly before the write or after it: after a stop an automatic writer is
+refused, a controller held, and a person's write goes through the rig stop
+and says so (`written_while_stopped`) only while the stop holds.
+
+`which` names one controller, several (changed between the same two
+deliveries), or None for the default. The HTTP API is unchanged: `POST
+.../regulate` maps `tuning` onto `law=` and a generator `at` onto `follow`.
+A program step is a client of the rig like a route: `Step.run` runs holding
+no lock and calls these operations ([The programmer](#the-programmer)).
+
+The programmer never takes the rig's lock, and its own is never held while a
+step runs or any rig method is called: each step is applied with the
+programmer's released, on `start` as on the worker, and the step calls rig
+operations, each of which takes the rig's lock inside. So the only nesting is
+rig, then programmer -- the rig calling in with its lock held: a latch's hook
+reads `Programmer.running`, and an operator's `on_revoke` calls
+`Programmer.interrupt` from whoever revoked it, perhaps under the rig's lock
+-- and nothing takes them the other way round. `cancel`/`interrupt` join the
+worker for at most `END_JOIN_S` (5 s), since a caller may hold the rig's lock
+the worker's next rig operation needs; a step still running then is a
+`step_still_running` event, and the call returns False.
 
 A collection that more than one thread changes is either changed and iterated
 under one lock or iterated through a C-level `list(...)` copy (`dict(d)`,
@@ -329,8 +378,11 @@ measured signal, for the tick (`Controllers.find(signal)`). Its `default_control
 flag) is what a command or program step means when it names no controller.
 `rig.attach_controller(output, measured, law=..., feedforward=..., is_default=...)`
 builds one and wires its `write` callback to `rig.write`; `detach_controller`
-takes it off its output (left in manual, its last value held) so a manual
-demand may drive the output again.
+puts it in manual, then takes it off its output (its last value held) so a
+manual demand may drive the output again. The loop commands -- `regulate`,
+`follow`, `retune`, `manual`, `set_setpoint` -- are rig methods
+([The rig's lock](#the-rigs-lock)); the `Controller` methods of the same names
+are what they call.
 
 ## Triggers
 
@@ -355,9 +407,12 @@ completion, failure and cancellation alike. Steps that name a controller
 a controller's target address (or a list, or `None` for the default), not a
 device name; it was not worth renaming.
 
-Locking: the programmer's lock is always the inner lock. Applying a step
-takes the rig's lock, then the programmer's; nothing takes them the other
-way round, and no thread is joined under either.
+Locking: a step is a client of the rig. `Step.run` runs holding no lock; what
+it must do between two deliveries is one rig operation (`rig.regulate`,
+`rig.follow` for `ramp`, `rig.manual`, `rig.write` for `set`,
+`rig.run_command` for `run`), so a step naming several controllers changes
+them all in one step. The programmer's lock is always the inner lock, and no
+thread is joined under either.
 
 `start` applies the first step on the calling thread — so an unapplicable
 command raises there — and hands the rest to a worker. `run` blocks. `join`

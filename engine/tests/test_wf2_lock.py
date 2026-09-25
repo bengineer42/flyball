@@ -1,4 +1,4 @@
-"""Signal faults stage 2, the rig-lock rule: nothing waits or does I/O while holding `rig.lock`."""
+"""Signal faults stage 2, the rig-lock rule: nothing waits or does I/O while holding `rig._lock`."""
 
 from __future__ import annotations
 
@@ -121,8 +121,8 @@ class TestLongCommands:
         assert ticker.reads >= before + 5, "the poller delivered while the dose waited"
         n = ticker.signals["n"]
         assert rig.latest[n].value >= before + 5, "and each read was delivered"
-        assert rig.lock.acquire(timeout=0.5), "the rig lock is free during the dose"
-        rig.lock.release()
+        assert rig._lock.acquire(timeout=0.5), "the rig lock is free during the dose"
+        rig._lock.release()
         rig.run_command(doser, "stop")
         thread.join(2.0)
         assert not thread.is_alive()
@@ -147,7 +147,7 @@ class TestLongCommands:
         rig = Rig()
         doser = Doser(fresh("doser"))
         rig.add_device(doser)
-        with rig.lock, pytest.raises(ConflictError, match="rig lock is held"):
+        with rig._lock, pytest.raises(ConflictError, match="rig lock is held"):
             rig.run_command(doser, "dose", {"seconds": 1.0})
         assert not doser.started.is_set()
 
@@ -172,8 +172,8 @@ class TestLongCommands:
             RunCommand(command="dose", device=doser.name, args={"seconds": 30}),
         )
         assert doser.started.wait(2.0)
-        assert rig.lock.acquire(timeout=0.5), "the step does not hold the rig lock across the dose"
-        rig.lock.release()
+        assert rig._lock.acquire(timeout=0.5), "the step does not hold the rig lock across the dose"
+        rig._lock.release()
         rig.run_command(doser, "stop")
         thread.join(2.0)
         assert not thread.is_alive()
@@ -266,7 +266,7 @@ class TestFreshReads:
         rig = Rig()
         hanging = Hanging(fresh("hanging"))
         rig.add_device(hanging)
-        with rig.lock, pytest.raises(ConflictError, match="rig lock is held"):
+        with rig._lock, pytest.raises(ConflictError, match="rig lock is held"):
             rig.read(hanging.signals["v"], fresh=True)
         assert hanging.reads == 0
 
@@ -285,7 +285,7 @@ class TestFreshReads:
 # endregion
 
 
-# region 3. No `rig.lock` on the event loop (ENG-26)
+# region 3. No `rig._lock` on the event loop (ENG-26)
 
 
 @pytest.fixture
@@ -299,7 +299,7 @@ def held_rig(fresh) -> Iterator[tuple[Rig, threading.Event]]:
     release, holding = threading.Event(), threading.Event()
 
     def hold() -> None:
-        with rig.lock:
+        with rig._lock:
             holding.set()
             release.wait(10.0)
 
@@ -342,13 +342,18 @@ class TestNothingOnTheLoop:
 
 
 class Gated(Step, type="gated_for_wf2"):
-    """A step that does nothing, under the rig's lock, as most steps run."""
+    """A step that makes one rig operation with nothing to change: it takes the rig's lock.
+
+    As every step that changes the rig does, inside the operation (D-098); the step itself
+    holds no lock.
+    """
 
     def __init__(self) -> None:
         self.entered = threading.Event()
 
     def run(self, rig: Rig, operator: object = None) -> None:
         self.entered.set()
+        rig.manual(())
 
 
 class TestProgrammerLocks:
@@ -361,10 +366,10 @@ class TestProgrammerLocks:
         started = threading.Event()
 
         def revoke_under_the_rig_lock() -> None:
-            with rig.lock:
+            with rig._lock:
                 holding.set()
                 assert started.wait(2.0)
-                time.sleep(0.2)  # the start is now waiting for the rig's lock in its step
+                time.sleep(0.2)  # the start now waits for the rig's lock, in its step's operation
                 programmer.operator.revoke()  # on_revoke -> interrupt: the programmer's lock
                 revoked.set()
 

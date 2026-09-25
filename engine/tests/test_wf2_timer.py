@@ -569,7 +569,7 @@ class TestFaultTime:
         probe.a = invalid("crc")
         clock.advance(5.0)
         assert released == []
-        with rig.lock:
+        with rig._lock:
             controller.regulate(25.0)
         (outage,) = released
         assert outage.controller is controller
@@ -786,7 +786,7 @@ class TestReapply:
             )
             rig.start_polling(heater)
             until(lambda: heater.signals["zone"] in rig.router.latest)
-            with rig.lock:
+            with rig._lock:
                 _ramp(controller, end=1000.0, per_second=5.0)
             until(lambda: len(heater.targets) > 40)
             assert rig.timers.errors == 0

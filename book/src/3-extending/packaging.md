@@ -55,7 +55,9 @@ what the class produces. A link is `catalog.register_link(...)` instead of
 `register_law`/`register_feedforward`/`register_generator`; a program step
 (a `Step` subclass) has `register_step`. A registered step is usable in a
 program straight away, and a registered generator in a controller's `at` or
-a profile's segments. A registered law or feedforward is not yet selectable
+a profile's segments. A step's `run` holds no lock: what it changes, it
+changes through one rig operation (`rig.regulate`, `rig.write`, ...), which
+takes the rig's own lock ([The rig's lock](../6-internals/runtime.md#the-rigs-lock)). A registered law or feedforward is not yet selectable
 by type in a rig file or a request (see
 [Laws](laws.md#what-subclassing-generates)).
 

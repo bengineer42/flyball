@@ -29,8 +29,8 @@ from flyball.foundation.config import discriminated_union
 from flyball.foundation.device import (
     CommandSpec,
     Condition,
-    Device,
     InputBinding,
+    InputState,
     Limit,
     Node,
     NoValue,
@@ -48,7 +48,7 @@ from flyball.model.controller import Controller, ControllerState, ControllerView
 from flyball.model.feedforward import FeedforwardConfig
 from flyball.model.generator import SetpointGenerator
 from flyball.model.law import ControlLawView
-from flyball.rig import DeviceRun
+from flyball.rig import DeviceRun, DeviceSnapshot
 from flyball.rig.bands import on_no_value
 
 # Every built-in law, direct: no extension defines one today
@@ -458,8 +458,8 @@ class NamespaceOut(BaseModel):
 
 def tree_out(
     node: Node,
-    latest: dict[Signal, Reading],
-    written: dict[Signal, WriteState],
+    latest: Mapping[Signal, Reading],
+    written: Mapping[Signal, WriteState],
     last_usable: Mapping[Signal, Reading] | None = None,
     stale_after: Callable[[Signal], float | None] | None = None,
     lineage: Lineage | None = None,
@@ -583,22 +583,22 @@ class InputOut(BaseModel):
         return _without_none(handler(self), ("constant", "reason", "age_s", "optional"))
 
     @classmethod
-    def of(cls, binding: InputBinding, now_ns: int | None = None) -> InputOut:
+    def of(cls, binding: InputBinding, state: InputState) -> InputOut:
+        """`binding` as it stood when its `state` was taken (`InputBinding.state`)."""
         declared = binding.declared
         source = binding.signal
-        unit = binding.unit
         return cls(
             name=binding.name,
             label=binding.label,
             quantity=declared.quantity.name
             if declared is not None
             else ("" if source is None else source.quantity.name),
-            unit="" if unit is None else unit.symbol,
-            bound=binding.address,
-            constant=binding.constant,
-            quality=binding.quality,
-            reason=binding.reason or None,
-            age_s=binding.age_s(now_ns),
+            unit=state.unit or "",
+            bound=state.follows,
+            constant=state.constant,
+            quality=state.quality,
+            reason=state.reason or None,
+            age_s=state.age_s,
             optional=True if declared is not None and declared.optional else None,
         )
 
@@ -695,43 +695,31 @@ class DeviceOut(BaseModel):
     run: RunOut | None = None
 
     @classmethod
-    def of(
-        cls,
-        device: Device,
-        *,
-        kind: str,
-        latest: dict[Signal, Reading],
-        link: str | None,
-        run: DeviceRun | None,
-        conditions: list[Condition] | None = None,
-        last_usable: Mapping[Signal, Reading] | None = None,
-        stale_after: Callable[[Signal], float | None] | None = None,
-        consumers: Callable[[Signal], list[InputBinding]] | None = None,
-        sources: Callable[[Signal], Any] | None = None,
-        now_ns: int | None = None,
-    ) -> DeviceOut:
+    def of(cls, snapshot: DeviceSnapshot, *, link: str | None) -> DeviceOut:
+        """Rendered from one consistent snapshot (`Rig.device_snapshot`), off the rig's lock."""
+        device, run = snapshot.device, snapshot.run
         return cls(
             name=device.name,
             label=device.label,
-            kind=kind,
+            kind=snapshot.kind,
             driver=type(device.config).type_name,
             class_name=type(device).__name__,
             link=link,
             poll_s=device.poll_s,
             signals=tree_out(
                 device.root,
-                latest,
-                device.written,
-                last_usable,
-                stale_after,
-                lineage(consumers),
+                snapshot.latest,
+                snapshot.written,
+                snapshot.last_usable,
+                snapshot.stale_after_s.get,
+                lineage(lambda signal: list(snapshot.followers.get(signal, ()))),
             ),
             commands=[CommandOut.of(spec) for spec in device.commands.values()],
-            inputs={name: InputOut.of(b, now_ns) for name, b in device.bound.items()},
+            inputs={name: InputOut.of(b, state) for name, (b, state) in snapshot.inputs.items()},
             consumers={
-                path: [b.where for b in found]
+                path: list(found)
                 for path, signal in device.signals.items()
-                if consumers is not None and (found := consumers(signal))
+                if (found := snapshot.consumers.get(signal))
             },
             sources={
                 path: ValueSourceOut(
@@ -741,11 +729,11 @@ class DeviceOut(BaseModel):
                     written_utc_ns=source.written_utc_ns,
                 )
                 for path, signal in device.signals.items()
-                if sources is not None and (source := sources(signal)) is not None
+                if (source := snapshot.sources.get(signal)) is not None
             },
             readable=device.readable,
             writable=device.writable,
-            conditions=list(conditions or ()),
+            conditions=list(snapshot.conditions),
             run=None if run is None else RunOut.of(run),
         )
 

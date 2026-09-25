@@ -271,7 +271,7 @@ def _declare(owner: type, item: Namespace | Descriptor[Any]) -> None:
     declared = owner.__dict__.get("_declared")
     if declared is None:
         declared = []
-        owner._declared = declared  # type: ignore[attr-defined]
+        owner._declared = declared  # type: ignore[attr-defined]  # ruff: ignore[private-member-access]
     declared.append(item)
 
 

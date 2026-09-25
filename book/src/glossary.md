@@ -143,7 +143,7 @@ endpoint, its socket and its `runner.lock`.
 `InputBinding`, following a source signal (or namespace) or holding a
 number, with its value, quality, reason and age read through to the
 source. A device's inputs are its bindings; a program step or a
-controller may hold one too (`rig.follow`). `rig.consumers(signal)` lists
+controller may hold one too (`rig.binding`). `rig.consumers(signal)` lists
 the bindings that follow a signal.
 
 **inputs** — what a device follows, by the input's name: another device's

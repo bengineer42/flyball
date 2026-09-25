@@ -34,6 +34,15 @@ it drives*. A demand has at most one controller: a second
 `law` may be a built `ControlLaw`, its config, or the name of a tuning
 already registered on the rig (`rig.tunings`).
 
+Drive a controller through the rig once the rig is running:
+`rig.regulate(name, 100.0)`, `rig.follow(name, profile)`,
+`rig.retune(name, law)`, `rig.manual(name)`, `rig.set_setpoint(name, at)`.
+Each is one step under the rig's lock, so it never lands part-way through a
+delivery; `name` may be a list, changed together, or None for the default
+controller. The `Controller` methods of the same names do the work, and are
+fine to call directly while nothing else runs (a script before it starts
+polling, a test).
+
 ## A delivery
 
 When a device delivers — a poll, a push, or a fresh read —

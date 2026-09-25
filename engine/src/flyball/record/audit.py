@@ -162,7 +162,7 @@ def append(store: Store, actions: Sequence[tuple[str, int, Action]]) -> None:
         for boot, seq, a in actions
     ]
     marks = ", ".join("?" * len(_COLUMNS))
-    with store._transaction() as connection:  # the record package's own store
+    with store._transaction() as connection:  # ruff: ignore[private-member-access]  -- the record package's own store
         connection.executemany(f"INSERT INTO audit ({', '.join(_COLUMNS)}) VALUES ({marks})", rows)
 
 
@@ -170,7 +170,7 @@ def actions(store: Store, *, after: int = 0, limit: int | None = None) -> list[A
     """The audit's rows in the order they were written, those with an id above `after`."""
     if not isinstance(store, SqliteStore):
         raise TypeError(f"no audit table in a {type(store).__name__}")
-    rows = store._query(
+    rows = store._query(  # ruff: ignore[private-member-access]
         "SELECT * FROM audit WHERE id > ? ORDER BY id LIMIT ?",
         (after, -1 if limit is None else limit),
     )

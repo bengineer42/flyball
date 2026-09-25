@@ -80,7 +80,7 @@ class Timer:
 
     def cancel(self) -> None:
         """Do not run it again; a call already running finishes."""
-        self._timers._cancel(self)
+        self._timers._cancel(self)  # ruff: ignore[private-member-access]
 
     def __repr__(self) -> str:
         what = "once" if self.period_ns is None else f"every {self.period_ns / 1e9:g} s"

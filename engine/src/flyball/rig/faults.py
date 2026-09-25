@@ -243,7 +243,7 @@ class Faults:
         )
 
     def _due(self, outage: Outage) -> None:
-        with self.rig.lock:
+        with self.rig._lock:
             if self.outages.get(outage.controller) is not outage:
                 return  # ended, or the controller is gone
             outage.timer = None

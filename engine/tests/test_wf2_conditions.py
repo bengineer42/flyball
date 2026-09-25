@@ -120,7 +120,7 @@ class TestSubscribers:
                 heard.set()
 
         unsubscribe = rig.conditions.subscribe(hear)
-        with rig.lock:  # a producer under the lock, as a delivery is
+        with rig._lock:  # a producer under the lock, as a delivery is
             rig.conditions.set(furnace, Code.SLOW, Severity.WARNING, "slow")
             rig.conditions.clear(furnace, Code.SLOW)
             assert heard.wait(2.0), "delivered while the producer still holds the lock"
